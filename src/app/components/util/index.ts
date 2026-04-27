@@ -12,7 +12,6 @@ export interface IParams extends ParsedUrlQuery {
   slug: string | string[];
 }
 
-
 // Type for the metadata from frontmatter
 export interface Metadata {
   title: string;
@@ -85,7 +84,7 @@ export const knownPaths = [
   'assets/logos',
   'foundations',
   'foundations/colors',
-  'foundations/icons',  
+  'foundations/icons',
   'foundations/effects',
   'foundations/logos',
   'foundations/logo',
@@ -99,6 +98,7 @@ export const knownPaths = [
   'system/tokens/foundations/typography',
   'system/tokens/components',
   'system/pattern',
+  'design',
   'playground',
 ];
 
@@ -166,9 +166,7 @@ export const buildCatchAllStaticPaths = () => {
     }
   }
 
-  return allPaths
-    .filter((segments) => knownPaths.indexOf(segments.join('/')) < 0)
-    .map((segments) => ({ params: { slug: segments } }));
+  return allPaths.filter((segments) => knownPaths.indexOf(segments.join('/')) < 0).map((segments) => ({ params: { slug: segments } }));
 };
 
 /**
@@ -413,7 +411,7 @@ const staticBuildTokensMenu = () => {
 };
 
 const staticBuildTokenMenu = () => {
-    const basePath = buildBasePath();
+  const basePath = buildBasePath();
 
   let subSections = {
     title: 'Tokens',
@@ -443,9 +441,7 @@ export const fetchPatterns = (): { id: string; title: string; description: strin
   }
 
   try {
-    const patternList = JSON.parse(
-      fs.readFileSync(patternsFilePath, 'utf-8')
-    ) as PatternListObject[];
+    const patternList = JSON.parse(fs.readFileSync(patternsFilePath, 'utf-8')) as PatternListObject[];
 
     return patternList.map((p) => ({
       id: p.id,
@@ -647,8 +643,6 @@ const loadClientConfig = (): ClientConfigCache => {
     return getDefaultClientConfig();
   }
 };
-
-
 
 /**
  * Fetch Component Doc Page Markdown
