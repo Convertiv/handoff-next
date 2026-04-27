@@ -90,12 +90,11 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       try {
         setLoading(true);
         const response = await fetch(`${basePath}/api/components.json`);
-        if (!response.ok) throw new Error(`Failed to fetch components: ${response.statusText}`);
+        if (!response.ok) return;
         const fetched: PlaygroundComponent[] = await response.json();
         setComponents(fetched);
-      } catch (err) {
-        setError('Failed to load components. Please try again.');
-        console.error('Error loading components:', err);
+      } catch {
+        // Components endpoint unavailable — continue with empty list
       } finally {
         setLoading(false);
       }
