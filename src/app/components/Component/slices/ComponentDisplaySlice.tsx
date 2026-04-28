@@ -15,6 +15,7 @@ export interface ComponentDisplaySliceProps {
   defaultHeight?: string;
   filterBy?: Filter;
   codeHighlight?: boolean;
+  hideOpenInNewTab?: boolean;
 }
 
 /**
@@ -40,6 +41,7 @@ const ComponentDisplaySlice: React.FC<ComponentDisplaySliceProps> = ({
   defaultHeight,
   filterBy,
   codeHighlight = true,
+  hideOpenInNewTab = false,
 }) => {
   const finalShowCodeHighlight = showCodeHighlight ?? codeHighlight;
   const finalDefaultHeight = defaultHeight ?? height;
@@ -69,6 +71,7 @@ const ComponentDisplaySlice: React.FC<ComponentDisplaySliceProps> = ({
           component={filteredPreview}
           defaultHeight={finalDefaultHeight}
           onPreviewChange={onPreviewChange}
+          hideOpenInNewTab={hideOpenInNewTab}
         />
       )}
       {finalShowCodeHighlight && (

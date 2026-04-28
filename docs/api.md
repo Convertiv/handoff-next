@@ -1,10 +1,79 @@
 # Handoff API
 
-Handoff exposes two APIs - A Javascript API for interacting with the pipeline
-Handoff exposes a Javascript API allowing you to easily integrate Handoff into
-existing Node based applications, CI/CD, and command line tools. This API also
-allows you to hook into the pipeline execution and generate new build artifacts
-during the execution.
+Handoff exposes a **JavaScript API** (the `Handoff` class in `handoff-app`) for interacting with the pipeline, and—when you run the documentation app in **dynamic mode**—an **HTTP API** for authenticated users to read and edit database-backed components and trigger preview builds.
+
+The JavaScript API lets you integrate Handoff into Node applications, CI/CD, and command line tools, hook into pipeline execution, and generate build artifacts.
+
+An **OpenAPI 3** description of the HTTP routes lives in [`api_spec.yaml`](api_spec.yaml) in this folder.
+
+## Handoff App HTTP API (dynamic mode)
+
+These routes are served by the Next.js app under your deployment origin. If `HANDOFF_APP_BASE_PATH` is set (for example `/docs`), prefix every path with that base. All routes below require `HANDOFF_MODE=dynamic` on the server; otherwise they respond with **404** and a JSON error.
+
+Use `fetch(..., { credentials: 'include' })` so the NextAuth session cookie is sent.
+
+### `GET /api/handoff/components?id={componentId}`
+
+Returns the full `handoff_component` row (columns + `data` jsonb) for the given slug.
+
+| | |
+| --- | --- |
+| **Auth** | Any signed-in user |
+| **Query** | `id` (required) — component primary key |
+| **200** | JSON row: `id`, `path`, `title`, `description`, `group`, `image`, `type`, `properties`, `previews`, `data`, timestamps |
+| **400** | Missing `id` |
+| **401** | Not authenticated |
+| **404** | Component not found, or not in dynamic mode |
+
+### `PATCH /api/handoff/components`
+
+Partially updates a component: top-level fields and a merged `data` object (including `entrySources` for templates, styles, and scripts). See `ComponentPatchBody` in the codebase (`handoff-component-patch.ts`).
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Body** | JSON: must include `id` (component id). Optional: `title`, `description`, `group`, `type`, `image`, `path`, `categories`, `tags`, `should_do`, `should_not_do`, `data` |
+| **200** | Updated row (same shape as GET) |
+| **400** | Missing `id` |
+| **401** | Not authenticated |
+| **403** | Not admin |
+| **404** | Component not found, or not in dynamic mode |
+
+### `POST /api/handoff/components/build`
+
+Enqueues an asynchronous Vite preview build for a component (worker writes sources, runs Handoff’s component pipeline, copies artifacts under `public/api/component/`).
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Body** | JSON: `{ "componentId": "<slug>" }` |
+| **200** | `{ "jobId": <number>, "status": "queued" }` |
+| **429** | Too many requests per user per minute, or build queue at capacity |
+| **401** / **403** / **404** | Same semantics as PATCH |
+
+### `GET /api/handoff/components/build?jobId={id}`
+
+Polls a single build job created by `POST`.
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Query** | `jobId` (required) — integer from POST response |
+| **200** | `{ id, componentId, status, error, createdAt, completedAt }` — `status` is one of `queued`, `building`, `complete`, `failed` |
+| **404** | Job not found, or not in dynamic mode |
+
+### `GET /api/components`
+
+Returns the JSON array used by the system components list. In dynamic mode this is read from the database at request time; in static export mode it is generated at build time.
+
+| | |
+| --- | --- |
+| **Auth** | None (public list) |
+
+### Security notes
+
+- Build workers run in a separate Node process with an **allowlisted** subset of environment variables (see `docs/SECURITY-COMPONENT-BUILDS.md`).
+- Treat **admin** as trusted for build execution; a future phase may use **containerized** builds for stronger isolation.
 
 ## Example Project
 

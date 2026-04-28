@@ -1,0 +1,318 @@
+openapi: 3.0.3
+info:
+  title: Handoff App HTTP API
+  description: |
+    REST routes exposed by the Handoff documentation app (Next.js) when
+    `HANDOFF_MODE=dynamic`. Paths are relative to the app origin; if
+    `HANDOFF_APP_BASE_PATH` is set, prefix all paths (e.g. `/docs/api/handoff/components`).
+  version: 1.0.0
+
+servers:
+  - url: /
+    description: App origin (prepend HANDOFF_APP_BASE_PATH when configured)
+
+tags:
+  - name: handoff-components
+    description: Database-backed design system components
+  - name: handoff-component-builds
+    description: Async Vite preview build jobs for dynamic components
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: next-auth.session-token
+      description: |
+        NextAuth.js session cookie. In production the cookie name may be prefixed
+        (e.g. `__Secure-next-auth.session-token`). Send credentials with fetch
+        (`credentials: 'include'`).
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+
+    HandoffComponentRow:
+      type: object
+      description: Row from `handoff_component` (id, columns, data jsonb).
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        group:
+          type: string
+          nullable: true
+        image:
+          type: string
+          nullable: true
+        type:
+          type: string
+          nullable: true
+        properties:
+          type: object
+          nullable: true
+        previews:
+          type: object
+          nullable: true
+        data:
+          type: object
+          description: |
+            Full component payload (e.g. `entrySources`, `renderer`, list metadata).
+            Merged on PATCH per server rules.
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ComponentPatchBody:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Component id (same as URL target); required on PATCH.
+        title:
+          type: string
+        description:
+          type: string
+        group:
+          type: string
+        type:
+          type: string
+        image:
+          type: string
+        path:
+          type: string
+        categories:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        should_do:
+          type: array
+          items:
+            type: string
+        should_not_do:
+          type: array
+          items:
+            type: string
+        data:
+          type: object
+          description: |
+            Partial merge into stored `data` jsonb. `entries` and `entrySources`
+            are shallow-merged when both sides are objects.
+
+    ComponentBuildJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        componentId:
+          type: string
+        status:
+          type: string
+          enum: [queued, building, complete, failed]
+        error:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    BuildQueuedResponse:
+      type: object
+      properties:
+        jobId:
+          type: integer
+        status:
+          type: string
+          example: queued
+
+paths:
+  /api/handoff/components:
+    get:
+      tags: [handoff-components]
+      summary: Get one component by id
+      description: |
+        Returns the full `handoff_component` row. Available only when
+        `HANDOFF_MODE=dynamic`. Requires a signed-in user (any role).
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Component primary key (slug)
+      responses:
+        '200':
+          description: Component row
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffComponentRow'
+        '400':
+          description: Missing id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Not authenticated
+        '404':
+          description: Not available (static mode), or component not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      tags: [handoff-components]
+      summary: Partially update a component
+      description: |
+        Applies a partial update to columns and merged `data` jsonb. Admin only.
+        Available only when `HANDOFF_MODE=dynamic`.
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ComponentPatchBody'
+                - required: [id]
+      responses:
+        '200':
+          description: Updated component row
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandoffComponentRow'
+        '400':
+          description: Missing id in body
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not admin
+        '404':
+          description: Not available or component not found
+        '500':
+          description: Server error
+
+  /api/handoff/components/build:
+    post:
+      tags: [handoff-component-builds]
+      summary: Enqueue a component preview build
+      description: |
+        Inserts a build job and spawns a worker process. Admin only.
+        Rate limits apply (per user per minute and global concurrent queued/building cap).
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [componentId]
+              properties:
+                componentId:
+                  type: string
+      responses:
+        '200':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildQueuedResponse'
+        '400':
+          description: Missing componentId
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not admin
+        '404':
+          description: Not available (static mode)
+        '429':
+          description: Rate limit or build queue full
+        '500':
+          description: Server error
+
+    get:
+      tags: [handoff-component-builds]
+      summary: Poll build job status
+      description: |
+        Returns status for a job id returned from POST. Admin only.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: jobId
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Job record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentBuildJob'
+        '400':
+          description: Missing or invalid jobId
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not admin
+        '404':
+          description: Not available or job not found
+        '500':
+          description: Server error
+
+  /api/components:
+    get:
+      tags: [handoff-components]
+      summary: List components for the design system
+      description: |
+        Returns the component list JSON used by the `/system` page. In dynamic
+        mode the response is resolved from the database at request time; in
+        static export mode it is baked at build time.
+      responses:
+        '200':
+          description: Array of component list objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object

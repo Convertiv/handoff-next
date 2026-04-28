@@ -14,6 +14,7 @@ export interface PageSliceResolverProps {
   codeHighlight?: boolean;
   properties?: boolean;
   validations?: boolean;
+  hideOpenInNewTab?: boolean;
 }
 
 export const PageSliceResolver: React.FC<PageSliceResolverProps> = ({
@@ -27,6 +28,7 @@ export const PageSliceResolver: React.FC<PageSliceResolverProps> = ({
   codeHighlight = true,
   properties = true,
   validations = true,
+  hideOpenInNewTab = false,
 }) => {
   switch (slice.type) {
     case 'BEST_PRACTICES': {
@@ -46,6 +48,7 @@ export const PageSliceResolver: React.FC<PageSliceResolverProps> = ({
           defaultHeight={slice.defaultHeight}
           filterBy={slice.filterBy}
           codeHighlight={codeHighlight}
+          hideOpenInNewTab={hideOpenInNewTab}
         />
       );
     }

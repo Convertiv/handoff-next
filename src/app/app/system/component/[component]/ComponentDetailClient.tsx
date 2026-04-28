@@ -3,12 +3,18 @@
 import { OptionalPreviewRender } from '@handoff/transformers/preview/types';
 import { PreviewObject } from '@handoff/types/preview';
 import { evaluateFilter, type Filter } from '@handoff/utils/filter';
+import { Pencil, X } from 'lucide-react';
 import { startCase } from 'lodash';
-import React, { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
+import { BuildStatusBanner } from '../../../../components/Component/BuildStatusBanner';
+import { CodeEditor } from '../../../../components/Component/CodeEditor';
+import { InlineComponentEditor } from '../../../../components/Component/InlineComponentEditor';
 import { ComponentPreview } from '../../../../components/Component/Preview';
+import { useAuthUi } from '../../../../components/context/AuthUiContext';
 import { HotReloadProvider } from '../../../../components/context/HotReloadProvider';
 import { PreviewContextProvider } from '../../../../components/context/PreviewContext';
 import Layout from '../../../../components/Layout/Main';
@@ -50,23 +56,55 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
   const [component, setComponent] = useState<PreviewObject>(undefined);
   const ref = React.useRef<HTMLDivElement>(null);
   const [componentPreviews, setComponentPreviews] = useState<PreviewObject | [string, PreviewObject][]>();
+  const [hotKey, setHotKey] = useState(0);
+  const [editing, setEditing] = useState(false);
+
+  const { authEnabled } = useAuthUi();
+  const { data: session, status } = useSession();
+  const canEditDynamic = useMemo(
+    () =>
+      authEnabled &&
+      status === 'authenticated' &&
+      Boolean(session?.user) &&
+      session?.user?.role === 'admin' &&
+      (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic',
+    [authEnabled, session?.user, session?.user?.role, status]
+  );
 
   const appBasePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const normalizedBasePath = appBasePath ? `/${appBasePath.replace(/^\/+|\/+$/g, '')}` : '';
   const componentRoute = (componentId: string) => `${normalizedBasePath}/system/component/${componentId}`;
 
-  const fetchComponentData = async () => {
-    const data = await fetch(`${normalizedBasePath}/api/component/${id}.json`).then((res) => res.json());
-    setComponent(data as PreviewObject);
-  };
+  const isDynamic = (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
+
+  const fetchComponentData = useCallback(async () => {
+    const staticRes = await fetch(`${normalizedBasePath}/api/component/${id}.json`);
+    if (staticRes.ok) {
+      const data = await staticRes.json();
+      setComponent(data as PreviewObject);
+      setHotKey((k) => k + 1);
+      return;
+    }
+    if (isDynamic) {
+      const dbRes = await fetch(`${normalizedBasePath}/api/handoff/components?id=${encodeURIComponent(id)}`, { credentials: 'include' });
+      if (dbRes.ok) {
+        const row = await dbRes.json();
+        const data = row.data && typeof row.data === 'object' ? row.data : row;
+        setComponent(data as PreviewObject);
+        setHotKey((k) => k + 1);
+        return;
+      }
+    }
+    setComponent(undefined);
+  }, [id, normalizedBasePath, isDynamic]);
 
   const previousLink = previousComponent ? { href: componentRoute(previousComponent.id), title: previousComponent.name } : null;
   const nextLink = nextComponent ? { href: componentRoute(nextComponent.id), title: nextComponent.name } : null;
 
   useEffect(() => {
     setComponent(undefined);
-    fetchComponentData();
-  }, [id]);
+    void fetchComponentData();
+  }, [fetchComponentData, id]);
 
   useEffect(() => {
     if (!component) return;
@@ -89,19 +127,36 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
 
   if (!component) return <p>Loading...</p>;
   const apiUrl = (typeof window !== 'undefined' ? window.location.origin : '') + `${normalizedBasePath}/api/component/${id}.json`;
+
+  const displayTitle = component.title || metadata.title;
+  const displayDescription = component.description ?? metadata.description ?? '';
+
+  const isEditing = canEditDynamic && editing;
+  const bestPracticesForSlice = (cpi: number) => !isEditing && cpi === 0;
+  const bestPracticesSingle = !isEditing;
+
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata}>
       <div className="flex flex-col gap-3 pb-14">
         <small className="text-sm font-medium text-sky-600 dark:text-gray-300">Components</small>
-        <a id="best-practices"></a>
-        <HeadersType.H1>{metadata.title}</HeadersType.H1>
+        <HeadersType.H1>{displayTitle}</HeadersType.H1>
         <div className="flex flex-row justify-between gap-4 md:flex-col">
           <div className="prose max-w-[800px] text-xl font-light leading-relaxed text-gray-600 dark:text-gray-300">
             <ReactMarkdown components={MarkdownComponents} remarkPlugins={[remarkGfm, remarkCodeMeta]} rehypePlugins={[rehypeRaw]}>
-              {metadata.description}
+              {displayDescription}
             </ReactMarkdown>
           </div>
           <div className="flex flex-row gap-3">
+            {canEditDynamic && (
+              <Button
+                variant={editing ? 'default' : 'outline'}
+                size="sm"
+                className="gap-1.5 font-normal [&_svg]:size-3!"
+                onClick={() => setEditing((e) => !e)}
+              >
+                {editing ? <><X strokeWidth={2} /> Done editing</> : <><Pencil strokeWidth={2} /> Edit</>}
+              </Button>
+            )}
             {component.figma && (
               <Button asChild variant="outline" size="sm" className="font-normal [&_svg]:size-3!">
                 <a href={component.figma} target="_blank">Figma Reference</a>
@@ -125,15 +180,35 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
             </Drawer>
           </div>
         </div>
+        {isEditing ? (
+          <>
+            <InlineComponentEditor
+              componentId={id}
+              preview={component}
+              metadataTitle={metadata.title}
+              metadataDescription={metadata.description ?? ''}
+              onSaved={fetchComponentData}
+            />
+            <BuildStatusBanner componentId={id} onBuildComplete={fetchComponentData} />
+            <CodeEditor componentId={id} preview={component} onSourcesSaved={fetchComponentData} />
+          </>
+        ) : null}
       </div>
       <div ref={ref} className="lg:gap-10 lg:pb-8 xl:grid xl:grid-cols-[minmax(0,1fr)_220px]">
         <div className="max-w-[900px]">
           {Array.isArray(componentPreviews) ? (
-            <HotReloadProvider key={`hot-reload-${id}`} connect={componentHotReloadIsAvailable}>
+            <HotReloadProvider key={`hot-reload-${id}-${hotKey}`} connect={componentHotReloadIsAvailable}>
               {componentPreviews.map(([title, cp], cpi) => (
                 <React.Fragment key={`${id}-${cp.id}`}>
                   <PreviewContextProvider key={`preview-context-${cp.id}`} id={id} defaultMetadata={metadata} defaultMenu={menu} defaultPreview={cp} defaultConfig={config}>
-                    <ComponentPreview key={`component-preview-${cp.id}`} title={title} bestPracticesCard={cpi === 0} properties={cpi === componentPreviews.length - 1} validations={cpi === componentPreviews.length - 1}>
+                    <ComponentPreview
+                      key={`component-preview-${cp.id}`}
+                      title={title}
+                      bestPracticesCard={bestPracticesForSlice(cpi)}
+                      properties={cpi === componentPreviews.length - 1}
+                      validations={cpi === componentPreviews.length - 1}
+                      hideOpenInNewTab={isDynamic}
+                    >
                       <p>Define a simple contact form</p>
                     </ComponentPreview>
                   </PreviewContextProvider>
@@ -141,9 +216,9 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
               ))}
             </HotReloadProvider>
           ) : (
-            <HotReloadProvider key={`hot-reload-${id}`} connect={componentHotReloadIsAvailable}>
+            <HotReloadProvider key={`hot-reload-${id}-${hotKey}`} connect={componentHotReloadIsAvailable}>
               <PreviewContextProvider key={`preview-context-${id}`} id={id} defaultMetadata={metadata} defaultMenu={menu} defaultPreview={componentPreviews} defaultConfig={config}>
-                <ComponentPreview key={`component-preview-${id}`} title={metadata.title} properties validations>
+                <ComponentPreview key={`component-preview-${id}`} title={metadata.title} bestPracticesCard={bestPracticesSingle} properties validations hideOpenInNewTab={isDynamic}>
                   <p>Define a simple contact form</p>
                 </ComponentPreview>
               </PreviewContextProvider>

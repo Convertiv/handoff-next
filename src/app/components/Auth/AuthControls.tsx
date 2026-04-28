@@ -57,9 +57,14 @@ export function AuthControls() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {session.user.role === 'admin' ? (
-          <DropdownMenuItem asChild>
-            <Link href="/admin/users">Manage users</Link>
-          </DropdownMenuItem>
+          <>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/users">Manage users</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/builds">Component builds</Link>
+            </DropdownMenuItem>
+          </>
         ) : null}
         <DropdownMenuItem
           onSelect={(e) => {
@@ -107,9 +112,14 @@ export function AuthControlsMobile() {
         <span className="truncate">{session.user.email}</span>
       </div>
       {session.user.role === 'admin' ? (
-        <Link href="/admin/users" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
-          Manage users
-        </Link>
+        <>
+          <Link href="/admin/users" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
+            Manage users
+          </Link>
+          <Link href="/admin/builds" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
+            Component builds
+          </Link>
+        </>
       ) : null}
       <Button
         variant="ghost"

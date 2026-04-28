@@ -9,6 +9,7 @@ import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { APIComponentList } from '../../components/Component/ComponentLists';
 import Layout from '../../components/Layout/Main';
+import { NewComponentForm } from './NewComponentForm';
 import { MarkdownComponents, remarkCodeMeta } from '../../components/Markdown/MarkdownComponents';
 import HeadersType from '../../components/Typography/Headers';
 import { Button } from '../../components/ui/button';
@@ -18,8 +19,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../
 
 export default function SystemPageClient({ content, menu, metadata, current, config }) {
   const [components, setComponents] = useState<PreviewObject[]>(undefined);
+  const isDynamic = (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
   const fetchComponents = async () => {
-    const data = await fetch(`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/components.json`).then((res) => res.json());
+    const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+    const url = isDynamic ? `${basePath}/api/components` : `${basePath}/api/components.json`;
+    const data = await fetch(url).then((res) => res.json());
     setComponents(data as PreviewObject[]);
   };
   useEffect(() => { fetchComponents(); }, []);
@@ -29,6 +33,9 @@ export default function SystemPageClient({ content, menu, metadata, current, con
     return (
       <Layout config={config} menu={menu} current={current} metadata={metadata}>
         <div className="flex items-center justify-center flex-col gap-2 lg:pr-8">
+          <div className="mb-2 flex w-full justify-center">
+            <NewComponentForm />
+          </div>
           <div className="mb-3 flex items-center justify-center overflow-hidden">
             <Image src={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/assets/images/components.svg`} alt="Colors" width={327} height={220} />
           </div>
@@ -50,8 +57,10 @@ export default function SystemPageClient({ content, menu, metadata, current, con
     <Layout config={config} menu={menu} current={current} metadata={metadata}>
       <div className="flex flex-col gap-2 pb-7">
         <HeadersType.H1>{metadata.title}</HeadersType.H1>
-        <div className="mt-3 flex flex-row justify-between gap-3">
+        <div className="mt-3 flex flex-row flex-wrap items-start justify-between gap-3">
           <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{metadata.description}</p>
+          <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
+            <NewComponentForm />
           <Drawer direction="right">
             <DrawerTrigger>
               <TooltipProvider>
@@ -75,6 +84,7 @@ export default function SystemPageClient({ content, menu, metadata, current, con
               </div>
             </DrawerContent>
           </Drawer>
+          </div>
         </div>
       </div>
       <div>

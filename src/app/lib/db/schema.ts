@@ -109,6 +109,16 @@ export const editHistory = pgTable('edit_history', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+/** Async Vite preview build queue for dynamic component source edits */
+export const componentBuildJobs = pgTable('component_build_job', {
+  id: serial('id').primaryKey(),
+  componentId: text('component_id').notNull(),
+  status: text('status').notNull().default('queued'),
+  error: text('error'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  completedAt: timestamp('completed_at', { mode: 'date' }),
+});
+
 /** Doc page content for dynamic mode + sync (slug is path under `pages/`, e.g. `getting-started/install`). */
 export const handoffPages = pgTable('handoff_page', {
   slug: text('slug').primaryKey(),

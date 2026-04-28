@@ -5,6 +5,9 @@ import { auth } from '../../lib/auth';
 import { getDb } from '../../lib/db';
 import { insertSyncEvent } from '../../lib/db/sync-queries';
 import { editHistory, handoffComponents } from '../../lib/db/schema';
+import { isValidComponentId } from '../../lib/component-id';
+import { applyHandoffComponentPatch } from '../../lib/server/handoff-component-patch';
+import { scaffoldNewComponentPayload, type RendererKind } from '../../lib/server/component-scaffold';
 import { isDynamic } from '../../lib/mode';
 
 function guardDynamic() {
@@ -16,19 +19,9 @@ function sessionUserIdForSync(user: { id?: string | null } | undefined): string 
   return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
-function rowToComponentPayload(row: typeof handoffComponents.$inferSelect) {
-  return {
-    id: row.id,
-    path: row.path,
-    title: row.title,
-    description: row.description,
-    group: row.group,
-    image: row.image,
-    type: row.type,
-    properties: row.properties,
-    previews: row.previews,
-    data: row.data,
-  };
+function requireAdmin(session: { user?: { role?: string | null } } | null) {
+  if (!session?.user) throw new Error('Unauthorized');
+  if (session.user.role !== 'admin') throw new Error('Forbidden');
 }
 
 export async function createComponent(data: {
@@ -37,12 +30,32 @@ export async function createComponent(data: {
   description?: string;
   group?: string;
   type?: string;
+  renderer?: RendererKind;
   payload?: Record<string, unknown>;
 }) {
   guardDynamic();
   const session = await auth();
-  if (!session?.user) throw new Error('Unauthorized');
+  requireAdmin(session);
   const db = getDb()!;
+
+  if (!isValidComponentId(data.id)) {
+    throw new Error(
+      'Invalid component ID: use 1–128 characters, start with a letter or number, and use only lowercase letters, numbers, and hyphens.'
+    );
+  }
+
+  const payload =
+    data.payload ??
+    scaffoldNewComponentPayload({
+      id: data.id,
+      title: data.title,
+      group: data.group ?? '',
+      renderer: data.renderer ?? 'handlebars',
+      description: data.description,
+    });
+
+  const [existing] = await db.select({ id: handoffComponents.id }).from(handoffComponents).where(eq(handoffComponents.id, data.id));
+  if (existing) throw new Error(`Component "${data.id}" already exists`);
 
   await db.insert(handoffComponents).values({
     id: data.id,
@@ -50,7 +63,7 @@ export async function createComponent(data: {
     description: data.description ?? '',
     group: data.group ?? '',
     type: data.type ?? 'element',
-    data: data.payload ?? {},
+    data: payload as Record<string, unknown>,
   });
 
   await db.insert(editHistory).values({
@@ -70,7 +83,7 @@ export async function createComponent(data: {
       description: data.description ?? '',
       group: data.group ?? '',
       type: data.type ?? 'element',
-      data: data.payload ?? {},
+      data: payload as Record<string, unknown>,
     },
     userId: sessionUserIdForSync(session.user),
   });
@@ -84,39 +97,15 @@ export async function updateComponent(
 ) {
   guardDynamic();
   const session = await auth();
-  if (!session?.user) throw new Error('Unauthorized');
-  const db = getDb()!;
-
-  await db
-    .update(handoffComponents)
-    .set({ ...updates, updatedAt: new Date() })
-    .where(eq(handoffComponents.id, id));
-
-  await db.insert(editHistory).values({
-    entityType: 'component',
-    entityId: id,
-    userId: session.user.id ?? session.user.email ?? null,
-    diff: { action: 'update', updates },
-  });
-
-  const [row] = await db.select().from(handoffComponents).where(eq(handoffComponents.id, id));
-  if (row) {
-    await insertSyncEvent({
-      entityType: 'component',
-      entityId: id,
-      action: 'update',
-      payload: rowToComponentPayload(row),
-      userId: sessionUserIdForSync(session.user),
-    });
-  }
-
+  requireAdmin(session);
+  await applyHandoffComponentPatch(session, id, updates);
   return { success: true };
 }
 
 export async function deleteComponent(id: string) {
   guardDynamic();
   const session = await auth();
-  if (!session?.user) throw new Error('Unauthorized');
+  requireAdmin(session);
   const db = getDb()!;
 
   await insertSyncEvent({

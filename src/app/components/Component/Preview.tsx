@@ -58,7 +58,9 @@ export const ComponentDisplay: React.FC<{
   defaultHeight?: string | undefined;
   title?: string;
   onPreviewChange?: (previewUrl: string) => void;
-}> = ({ component, defaultHeight, title, onPreviewChange }) => {
+  /** When true, hide "open in new tab" (same-origin, unsandboxed) — e.g. dynamic mode user-built previews. */
+  hideOpenInNewTab?: boolean;
+}> = ({ component, defaultHeight, title, onPreviewChange, hideOpenInNewTab = false }) => {
   const context = usePreviewContext();
   const ref = React.useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = React.useState('100px');
@@ -309,23 +311,24 @@ export const ComponentDisplay: React.FC<{
                     <TooltipContent className="rounded-sm px-2 py-1 text-[11px]">Inspect Component</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-3"
-                        onClick={() => {
-                          // open in new tab
-                          window.open(`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${previewUrl}`, '_blank');
-                        }}
-                        variant="ghost"
-                      >
-                        <SquareArrowOutUpRight />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent className="rounded-sm px-2 py-1 text-[11px]">Open in New Tab</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                {!hideOpenInNewTab ? (
+                  <TooltipProvider delayDuration={0}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-3"
+                          onClick={() => {
+                            window.open(`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${previewUrl}`, '_blank');
+                          }}
+                          variant="ghost"
+                        >
+                          <SquareArrowOutUpRight />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="rounded-sm px-2 py-1 text-[11px]">Open in New Tab</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : null}
               </div>
             </div>
 
@@ -334,6 +337,8 @@ export const ComponentDisplay: React.FC<{
                 <div>
                   <iframe
                     key={`${previewUrl}-${reloadCounter}`}
+                    title="Component preview"
+                    sandbox="allow-scripts"
                     onLoad={onLoad}
                     ref={ref}
                     height={height}
@@ -372,6 +377,7 @@ export const ComponentPreview: React.FC<{
   codeHighlight?: boolean;
   properties?: boolean;
   validations?: boolean;
+  hideOpenInNewTab?: boolean;
 }> = ({
   defaultPreview,
   title,
@@ -381,6 +387,7 @@ export const ComponentPreview: React.FC<{
   codeHighlight = true,
   properties = true,
   validations = true,
+  hideOpenInNewTab = false,
 }) => {
     const context = usePreviewContext();
     const [loaded, setLoaded] = React.useState(false);
@@ -426,6 +433,7 @@ export const ComponentPreview: React.FC<{
             codeHighlight={codeHighlight}
             properties={properties}
             validations={validations}
+            hideOpenInNewTab={hideOpenInNewTab}
           />
         ))}
         <hr />
