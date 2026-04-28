@@ -29,6 +29,13 @@
       "when": 1777400000000,
       "tag": "0004_component_build_job",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777422000000,
+      "tag": "0005_figma_fetch_job",
+      "breakpoints": true
     }
   ]
 }

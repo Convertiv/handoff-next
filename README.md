@@ -175,6 +175,18 @@ Pipeline customization is done in `handoff.config.js` under `hooks` (camelCase n
 
 See [docs/api.md](docs/api.md#hooks) for hook arguments and examples.
 
+## Dynamic app: Figma OAuth + GUI fetch
+
+In `HANDOFF_MODE=dynamic`, admins can connect a Figma account and run a token fetch from the UI.
+
+Required env vars:
+
+- `AUTH_FIGMA_ID`
+- `AUTH_FIGMA_SECRET`
+- `HANDOFF_FIGMA_PROJECT_ID`
+
+The GUI fetch endpoint is documented in [docs/api.md](docs/api.md) and [docs/api_spec.yaml](docs/api_spec.yaml).
+
 ## Further Reading
 
 * [Configure your project](https://www.handoff.com/docs/customization)

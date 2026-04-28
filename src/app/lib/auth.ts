@@ -9,7 +9,8 @@ import * as schema from './db/schema';
 import { getMode } from './mode';
 import { verifyPassword } from './passwords';
 
-function oauthProviders(): NextAuthConfig['providers'] {
+/** Login providers (GitHub, Google) — used to decide session strategy. */
+function loginOauthProviders(): NextAuthConfig['providers'] {
   const list: NextAuthConfig['providers'] = [];
   if (process.env.AUTH_GITHUB_ID && process.env.AUTH_GITHUB_SECRET) {
     list.push(GitHub({ clientId: process.env.AUTH_GITHUB_ID, clientSecret: process.env.AUTH_GITHUB_SECRET }));
@@ -20,13 +21,58 @@ function oauthProviders(): NextAuthConfig['providers'] {
   return list;
 }
 
+/** Linked-account providers (Figma) — for API access, not login. */
+function linkedAccountProviders(): NextAuthConfig['providers'] {
+  const list: NextAuthConfig['providers'] = [];
+  if (process.env.AUTH_FIGMA_ID && process.env.AUTH_FIGMA_SECRET) {
+    list.push({
+      id: 'figma',
+      name: 'Figma',
+      type: 'oauth',
+      checks: ['state'],
+      clientId: process.env.AUTH_FIGMA_ID,
+      clientSecret: process.env.AUTH_FIGMA_SECRET,
+      authorization: {
+        url: 'https://www.figma.com/oauth',
+        params: {
+          scope: 'file_content:read,file_metadata:read,library_assets:read,library_content:read',
+          response_type: 'code',
+        },
+      },
+      token: {
+        url: 'https://api.figma.com/v1/oauth/token',
+      },
+      userinfo: {
+        url: 'https://api.figma.com/v1/me',
+      },
+      profile(profile: { id?: string; email?: string; handle?: string; img_url?: string }) {
+        const profileId = String(profile.id ?? profile.email ?? profile.handle ?? '');
+        return {
+          id: profileId || 'figma-user',
+          name: profile.handle ?? profile.email ?? 'Figma User',
+          email: profile.email ?? null,
+          image: profile.img_url ?? null,
+        };
+      },
+    } as NextAuthConfig['providers'][number]);
+  }
+  return list;
+}
+
 const db = typeof window === 'undefined' ? getDb() : null;
-const oauth = typeof window === 'undefined' ? oauthProviders() : [];
-const useDatabaseSession = Boolean(db && oauth.length > 0);
+const loginOauth = typeof window === 'undefined' ? loginOauthProviders() : [];
+const linkedOauth = typeof window === 'undefined' ? linkedAccountProviders() : [];
+const hasAnyOAuth = loginOauth.length > 0 || linkedOauth.length > 0;
+const useAdapter = Boolean(db && hasAnyOAuth);
+const useDatabaseSession = Boolean(db && loginOauth.length > 0);
 
 /**
- * NextAuth (Auth.js v5). OAuth + DB sessions when DB + OAuth env are configured;
- * otherwise JWT + credentials (email/password in Postgres) for dynamic mode.
+ * NextAuth (Auth.js v5).
+ * - Adapter is enabled whenever any OAuth providers exist (for account linking/storage).
+ * - Session strategy is 'database' only when login OAuth providers (GitHub/Google) are
+ *   configured; otherwise 'jwt' so credentials login works.
+ * - Linked-account providers (Figma) use the adapter for token storage but don't affect
+ *   session strategy — the user stays signed in via their credentials session.
  */
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -34,7 +80,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: '/login',
   },
   adapter:
-    useDatabaseSession && db
+    useAdapter && db
       ? DrizzleAdapter(db, {
           usersTable: schema.users,
           accountsTable: schema.accounts,
@@ -44,7 +90,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       : undefined,
   session: { strategy: useDatabaseSession ? 'database' : 'jwt' },
   providers: [
-    ...oauth,
+    ...loginOauth,
+    ...linkedOauth,
     Credentials({
       id: 'handoff-credentials',
       credentials: {
@@ -77,7 +124,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn() {
+      return true;
+    },
+    async jwt({ token, user, account }) {
+      if (account?.provider === 'figma') {
+        return token;
+      }
       if (user) {
         token.sub = (user as { id?: string }).id ?? token.sub;
         token.role = (user as { role?: string }).role ?? 'member';

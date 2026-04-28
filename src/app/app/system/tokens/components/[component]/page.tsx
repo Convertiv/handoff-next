@@ -1,5 +1,5 @@
 import { startCase } from 'lodash';
-import { fetchCompDocPageMarkdown, fetchComponents, getClientRuntimeConfig, getCurrentSection, getTokens, staticBuildMenu } from '../../../../../components/util';
+import { fetchCompDocPageMarkdown, fetchComponents, getClientRuntimeConfig, getCurrentSection, getTokensForRuntime, staticBuildMenu } from '../../../../../components/util';
 import TokenComponentClient from './TokenComponentClient';
 
 export const dynamicParams = false;
@@ -24,7 +24,7 @@ export default async function TokenComponentPage({ params }: { params: Promise<{
   const menu = staticBuildMenu();
   const config = getClientRuntimeConfig();
   const { props } = fetchCompDocPageMarkdown('docs/system/', component, '/system');
-  const tokens = getTokens();
+  const tokens = await getTokensForRuntime();
   const componentObject = tokens.components?.[component] ?? {};
 
   return (

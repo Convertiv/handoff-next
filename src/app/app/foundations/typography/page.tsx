@@ -7,7 +7,8 @@ import { DownloadTokens } from '../../../components/DownloadTokens';
 import TypographyExamples from '../../../components/Foundations/TypographyExample';
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
-import AnchorNav, { anchorSlugify } from '../../../components/Navigation/AnchorNav';
+import AnchorNav from '../../../components/Navigation/AnchorNav';
+import { anchorSlugify } from '../../../components/Navigation/anchor-slugify';
 import HeadersType from '../../../components/Typography/Headers';
 import { fetchFoundationDocPageMarkdown, getClientRuntimeConfig, getTokens } from '../../../components/util';
 

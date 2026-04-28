@@ -16,6 +16,8 @@ tags:
     description: Database-backed design system components
   - name: handoff-component-builds
     description: Async Vite preview build jobs for dynamic components
+  - name: handoff-figma
+    description: Figma OAuth status and GUI-triggered token fetch jobs
 
 components:
   securitySchemes:
@@ -149,6 +151,37 @@ components:
         status:
           type: string
           example: queued
+
+    FigmaFetchStatus:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        oauthConfigured:
+          type: boolean
+
+    FigmaFetchJob:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [queued, running, complete, failed]
+        error:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        triggeredByUserId:
+          type: string
+          nullable: true
 
 paths:
   /api/handoff/components:
@@ -316,3 +349,67 @@ paths:
                 type: array
                 items:
                   type: object
+
+  /api/handoff/figma/fetch:
+    post:
+      tags: [handoff-figma]
+      summary: Enqueue a Figma token fetch job
+      description: |
+        Queues an asynchronous Figma fetch pipeline run using the signed-in admin's
+        linked Figma OAuth account. On completion, tokens are written to both
+        filesystem artifacts and `handoff_tokens_snapshot`.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Job accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BuildQueuedResponse'
+        '400':
+          description: Figma is not connected for this user
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not admin
+        '404':
+          description: Not available (static mode)
+        '429':
+          description: Rate limit or fetch queue full
+        '500':
+          description: Server error
+
+    get:
+      tags: [handoff-figma]
+      summary: Get Figma OAuth status or poll fetch job
+      description: |
+        - Without `jobId`: returns OAuth connection status for the current admin user.
+        - With `jobId`: returns one queued/running/completed/failed fetch job.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: jobId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Connection status or job record
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/FigmaFetchStatus'
+                  - $ref: '#/components/schemas/FigmaFetchJob'
+        '400':
+          description: Invalid jobId
+        '401':
+          description: Not authenticated
+        '403':
+          description: Not admin
+        '404':
+          description: Not available or job not found
+        '500':
+          description: Server error

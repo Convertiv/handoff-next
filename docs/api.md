@@ -70,6 +70,32 @@ Returns the JSON array used by the system components list. In dynamic mode this 
 | --- | --- |
 | **Auth** | None (public list) |
 
+### `POST /api/handoff/figma/fetch`
+
+Queues a GUI-triggered Figma fetch job in dynamic mode. The worker uses the current admin user's linked Figma OAuth account, runs the fetch pipeline, and writes refreshed token outputs to both filesystem artifacts and the DB snapshot table.
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Body** | none |
+| **200** | `{ "jobId": <number>, "status": "queued" }` |
+| **400** | Figma not connected for this user |
+| **429** | Too many requests, or fetch queue is full |
+
+### `GET /api/handoff/figma/fetch`
+
+Two modes:
+
+- **No query params**: returns Figma OAuth connection status for current admin user.
+- **With `jobId`**: polls one fetch job.
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Status mode** | `GET /api/handoff/figma/fetch` → `{ connected, oauthConfigured }` |
+| **Job mode** | `GET /api/handoff/figma/fetch?jobId=<id>` → `{ id, status, error, createdAt, completedAt, triggeredByUserId }` |
+| **Job statuses** | `queued`, `running`, `complete`, `failed` |
+
 ### Security notes
 
 - Build workers run in a separate Node process with an **allowlisted** subset of environment variables (see `docs/SECURITY-COMPONENT-BUILDS.md`).

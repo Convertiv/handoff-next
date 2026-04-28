@@ -64,6 +64,9 @@ export function AuthControls() {
             <DropdownMenuItem asChild>
               <Link href="/admin/builds">Component builds</Link>
             </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/integrations">Integrations</Link>
+            </DropdownMenuItem>
           </>
         ) : null}
         <DropdownMenuItem
@@ -118,6 +121,9 @@ export function AuthControlsMobile() {
           </Link>
           <Link href="/admin/builds" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
             Component builds
+          </Link>
+          <Link href="/admin/integrations" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
+            Integrations
           </Link>
         </>
       ) : null}

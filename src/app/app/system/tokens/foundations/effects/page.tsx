@@ -1,4 +1,4 @@
-import { fetchDocPageMarkdown, getClientRuntimeConfig, getTokens } from '../../../../../components/util';
+import { fetchDocPageMarkdown, getClientRuntimeConfig, getTokensForRuntime } from '../../../../../components/util';
 import TokenFoundationEffectsClient from './TokenFoundationEffectsClient';
 
 export async function generateMetadata() {
@@ -9,7 +9,7 @@ export async function generateMetadata() {
 export default async function TokenFoundationEffectsPage() {
   const config = getClientRuntimeConfig();
   const { props } = fetchDocPageMarkdown('docs/', 'system/tokens/foundations/effects', '/system');
-  const design = getTokens().localStyles;
+  const design = (await getTokensForRuntime()).localStyles;
   return (
     <TokenFoundationEffectsClient
       content={props.content}

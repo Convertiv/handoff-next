@@ -119,6 +119,16 @@ export const componentBuildJobs = pgTable('component_build_job', {
   completedAt: timestamp('completed_at', { mode: 'date' }),
 });
 
+/** Async GUI-triggered Figma token fetch jobs (dynamic mode). */
+export const figmaFetchJobs = pgTable('figma_fetch_job', {
+  id: serial('id').primaryKey(),
+  status: text('status').notNull().default('queued'),
+  error: text('error'),
+  triggeredByUserId: text('triggered_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  completedAt: timestamp('completed_at', { mode: 'date' }),
+});
+
 /** Doc page content for dynamic mode + sync (slug is path under `pages/`, e.g. `getting-started/install`). */
 export const handoffPages = pgTable('handoff_page', {
   slug: text('slug').primaryKey(),

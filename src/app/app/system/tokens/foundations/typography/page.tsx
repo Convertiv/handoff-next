@@ -1,4 +1,4 @@
-import { fetchDocPageMarkdown, getClientRuntimeConfig, getTokens } from '../../../../../components/util';
+import { fetchDocPageMarkdown, getClientRuntimeConfig, getTokensForRuntime } from '../../../../../components/util';
 import TokenFoundationTypographyClient from './TokenFoundationTypographyClient';
 
 export async function generateMetadata() {
@@ -9,7 +9,7 @@ export async function generateMetadata() {
 export default async function TokenFoundationTypographyPage() {
   const config = getClientRuntimeConfig();
   const { props } = fetchDocPageMarkdown('docs/', 'system/tokens/foundations/typography', '/system');
-  const design = getTokens().localStyles;
+  const design = (await getTokensForRuntime()).localStyles;
   return (
     <TokenFoundationTypographyClient
       content={props.content}

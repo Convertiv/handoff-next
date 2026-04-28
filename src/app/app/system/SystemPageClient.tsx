@@ -10,6 +10,7 @@ import remarkGfm from 'remark-gfm';
 import { APIComponentList } from '../../components/Component/ComponentLists';
 import Layout from '../../components/Layout/Main';
 import { NewComponentForm } from './NewComponentForm';
+import { FigmaFetchControls } from './FigmaFetchControls';
 import { MarkdownComponents, remarkCodeMeta } from '../../components/Markdown/MarkdownComponents';
 import HeadersType from '../../components/Typography/Headers';
 import { Button } from '../../components/ui/button';
@@ -33,7 +34,8 @@ export default function SystemPageClient({ content, menu, metadata, current, con
     return (
       <Layout config={config} menu={menu} current={current} metadata={metadata}>
         <div className="flex items-center justify-center flex-col gap-2 lg:pr-8">
-          <div className="mb-2 flex w-full justify-center">
+          <div className="mb-2 flex w-full flex-wrap items-center justify-center gap-2">
+            <FigmaFetchControls />
             <NewComponentForm />
           </div>
           <div className="mb-3 flex items-center justify-center overflow-hidden">
@@ -60,18 +62,19 @@ export default function SystemPageClient({ content, menu, metadata, current, con
         <div className="mt-3 flex flex-row flex-wrap items-start justify-between gap-3">
           <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{metadata.description}</p>
           <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
+            <FigmaFetchControls />
             <NewComponentForm />
           <Drawer direction="right">
-            <DrawerTrigger>
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DrawerTrigger asChild>
                     <Button variant="outline">API <Webhook strokeWidth={1.5} /></Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left"><Badge>{apiUrl}</Badge></TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </DrawerTrigger>
+                  </DrawerTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="left"><Badge>{apiUrl}</Badge></TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <DrawerContent>
               <div className="mx-5 w-full max-w-lg">
                 <DrawerHeader>

@@ -1,6 +1,6 @@
 import { count, desc, eq, or } from 'drizzle-orm';
 import { getDb } from './index';
-import { componentBuildJobs, handoffComponents, handoffPatterns, handoffTokensSnapshots } from './schema';
+import { componentBuildJobs, figmaFetchJobs, handoffComponents, handoffPatterns, handoffTokensSnapshots } from './schema';
 
 export async function getDbComponents() {
   const db = getDb();
@@ -44,4 +44,28 @@ export async function getDbTokensSnapshot(): Promise<unknown | null> {
     .orderBy(desc(handoffTokensSnapshots.id))
     .limit(1);
   return rows[0]?.payload ?? null;
+}
+
+export async function insertFigmaFetchJob(triggeredByUserId: string): Promise<number> {
+  const db = getDb();
+  if (!db) throw new Error('Database unavailable');
+  const [row] = await db.insert(figmaFetchJobs).values({ status: 'queued', triggeredByUserId }).returning({ id: figmaFetchJobs.id });
+  return row.id;
+}
+
+export async function getFigmaFetchJob(jobId: number) {
+  const db = getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(figmaFetchJobs).where(eq(figmaFetchJobs.id, jobId));
+  return row ?? null;
+}
+
+export async function countQueuedOrRunningFigmaFetchJobs(): Promise<number> {
+  const db = getDb();
+  if (!db) return 0;
+  const [row] = await db
+    .select({ n: count() })
+    .from(figmaFetchJobs)
+    .where(or(eq(figmaFetchJobs.status, 'queued'), eq(figmaFetchJobs.status, 'running')));
+  return Number(row?.n ?? 0);
 }

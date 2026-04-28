@@ -1,12 +1,15 @@
 import { ComponentListObject, ComponentType, PatternListObject } from '@handoff/transformers/preview/types';
 import { ClientConfig, RuntimeConfig } from '@handoff/types/config';
 import { ComponentDocumentationOptions, PreviewObject } from '@handoff/types/preview';
+import { desc } from 'drizzle-orm';
 import * as fs from 'fs-extra';
 import matter from 'gray-matter';
 import { Types as CoreTypes } from 'handoff-core';
 import { groupBy, startCase, uniq } from 'lodash';
 import path from 'path';
 import { ParsedUrlQuery } from 'querystring';
+import { getDb } from '../../lib/db';
+import { handoffTokensSnapshots } from '../../lib/db/schema';
 // Get the parsed url string type
 export interface IParams extends ParsedUrlQuery {
   slug: string | string[];
@@ -269,33 +272,35 @@ export const staticBuildMenu = () => {
 
         if (metadata.menu) {
           subSections = Object.keys(metadata.menu)
-            .map((key) => {
+            .flatMap((key) => {
               const sub = metadata.menu[key];
               if (sub.components) {
-                return {
-                  title: sub.title,
-                  menu: staticBuildComponentMenu(sub.components),
-                };
+                const componentMenuSections = staticBuildComponentMenu(sub.components);
+                if (sub.components === true) {
+                  return componentMenuSections;
+                }
+                return [{ title: sub.title, menu: componentMenuSections }];
               }
               if (sub.tokens) {
-                return {
+                return [{
                   title: 'Tokens',
                   menu: staticBuildTokensMenu(),
-                };
+                }];
               }
               if (sub.patterns) {
                 const patternMenu = staticBuildPatternMenu();
                 if (patternMenu.length > 0) {
-                  return {
+                  return [{
                     title: sub.title || 'Patterns',
                     menu: patternMenu,
-                  };
+                  }];
                 }
-                return undefined;
+                return [];
               }
               if (sub.enabled !== false) {
-                return sub;
+                return [sub];
               }
+              return [];
             })
             .filter(filterOutUndefined);
         } else {
@@ -343,17 +348,20 @@ const buildBasePath = () => {
   return (process.env.HANDOFF_APP_BASE_PATH ?? '').replace(/^\/+|\/+$/g, '') + '/';
 };
 
-const staticBuildComponentMenu = (type?: boolean | string) => {
-  const basePath = buildBasePath();
-  let menu = [];
-  let components = fetchComponents({ includeTokens: false });
-  if (typeof type === 'string' && type !== '') {
-    components = components.filter((component) => component.type == type);
-  }
-  // Build the submenu of exportables (components)
+const componentTypeMenuTitle = (type: string): string => {
+  const normalized = String(type || '').toLowerCase();
+  if (normalized === ComponentType.Element) return 'Elements';
+  if (normalized === ComponentType.Block) return 'Blocks';
+  if (normalized === ComponentType.Navigation) return 'Navigation';
+  if (normalized === ComponentType.Utility) return 'Utility';
+  return startCase(normalized || 'components');
+};
+
+const buildComponentGroupsMenu = (components: { id: string; name: string; group: string }[], basePath: string) => {
+  let groups: { title: string; menu: { path: string; title: string }[] }[] = [];
   const groupedComponents = groupBy(components, (e) => e.group ?? '');
   Object.keys(groupedComponents).forEach((group) => {
-    const menuGroup = { title: group || 'Uncategorized', menu: [] };
+    const menuGroup = { title: group || 'Uncategorized', menu: [] as { path: string; title: string }[] };
     groupedComponents[group].forEach((component) => {
       const docs = fetchDocPageMetadataAndContent('docs/system/', component.id);
       let title = startCase(component.id);
@@ -365,13 +373,41 @@ const staticBuildComponentMenu = (type?: boolean | string) => {
       }
       menuGroup.menu.push({ path: `${basePath}system/component/${component.id}`, title });
     });
-    // sort the menu group by name alphabetical
     menuGroup.menu = menuGroup.menu.sort((a, b) => a.title.localeCompare(b.title));
-    menu.push(menuGroup);
+    groups.push(menuGroup);
   });
-  // sort the menu by name alphabetical
-  menu = menu.sort((a, b) => a.title.localeCompare(b.title));
-  return menu;
+  groups = groups.sort((a, b) => a.title.localeCompare(b.title));
+  return groups;
+};
+
+const staticBuildComponentMenu = (type?: boolean | string) => {
+  const basePath = buildBasePath();
+  let components = fetchComponents({ includeTokens: false });
+  if (typeof type === 'string' && type !== '') {
+    components = components.filter((component) => component.type == type);
+    return buildComponentGroupsMenu(components, basePath);
+  }
+
+  if (type === true) {
+    const groupedByType = groupBy(components, (component) => String(component.type || ComponentType.Element).toLowerCase());
+    const desiredOrder = [ComponentType.Element, ComponentType.Block, ComponentType.Navigation, ComponentType.Utility];
+    const sortedTypes = Object.keys(groupedByType).sort((a, b) => {
+      const ai = desiredOrder.indexOf(a as ComponentType);
+      const bi = desiredOrder.indexOf(b as ComponentType);
+      if (ai >= 0 && bi >= 0) return ai - bi;
+      if (ai >= 0) return -1;
+      if (bi >= 0) return 1;
+      return a.localeCompare(b);
+    });
+    return sortedTypes
+      .map((componentType) => ({
+        title: componentTypeMenuTitle(componentType),
+        menu: buildComponentGroupsMenu(groupedByType[componentType], basePath),
+      }))
+      .filter((section) => section.menu.length > 0);
+  }
+
+  return buildComponentGroupsMenu(components, basePath);
 };
 
 const staticBuildTokensMenu = () => {
@@ -611,6 +647,32 @@ export const fetchComponents = (options?: FetchComponentsOptions) => {
     }
   }
 
+  // In dynamic mode, merge per-component JSON snapshots produced by DB-backed builds.
+  // This makes newly built dynamic components appear in the menu tree without requiring
+  // a full static `components.json` regeneration pass.
+  if ((process.env.HANDOFF_MODE ?? '') === 'dynamic') {
+    const dynamicComponentDir = path.resolve(process.env.HANDOFF_MODULE_PATH ?? '', 'src', 'app', 'public', 'api', 'component');
+    if (fs.existsSync(dynamicComponentDir)) {
+      const componentFiles = fs.readdirSync(dynamicComponentDir).filter((f) => f.endsWith('.json'));
+      componentFiles.forEach((fileName) => {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(path.resolve(dynamicComponentDir, fileName), 'utf-8')) as Partial<ComponentListObject>;
+          const fileId = fileName.replace(/\.json$/, '');
+          const id = typeof parsed.id === 'string' && parsed.id.length > 0 ? parsed.id : fileId;
+          components[id] = {
+            ...(components[id] ?? {}),
+            type: ((parsed.type as ComponentType) || components[id]?.type || ComponentType.Element) as ComponentType,
+            group: parsed.group || components[id]?.group || '',
+            description: parsed.description || components[id]?.description || '',
+            name: parsed.title || components[id]?.name || '',
+          };
+        } catch {
+          // ignore malformed component artifact
+        }
+      });
+    }
+  }
+
   const items =
     Object.entries(components).map(([id, obj]) => ({
       id,
@@ -706,6 +768,25 @@ export const getTokens = (): CoreTypes.IDocumentationObject => {
 
   const data = fs.readFileSync(exportedFilePath, 'utf-8');
   return JSON.parse(data.toString()) as CoreTypes.IDocumentationObject;
+};
+
+/** Dynamic mode helper: prefer DB token snapshot, fallback to filesystem tokens.json. */
+export const getTokensForRuntime = async (): Promise<CoreTypes.IDocumentationObject> => {
+  if ((process.env.HANDOFF_MODE ?? '') === 'dynamic') {
+    const db = getDb();
+    if (db) {
+      const rows = await db
+        .select()
+        .from(handoffTokensSnapshots)
+        .orderBy(desc(handoffTokensSnapshots.id))
+        .limit(1);
+      const payload = rows[0]?.payload;
+      if (payload && typeof payload === 'object') {
+        return payload as CoreTypes.IDocumentationObject;
+      }
+    }
+  }
+  return getTokens();
 };
 
 /**

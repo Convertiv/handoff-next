@@ -6,12 +6,7 @@ import AnchorNavLink from './AnchorNavLink';
 import { usePathname } from 'next/navigation';
 import React, { useEffect } from 'react';
 
-export const anchorSlugify = (text: string): string => {
-  let anchor = text.toString().toLowerCase();
-  anchor = anchor.replace(/[^a-zA-Z0-9 ]/g, '');
-  anchor = anchor.replace(/ /g, '-');
-  return anchor;
-};
+export { anchorSlugify } from './anchor-slugify';
 
 interface TOCProps {
   body: React.RefObject<HTMLDivElement>;
