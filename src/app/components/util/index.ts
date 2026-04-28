@@ -77,6 +77,23 @@ export interface FoundationDocumentationProps extends DocumentationWithTokensPro
 /**
  * List the default paths
  */
+/**
+ * First URL segment that must not be handled by the markdown catch-all `app/[...slug]/page.tsx`
+ * (those routes have their own `page.tsx` files or are app infrastructure).
+ */
+export const MARKDOWN_CATCHALL_RESERVED_FIRST_SEGMENTS = new Set([
+  'api',
+  '_next',
+  'login',
+  'reset-password',
+  'admin',
+  'assets',
+  'foundations',
+  'system',
+  'design',
+  'playground',
+]);
+
 export const knownPaths = [
   'assets',
   'assets/fonts',

@@ -68,40 +68,53 @@ function extractText(node: any): string {
   return '';
 }
 
+const headingClass: Record<string, string> = {
+  h1: 'text-2xl font-bold',
+  h2: 'text-xl font-bold',
+  h3: 'text-lg font-bold',
+  h4: 'text-base font-bold',
+  h5: 'text-sm font-bold',
+  h6: 'text-xs font-bold',
+};
+
 const Headings = (element: any) => {
   const { children, node } = element;
-  if (children[0]) {
-    const type = node.tagName || 'h6';
+  const type = (node?.tagName as string) || 'h6';
+  const normalized = React.Children.toArray(children);
+  const hasVisibleContent = normalized.some((c) => c != null && c !== '' && c !== false);
 
-    let anchor = extractText(children).toLowerCase();
-    anchor = anchor.replace(/[^a-zA-Z0-9 ]/g, '');
-    anchor = anchor.replace(/ /g, '-');
+  if (!hasVisibleContent) {
+    const tag = headingClass[type] ? type : 'h6';
+    return React.createElement(tag, { className: headingClass[tag] ?? headingClass.h6 });
+  }
 
-    const container = (children: React.ReactNode): React.ReactNode => (
-      <>
-        {children}
-        <a id={anchor} href={`#${anchor}`} className="doc-link"></a>
-      </>
-    );
+  let anchor = extractText(children).toLowerCase();
+  anchor = anchor.replace(/[^a-zA-Z0-9 ]/g, '');
+  anchor = anchor.replace(/ /g, '-');
+  if (!anchor) anchor = 'heading';
 
-    switch (type) {
-      case 'h1':
-        return <h1 className="text-2xl font-bold">{container(children)}</h1>;
-      case 'h2':
-        return <h2 className="text-xl font-bold">{container(children)}</h2>;
-      case 'h3':
-        return <h3 className="text-lg font-bold">{container(children)}</h3>;
-      case 'h4':
-        return <h4 className="text-base font-bold">{container(children)}</h4>;
-      case 'h5':
-        return <h5 className="text-sm font-bold">{container(children)}</h5>;
-      case 'h6':
-        return <h6 className="text-xs font-bold">{container(children)}</h6>;
-      default:
-        return <h6 className="text-xs font-bold">{container(children)}</h6>;
-    }
-  } else {
-    return <h1>children</h1>;
+  const container = (inner: React.ReactNode): React.ReactNode => (
+    <>
+      {inner}
+      <a id={anchor} href={`#${anchor}`} className="doc-link"></a>
+    </>
+  );
+
+  switch (type) {
+    case 'h1':
+      return <h1 className={headingClass.h1}>{container(children)}</h1>;
+    case 'h2':
+      return <h2 className={headingClass.h2}>{container(children)}</h2>;
+    case 'h3':
+      return <h3 className={headingClass.h3}>{container(children)}</h3>;
+    case 'h4':
+      return <h4 className={headingClass.h4}>{container(children)}</h4>;
+    case 'h5':
+      return <h5 className={headingClass.h5}>{container(children)}</h5>;
+    case 'h6':
+      return <h6 className={headingClass.h6}>{container(children)}</h6>;
+    default:
+      return <h6 className={headingClass.h6}>{container(children)}</h6>;
   }
 };
 

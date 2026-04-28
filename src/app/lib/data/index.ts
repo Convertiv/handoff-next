@@ -26,5 +26,6 @@ export {
   getTokens,
   getCurrentSection,
   fetchDocPageMetadataAndContent,
+  MARKDOWN_CATCHALL_RESERVED_FIRST_SEGMENTS,
   pluralizeComponent,
 } from '../../components/util';
