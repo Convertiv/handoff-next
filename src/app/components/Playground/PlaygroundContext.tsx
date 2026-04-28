@@ -1,3 +1,5 @@
+'use client';
+
 import { DragEndEvent } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';

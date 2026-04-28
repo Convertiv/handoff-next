@@ -1,9 +1,13 @@
+'use client';
+
 import { Separator } from '@radix-ui/react-select';
 import { Types as CoreTypes } from 'handoff-core';
 import { ArrowRightToLine, BookType, Check, Copy, Link, Type } from 'lucide-react';
 import React from 'react';
 import { cn } from '../../lib/utils';
-import { typographyTypes } from '../../pages/foundations/typography';
+export interface typographyTypes {
+  [key: string]: any;
+}
 import { anchorSlugify } from '../Navigation/AnchorNav';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from '../ui/breadcrumb';

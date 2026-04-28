@@ -51,6 +51,12 @@ Usage: handoff-app <cmd> <opts>
 Commands:
   fetch [opts] - Fetches the design tokens from the design system
 
+  pull [opts] - Pulls remote edits from a Handoff deployment running in dynamic mode into local `pages/` and `*.handoff.json` files (requires `HANDOFF_SYNC_URL` and `HANDOFF_SYNC_SECRET` matching the server).
+
+  push [opts] - Pushes local markdown pages and `*.handoff.json` component/pattern declarations to the remote API (same env vars as `pull`).
+
+  sync-status [opts] - Prints the remote sync cursor and local `.handoff/sync-state.json` metadata.
+
   build - Using the current tokens, build various outputs
     build:app [opts] - Builds the design system static application
 

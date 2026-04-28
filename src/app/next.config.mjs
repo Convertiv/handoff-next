@@ -10,17 +10,19 @@ const resolveBasePath = (rawBasePath) => {
   return trimmed ? `/${trimmed}` : '';
 };
 
+const rawMode = typeof process !== 'undefined' ? process.env.HANDOFF_MODE : undefined;
+const handoffMode =
+  !rawMode || rawMode.startsWith('%HANDOFF_') ? 'static' : rawMode;
+const isStaticExportMode = handoffMode !== 'dynamic';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: 'export',
+  ...(isStaticExportMode ? { output: 'export' } : {}),
   reactStrictMode: true,
   pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
   trailingSlash: true,
   experimental: {
     externalDir: true,
-  },
-  eslint: {
-    dirs: ['pages', 'utils'],
   },
   transpilePackages: ['handoff-app', 'react-syntax-highlighter'],
   typescript: {
@@ -35,9 +37,10 @@ const nextConfig = {
     HANDOFF_MODULE_PATH: '%HANDOFF_MODULE_PATH%',
     HANDOFF_EXPORT_PATH: '%HANDOFF_EXPORT_PATH%',
     HANDOFF_WEBSOCKET_PORT: '%HANDOFF_WEBSOCKET_PORT%',
+    HANDOFF_MODE: '%HANDOFF_MODE%',
   },
   images: {
-    unoptimized: true,
+    unoptimized: isStaticExportMode,
   },
   sassOptions: {
     additionalData: (content, _) => {
@@ -52,6 +55,7 @@ const nextConfig = {
         HANDOFF_MODULE_PATH: '%HANDOFF_MODULE_PATH%',
         HANDOFF_EXPORT_PATH: '%HANDOFF_EXPORT_PATH%',
         HANDOFF_WEBSOCKET_PORT: '%HANDOFF_WEBSOCKET_PORT%',
+        HANDOFF_MODE: '%HANDOFF_MODE%',
       };
 
       // Check if client configuration exists

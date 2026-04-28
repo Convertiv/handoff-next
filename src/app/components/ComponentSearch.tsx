@@ -1,3 +1,5 @@
+'use client';
+
 import { ComponentListObject } from '@handoff/transformers/preview/types';
 import { Laptop, Search } from 'lucide-react';
 import Link from 'next/link';

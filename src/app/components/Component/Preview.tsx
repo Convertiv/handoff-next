@@ -1,3 +1,5 @@
+'use client';
+
 import { SlotMetadata } from '@handoff/transformers/preview/component';
 import { PageSlice } from '@handoff/transformers/preview/types';
 import { PreviewObject } from '@handoff/types/preview';

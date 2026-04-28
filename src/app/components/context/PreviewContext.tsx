@@ -1,3 +1,5 @@
+'use client';
+
 import { ClientConfig } from '@handoff/types/config';
 import { PreviewObject } from '@handoff/types/preview';
 import { evaluateFilter, type Filter } from '@handoff/utils/filter';

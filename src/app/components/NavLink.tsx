@@ -1,6 +1,8 @@
+'use client';
+
 import * as React from 'react';
 import Link, { LinkProps } from 'next/link';
-import { useRouter } from 'next/router';
+import { usePathname } from 'next/navigation';
 
 const NavLink = React.forwardRef<
   HTMLAnchorElement,
@@ -10,10 +12,10 @@ const NavLink = React.forwardRef<
       activeClassName?: string;
     }
 >(({ activeClassName = 'is-selected', className, children, ...props }, ref) => {
-  const router = useRouter();
+  const pathname = usePathname();
 
   return (
-    <Link {...props} ref={ref} className={`${className} ${router.asPath.startsWith(props.href.toString()) ? activeClassName : ''}`}>
+    <Link {...props} ref={ref} className={`${className} ${pathname.startsWith(props.href.toString()) ? activeClassName : ''}`}>
       {children}
     </Link>
   );

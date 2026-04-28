@@ -1,3 +1,5 @@
+'use client';
+
 import { SlotMetadata } from '@handoff/transformers/preview/component';
 import { startCase } from 'lodash';
 import { ArrowRightToLine, Check, CircleCheck, File, Image, Link, MoveHorizontal, SwatchBook } from 'lucide-react';

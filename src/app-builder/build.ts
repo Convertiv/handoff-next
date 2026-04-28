@@ -52,7 +52,15 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
 
   // Prepare project app dir
   await fs.ensureDir(appPath);
-  await fs.copy(srcPath, appPath, { overwrite: true, filter: (file) => !file.includes('next.config.mjs') });
+  const isStaticExport = (process.env.HANDOFF_MODE ?? 'static') !== 'dynamic';
+  await fs.copy(srcPath, appPath, {
+    overwrite: true,
+    filter: (file) => {
+      if (file.includes('next.config.mjs')) return false;
+      if (isStaticExport && path.basename(file) === 'proxy.ts') return false;
+      return true;
+    },
+  });
   await syncPublicFiles(handoff);
 
   // Copy custom theme CSS if it exists in the user's project
@@ -81,6 +89,7 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
   const escapedModulePath = escapeForSingleQuotedJsString(handoffModulePath);
   const escapedExportPath = escapeForSingleQuotedJsString(handoffExportPath);
   const escapedWebsocketPort = escapeForSingleQuotedJsString(String(handoffWebsocketPort));
+  const escapedHandoffMode = escapeForSingleQuotedJsString(process.env.HANDOFF_MODE ?? 'static');
   const placeholderValues: Record<string, string> = {
     '%HANDOFF_PROJECT_ID%': escapedProjectId,
     '%HANDOFF_APP_BASE_PATH%': escapedAppBasePath,
@@ -88,6 +97,7 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
     '%HANDOFF_MODULE_PATH%': escapedModulePath,
     '%HANDOFF_EXPORT_PATH%': escapedExportPath,
     '%HANDOFF_WEBSOCKET_PORT%': escapedWebsocketPort,
+    '%HANDOFF_MODE%': escapedHandoffMode,
   };
   let nextConfigContent = await fs.readFile(nextConfigPath, 'utf-8');
   for (const [placeholder, value] of Object.entries(placeholderValues)) {
@@ -117,7 +127,7 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean): Promise<voi
   await persistClientConfig(handoff);
 
   // Build app
-  const buildResult = spawn.sync('npx', ['next', 'build'], {
+  const buildResult = spawn.sync('npx', ['next', 'build', '--webpack'], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
@@ -183,9 +193,9 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
     // create empty directory
     await fs.ensureDir(moduleOutput);
   }
-  Logger.info(`Starting Next.js dev server (Turbopack) at http://${hostname}:${port}…`);
+  Logger.info(`Starting Next.js dev server at http://${hostname}:${port}…`);
 
-  const nextProcess = spawn('npx', ['next', 'dev', '--turbopack', '--port', String(port)], {
+  const nextProcess = spawn('npx', ['next', 'dev', '--port', String(port)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
@@ -253,9 +263,9 @@ export const devApp = async (handoff: Handoff): Promise<void> => {
   await persistClientConfig(handoff);
 
   const devPort = handoff.config.app.ports?.app ?? 3000;
-  Logger.info(`Starting Next.js dev server (Turbopack) on port ${devPort}…`);
+  Logger.info(`Starting Next.js dev server on port ${devPort}…`);
 
-  const devResult = spawn.sync('npx', ['next', 'dev', '--turbopack', '--port', String(devPort)], {
+  const devResult = spawn.sync('npx', ['next', 'dev', '--port', String(devPort)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {

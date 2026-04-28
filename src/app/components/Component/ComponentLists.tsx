@@ -1,3 +1,5 @@
+'use client';
+
 import { PreviewObject } from '@handoff/types/preview';
 import { ToggleGroup, ToggleGroupItem } from '@radix-ui/react-toggle-group';
 import { AlignJustify, LayoutGrid, Rows, Search } from 'lucide-react';

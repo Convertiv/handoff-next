@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useState, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from '../ui/dialog';
 import { Button } from '../ui/button';
@@ -16,7 +18,7 @@ function ComponentRow({
   onAdd,
 }: {
   component: PlaygroundComponent;
-  onAdd: (c: PlaygroundComponent) => Promise<void>;
+  onAdd: (c: PlaygroundComponent) => void | Promise<void>;
 }) {
   const [adding, setAdding] = useState(false);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';

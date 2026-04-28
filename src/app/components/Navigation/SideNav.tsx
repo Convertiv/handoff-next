@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../components/ui/collapsible';
 
-import { useRouter } from 'next/router';
+import { usePathname } from 'next/navigation';
 import React from 'react';
 import {
   Sidebar,
@@ -34,8 +34,8 @@ import { normalizePathForMatch, toAbsolutePath } from '../../lib/utils';
 import { SectionLink } from '../util';
 
 const NormalMenuItem = ({ title, icon, path }) => {
-  const router = useRouter();
-  const isActive = normalizePathForMatch(path) === normalizePathForMatch(router.asPath);
+  const pathname = usePathname();
+  const isActive = normalizePathForMatch(path) === normalizePathForMatch(pathname);
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive}>
@@ -49,9 +49,9 @@ const NormalMenuItem = ({ title, icon, path }) => {
 };
 
 const CollapsibleMenuItem = ({ title, icon, path, menu }) => {
-  const router = useRouter();
+  const pathname = usePathname();
   const isActive = menu.some(
-    (item) => normalizePathForMatch(router.asPath).startsWith(normalizePathForMatch(item.path))
+    (item) => normalizePathForMatch(pathname).startsWith(normalizePathForMatch(item.path))
   );
   return (
     <Collapsible defaultOpen={isActive} className="group/collapsible">

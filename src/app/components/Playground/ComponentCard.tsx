@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -5,7 +7,7 @@ import { PlaygroundComponent } from './types';
 
 interface ComponentCardProps {
   component: PlaygroundComponent;
-  onAdd: (component: PlaygroundComponent) => Promise<void>;
+  onAdd: (component: PlaygroundComponent) => void | Promise<void>;
 }
 
 export default function ComponentCard({ component, onAdd }: ComponentCardProps) {

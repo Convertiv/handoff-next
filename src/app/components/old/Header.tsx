@@ -1,3 +1,5 @@
+'use client';
+
 import { ClientConfig } from '@handoff/types/config';
 import Link from 'next/link';
 import React from 'react';

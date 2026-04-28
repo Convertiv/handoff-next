@@ -1,3 +1,5 @@
+'use client';
+
 import { PreviewObject } from '@handoff/types/preview';
 // @ts-ignore
 import { CollapsibleTrigger } from '@radix-ui/react-collapsible';

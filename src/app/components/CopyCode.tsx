@@ -1,3 +1,5 @@
+'use client';
+
 import { Copy, Download } from 'lucide-react';
 import * as React from 'react';
 import { Button } from './ui/button';

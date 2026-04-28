@@ -1,3 +1,5 @@
+'use client';
+
 import { Types as CoreTypes } from 'handoff-core';
 import round from 'lodash/round';
 import startCase from 'lodash/startCase';

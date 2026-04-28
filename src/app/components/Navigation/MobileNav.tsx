@@ -2,7 +2,7 @@
 import { Menu, Monitor, Moon, Sun, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
+import { usePathname } from 'next/navigation';
 import { Button } from '../../components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../../components/ui/sheet';
 import { cn } from '../../lib/utils';
@@ -14,7 +14,7 @@ const trimSlashes = (input: string): string => {
 
 export function MobileNav() {
   const context = useConfigContext();
-  const router = useRouter();
+  const pathname = usePathname();
   const { theme, setTheme } = useTheme();
 
   const toggleTheme = () => {
@@ -50,7 +50,7 @@ export function MobileNav() {
         <div className="mt-8 flex flex-col space-y-4">
           {context.menu &&
             context.menu.map((section) => {
-              const isActive = trimSlashes(router.asPath).startsWith(trimSlashes(section.path));
+              const isActive = trimSlashes(pathname).startsWith(trimSlashes(section.path));
               return (
                 <Link
                   key={section.title}

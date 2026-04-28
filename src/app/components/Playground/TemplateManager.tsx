@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '../ui/sheet';
 import { Button } from '../ui/button';

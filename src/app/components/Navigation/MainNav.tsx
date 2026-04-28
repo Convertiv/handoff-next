@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
+import { usePathname } from 'next/navigation';
 import {
   NavigationMenu,
   NavigationMenuItem,
@@ -17,13 +17,13 @@ const trimSlashes = (input: string): string => {
 
 export function MainNav() {
   const context = useConfigContext();
-  const router = useRouter();
+  const pathname = usePathname();
   return (
     <NavigationMenu>
       <NavigationMenuList>
         {context.menu &&
           context.menu.map((section) => {
-            const isActive = trimSlashes(router.asPath).startsWith(trimSlashes(section.path));
+            const isActive = trimSlashes(pathname).startsWith(trimSlashes(section.path));
             return (
               <NavigationMenuItem key={section.title}>
                 {section.subSections && section.subSections.length > 0 ? (

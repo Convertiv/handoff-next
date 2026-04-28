@@ -1,3 +1,5 @@
+'use client';
+
 import React, { createContext, useContext, useState } from 'react';
 import { ClientConfig } from '@handoff/types/config';
 import { SectionLink } from '../util';

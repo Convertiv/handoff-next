@@ -9,8 +9,11 @@ import initCommand from './init';
 import makeComponentCommand from './make/component';
 import makePageCommand from './make/page';
 import makeTemplateCommand from './make/template';
+import pullCommand from './pull';
+import pushCommand from './push';
 import scaffoldCommand from './scaffold';
 import startCommand from './start';
+import syncStatusCommand from './sync-status';
 import validateComponentsCommand from './validate/components';
 
 export const commands = [
@@ -25,7 +28,10 @@ export const commands = [
   makePageCommand,
   makeComponentCommand,
   makeTemplateCommand,
+  pullCommand,
+  pushCommand,
   scaffoldCommand,
   startCommand,
+  syncStatusCommand,
   validateComponentsCommand,
 ];

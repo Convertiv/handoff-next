@@ -1,3 +1,5 @@
+'use client';
+
 import { Types as CoreTypes } from 'handoff-core';
 import startCase from 'lodash/startCase';
 import { ArrowRightToLine, Check, Copy, Link, SwatchBook } from 'lucide-react';

@@ -28,7 +28,7 @@
   },
   "engines": {
     "npm": ">=8.0.0",
-    "node": ">=16.0.0"
+    "node": ">=20.9.0"
   },
   "scripts": {
     "start": "node ./dist/cli.js start",
@@ -37,9 +37,12 @@
     "build": "tsc",
     "build:static": "node ./dist/cli.js build:app",
     "fetch": "node ./dist/cli.js fetch",
-    "lint": "cd src/app && npx next lint",
+    "lint": "cd src/app && npx eslint app components lib",
     "release": "np --any-branch",
-    "test": "npm run lint"
+    "test": "npm run lint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx src/app/lib/db/seed.ts"
   },
   "prettier": {
     "printWidth": 140,
@@ -52,6 +55,7 @@
     "tailwindConfig": "./tailwind.config.ts"
   },
   "dependencies": {
+    "@auth/drizzle-adapter": "^1.11.2",
     "@clack/prompts": "^0.7.0",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -90,9 +94,10 @@
     "clsx": "^2.1.1",
     "cross-spawn": "^7.0.3",
     "dotenv": "^16.0.3",
+    "drizzle-orm": "^0.45.2",
     "esbuild": "^0.25.0",
-    "eslint": "^8.23.1",
-    "eslint-config-next": "^15.3.4",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^16.2.4",
     "eslint-config-prettier": "^10.0.2",
     "fs-extra": "^11.3.0",
     "gray-matter": "^4.0.3",
@@ -102,10 +107,12 @@
     "html-react-parser": "^5.2.5",
     "lodash": "^4.17.21",
     "lucide-react": "^0.518.0",
-    "next": "^15.3.4",
+    "next": "^16.2.4",
+    "next-auth": "^5.0.0-beta.31",
     "next-themes": "^0.4.4",
     "node-html-parser": "^6.1.4",
     "postcss": "^8.4.16",
+    "postgres": "^3.4.9",
     "prettier": "^3.4.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -132,9 +139,11 @@
     "@types/handlebars": "^4.1.0",
     "@types/node": "^20.11.18",
     "@types/yargs": "^17.0.33",
+    "drizzle-kit": "^0.31.10",
     "np": "^10.2.0",
     "prettier-plugin-tailwindcss": "^0.7.0",
     "sass-embedded": "^1.89.0",
+    "tsx": "^4.21.0",
     "typescript": "5.6.3"
   }
 }

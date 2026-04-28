@@ -1,3 +1,5 @@
+'use client';
+
 import { createContext, ReactNode, RefObject, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { usePlayground } from './PlaygroundContext';
 import { renderHandlebarsPreview, renderPreview, renderReactPreview } from './Preview';

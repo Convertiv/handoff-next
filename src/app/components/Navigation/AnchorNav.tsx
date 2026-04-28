@@ -1,7 +1,9 @@
+'use client';
+
 import { TextQuote } from 'lucide-react';
 import AnchorNavLink from './AnchorNavLink';
 
-import { useRouter } from 'next/router';
+import { usePathname } from 'next/navigation';
 import React, { useEffect } from 'react';
 
 export const anchorSlugify = (text: string): string => {
@@ -17,7 +19,7 @@ interface TOCProps {
 }
 export function PageTOC({ body, title }: TOCProps) {
   const [headers, setHeaders] = React.useState<{ id: string; title: string | null; level: number }[]>([]);
-  const router = useRouter();
+  const pathname = usePathname();
 
   const scanHeaders = React.useCallback(() => {
     if (!body.current) return;
@@ -30,10 +32,8 @@ export function PageTOC({ body, title }: TOCProps) {
   }, [body]);
 
   useEffect(() => {
-    // Scan after paint to catch SSR-hydrated content
     requestAnimationFrame(scanHeaders);
 
-    // Watch for dynamically inserted headings (client-rendered markdown)
     const el = body.current;
     if (!el) return;
     const observer = new MutationObserver(scanHeaders);
@@ -42,10 +42,8 @@ export function PageTOC({ body, title }: TOCProps) {
   }, [body, scanHeaders]);
 
   useEffect(() => {
-    const handler = () => requestAnimationFrame(scanHeaders);
-    router.events.on('routeChangeComplete', handler);
-    return () => router.events.off('routeChangeComplete', handler);
-  }, [router, scanHeaders]);
+    requestAnimationFrame(scanHeaders);
+  }, [pathname, scanHeaders]);
   return (
     <AnchorNav
       title={title}

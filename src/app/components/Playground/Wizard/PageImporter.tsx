@@ -1,3 +1,5 @@
+'use client';
+
 import { useState, useCallback } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../ui/dialog';
 import { Button } from '../../ui/button';
@@ -227,7 +229,7 @@ function htmlToMarkdown(html: string, sourceUrl: string): string {
   if (images.length > 0) {
     result += '\n\n---\n\n## Images found on page\n\n';
     // Deduplicate images
-    const unique = [...new Set(images)];
+    const unique = Array.from(new Set(images));
     result += unique.join('\n');
   }
 
