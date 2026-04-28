@@ -7,8 +7,26 @@ import 'dotenv/config';
 import fs from 'fs-extra';
 import path from 'path';
 import { getPublicApiDir } from '../data/static-provider';
+import { count } from 'drizzle-orm';
+import { hashPassword } from '../passwords';
 import { getDb } from './index';
-import { handoffComponents, handoffPatterns, handoffTokensSnapshots } from './schema';
+import { handoffComponents, handoffPatterns, handoffTokensSnapshots, users } from './schema';
+
+async function seedBootstrapAdmin(db: NonNullable<ReturnType<typeof getDb>>) {
+  const email = process.env.HANDOFF_ADMIN_EMAIL?.trim().toLowerCase();
+  const plain = process.env.HANDOFF_ADMIN_PASSWORD;
+  if (!email || !plain) return;
+  const [{ n }] = await db.select({ n: count() }).from(users);
+  if ((n ?? 0) > 0) return;
+  const passwordHash = await hashPassword(plain);
+  await db.insert(users).values({
+    email,
+    name: email.split('@')[0] || 'Admin',
+    role: 'admin',
+    passwordHash,
+  });
+  console.log('Bootstrap admin user created:', email);
+}
 
 function resolveApiDir(): string {
   const fromEnv = getPublicApiDir();
@@ -23,6 +41,8 @@ async function main() {
     console.error('Set HANDOFF_MODE=dynamic and DATABASE_URL');
     process.exit(1);
   }
+
+  await seedBootstrapAdmin(db);
 
   const apiDir = resolveApiDir();
   if (!(await fs.pathExists(apiDir))) {

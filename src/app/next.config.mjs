@@ -38,6 +38,7 @@ const nextConfig = {
     HANDOFF_EXPORT_PATH: '%HANDOFF_EXPORT_PATH%',
     HANDOFF_WEBSOCKET_PORT: '%HANDOFF_WEBSOCKET_PORT%',
     HANDOFF_MODE: '%HANDOFF_MODE%',
+    NEXT_PUBLIC_HANDOFF_MODE: '%HANDOFF_MODE%',
   },
   images: {
     unoptimized: isStaticExportMode,

@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { Button } from '../../components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../../components/ui/sheet';
 import { cn } from '../../lib/utils';
+import { AuthControlsMobile } from '../Auth/AuthControls';
 import { useConfigContext } from '../context/ConfigContext';
 
 const trimSlashes = (input: string): string => {
@@ -66,6 +67,7 @@ export function MobileNav() {
                 </Link>
               );
             })}
+          <AuthControlsMobile />
           <div className="mt-4 border-t pt-4">
             <Button variant="ghost" className="w-full justify-start font-normal" onClick={toggleTheme}>
               {theme === 'light' && (

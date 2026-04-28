@@ -1,6 +1,6 @@
 import { integer, jsonb, pgTable, primaryKey, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
-/** NextAuth / Auth.js — user */
+/** NextAuth / Auth.js — user (+ Handoff RBAC + credentials password) */
 export const users = pgTable('user', {
   id: text('id')
     .primaryKey()
@@ -9,6 +9,21 @@ export const users = pgTable('user', {
   email: text('email').notNull().unique(),
   emailVerified: timestamp('emailVerified', { mode: 'date' }),
   image: text('image'),
+  role: text('role').notNull().default('member'),
+  passwordHash: text('password_hash'),
+});
+
+/** One-time password reset / invite tokens (raw token never stored). */
+export const passwordResetTokens = pgTable('password_reset_token', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: text('token_hash').notNull(),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  usedAt: timestamp('used_at', { mode: 'date' }),
 });
 
 export const accounts = pgTable(

@@ -58,6 +58,9 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
     filter: (file) => {
       if (file.includes('next.config.mjs')) return false;
       if (isStaticExport && path.basename(file) === 'proxy.ts') return false;
+      if (isStaticExport && file.includes(path.join('api', 'auth'))) return false;
+      if (isStaticExport && file.includes(path.join('api', 'handoff'))) return false;
+      if (isStaticExport && file.includes(path.join('lib', 'server'))) return false;
       return true;
     },
   });
@@ -195,7 +198,7 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
   }
   Logger.info(`Starting Next.js dev server at http://${hostname}:${port}…`);
 
-  const nextProcess = spawn('npx', ['next', 'dev', '--port', String(port)], {
+  const nextProcess = spawn('npx', ['next', 'dev', '--webpack', '--port', String(port)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
@@ -265,7 +268,7 @@ export const devApp = async (handoff: Handoff): Promise<void> => {
   const devPort = handoff.config.app.ports?.app ?? 3000;
   Logger.info(`Starting Next.js dev server on port ${devPort}…`);
 
-  const devResult = spawn.sync('npx', ['next', 'dev', '--port', String(devPort)], {
+  const devResult = spawn.sync('npx', ['next', 'dev', '--webpack', '--port', String(devPort)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {

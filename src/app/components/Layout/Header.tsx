@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { AuthControls } from '../Auth/AuthControls';
 import { ModeToggle } from '../../components/ModeSwitcher';
 import { MainNav } from '../../components/Navigation/MainNav';
 import { MobileNav } from '../../components/Navigation/MobileNav';
@@ -35,6 +36,7 @@ export function Header() {
           </Link>
           <div className="hidden items-center gap-4 @2xl:flex">
             <MainNav />
+            <AuthControls />
             <ModeToggle />
           </div>
           <div className="flex items-center gap-4 @2xl:hidden">

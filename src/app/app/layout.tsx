@@ -1,5 +1,7 @@
 import Script from 'next/script';
 import { getClientRuntimeConfig, staticBuildMenu } from '../components/util';
+import { auth } from '../lib/auth';
+import { getMode } from '../lib/mode';
 import Providers from './providers';
 import '../css/index.css';
 import '../css/theme.css';
@@ -8,6 +10,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const config = getClientRuntimeConfig();
   const menu = staticBuildMenu();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+  const authEnabled = getMode() === 'dynamic';
+  const session = authEnabled ? await auth().catch(() => null) : null;
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -38,7 +42,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             />
           </noscript>
         )}
-        <Providers config={config} menu={menu}>
+        <Providers config={config} menu={menu} authEnabled={authEnabled} session={session}>
           {children}
         </Providers>
       </body>
