@@ -1,5 +1,6 @@
+'use client';
+
 import { KeyIcon, Loader2Icon } from 'lucide-react';
-import type { GetStaticProps } from 'next';
 import Image from 'next/image';
 import { useState } from 'react';
 import ApiKeySettings from '../../components/Design/ApiKeySettings';
@@ -9,7 +10,6 @@ import { Button } from '../../components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { TooltipProvider } from '../../components/ui/tooltip';
-import { DocumentationProps, fetchDocPageMarkdown, getClientRuntimeConfig } from '../../components/util';
 
 type GeneratedImage = {
   id: string;
@@ -25,17 +25,7 @@ const DESIGN_ASSETS = [
 
 const DESIGN_SYSTEM_PROMPT = `Create a design for a new section based on the reference image. Follow the typography and color palette of the reference image. Use spacing and padding of the reference image. Use the user's prompt as the main direction. Treat the provided 1024x1024 image size as the full canvas. OpenAI will always return a 1024x1024 image, but the section itself should only use the vertical height it needs on that canvas, leaving unused space plain and unobtrusive instead of stretching the section to fill the whole square.`;
 
-export const getStaticProps: GetStaticProps = async () => {
-  const config = getClientRuntimeConfig();
-  return {
-    props: {
-      config,
-      ...fetchDocPageMarkdown('docs/', 'design', `/design`).props,
-    } as DocumentationProps,
-  };
-};
-
-const DesignPage = ({ menu, metadata, current, config }: DocumentationProps) => {
+export default function DesignClient({ menu, metadata, current, config }: any) {
   const [settingsOpen, setSettingsOpen] = useState(true);
   const [prompt, setPrompt] = useState('');
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
@@ -79,31 +69,31 @@ const DesignPage = ({ menu, metadata, current, config }: DocumentationProps) => 
     try {
       const response = referenceImage
         ? await fetch('https://api.openai.com/v1/images/edits', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: (() => {
-            const formData = new FormData();
-            formData.append('model', getImageModel());
-            formData.append('prompt', apiPrompt);
-            formData.append('size', '1024x1024');
-            formData.append('image[]', referenceImage);
-            return formData;
-          })(),
-        })
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: (() => {
+              const formData = new FormData();
+              formData.append('model', getImageModel());
+              formData.append('prompt', apiPrompt);
+              formData.append('size', '1024x1024');
+              formData.append('image[]', referenceImage);
+              return formData;
+            })(),
+          })
         : await fetch('https://api.openai.com/v1/images/generations', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: getImageModel(),
-            prompt: apiPrompt,
-            size: '1024x1024',
-          }),
-        });
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: getImageModel(),
+              prompt: apiPrompt,
+              size: '1024x1024',
+            }),
+          });
 
       if (!response.ok) {
         const body = await response.text();
@@ -271,6 +261,4 @@ const DesignPage = ({ menu, metadata, current, config }: DocumentationProps) => 
       </TooltipProvider>
     </Layout>
   );
-};
-
-export default DesignPage;
+}
