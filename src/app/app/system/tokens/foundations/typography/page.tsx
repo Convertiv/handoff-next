@@ -1,14 +1,14 @@
-import { fetchDocPageMarkdown, getClientRuntimeConfig, getTokensForRuntime } from '../../../../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../../../components/util';
 import TokenFoundationTypographyClient from './TokenFoundationTypographyClient';
 
 export async function generateMetadata() {
-  const { props } = fetchDocPageMarkdown('docs/', 'system/tokens/foundations/typography', '/system');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'system/tokens/foundations/typography', '/system');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function TokenFoundationTypographyPage() {
   const config = getClientRuntimeConfig();
-  const { props } = fetchDocPageMarkdown('docs/', 'system/tokens/foundations/typography', '/system');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'system/tokens/foundations/typography', '/system');
   const design = (await getTokensForRuntime()).localStyles;
   return (
     <TokenFoundationTypographyClient

@@ -1,4 +1,7 @@
-import { PlaygroundComponent, SelectedPlaygroundComponent } from '../types';
+import { PlaygroundComponent } from '../types';
+
+/** Minimal block list for LLM context (playground rows or server summaries). */
+export type PageBlockSummary = { id: string; title?: string };
 
 /**
  * Recursively simplify a properties object for the prompt, keeping
@@ -58,16 +61,13 @@ function buildGroupedCatalog(components: PlaygroundComponent[]): string {
   return sections.join('\n\n');
 }
 
-export function buildSystemPrompt(
-  components: PlaygroundComponent[],
-  currentPage?: SelectedPlaygroundComponent[]
-): string {
+export function buildSystemPrompt(components: PlaygroundComponent[], currentPage?: PageBlockSummary[]): string {
   const catalog = buildGroupedCatalog(components);
   const groupNames = [...new Set(components.map((c) => c.group || 'Ungrouped'))];
 
   let currentPageContext = '';
   if (currentPage && currentPage.length > 0) {
-    const summary = currentPage.map((c, i) => `  ${i + 1}. ${c.title} (${c.id})`).join('\n');
+    const summary = currentPage.map((c, i) => `  ${i + 1}. ${c.title ?? c.id} (${c.id})`).join('\n');
     currentPageContext = `
 CURRENT PAGE STATE:
 The user already has the following blocks on their page (top to bottom):
@@ -119,11 +119,7 @@ ${catalog}
 Respond ONLY with the JSON object. No markdown fences, no explanation, no commentary.`;
 }
 
-export function buildUserPrompt(
-  description: string,
-  content?: string,
-  currentPage?: SelectedPlaygroundComponent[]
-): string {
+export function buildUserPrompt(description: string, content?: string, currentPage?: PageBlockSummary[]): string {
   let prompt = description;
 
   if (content?.trim()) {

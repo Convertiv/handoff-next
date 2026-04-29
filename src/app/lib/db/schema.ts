@@ -77,6 +77,8 @@ export const handoffComponents = pgTable('handoff_component', {
   previews: jsonb('previews'),
   /** Full `ComponentObject` or list row shape for round-trip */
   data: jsonb('data'),
+  /** disk = imported from repo filesystem; db = created in app; figma = from Figma fetch */
+  source: text('source').notNull().default('disk'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -90,6 +92,11 @@ export const handoffPatterns = pgTable('handoff_pattern', {
   tags: jsonb('tags'),
   components: jsonb('components'),
   data: jsonb('data'),
+  /** Creator/owner (playground-saved patterns). */
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  /** playground | build | import | ai */
+  source: text('source').notNull().default('build'),
+  thumbnail: text('thumbnail'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });

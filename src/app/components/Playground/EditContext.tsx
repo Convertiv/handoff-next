@@ -53,7 +53,7 @@ export function EditContextProvider({ component, children }: { component: Select
       initialRenderDone.current = false;
 
       if (isReact) {
-        setPreviewHtml(renderReactPreview(component, component.data, basePath));
+        setPreviewHtml(renderReactPreview(component, component.data, basePath, component.uniqueId));
       } else {
         setPreviewHtml(renderHandlebarsPreview(component, component.data, basePath));
       }
@@ -70,7 +70,10 @@ export function EditContextProvider({ component, children }: { component: Select
       }
       // For React: send props update via postMessage to avoid reloading the module
       if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({ type: 'update-props', props: data }, '*');
+        iframeRef.current.contentWindow.postMessage(
+          { type: 'update-props', props: data, blockId: component.uniqueId },
+          '*'
+        );
       }
     } else {
       const html = renderHandlebarsPreview(component, data, basePath);

@@ -64,6 +64,7 @@ export async function createComponent(data: {
     group: data.group ?? '',
     type: data.type ?? 'element',
     data: payload as Record<string, unknown>,
+    source: 'db',
   });
 
   await db.insert(editHistory).values({

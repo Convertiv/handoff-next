@@ -1,17 +1,18 @@
 import { startCase } from 'lodash';
-import { fetchPatterns, getClientRuntimeConfig, getCurrentSection, staticBuildMenu } from '../../../../components/util';
+import { getClientRuntimeConfig, getCurrentSection } from '../../../../components/util';
+import { getDataProvider } from '../../../../lib/data';
 import PatternDetailClient from './PatternDetailClient';
 
 export const dynamicParams = false;
 
 export async function generateStaticParams() {
-  const pats = fetchPatterns()?.map((p) => ({ pattern: p.id })) ?? [];
+  const pats = (await getDataProvider().getPatterns()).map((p) => ({ pattern: p.id }));
   return pats.length > 0 ? pats : [{ pattern: '_placeholder' }];
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ pattern: string }> }) {
   const { pattern } = await params;
-  const patterns = fetchPatterns() ?? [];
+  const patterns = await getDataProvider().getPatterns();
   const patternData = patterns.find((p) => p.id === pattern);
   const config = getClientRuntimeConfig();
   const fallbackTitle = patternData?.title || startCase(pattern);
@@ -21,8 +22,8 @@ export async function generateMetadata({ params }: { params: Promise<{ pattern: 
 
 export default async function PatternPage({ params }: { params: Promise<{ pattern: string }> }) {
   const { pattern } = await params;
-  const patterns = fetchPatterns() ?? [];
-  const menu = staticBuildMenu();
+  const patterns = await getDataProvider().getPatterns();
+  const menu = await getDataProvider().getMenu();
   const config = getClientRuntimeConfig();
   const patternData = patterns.find((p) => p.id === pattern);
 

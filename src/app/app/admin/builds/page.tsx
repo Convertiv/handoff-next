@@ -3,7 +3,8 @@ import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
 import { isDynamic } from '../../../lib/mode';
 import { getRecentBuildJobs } from '../../../lib/db/queries';
-import { getClientRuntimeConfig, staticBuildMenu } from '../../../components/util';
+import { getClientRuntimeConfig } from '../../../components/util';
+import { getDataProvider } from '../../../lib/data';
 import BuildsClient from './BuildsClient';
 
 export const metadata: Metadata = {
@@ -13,7 +14,7 @@ export const metadata: Metadata = {
 
 export default async function AdminBuildsPage() {
   const config = getClientRuntimeConfig();
-  const menu = staticBuildMenu();
+  const menu = await getDataProvider().getMenu();
 
   if (!isDynamic()) {
     return (

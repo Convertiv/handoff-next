@@ -5,15 +5,15 @@ import remarkGfm from 'remark-gfm';
 import Footer from '../../../components/Footer';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import Header from '../../../components/old/Header';
-import { fetchDocPageMarkdown, getClientRuntimeConfig } from '../../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
 
 export async function generateMetadata() {
-  const { props } = fetchDocPageMarkdown('docs/assets/', 'logos', '/assets');
+  const { props } = await fetchDocPageMarkdownAsync('docs/assets/', 'logos', '/assets');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function AssetsLogosPage() {
-  const { props } = fetchDocPageMarkdown('docs/assets/', 'logos', '/assets');
+  const { props } = await fetchDocPageMarkdownAsync('docs/assets/', 'logos', '/assets');
   const config = getClientRuntimeConfig();
   const { content, menu, metadata } = props;
 

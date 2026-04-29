@@ -1,12 +1,12 @@
 import {
   buildCatchAllStaticPaths,
-  fetchDocPageMarkdown,
+  fetchDocPageMarkdownAsync,
   getClientRuntimeConfig,
   getCurrentSection,
   MARKDOWN_CATCHALL_RESERVED_FIRST_SEGMENTS,
-  staticBuildMenu,
 } from '../../components/util';
 import { docsRouteToPageSlug, getHandoffPageBySlug, normalizePageMetadata } from '../../lib/server/doc-pages';
+import { getDataProvider } from '../../lib/data';
 import { notFound, redirect } from 'next/navigation';
 import DocCatchAllClient from './DocCatchAllClient';
 
@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     }
   }
 
-  const { props } = fetchDocPageMarkdown(docPath, file, `/${slug[0]}`);
+  const { props } = await fetchDocPageMarkdownAsync(docPath, file, `/${slug[0]}`);
   return {
     title: (props.metadata.metaTitle as string) ?? 'Documentation',
     description: (props.metadata.metaDescription as string) ?? '',
@@ -67,12 +67,12 @@ export default async function MarkdownCatchAllPage({ params }: { params: Promise
   const sectionId = `/${slug[0]}`;
   const pageSlug = docsRouteToPageSlug(dirParts, file);
 
-  let props = fetchDocPageMarkdown(docPath, file, sectionId).props;
+  let props = (await fetchDocPageMarkdownAsync(docPath, file, sectionId)).props;
 
   if (process.env.HANDOFF_MODE === 'dynamic') {
     const row = await getHandoffPageBySlug(pageSlug);
     if (row) {
-      const menu = staticBuildMenu();
+      const menu = await getDataProvider().getMenu();
       props = {
         content: row.markdown,
         metadata: normalizePageMetadata(row.frontmatter),

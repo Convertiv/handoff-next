@@ -21,6 +21,7 @@ function rowToComponentPayload(row: typeof handoffComponents.$inferSelect) {
     properties: row.properties,
     previews: row.previews,
     data: row.data,
+    source: row.source,
   };
 }
 

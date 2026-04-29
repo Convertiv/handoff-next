@@ -1,5 +1,4 @@
-import { BulkComponentEntry } from '../PlaygroundContext';
-import { PlaygroundComponent } from '../types';
+import type { BulkComponentEntry, PlaygroundComponent } from '../types';
 
 export interface ParsedWizardResult {
   entries: BulkComponentEntry[];

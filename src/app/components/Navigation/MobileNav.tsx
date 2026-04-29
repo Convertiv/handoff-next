@@ -13,9 +13,17 @@ const trimSlashes = (input: string): string => {
   return input.replace(/^\/+|\/+$/g, '');
 };
 
+const APP_TOOL_LINKS = [
+  { title: 'Patterns', path: '/patterns' },
+  { title: 'Playground', path: '/playground' },
+];
+
 export function MobileNav() {
   const context = useConfigContext();
   const pathname = usePathname();
+  const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+  const existingPaths = new Set((context.menu ?? []).map((s) => trimSlashes(s.path)));
+  const extraNav = APP_TOOL_LINKS.filter((l) => !existingPaths.has(trimSlashes(l.path)));
   const { theme, setTheme } = useTheme();
 
   const toggleTheme = () => {
@@ -67,6 +75,24 @@ export function MobileNav() {
                 </Link>
               );
             })}
+          {extraNav.map((section) => {
+            const href = `${basePath}${section.path}`;
+            const isActive = trimSlashes(pathname).startsWith(trimSlashes(section.path));
+            return (
+              <Link
+                key={`tool-${section.path}`}
+                href={href}
+                className={cn(
+                  'rounded-md px-4 py-2 text-sm',
+                  isActive
+                    ? 'bg-accent font-normal text-accent-foreground'
+                    : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
+                )}
+              >
+                {section.title}
+              </Link>
+            );
+          })}
           <AuthControlsMobile />
           <div className="mt-4 border-t pt-4">
             <Button variant="ghost" className="w-full justify-start font-normal" onClick={toggleTheme}>

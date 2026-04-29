@@ -33,7 +33,6 @@
   "scripts": {
     "start": "node ./dist/cli.js start",
     "dev": "node ./dist/cli.js dev",
-    "nextdev": "cd src/app && next dev --webpack",
     "build": "tsc",
     "build:static": "node ./dist/cli.js build:app",
     "build:dynamic": "node ./dist/cli.js build:app --mode dynamic",

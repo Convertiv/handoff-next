@@ -15,9 +15,18 @@ const trimSlashes = (input: string): string => {
   return input.replace(/^\/+|\/+$/g, '');
 };
 
+const APP_TOOL_LINKS = [
+  { title: 'Patterns', path: '/patterns' },
+  { title: 'Playground', path: '/playground' },
+];
+
 export function MainNav() {
   const context = useConfigContext();
   const pathname = usePathname();
+  const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+  const existingPaths = new Set((context.menu ?? []).map((s) => trimSlashes(s.path)));
+  const extraNav = APP_TOOL_LINKS.filter((l) => !existingPaths.has(trimSlashes(l.path)));
+
   return (
     <NavigationMenu>
       <NavigationMenuList>
@@ -60,6 +69,23 @@ export function MainNav() {
               </NavigationMenuItem>
             );
           })}
+        {extraNav.map((section) => {
+          const href = `${basePath}${section.path}`;
+          const isActive = trimSlashes(pathname).startsWith(trimSlashes(section.path));
+          return (
+            <NavigationMenuItem key={`tool-${section.path}`}>
+              <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
+                <Link
+                  href={href}
+                  className="block select-none space-y-1 rounded-sm p-3 leading-none no-underline outline-hidden transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                  {...(isActive ? { 'data-active': 'true' } : {})}
+                >
+                  <span className="text-sm leading-none">{section.title}</span>
+                </Link>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+          );
+        })}
       </NavigationMenuList>
     </NavigationMenu>
   );

@@ -1,4 +1,4 @@
-import { count, desc, eq, or } from 'drizzle-orm';
+import { and, count, desc, eq, ilike, or } from 'drizzle-orm';
 import { getDb } from './index';
 import { componentBuildJobs, figmaFetchJobs, handoffComponents, handoffPatterns, handoffTokensSnapshots } from './schema';
 
@@ -12,6 +12,44 @@ export async function getDbPatterns() {
   const db = getDb();
   if (!db) return [];
   return db.select().from(handoffPatterns);
+}
+
+export type DbPatternFilter = {
+  source?: string;
+  q?: string;
+  group?: string;
+};
+
+export async function getDbPatternsFiltered(filters: DbPatternFilter) {
+  const db = getDb();
+  if (!db) return [];
+  const clauses = [];
+  if (filters.source?.trim()) {
+    clauses.push(eq(handoffPatterns.source, filters.source.trim()));
+  }
+  if (filters.group?.trim()) {
+    clauses.push(eq(handoffPatterns.group, filters.group.trim()));
+  }
+  const q = filters.q?.trim();
+  if (q) {
+    const like = `%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
+    clauses.push(or(ilike(handoffPatterns.title, like), ilike(handoffPatterns.description, like))!);
+  }
+  if (clauses.length === 0) {
+    return db.select().from(handoffPatterns).orderBy(desc(handoffPatterns.updatedAt));
+  }
+  return db
+    .select()
+    .from(handoffPatterns)
+    .where(and(...clauses))
+    .orderBy(desc(handoffPatterns.updatedAt));
+}
+
+export async function getDbPatternById(id: string) {
+  const db = getDb();
+  if (!db) return null;
+  const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
+  return row ?? null;
 }
 
 export async function getRecentBuildJobs(limit = 50) {

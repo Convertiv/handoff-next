@@ -2,7 +2,8 @@ import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
 import { isDynamic } from '../../../lib/mode';
-import { getClientRuntimeConfig, staticBuildMenu } from '../../../components/util';
+import { getClientRuntimeConfig } from '../../../components/util';
+import { getDataProvider } from '../../../lib/data';
 import IntegrationsClient from './IntegrationsClient';
 
 export const metadata: Metadata = {
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 
 export default async function AdminIntegrationsPage() {
   const config = getClientRuntimeConfig();
-  const menu = staticBuildMenu();
+  const menu = await getDataProvider().getMenu();
 
   if (!isDynamic()) {
     return (

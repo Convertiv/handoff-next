@@ -14,6 +14,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import {
   ChevronDown,
   FileCodeIcon,
+  FolderOpen,
   Layers,
   Maximize,
   Minimize,
@@ -33,6 +34,8 @@ import { EditContextProvider, useEditContext } from './EditContext';
 import SortableItem from './SortableItem';
 import Preview, { constructComponentPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
+import PatternPicker from './PatternPicker';
+import SavePatternDialog from './SavePatternDialog';
 import TemplateManager from './TemplateManager';
 import WizardDialog from './Wizard/WizardDialog';
 import MediaBrowser from './MediaBrowser';
@@ -97,11 +100,17 @@ export default function PlaygroundBuilder() {
     saveAsTemplate,
     activeComponentId,
     setActiveComponentId,
+    editingPatternId,
+    setEditingPatternId,
+    loadPatternById,
+    isDynamicApp,
   } = usePlayground();
 
   const [html, setHtml] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [savePatternOpen, setSavePatternOpen] = useState(false);
+  const [patternPickerOpen, setPatternPickerOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
@@ -234,18 +243,43 @@ export default function PlaygroundBuilder() {
 
           <div className="mx-1 h-4 w-px bg-border" />
 
-          {templates.length > 0 && <TemplateManager />}
+          {(templates.length > 0 || isDynamicApp) && <TemplateManager />}
 
-          {selectedComponents.length > 0 && (
+          {isDynamicApp && (
             <>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleSaveTemplate}>
-                    <SaveIcon className="h-4 w-4" />
+                  <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={() => setPatternPickerOpen(true)}>
+                    <FolderOpen className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">Save as template</TooltipContent>
+                <TooltipContent side="bottom">Load pattern</TooltipContent>
               </Tooltip>
+              {selectedComponents.length > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={() => setSavePatternOpen(true)}>
+                      <SaveIcon className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{editingPatternId ? 'Update pattern' : 'Save pattern'}</TooltipContent>
+                </Tooltip>
+              )}
+            </>
+          )}
+
+          {selectedComponents.length > 0 && (
+            <>
+              {!isDynamicApp && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleSaveTemplate}>
+                      <SaveIcon className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Save as template</TooltipContent>
+                </Tooltip>
+              )}
 
               <DropdownMenu>
                 <Tooltip>
@@ -445,6 +479,20 @@ export default function PlaygroundBuilder() {
       </div>
 
       <WizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
+
+      <SavePatternDialog
+        open={savePatternOpen}
+        onOpenChange={setSavePatternOpen}
+        selectedComponents={selectedComponents}
+        editingPatternId={editingPatternId}
+        onSaved={(id) => setEditingPatternId(id)}
+      />
+
+      <PatternPicker
+        open={patternPickerOpen}
+        onOpenChange={setPatternPickerOpen}
+        onPick={(id) => loadPatternById(id, true)}
+      />
     </div>
   );
 }

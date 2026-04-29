@@ -8,15 +8,15 @@ import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import HeadersType from '../../../components/Typography/Headers';
 import { buttonVariants } from '../../../components/ui/button';
-import { fetchDocPageMarkdown, getClientRuntimeConfig, getTokens } from '../../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '../../../components/util';
 
 export async function generateMetadata() {
-  const { props } = fetchDocPageMarkdown('docs/foundations/', 'logo', '/foundations');
+  const { props } = await fetchDocPageMarkdownAsync('docs/foundations/', 'logo', '/foundations');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function LogoPage() {
-  const { props } = fetchDocPageMarkdown('docs/foundations/', 'logo', '/foundations');
+  const { props } = await fetchDocPageMarkdownAsync('docs/foundations/', 'logo', '/foundations');
   const config = getClientRuntimeConfig();
   const assets = getTokens().assets;
   const { content, menu, metadata, current } = props;

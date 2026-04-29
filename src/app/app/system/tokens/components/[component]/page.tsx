@@ -1,5 +1,6 @@
 import { startCase } from 'lodash';
-import { fetchCompDocPageMarkdown, fetchComponents, getClientRuntimeConfig, getCurrentSection, getTokensForRuntime, staticBuildMenu } from '../../../../../components/util';
+import { fetchCompDocPageMarkdownAsync, fetchComponents, getClientRuntimeConfig, getCurrentSection, getTokensForRuntime } from '../../../../../components/util';
+import { getDataProvider } from '../../../../../lib/data';
 import TokenComponentClient from './TokenComponentClient';
 
 export const dynamicParams = false;
@@ -11,7 +12,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: { params: Promise<{ component: string }> }) {
   const { component } = await params;
-  const { props } = fetchCompDocPageMarkdown('docs/system/', component, '/system');
+  const { props } = await fetchCompDocPageMarkdownAsync('docs/system/', component, '/system');
   const config = getClientRuntimeConfig();
   return {
     title: props.metadata.metaTitle || `${startCase(component)} Tokens | ${config?.app?.client} Design System`,
@@ -21,9 +22,9 @@ export async function generateMetadata({ params }: { params: Promise<{ component
 
 export default async function TokenComponentPage({ params }: { params: Promise<{ component: string }> }) {
   const { component } = await params;
-  const menu = staticBuildMenu();
+  const menu = await getDataProvider().getMenu();
   const config = getClientRuntimeConfig();
-  const { props } = fetchCompDocPageMarkdown('docs/system/', component, '/system');
+  const { props } = await fetchCompDocPageMarkdownAsync('docs/system/', component, '/system');
   const tokens = await getTokensForRuntime();
   const componentObject = tokens.components?.[component] ?? {};
 

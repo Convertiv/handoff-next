@@ -1,9 +1,10 @@
 import { Label } from '../../ui/label';
-import { TextIcon, Image, LinkIcon, GroupIcon, TextSelectIcon, MousePointerClickIcon, ToggleLeftIcon } from 'lucide-react';
+import { TextIcon, Image, LinkIcon, GroupIcon, TextSelectIcon, MousePointerClickIcon, ToggleLeftIcon, Film } from 'lucide-react';
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   text: TextIcon,
   image: Image,
+  video_file: Film,
   link: LinkIcon,
   button: MousePointerClickIcon,
   select: TextSelectIcon,

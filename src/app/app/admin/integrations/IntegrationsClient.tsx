@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle, ExternalLink, Loader2, RefreshCw, Unplug } from 'lucide-react';
+import { CheckCircle, ExternalLink, Loader2, RefreshCw, Sparkles, Unplug } from 'lucide-react';
 import { signIn, useSession } from 'next-auth/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Layout from '../../../components/Layout/Main';
@@ -18,6 +18,11 @@ type FetchJob = {
 type StatusPayload = {
   connected: boolean;
   oauthConfigured: boolean;
+};
+
+type AiStatusPayload = {
+  available: boolean;
+  model: string;
 };
 
 export default function IntegrationsClient({
@@ -39,6 +44,7 @@ export default function IntegrationsClient({
   const [triggerBusy, setTriggerBusy] = useState(false);
   const [job, setJob] = useState<FetchJob | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<AiStatusPayload | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -111,11 +117,22 @@ export default function IntegrationsClient({
     await signIn('figma', { callbackUrl: window.location.href });
   };
 
+  const refreshAiStatus = useCallback(async () => {
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/ai/status'), { credentials: 'include' });
+      if (!res.ok) return;
+      setAiStatus((await res.json()) as AiStatusPayload);
+    } catch {
+      setAiStatus({ available: false, model: 'gpt-4o-mini' });
+    }
+  }, []);
+
   useEffect(() => {
     if (!message && isAdmin) {
       void refreshStatus();
+      void refreshAiStatus();
     }
-  }, [message, isAdmin, refreshStatus]);
+  }, [message, isAdmin, refreshStatus, refreshAiStatus]);
 
   const jobActive = job?.status === 'queued' || job?.status === 'running';
 
@@ -128,6 +145,7 @@ export default function IntegrationsClient({
         {message ? (
           <p className="text-sm text-muted-foreground">{message}</p>
         ) : (
+          <>
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -232,6 +250,45 @@ export default function IntegrationsClient({
               )}
             </CardContent>
           </Card>
+
+          <Card className="mt-6">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                  <Sparkles className="h-5 w-5 text-violet-600" />
+                </div>
+                <div>
+                  <CardTitle className="text-base">Playground AI</CardTitle>
+                  <CardDescription>
+                    Server-side OpenAI key for the Playground &quot;Generate with AI&quot; wizard (optional BYOK still works when this is
+                    off).
+                  </CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <p>
+                Set <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">HANDOFF_AI_API_KEY</code> on the server. Optional:{' '}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">HANDOFF_AI_MODEL</code> (default{' '}
+                <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">gpt-4o-mini</code>).
+              </p>
+              {aiStatus ? (
+                <p>
+                  Status:{' '}
+                  <strong className="text-foreground">{aiStatus.available ? 'Configured' : 'Not configured'}</strong>
+                  {aiStatus.available ? (
+                    <>
+                      {' '}
+                      — model <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{aiStatus.model}</code>
+                    </>
+                  ) : null}
+                </p>
+              ) : (
+                <p>Checking…</p>
+              )}
+            </CardContent>
+          </Card>
+          </>
         )}
       </div>
     </Layout>

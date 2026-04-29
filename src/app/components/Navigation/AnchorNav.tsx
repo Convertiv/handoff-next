@@ -5,6 +5,7 @@ import AnchorNavLink from './AnchorNavLink';
 
 import { usePathname } from 'next/navigation';
 import React, { useEffect } from 'react';
+import { anchorSlugify } from './anchor-slugify';
 
 export { anchorSlugify } from './anchor-slugify';
 

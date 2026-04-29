@@ -36,19 +36,29 @@ export async function createPattern(data: {
   group?: string;
   components?: unknown[];
   payload?: Record<string, unknown>;
+  tags?: unknown[];
+  source?: string;
+  thumbnail?: string | null;
 }) {
   guardDynamic();
   const session = await auth();
   if (!session?.user) throw new Error('Unauthorized');
   const db = getDb()!;
 
+  const userId = typeof session.user.id === 'string' && session.user.id.length > 0 ? session.user.id : null;
+  const source = data.source?.trim() || 'playground';
+
   await db.insert(handoffPatterns).values({
     id: data.id,
     title: data.title,
     description: data.description ?? '',
     group: data.group ?? '',
+    tags: data.tags ?? [],
     components: data.components ?? [],
     data: data.payload ?? {},
+    userId,
+    source,
+    thumbnail: data.thumbnail ?? null,
   });
 
   await db.insert(editHistory).values({
@@ -78,7 +88,16 @@ export async function createPattern(data: {
 
 export async function updatePattern(
   id: string,
-  updates: Partial<{ title: string; description: string; group: string; components: unknown[]; data: Record<string, unknown> }>
+  updates: Partial<{
+    title: string;
+    description: string;
+    group: string;
+    components: unknown[];
+    data: Record<string, unknown>;
+    tags: unknown[];
+    source: string;
+    thumbnail: string | null;
+  }>
 ) {
   guardDynamic();
   const session = await auth();

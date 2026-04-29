@@ -17,7 +17,15 @@ export function getDataProvider(): DataProvider {
 }
 
 /** @deprecated Prefer `getDataProvider()` — re-export for incremental migration */
-export { staticBuildMenu, fetchDocPageMarkdown, fetchFoundationDocPageMarkdown, fetchCompDocPageMarkdown } from '../../components/util';
+export {
+  staticBuildMenu,
+  fetchDocPageMarkdown,
+  fetchDocPageMarkdownAsync,
+  fetchFoundationDocPageMarkdown,
+  fetchFoundationDocPageMarkdownAsync,
+  fetchCompDocPageMarkdown,
+  fetchCompDocPageMarkdownAsync,
+} from '../../components/util';
 export {
   buildCatchAllStaticPaths,
   fetchComponents,

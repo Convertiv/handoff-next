@@ -5,11 +5,23 @@ import { PlaygroundProvider } from '../../components/Playground/PlaygroundContex
 import PlaygroundBuilder from '../../components/Playground/PlaygroundBuilder';
 import { TooltipProvider } from '../../components/ui/tooltip';
 
-export default function PlaygroundClient({ menu, metadata, current, config }) {
+export default function PlaygroundClient({
+  menu,
+  metadata,
+  current,
+  config,
+  initialPatternId,
+}: {
+  menu: unknown;
+  metadata: unknown;
+  current: unknown;
+  config: unknown;
+  initialPatternId?: string;
+}) {
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <TooltipProvider>
-        <PlaygroundProvider>
+        <PlaygroundProvider initialPatternId={initialPatternId}>
           <PlaygroundBuilder />
         </PlaygroundProvider>
       </TooltipProvider>

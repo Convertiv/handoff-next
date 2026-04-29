@@ -69,6 +69,7 @@ async function main() {
             properties: (row.properties as object) ?? {},
             previews: (row.previews as object) ?? {},
             data: row as object,
+            source: 'disk' as const,
           };
         })
       );
@@ -93,6 +94,9 @@ async function main() {
             tags: (row.tags as object) ?? [],
             components: (row.components as object) ?? [],
             data: row as object,
+            source: 'build',
+            userId: null,
+            thumbnail: null,
           };
         })
       );

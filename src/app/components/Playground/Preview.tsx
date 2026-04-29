@@ -124,11 +124,16 @@ export function renderHandlebarsPreview(
 export function renderReactPreview(
   component: PlaygroundComponent,
   data: any = null,
-  basePath: string = ''
+  basePath: string = '',
+  /** When set (composite canvas), only apply postMessage updates targeting this block id. */
+  blockId?: string | null
 ): string {
   const props = JSON.stringify(data || component.data || {});
   const previewCssLink = component.options?.preview?.css
     ? `\n    <link rel="stylesheet" href="${component.options.preview.css}" />`
+    : '';
+  const blockFilter = blockId
+    ? `if (event.data.blockId && event.data.blockId !== ${JSON.stringify(blockId)}) return;`
     : '';
   return `<!DOCTYPE html>
 <html>
@@ -149,6 +154,7 @@ export function renderReactPreview(
 
       window.addEventListener('message', (event) => {
         if (event.data && event.data.type === 'update-props') {
+          ${blockFilter}
           update(event.data.props);
         }
       });
@@ -231,9 +237,12 @@ export async function constructComponentPreview(
   basePath: string = '',
   options?: { injectBlockControls?: boolean }
 ): Promise<string> {
-  let html = '';
+  let bodyInner = '';
+  const reactScripts: string[] = [];
   const cssOverrides = new Set<string>();
+  const componentCssIds = new Set<string>();
   const injectControls = options?.injectBlockControls ?? false;
+  let reactIdx = 0;
 
   for (const component of components) {
     if (component.options?.preview?.css) {
@@ -242,7 +251,30 @@ export async function constructComponentPreview(
 
     let blockHtml: string;
     if (component.format === 'react') {
-      blockHtml = component.html || '';
+      const suffix = `_pg_${reactIdx++}`;
+      const rootId = `root${suffix}`;
+      const propsId = `__PROPS__${suffix}`;
+      const propsJson = JSON.stringify(component.data ?? {});
+      componentCssIds.add(component.id);
+      const bid = component.uniqueId || '';
+      blockHtml =
+        `<script id="${propsId}" type="application/json">${propsJson}</script>` +
+        `<div id="${rootId}"></div>`;
+      reactScripts.push(`    <script type="module">
+      import { render, update } from '${basePath}/api/component/${component.id}.module.js';
+      (function(){
+        var blockId = ${JSON.stringify(bid)};
+        var container = document.getElementById(${JSON.stringify(rootId)});
+        var el = document.getElementById(${JSON.stringify(propsId)});
+        var initialProps = el ? JSON.parse(el.textContent || '{}') : {};
+        render(container, initialProps);
+        window.addEventListener('message', function (event) {
+          if (!event.data || event.data.type !== 'update-props') return;
+          if (event.data.blockId && event.data.blockId !== blockId) return;
+          update(event.data.props);
+        });
+      })();
+    </script>`);
     } else if (component.rendered) {
       blockHtml = component.rendered;
     } else {
@@ -250,11 +282,15 @@ export async function constructComponentPreview(
     }
 
     if (injectControls && component.uniqueId) {
-      html += `<div class="playground-block" data-block-id="${escapeAttr(component.uniqueId)}" data-block-title="${escapeAttr(component.title)}">${blockHtml}</div>`;
+      bodyInner += `<div class="playground-block" data-block-id="${escapeAttr(component.uniqueId)}" data-block-title="${escapeAttr(component.title)}">${blockHtml}</div>`;
     } else {
-      html += blockHtml;
+      bodyInner += blockHtml;
     }
   }
+
+  const perComponentCss = Array.from(componentCssIds)
+    .map((id) => `\n      <link rel="stylesheet" href="${basePath}/api/component/${id}.css" />`)
+    .join('');
 
   const cssOverrideLinks = Array.from(cssOverrides)
     .map((href) => `\n      <link rel="stylesheet" href="${href}" />`)
@@ -265,13 +301,15 @@ export async function constructComponentPreview(
 
   return `<html>
     <head>
-      <link rel="stylesheet" href="${basePath}/api/component/main.css" />${cssOverrideLinks}
+      <link rel="stylesheet" href="${basePath}/api/component/main.css" />
+      <link rel="stylesheet" href="${basePath}/assets/css/preview.css" />${perComponentCss}${cssOverrideLinks}
       ${controlsStyle}
     </head>
     <body>
-      ${html}
+      ${bodyInner}
     </body>
     <script src="${basePath}/api/component/main.js"></script>
+${reactScripts.join('\n')}
     ${controlsScript}
   </html>`;
 }

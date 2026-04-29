@@ -13,6 +13,7 @@ import { ImageField } from './ImageField';
 import { LinkField } from './LinkField';
 import { ButtonField } from './ButtonField';
 import { SelectField } from './SelectField';
+import { VideoFileField } from './VideoFileField';
 
 export function renderFormFields(obj: any, data: any, path: string[] = []) {
   return Object.entries(obj).map(([key, value]: [string, any]) => {
@@ -110,6 +111,8 @@ export function InputField({ fieldKey, value, data }: { fieldKey: string[]; valu
       return <ArrayField identifier={fieldKey} value={value} data={data} />;
     case 'image':
       return <ImageField identifier={fieldKey} value={value} data={data} />;
+    case 'video_file':
+      return <VideoFileField identifier={fieldKey} value={value} data={data} />;
     case 'button':
       return <ButtonField identifier={fieldKey} value={value} data={data} />;
     case 'link':

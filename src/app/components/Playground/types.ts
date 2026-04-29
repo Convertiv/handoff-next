@@ -36,6 +36,11 @@ export interface SelectedPlaygroundComponent extends PlaygroundComponent {
   uniqueId: string;
 }
 
+export interface BulkComponentEntry {
+  componentId: string;
+  data: Record<string, any>;
+}
+
 export interface PlaygroundAsset {
   id: string;
   name: string;

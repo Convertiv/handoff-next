@@ -4,29 +4,9 @@ import fs from 'fs-extra';
 import path from 'path';
 import { getDb } from '../db';
 import { componentBuildJobs } from '../db/schema';
+import { resolveHandoffRepoRoot } from './handoff-config-load';
 
-/** Resolve the handoff-app package root (contains `package.json` with name handoff-app). */
-export function resolveHandoffRepoRoot(): string {
-  const env = process.env.HANDOFF_COMPONENT_BUILD_REPO_ROOT;
-  if (env && env.length > 0) return path.resolve(env);
-
-  let dir = process.cwd();
-  for (let i = 0; i < 8; i++) {
-    const pkg = path.join(dir, 'package.json');
-    if (fs.existsSync(pkg)) {
-      try {
-        const j = JSON.parse(fs.readFileSync(pkg, 'utf8')) as { name?: string };
-        if (j.name === 'handoff-app') return dir;
-      } catch {
-        /* ignore */
-      }
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return process.cwd();
-}
+export { resolveHandoffRepoRoot };
 
 export async function insertBuildJob(componentId: string): Promise<number> {
   const db = getDb();

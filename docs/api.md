@@ -62,6 +62,38 @@ Polls a single build job created by `POST`.
 | **200** | `{ id, componentId, status, error, createdAt, completedAt }` — `status` is one of `queued`, `building`, `complete`, `failed` |
 | **404** | Job not found, or not in dynamic mode |
 
+### `GET /api/handoff/components/diff`
+
+Compares on-disk component folders (from `handoff.config.js` → `entries.components`) with `handoff_component` rows.
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **200** | `{ "diffs": [ { "id", "status", "fields" } ] }` — `status` is `new` \| `modified` \| `unchanged` \| `db_only`; each `fields` entry has `field`, `filesystem`, `database` snapshots |
+
+### `POST /api/handoff/components/ingest`
+
+Imports manifests + source files from disk into the database (upsert). If any selected component is **modified** vs the DB and you omit `decisions` / `overwriteAll`, the server responds **409** with a `conflicts` list.
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Body** | Optional: `componentIds` (subset), `decisions` — map of component id → `filesystem` \| `keep_db` \| `skip`, `overwriteAll` (boolean), `dryRun` (boolean) |
+| **200** | `{ "ingested", "skipped", "kept" }` |
+| **409** | Conflicts — include `overwriteAll: true` or per-id `decisions` |
+| **429** | Too many ingest requests per minute |
+
+### `POST /api/handoff/components/export`
+
+Writes DB components back to the repo under `components/` (default), using legacy folder layout (`<id>/<id>.js`, `template.hbs`, `style.scss`, `script.js`). Runs `git add` + `git commit` on that path when `autoCommit` is not `false`.
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Body** | Optional: `componentIds`, `outputDir` (must stay under repo root), `autoCommit` |
+| **200** | `{ "exported", "commitSha?", "gitMessage?", "gitWarning?" }` |
+| **429** | Too many export requests per minute |
+
 ### `GET /api/components`
 
 Returns the JSON array used by the system components list. In dynamic mode this is read from the database at request time; in static export mode it is generated at build time.
@@ -95,6 +127,53 @@ Two modes:
 | **Status mode** | `GET /api/handoff/figma/fetch` → `{ connected, oauthConfigured }` |
 | **Job mode** | `GET /api/handoff/figma/fetch?jobId=<id>` → `{ id, status, error, createdAt, completedAt, triggeredByUserId }` |
 | **Job statuses** | `queued`, `running`, `complete`, `failed` |
+
+### `GET /api/handoff/patterns`
+
+Lists patterns for the Playground / Patterns browser. In **static** mode, returns the same list as `patterns.json` (with synthetic `_source: "build"` metadata). In **dynamic** mode, reads from `handoff_pattern`.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **Query** | Optional: `q` (search title/description), `group`, `source` (`playground` / `build` / …) |
+| **200** | `{ "patterns": [ PatternListObject & { _source, _thumbnail, … } ] }` |
+
+### `GET /api/handoff/patterns/{id}`
+
+Returns one pattern row for loading into the Playground (`components`, `data.previews`, etc.).
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **200** | `{ "pattern": { … } }` |
+
+### `POST /api/handoff/patterns/{id}/clone`
+
+Clones a DB pattern to a new id with `source: playground` (dynamic mode only).
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+
+### `GET /api/handoff/ai/status`
+
+Returns whether server-side Playground AI is configured (`HANDOFF_AI_API_KEY`) and the model id.
+
+| | |
+| --- | --- |
+| **Auth** | None |
+| **200** | `{ "available": boolean, "model": string }` |
+
+### `POST /api/handoff/ai/generate-pattern`
+
+Runs the Playground wizard prompt against OpenAI using the server key. Rate-limited per user.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **Body** | `{ "description": string, "content?": string, "currentPageSummary?": { id, title }[] }` |
+| **200** | `{ "entries": BulkComponentEntry[], "warnings": string[] }` |
+| **503** | `HANDOFF_AI_API_KEY` not set |
 
 ### Security notes
 

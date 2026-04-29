@@ -9,15 +9,15 @@ import remarkGfm from 'remark-gfm';
 import Footer from '../../../components/Footer';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import Header from '../../../components/old/Header';
-import { fetchDocPageMarkdown, getClientRuntimeConfig, getTokens } from '../../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '../../../components/util';
 
 export async function generateMetadata() {
-  const { props } = fetchDocPageMarkdown('docs/assets/', 'fonts', '/assets');
+  const { props } = await fetchDocPageMarkdownAsync('docs/assets/', 'fonts', '/assets');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function FontsPage() {
-  const { props } = fetchDocPageMarkdown('docs/assets/', 'fonts', '/assets');
+  const { props } = await fetchDocPageMarkdownAsync('docs/assets/', 'fonts', '/assets');
   const config = getClientRuntimeConfig();
   const design = getTokens().localStyles;
   const { content, menu, metadata } = props;

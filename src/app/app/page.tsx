@@ -9,15 +9,15 @@ import Layout from '../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../components/Markdown/MarkdownComponents';
 import HeadersType from '../components/Typography/Headers';
 import { Button } from '../components/ui/button';
-import { fetchDocPageMarkdown, getClientRuntimeConfig } from '../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../components/util';
 
 export async function generateMetadata() {
-  const { props } = fetchDocPageMarkdown('docs/', 'index', '/');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'index', '/');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function Home() {
-  const { props } = fetchDocPageMarkdown('docs/', 'index', '/');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'index', '/');
   const config = getClientRuntimeConfig();
   const { content, menu, metadata, current } = props;
 

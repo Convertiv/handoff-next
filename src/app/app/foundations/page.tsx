@@ -6,15 +6,15 @@ import CardsWithIcons from '../../components/cards/CardsWithIcons';
 import Layout from '../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../components/Markdown/MarkdownComponents';
 import HeadersType from '../../components/Typography/Headers';
-import { fetchDocPageMarkdown, getClientRuntimeConfig } from '../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../components/util';
 
 export async function generateMetadata() {
-  const { props } = fetchDocPageMarkdown('docs/', 'foundations', '/foundations');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'foundations', '/foundations');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function FoundationsPage() {
-  const { props } = fetchDocPageMarkdown('docs/', 'foundations', '/foundations');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'foundations', '/foundations');
   const config = getClientRuntimeConfig();
   const { content, menu, metadata, current } = props;
 

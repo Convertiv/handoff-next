@@ -126,6 +126,7 @@ export async function applyUploadedChange(input: {
       properties: (d.properties as object) ?? null,
       previews: (d.previews as object) ?? null,
       data: (d.data as object) ?? (d as object),
+      source: typeof d.source === 'string' && d.source.length > 0 ? String(d.source) : 'disk',
       updatedAt: new Date(),
     };
     await db
@@ -146,6 +147,7 @@ export async function applyUploadedChange(input: {
           properties: row.properties,
           previews: row.previews,
           data: row.data,
+          source: row.source,
           updatedAt: row.updatedAt,
         },
       });

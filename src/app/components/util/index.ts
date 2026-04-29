@@ -95,6 +95,7 @@ export const MARKDOWN_CATCHALL_RESERVED_FIRST_SEGMENTS = new Set([
   'system',
   'design',
   'playground',
+  'patterns',
 ]);
 
 export const knownPaths = [
@@ -120,6 +121,7 @@ export const knownPaths = [
   'system/pattern',
   'design',
   'playground',
+  'patterns',
 ];
 
 /**
@@ -380,16 +382,23 @@ const buildComponentGroupsMenu = (components: { id: string; name: string; group:
   return groups;
 };
 
-const staticBuildComponentMenu = (type?: boolean | string) => {
+/** Summary shape used to build the Design System → Components sidebar (grouped by type and group). */
+export type ComponentMenuSummary = { id: string; type?: string; group: string; name: string; description?: string };
+
+/**
+ * Build component sidebar sections from an explicit list (e.g. merged DB + static in dynamic mode).
+ * Same layout rules as {@link fetchComponents}-based `staticBuildComponentMenu`.
+ */
+export const buildComponentSubmenusFromSummaries = (components: ComponentMenuSummary[], type?: boolean | string) => {
   const basePath = buildBasePath();
-  let components = fetchComponents({ includeTokens: false });
+  let list = [...components];
   if (typeof type === 'string' && type !== '') {
-    components = components.filter((component) => component.type == type);
-    return buildComponentGroupsMenu(components, basePath);
+    list = list.filter((component) => component.type == type);
+    return buildComponentGroupsMenu(list, basePath);
   }
 
   if (type === true) {
-    const groupedByType = groupBy(components, (component) => String(component.type || ComponentType.Element).toLowerCase());
+    const groupedByType = groupBy(list, (component) => String(component.type || ComponentType.Element).toLowerCase());
     const desiredOrder = [ComponentType.Element, ComponentType.Block, ComponentType.Navigation, ComponentType.Utility];
     const sortedTypes = Object.keys(groupedByType).sort((a, b) => {
       const ai = desiredOrder.indexOf(a as ComponentType);
@@ -407,7 +416,19 @@ const staticBuildComponentMenu = (type?: boolean | string) => {
       .filter((section) => section.menu.length > 0);
   }
 
-  return buildComponentGroupsMenu(components, basePath);
+  return buildComponentGroupsMenu(list, basePath);
+};
+
+const staticBuildComponentMenu = (type?: boolean | string) => {
+  const raw = fetchComponents({ includeTokens: false }) ?? [];
+  const components: ComponentMenuSummary[] = raw.map((c) => ({
+    id: c.id,
+    type: c.type,
+    group: c.group ?? '',
+    name: c.name ?? '',
+    description: c.description,
+  }));
+  return buildComponentSubmenusFromSummaries(components, type);
 };
 
 const staticBuildTokensMenu = () => {
@@ -547,8 +568,15 @@ export const getCurrentSection = (menu: SectionLink[], path: string): SectionLin
  * @param slug
  * @returns
  */
-export const fetchDocPageMarkdown = (path: string, slug: string | undefined, id: string, runtimeConfig?: RuntimeConfig) => {
-  const menu = staticBuildMenu();
+export const fetchDocPageMarkdown = (
+  path: string,
+  slug: string | undefined,
+  id: string,
+  runtimeConfig?: RuntimeConfig,
+  /** When set (e.g. merged DB + disk menu in dynamic mode), used instead of {@link staticBuildMenu}. */
+  menuOverride?: SectionLink[]
+) => {
+  const menu = menuOverride ?? staticBuildMenu();
   const { metadata, content, options } = fetchDocPageMetadataAndContent(path, slug, runtimeConfig);
   // Return props
   return {
@@ -562,6 +590,13 @@ export const fetchDocPageMarkdown = (path: string, slug: string | undefined, id:
   };
 };
 
+/** Same as {@link fetchDocPageMarkdown} but uses `getDataProvider().getMenu()` (merged DB + disk in dynamic mode). */
+export async function fetchDocPageMarkdownAsync(path: string, slug: string | undefined, id: string, runtimeConfig?: RuntimeConfig) {
+  const { getDataProvider } = await import('../../lib/data');
+  const menu = await getDataProvider().getMenu();
+  return fetchDocPageMarkdown(path, slug, id, runtimeConfig, menu);
+}
+
 /**
  * Fetch Component Doc Page Markdown
  * @param path
@@ -569,10 +604,16 @@ export const fetchDocPageMarkdown = (path: string, slug: string | undefined, id:
  * @param id
  * @returns
  */
-export const fetchCompDocPageMarkdown = (path: string, slug: string | undefined, id: string, runtimeConfig?: RuntimeConfig) => {
+export const fetchCompDocPageMarkdown = (
+  path: string,
+  slug: string | undefined,
+  id: string,
+  runtimeConfig?: RuntimeConfig,
+  menuOverride?: SectionLink[]
+) => {
   return {
     props: {
-      ...fetchDocPageMarkdown(path, slug, id, runtimeConfig).props,
+      ...fetchDocPageMarkdown(path, slug, id, runtimeConfig, menuOverride).props,
       scss: slug ? fetchTokensString(slug, 'scss') : '',
       css: slug ? fetchTokensString(slug, 'css') : '',
       styleDictionary: slug ? fetchTokensString(slug, 'styleDictionary') : '',
@@ -580,6 +621,12 @@ export const fetchCompDocPageMarkdown = (path: string, slug: string | undefined,
     },
   };
 };
+
+export async function fetchCompDocPageMarkdownAsync(path: string, slug: string | undefined, id: string, runtimeConfig?: RuntimeConfig) {
+  const { getDataProvider } = await import('../../lib/data');
+  const menu = await getDataProvider().getMenu();
+  return fetchCompDocPageMarkdown(path, slug, id, runtimeConfig, menu);
+}
 
 type FetchComponentsOptions = {
   includeTokens?: boolean;
@@ -730,10 +777,10 @@ const loadClientConfig = (): ClientConfigCache => {
  * @param id
  * @returns
  */
-export const fetchFoundationDocPageMarkdown = (path: string, slug: string | undefined, id: string) => {
+export const fetchFoundationDocPageMarkdown = (path: string, slug: string | undefined, id: string, menuOverride?: SectionLink[]) => {
   return {
     props: {
-      ...fetchDocPageMarkdown(path, slug, id).props,
+      ...fetchDocPageMarkdown(path, slug, id, undefined, menuOverride).props,
       scss: slug ? fetchTokensString(pluralizeComponent(slug), 'scss') : '',
       css: slug ? fetchTokensString(pluralizeComponent(slug), 'css') : '',
       styleDictionary: slug ? fetchTokensString(pluralizeComponent(slug), 'styleDictionary') : '',
@@ -741,6 +788,12 @@ export const fetchFoundationDocPageMarkdown = (path: string, slug: string | unde
     },
   };
 };
+
+export async function fetchFoundationDocPageMarkdownAsync(path: string, slug: string | undefined, id: string) {
+  const { getDataProvider } = await import('../../lib/data');
+  const menu = await getDataProvider().getMenu();
+  return fetchFoundationDocPageMarkdown(path, slug, id, menu);
+}
 
 export const getClientRuntimeConfig = (): ClientConfig => {
   const clientConfig = loadClientConfig();

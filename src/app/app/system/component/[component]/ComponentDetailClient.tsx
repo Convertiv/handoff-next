@@ -3,7 +3,7 @@
 import { OptionalPreviewRender } from '@handoff/transformers/preview/types';
 import { PreviewObject } from '@handoff/types/preview';
 import { evaluateFilter, type Filter } from '@handoff/utils/filter';
-import { Pencil, X } from 'lucide-react';
+import { Download, Pencil, X } from 'lucide-react';
 import { startCase } from 'lodash';
 import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -22,6 +22,7 @@ import { MarkdownComponents, remarkCodeMeta } from '../../../../components/Markd
 import AnchorNav from '../../../../components/Navigation/AnchorNav';
 import PrevNextNav from '../../../../components/Navigation/PrevNextNav';
 import HeadersType from '../../../../components/Typography/Headers';
+import { handoffApiUrl } from '../../../../lib/api-path';
 import { Button } from '../../../../components/ui/button';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '../../../../components/ui/drawer';
 import { JsonTreeView } from '../../../../components/ui/json-tree-view';
@@ -58,6 +59,7 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
   const [componentPreviews, setComponentPreviews] = useState<PreviewObject | [string, PreviewObject][]>();
   const [hotKey, setHotKey] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
 
   const { authEnabled } = useAuthUi();
   const { data: session, status } = useSession();
@@ -105,6 +107,27 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
     setComponent(undefined);
     void fetchComponentData();
   }, [fetchComponentData, id]);
+
+  const exportToCode = useCallback(async () => {
+    if (!confirm(`Export "${id}" to the components/ folder and git commit?`)) return;
+    setExportBusy(true);
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/components/export'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ componentIds: [id], autoCommit: true }),
+      });
+      const data = (await res.json()) as { error?: string; gitWarning?: string; commitSha?: string };
+      if (!res.ok) throw new Error(data.error ?? 'Export failed');
+      const extra = [data.commitSha ? `Commit ${data.commitSha.slice(0, 7)}` : null, data.gitWarning].filter(Boolean).join(' — ');
+      alert(extra ? `Exported. ${extra}` : 'Exported.');
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExportBusy(false);
+    }
+  }, [id]);
 
   useEffect(() => {
     if (!component) return;
@@ -157,6 +180,19 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
                 {editing ? <><X strokeWidth={2} /> Done editing</> : <><Pencil strokeWidth={2} /> Edit</>}
               </Button>
             )}
+            {canEditDynamic && isDynamic ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5 font-normal [&_svg]:size-3!"
+                disabled={exportBusy}
+                onClick={() => void exportToCode()}
+              >
+                <Download strokeWidth={2} className="size-3" />
+                {exportBusy ? 'Exporting…' : 'Export to code'}
+              </Button>
+            ) : null}
             {component.figma && (
               <Button asChild variant="outline" size="sm" className="font-normal [&_svg]:size-3!">
                 <a href={component.figma} target="_blank">Figma Reference</a>

@@ -6,15 +6,15 @@ import Footer from '../../components/Footer';
 import { MarkdownComponents, remarkCodeMeta } from '../../components/Markdown/MarkdownComponents';
 import NavLink from '../../components/NavLink';
 import Header from '../../components/old/Header';
-import { fetchDocPageMarkdown, getClientRuntimeConfig } from '../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../components/util';
 
 export async function generateMetadata() {
-  const { props } = fetchDocPageMarkdown('docs/', 'assets', '/assets');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'assets', '/assets');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function AssetsPage() {
-  const { props } = fetchDocPageMarkdown('docs/', 'assets', '/assets');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'assets', '/assets');
   const config = getClientRuntimeConfig();
   const { content, menu, metadata } = props;
 
