@@ -69,7 +69,11 @@ export async function POST(request: NextRequest) {
     const raw = await openAiChatJson([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
-    ]);
+    ], {
+      actorUserId: userId,
+      route: '/api/handoff/ai/generate-pattern',
+      eventType: 'ai.generate_pattern',
+    });
 
     const { entries, warnings } = parseWizardResponse(raw, catalog);
     record(userId, now);

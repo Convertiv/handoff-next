@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { countQueuedOrBuildingJobs } from '@/lib/db/queries';
 import { getBuildJob, insertBuildJob, spawnComponentBuildWorker } from '@/lib/server/component-builder';
+import { logEvent } from '@/lib/server/event-log';
 
 const MAX_BUILDS_PER_USER_PER_MINUTE = 5;
 const MAX_CONCURRENT_QUEUED_OR_BUILDING = 3;
@@ -56,10 +57,28 @@ export async function POST(request: NextRequest) {
 
     const jobId = await insertBuildJob(componentId);
     recordPost(userId, now);
+    await logEvent({
+      category: 'build',
+      eventType: 'component_build.enqueue',
+      status: 'success',
+      actorUserId: userId,
+      route: '/api/handoff/components/build',
+      entityType: 'component_build_job',
+      entityId: String(jobId),
+      metadata: { componentId },
+    });
     spawnComponentBuildWorker(jobId);
     return NextResponse.json({ jobId, status: 'queued' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';
+    await logEvent({
+      category: 'build',
+      eventType: 'component_build.enqueue',
+      status: 'error',
+      actorUserId: session.user.id,
+      route: '/api/handoff/components/build',
+      error: msg,
+    });
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

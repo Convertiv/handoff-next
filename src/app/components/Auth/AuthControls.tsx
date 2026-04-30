@@ -62,10 +62,13 @@ export function AuthControls() {
               <Link href="/admin/users">Manage users</Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
-              <Link href="/admin/builds">Component builds</Link>
+              <Link href="/admin/builds">Builds</Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href="/admin/integrations">Integrations</Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/admin/ai-cost">AI cost</Link>
             </DropdownMenuItem>
           </>
         ) : null}
@@ -120,10 +123,13 @@ export function AuthControlsMobile() {
             Manage users
           </Link>
           <Link href="/admin/builds" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
-            Component builds
+            Builds
           </Link>
           <Link href="/admin/integrations" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
             Integrations
+          </Link>
+          <Link href="/admin/ai-cost" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
+            AI cost
           </Link>
         </>
       ) : null}

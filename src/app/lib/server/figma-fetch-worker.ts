@@ -4,6 +4,7 @@ import Handoff from '../../../index';
 import { getDb } from '../db';
 import { figmaFetchJobs, handoffTokensSnapshots } from '../db/schema';
 import { getValidFigmaAccessTokenForUser } from './figma-auth';
+import { logEvent } from './event-log';
 
 async function main() {
   const jobId = Number(process.argv[2]);
@@ -25,6 +26,15 @@ async function main() {
     process.exit(1);
   }
   if (!job.triggeredByUserId) {
+    await logEvent({
+      category: 'figma',
+      eventType: 'figma_fetch.run',
+      status: 'error',
+      route: 'worker:figma-fetch',
+      entityType: 'figma_fetch_job',
+      entityId: String(jobId),
+      error: 'Missing triggering user',
+    });
     await db
       .update(figmaFetchJobs)
       .set({ status: 'failed', error: 'Missing triggering user', completedAt: new Date() })
@@ -64,6 +74,16 @@ async function main() {
       .update(figmaFetchJobs)
       .set({ status: 'complete', error: null, completedAt: new Date() })
       .where(eq(figmaFetchJobs.id, jobId));
+    await logEvent({
+      category: 'figma',
+      eventType: 'figma_fetch.run',
+      status: 'success',
+      actorUserId: job.triggeredByUserId,
+      route: 'worker:figma-fetch',
+      entityType: 'figma_fetch_job',
+      entityId: String(jobId),
+      durationMs: job.createdAt ? Date.now() - job.createdAt.getTime() : null,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(msg);
@@ -71,6 +91,17 @@ async function main() {
       .update(figmaFetchJobs)
       .set({ status: 'failed', error: msg.slice(0, 8000), completedAt: new Date() })
       .where(eq(figmaFetchJobs.id, jobId));
+    await logEvent({
+      category: 'figma',
+      eventType: 'figma_fetch.run',
+      status: 'error',
+      actorUserId: job.triggeredByUserId,
+      route: 'worker:figma-fetch',
+      entityType: 'figma_fetch_job',
+      entityId: String(jobId),
+      durationMs: job.createdAt ? Date.now() - job.createdAt.getTime() : null,
+      error: msg,
+    });
     process.exit(1);
   }
 }

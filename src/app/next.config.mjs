@@ -21,6 +21,7 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
   trailingSlash: true,
+  serverExternalPackages: ['@resvg/resvg-js', 'playwright-core'],
   experimental: {
     externalDir: true,
   },

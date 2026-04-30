@@ -2,14 +2,14 @@ import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
 import { isDynamic } from '../../../lib/mode';
-import { getRecentBuildJobs } from '../../../lib/db/queries';
+import { getMergedAdminBuildTasks } from '../../../lib/db/queries';
 import { getClientRuntimeConfig } from '../../../components/util';
 import { getDataProvider } from '../../../lib/data';
 import BuildsClient from './BuildsClient';
 
 export const metadata: Metadata = {
-  title: 'Component Builds',
-  description: 'Recent component build jobs',
+  title: 'Builds',
+  description: 'Component preview builds and design asset extraction jobs',
 };
 
 export default async function AdminBuildsPage() {
@@ -19,7 +19,7 @@ export default async function AdminBuildsPage() {
   if (!isDynamic()) {
     return (
       <BuildsClient
-        initialJobs={[]}
+        initialTasks={[]}
         config={config}
         menu={menu}
         message="Build dashboard is only available in dynamic mode."
@@ -34,7 +34,7 @@ export default async function AdminBuildsPage() {
   if (session.user.role !== 'admin') {
     return (
       <BuildsClient
-        initialJobs={[]}
+        initialTasks={[]}
         config={config}
         menu={menu}
         message="You need administrator access to view this page."
@@ -42,12 +42,12 @@ export default async function AdminBuildsPage() {
     );
   }
 
-  let jobs: Awaited<ReturnType<typeof getRecentBuildJobs>> = [];
+  let tasks: Awaited<ReturnType<typeof getMergedAdminBuildTasks>> = [];
   try {
-    jobs = await getRecentBuildJobs(100);
+    tasks = await getMergedAdminBuildTasks(120, 120);
   } catch {
-    jobs = [];
+    tasks = [];
   }
 
-  return <BuildsClient initialJobs={jobs} config={config} menu={menu} />;
+  return <BuildsClient initialTasks={tasks} config={config} menu={menu} />;
 }

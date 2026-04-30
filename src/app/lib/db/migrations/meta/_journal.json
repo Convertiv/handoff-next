@@ -50,6 +50,41 @@
       "when": 1777600000000,
       "tag": "0007_handoff_component_source",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1777471283907,
+      "tag": "0007_lethal_green_goblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777473570480,
+      "tag": "0008_tranquil_captain_marvel",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1778000000000,
+      "tag": "0009_event_log_if_missing",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1778100000000,
+      "tag": "0010_design_artifact_if_missing",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1778200000000,
+      "tag": "0011_design_artifact_assets_and_sharing",
+      "breakpoints": true
     }
   ]
 }

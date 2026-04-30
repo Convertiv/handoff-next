@@ -1,3 +1,5 @@
+import { logAiEvent } from './event-log';
+
 export type ImageContent = {
   type: 'image_url';
   image_url: { url: string; detail?: 'low' | 'high' | 'auto' };
@@ -8,6 +10,12 @@ export type TextContent = { type: 'text'; text: string };
 export type MessageContent = string | (TextContent | ImageContent)[];
 
 export type ChatMessage = { role: 'system' | 'user'; content: MessageContent };
+export type ImageEditSize = '1024x1024' | '1536x1024' | '1024x1536' | 'auto';
+export type ImageEditInput = {
+  filename: string;
+  contentType: 'image/png' | 'image/jpeg' | 'image/webp';
+  data: Buffer;
+};
 
 export function isServerAiConfigured(): boolean {
   const key = process.env.HANDOFF_AI_API_KEY?.trim();
@@ -29,15 +37,139 @@ export function visionMessage(text: string, images: ImageContent[]): ChatMessage
 }
 
 /**
+ * OpenAI image edits. Uses HANDOFF_AI_API_KEY.
+ */
+export async function openAiImageEdit({
+  prompt,
+  images,
+  model = 'gpt-image-2',
+  size = '1024x1024',
+  actorUserId,
+  route,
+  eventType = 'ai.image_edit',
+}: {
+  prompt: string;
+  images: ImageEditInput[];
+  model?: string;
+  size?: ImageEditSize;
+  actorUserId?: string | null;
+  route?: string | null;
+  eventType?: string;
+}): Promise<string> {
+  const startedAt = Date.now();
+  const apiKey = process.env.HANDOFF_AI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('HANDOFF_AI_API_KEY is not configured.');
+  }
+  if (!prompt.trim()) {
+    throw new Error('Image edit prompt is required.');
+  }
+  if (images.length === 0) {
+    throw new Error('At least one image is required.');
+  }
+
+  const formData = new FormData();
+  formData.append('model', model);
+  formData.append('prompt', prompt);
+  formData.append('size', size);
+  for (const image of images) {
+    const blob = new Blob([new Uint8Array(image.data)], { type: image.contentType });
+    formData.append('image[]', blob, image.filename);
+  }
+
+  const response = await fetch('https://api.openai.com/v1/images/edits', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    await logAiEvent({
+      eventType,
+      actorUserId,
+      route,
+      model,
+      durationMs: Date.now() - startedAt,
+      status: 'error',
+      error: `OpenAI image API error (${response.status}): ${body.slice(0, 500)}`,
+      requestPrompt: prompt,
+      imageCount: images.length,
+      metadata: { size, statusCode: response.status },
+    });
+    if (response.status === 401) {
+      throw new Error('Invalid HANDOFF_AI_API_KEY.');
+    }
+    if (response.status === 429) {
+      throw new Error('OpenAI rate limit; try again shortly.');
+    }
+    throw new Error(`OpenAI image API error (${response.status}): ${body.slice(0, 500)}`);
+  }
+
+  const json = (await response.json()) as { data?: { b64_json?: string; url?: string }[] };
+  const image = json.data?.[0];
+  if (!image?.b64_json && !image?.url) {
+    await logAiEvent({
+      eventType,
+      actorUserId,
+      route,
+      model,
+      durationMs: Date.now() - startedAt,
+      status: 'error',
+      error: 'OpenAI did not return an image.',
+      requestPrompt: prompt,
+      imageCount: images.length,
+      metadata: { size },
+    });
+  } else {
+    await logAiEvent({
+      eventType,
+      actorUserId,
+      route,
+      model,
+      durationMs: Date.now() - startedAt,
+      status: 'success',
+      requestPrompt: prompt,
+      imageCount: images.length,
+      metadata: { size },
+    });
+  }
+  if (image?.b64_json) {
+    return `data:image/png;base64,${image.b64_json}`;
+  }
+  if (image?.url) {
+    return image.url;
+  }
+  throw new Error('OpenAI did not return an image.');
+}
+
+/**
  * OpenAI chat completions (JSON mode). Supports both text-only and
  * vision/multimodal messages via the content array format.
  */
-export async function openAiChatJson(messages: ChatMessage[]): Promise<string> {
+export async function openAiChatJson(
+  messages: ChatMessage[],
+  options?: { actorUserId?: string | null; route?: string | null; eventType?: string }
+): Promise<string> {
+  const startedAt = Date.now();
   const apiKey = process.env.HANDOFF_AI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('HANDOFF_AI_API_KEY is not configured.');
   }
   const model = getServerAiModel();
+  const requestPreview = messages
+    .filter((m) => m.role === 'user')
+    .map((m) =>
+      typeof m.content === 'string'
+        ? m.content
+        : m.content
+            .map((part) => (part.type === 'text' ? part.text : '[image]'))
+            .join(' ')
+    )
+    .join('\n\n')
+    .slice(0, 1000);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -55,6 +187,17 @@ export async function openAiChatJson(messages: ChatMessage[]): Promise<string> {
 
   if (!response.ok) {
     const body = await response.text();
+    await logAiEvent({
+      eventType: options?.eventType ?? 'ai.chat',
+      actorUserId: options?.actorUserId,
+      route: options?.route,
+      model,
+      durationMs: Date.now() - startedAt,
+      status: 'error',
+      error: `OpenAI error (${response.status}): ${body.slice(0, 500)}`,
+      requestPrompt: requestPreview,
+      metadata: { statusCode: response.status },
+    });
     if (response.status === 401) {
       throw new Error('Invalid HANDOFF_AI_API_KEY.');
     }
@@ -64,10 +207,37 @@ export async function openAiChatJson(messages: ChatMessage[]): Promise<string> {
     throw new Error(`OpenAI error (${response.status}): ${body.slice(0, 500)}`);
   }
 
-  const json = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+  const json = (await response.json()) as {
+    choices?: { message?: { content?: string } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
   const content = json.choices?.[0]?.message?.content;
   if (!content) {
+    await logAiEvent({
+      eventType: options?.eventType ?? 'ai.chat',
+      actorUserId: options?.actorUserId,
+      route: options?.route,
+      model,
+      durationMs: Date.now() - startedAt,
+      status: 'error',
+      error: 'Empty response from OpenAI.',
+      requestPrompt: requestPreview,
+      usageInputTokens: json.usage?.prompt_tokens,
+      usageOutputTokens: json.usage?.completion_tokens,
+    });
     throw new Error('Empty response from OpenAI.');
   }
+  await logAiEvent({
+    eventType: options?.eventType ?? 'ai.chat',
+    actorUserId: options?.actorUserId,
+    route: options?.route,
+    model,
+    durationMs: Date.now() - startedAt,
+    status: 'success',
+    requestPrompt: requestPreview,
+    responsePreview: content.slice(0, 1000),
+    usageInputTokens: json.usage?.prompt_tokens,
+    usageOutputTokens: json.usage?.completion_tokens,
+  });
   return content;
 }

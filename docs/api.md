@@ -175,6 +175,82 @@ Runs the Playground wizard prompt against OpenAI using the server key. Rate-limi
 | **200** | `{ "entries": BulkComponentEntry[], "warnings": string[] }` |
 | **503** | `HANDOFF_AI_API_KEY` not set |
 
+### `POST /api/handoff/ai/generate-design`
+
+Design workbench image edit (OpenAI `images/edits`). Requires `HANDOFF_AI_API_KEY`. Rate-limited per user.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **Body** | `multipart/form-data`: `prompt` (required); `foundationContext` (JSON string: colors / typography / spacing / effects snapshot — server also rasterizes this into a PNG reference when non-empty); `componentGuides` (JSON string: selected component summaries); `conversationHistory` (JSON string: prior `{ role, prompt, imageUrl?, timestamp }[]`); `image[]` (zero or more PNG/JPEG/WEBP reference files, including per-prompt attachments and **PNG screenshots** from `GET /api/handoff/ai/component-screenshot` for each selected component preview); optional `iterationBase` (single file — usually the last 1024×1024 result for refinement) |
+| **200** | `{ "image": string }` — data URL or hosted URL |
+| **400** | Missing prompt, or no usable images after combining foundation raster, uploads, and iteration base |
+| **503** | Server AI not configured |
+
+### `GET /api/handoff/ai/component-screenshot`
+
+Renders a built component preview HTML page in headless Chromium and returns a PNG (used by the Design workbench so GPT-image receives real pixels, not HTML). Requires Chromium installed locally (`npm run playwright:install`).
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **Query** | `url` — URL-encoded app pathname to the preview HTML, e.g. `/api/component/accordion-demo.html` or `{HANDOFF_APP_BASE_PATH}/api/component/accordion-demo.html` when a base path is set |
+| **200** | `image/png` |
+| **400** | Missing or invalid `url` (must be under `/api/component/` and end in `.html`) |
+| **502** | Screenshot failed (often missing browser binaries) |
+
+### `POST /api/handoff/ai/design-artifact`
+
+Persists a saved design from the workbench (`handoff_design_artifact`).
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **Body** | JSON: `title`, `description`, `status` (`draft` \| `review` \| `approved`), `imageUrl`, optional `sourceImages`, `componentGuides`, `foundationContext`, `conversationHistory`, `metadata`; include `id` to update an artifact you own. Optional: `assets`, `assetsStatus`, `publicAccess` on update only when you need to override stored values. |
+| **200** | `{ "id", "created": true }` or `{ "id", "updated": true }` — on **create**, if `HANDOFF_AI_API_KEY` is set, extraction is scheduled with Next.js `after()` (same Node process after the response) so `assets_status` moves from `pending` → `extracting` → `done` or `failed`. |
+
+### `PATCH /api/handoff/ai/design-artifact`
+
+Lightweight updates without a full POST body.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user (owner or **admin**) |
+| **Body** | JSON: `id` (required). One of: `publicAccess` (boolean) to enable/disable the public share surface; `extractAssets: true` to reset `assets` and re-run background extraction (requires `HANDOFF_AI_API_KEY`). |
+| **200** | `{ "id", "publicAccess": … }` or `{ "id", "extractionQueued": true }` |
+| **400** | Missing `id` or unsupported fields |
+| **404** | Not found or not permitted |
+
+### `GET /api/handoff/ai/design-artifact/:id/public`
+
+Read-only public view payload when the owner has enabled sharing.
+
+| | |
+| --- | --- |
+| **Auth** | **None** (no session) |
+| **200** | `{ "artifact": { id, title, description, status, imageUrl, assets, assetsStatus, createdAt, updatedAt } }` — sensitive fields (`userId`, `conversationHistory`, `sourceImages`, `foundationContext`, `metadata`) are **omitted** |
+| **404** | Artifact not found or `public_access` is false |
+
+### `GET /api/handoff/ai/design-artifact`
+
+Lists saved design artifacts.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **Query** | Optional: `status`, `limit` (default 50, max 200). **Admin** may also pass `userId` to list another user’s artifacts. |
+| **200** | `{ "artifacts": handoff_design_artifact[] }` — non-admin results are **scoped to the signed-in user**; `userId` is ignored for them. |
+
+### `GET /api/handoff/ai/design-artifact/:id`
+
+Returns one artifact if the signed-in user owns it, or if the user is an **admin**.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **200** | `{ "artifact": handoff_design_artifact }` |
+| **404** | Not found or not permitted |
+
 ### Security notes
 
 - Build workers run in a separate Node process with an **allowlisted** subset of environment variables (see `docs/SECURITY-COMPONENT-BUILDS.md`).

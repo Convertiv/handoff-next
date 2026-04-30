@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, primaryKey, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, numeric, pgTable, primaryKey, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
 /** NextAuth / Auth.js — user (+ Handoff RBAC + credentials password) */
 export const users = pgTable('user', {
@@ -101,6 +101,39 @@ export const handoffPatterns = pgTable('handoff_pattern', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+/** Saved design workbench outputs for review (image + context + conversation). */
+export const handoffDesignArtifacts = pgTable('handoff_design_artifact', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  title: text('title').notNull().default(''),
+  description: text('description').notNull().default(''),
+  /** draft | review | approved */
+  status: text('status').notNull().default('draft'),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  /** Final image (data URL or public path). */
+  imageUrl: text('image_url').notNull().default(''),
+  /** Uploaded reference images: { name, dataUrl }[] */
+  sourceImages: jsonb('source_images').notNull().default([]),
+  /** Selected component guides: { id, title, previewUrl?, propertiesSummary? }[] */
+  componentGuides: jsonb('component_guides').notNull().default([]),
+  /** Snapshot of foundations sent to AI. */
+  foundationContext: jsonb('foundation_context').notNull().default({}),
+  /** Iteration history: { role, prompt, imageUrl, timestamp }[] */
+  conversationHistory: jsonb('conversation_history').notNull().default([]),
+  metadata: jsonb('metadata').notNull().default({}),
+  /** Extracted composite assets: { label, imageUrl, prompt }[] */
+  assets: jsonb('assets').notNull().default([]),
+  /** none | pending | extracting | done | failed */
+  assetsStatus: text('assets_status').notNull().default('none'),
+  /** When true, public share API and share page may expose safe fields. */
+  publicAccess: boolean('public_access').notNull().default(false),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
 export const handoffTokensSnapshots = pgTable('handoff_tokens_snapshot', {
   id: serial('id').primaryKey(),
   payload: jsonb('payload').notNull(),
@@ -114,6 +147,28 @@ export const editHistory = pgTable('edit_history', {
   userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
   diff: jsonb('diff'),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+/** Append-only event/audit log across auth, fetch/build pipelines, and AI usage/costs. */
+export const handoffEventLog = pgTable('handoff_event_log', {
+  id: serial('id').primaryKey(),
+  category: text('category').notNull(),
+  eventType: text('event_type').notNull(),
+  status: text('status').notNull().default('success'),
+  actorUserId: text('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+  route: text('route'),
+  entityType: text('entity_type'),
+  entityId: text('entity_id'),
+  durationMs: integer('duration_ms'),
+  error: text('error'),
+  provider: text('provider'),
+  model: text('model'),
+  estimatedInputTokens: integer('estimated_input_tokens'),
+  estimatedOutputTokens: integer('estimated_output_tokens'),
+  estimatedCostUsd: numeric('estimated_cost_usd', { precision: 12, scale: 6 }),
+  requestPreview: text('request_preview'),
+  metadata: jsonb('metadata').notNull().default({}),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
 });
 
 /** Async Vite preview build queue for dynamic component source edits */

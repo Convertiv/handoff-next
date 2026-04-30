@@ -6,6 +6,7 @@ import { appBaseUrl, sendPasswordResetEmail } from '../email';
 import { getDb } from '../db';
 import { passwordResetTokens, users } from '../db/schema';
 import { hashPassword, sha256Hex } from '../passwords';
+import { logEvent } from './event-log';
 
 const RESET_EXPIRY_MS = 60 * 60 * 1000;
 
@@ -15,7 +16,17 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true }>
   if (!db || !normalized) return { ok: true };
 
   const [u] = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
-  if (!u) return { ok: true };
+  if (!u) {
+    await logEvent({
+      category: 'auth',
+      eventType: 'password_reset.request',
+      status: 'success',
+      route: '/api/handoff/auth/request-reset',
+      requestPreview: normalized,
+      metadata: { email: normalized, userFound: false },
+    });
+    return { ok: true };
+  }
 
   await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, u.id));
 
@@ -35,6 +46,16 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true }>
   } catch (e) {
     console.error('[auth] requestPasswordReset email failed', e);
   }
+
+  await logEvent({
+    category: 'auth',
+    eventType: 'password_reset.request',
+    status: 'success',
+    actorUserId: u.id,
+    route: '/api/handoff/auth/request-reset',
+    requestPreview: u.email,
+    metadata: { email: u.email, userFound: true },
+  });
 
   return { ok: true };
 }
@@ -58,11 +79,30 @@ export async function resetPassword(token: string, newPassword: string): Promise
     )
     .limit(1);
 
-  if (!row) return { error: 'Invalid or expired reset link.' };
+  if (!row) {
+    await logEvent({
+      category: 'auth',
+      eventType: 'password_reset.complete',
+      status: 'error',
+      route: '/api/handoff/auth/reset-password',
+      error: 'Invalid or expired reset link.',
+    });
+    return { error: 'Invalid or expired reset link.' };
+  }
 
   const hashed = await hashPassword(newPassword);
   await db.update(users).set({ passwordHash: hashed }).where(eq(users.id, row.userId));
   await db.update(passwordResetTokens).set({ usedAt: now }).where(eq(passwordResetTokens.id, row.id));
+
+  await logEvent({
+    category: 'auth',
+    eventType: 'password_reset.complete',
+    status: 'success',
+    actorUserId: row.userId,
+    route: '/api/handoff/auth/reset-password',
+    entityType: 'password_reset_token',
+    entityId: row.id,
+  });
 
   return { ok: true };
 }

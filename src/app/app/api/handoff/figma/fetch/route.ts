@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { countQueuedOrRunningFigmaFetchJobs, getFigmaFetchJob, insertFigmaFetchJob } from '@/lib/db/queries';
 import { hasFigmaConnection } from '@/lib/server/figma-auth';
 import { spawnFigmaFetchWorker } from '@/lib/server/figma-fetch';
+import { logEvent } from '@/lib/server/event-log';
 
 const MAX_FETCHES_PER_USER_PER_MINUTE = 3;
 const MAX_CONCURRENT_FETCH_JOBS = 2;
@@ -55,10 +56,27 @@ export async function POST(_request: NextRequest) {
 
     const jobId = await insertFigmaFetchJob(userId);
     recordPost(userId, now);
+    await logEvent({
+      category: 'figma',
+      eventType: 'figma_fetch.enqueue',
+      status: 'success',
+      actorUserId: userId,
+      route: '/api/handoff/figma/fetch',
+      entityType: 'figma_fetch_job',
+      entityId: String(jobId),
+    });
     spawnFigmaFetchWorker(jobId);
     return NextResponse.json({ jobId, status: 'queued' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';
+    await logEvent({
+      category: 'figma',
+      eventType: 'figma_fetch.enqueue',
+      status: 'error',
+      actorUserId: session.user.id,
+      route: '/api/handoff/figma/fetch',
+      error: msg,
+    });
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

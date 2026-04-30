@@ -8,6 +8,7 @@ import { getDb } from './db';
 import * as schema from './db/schema';
 import { getMode } from './mode';
 import { verifyPassword } from './passwords';
+import { logEvent } from './server/event-log';
 
 /** Login providers (GitHub, Google) — used to decide session strategy. */
 function loginOauthProviders(): NextAuthConfig['providers'] {
@@ -150,6 +151,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.role = (token.role as string) ?? 'member';
       }
       return session;
+    },
+  },
+  events: {
+    async signIn(message) {
+      const actorUserId = message.user?.id ?? null;
+      const provider = message.account?.provider ?? 'unknown';
+      await logEvent({
+        category: 'auth',
+        eventType: 'login.sign_in',
+        status: 'success',
+        actorUserId,
+        route: '/api/auth',
+        provider,
+        metadata: {
+          provider,
+          isNewUser: Boolean(message.isNewUser),
+          email: message.user?.email ?? null,
+        },
+      });
     },
   },
   secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,

@@ -10,6 +10,7 @@ import { buildHandoffDeclarationCjs } from './component-scaffold';
 import { resolveHandoffRepoRoot } from './component-builder';
 import { getDb } from '../db';
 import { componentBuildJobs, handoffComponents } from '../db/schema';
+import { logEvent } from './event-log';
 
 async function loadHandoff(repoRoot: string) {
   const srcTs = path.join(repoRoot, 'src/index.ts');
@@ -43,6 +44,16 @@ async function main() {
   const componentId = job.componentId;
   const [row] = await db.select().from(handoffComponents).where(eq(handoffComponents.id, componentId));
   if (!row) {
+    await logEvent({
+      category: 'build',
+      eventType: 'component_build.run',
+      status: 'error',
+      route: 'worker:component-build',
+      entityType: 'component_build_job',
+      entityId: String(jobId),
+      error: 'Component row not found',
+      metadata: { componentId },
+    });
     await db
       .update(componentBuildJobs)
       .set({ status: 'failed', error: 'Component row not found', completedAt: new Date() })
@@ -127,6 +138,16 @@ async function main() {
       .update(componentBuildJobs)
       .set({ status: 'complete', error: null, completedAt: new Date() })
       .where(eq(componentBuildJobs.id, jobId));
+    await logEvent({
+      category: 'build',
+      eventType: 'component_build.run',
+      status: 'success',
+      route: 'worker:component-build',
+      entityType: 'component_build_job',
+      entityId: String(jobId),
+      durationMs: job.createdAt ? Date.now() - job.createdAt.getTime() : null,
+      metadata: { componentId },
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(msg);
@@ -134,6 +155,17 @@ async function main() {
       .update(componentBuildJobs)
       .set({ status: 'failed', error: msg.slice(0, 8000), completedAt: new Date() })
       .where(eq(componentBuildJobs.id, jobId));
+    await logEvent({
+      category: 'build',
+      eventType: 'component_build.run',
+      status: 'error',
+      route: 'worker:component-build',
+      entityType: 'component_build_job',
+      entityId: String(jobId),
+      durationMs: job.createdAt ? Date.now() - job.createdAt.getTime() : null,
+      error: msg,
+      metadata: { componentId },
+    });
     await fs.remove(path.join(repoRoot, '.handoff-component-builds', String(jobId))).catch(() => undefined);
     process.exit(1);
   }
