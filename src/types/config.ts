@@ -1,6 +1,7 @@
 import { BuildOptions } from 'esbuild';
 import type Handlebars from 'handlebars';
 import { Types as HandoffTypes } from 'handoff-core';
+import type { NextRequest, NextResponse } from 'next/server';
 import type { InlineConfig } from 'vite';
 import { SlotMetadata } from '@handoff/transformers/preview/component';
 import { ComponentListObject, PatternListObject, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
@@ -283,6 +284,28 @@ export interface Config {
      * ```
      */
     registerHandlebarsHelpers?: (context: RegisterHandlebarsHelpersContext) => void;
+
+    /**
+     * Wrap or replace the default Handoff Next.js middleware (admin JWT gate and public paths).
+     * Receives the incoming request and `defaultProxy`, which runs the built-in logic.
+     * Return a `NextResponse` from `defaultProxy`, a redirect, or a custom response (e.g. 401 basic auth).
+     *
+     * Implemented via a bundled `middleware-hook.mjs` in the project app directory at init time;
+     * change your hook and restart dev / re-run `handoff-app start` to pick up updates.
+     *
+     * @example
+     * ```ts
+     * middleware: async (request, defaultProxy) => {
+     *   const res = await defaultProxy(request);
+     *   res.headers.set('X-Example', '1');
+     *   return res;
+     * }
+     * ```
+     */
+    middleware?: (
+      request: NextRequest,
+      defaultProxy: (request: NextRequest) => Promise<NextResponse>
+    ) => Promise<NextResponse>;
   };
 }
 

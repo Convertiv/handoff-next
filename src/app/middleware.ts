@@ -1,8 +1,12 @@
 import { getToken } from 'next-auth/jwt';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { userMiddleware } from './middleware-hook.mjs';
 
-export async function proxy(request: NextRequest) {
+/**
+ * Default Handoff gate: public asset/API paths, optional JWT admin check when DATABASE_URL is set.
+ */
+async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> {
   const publicPaths = [
     '/api/auth',
     '/_next',
@@ -43,6 +47,13 @@ export async function proxy(request: NextRequest) {
   }
 
   return NextResponse.next();
+}
+
+export async function middleware(request: NextRequest): Promise<NextResponse> {
+  if (typeof userMiddleware === 'function') {
+    return userMiddleware(request, defaultHandoffProxy);
+  }
+  return defaultHandoffProxy(request);
 }
 
 export const config = {

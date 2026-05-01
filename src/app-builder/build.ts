@@ -1,4 +1,5 @@
 import spawn from 'cross-spawn';
+import esbuild from 'esbuild';
 import fs from 'fs-extra';
 import path from 'path';
 import Handoff from '@handoff/index';
@@ -24,6 +25,70 @@ import {
 import { createWebSocketServer } from './websocket.js';
 
 const escapeForSingleQuotedJsString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+const MIDDLEWARE_HOOK_OUT = 'middleware-hook.mjs';
+
+const writeStubMiddlewareHook = async (outFile: string): Promise<void> => {
+  await fs.writeFile(outFile, 'export const userMiddleware = undefined;\n', 'utf-8');
+};
+
+/**
+ * Bundles `hooks.middleware` from the project's handoff.config into the Next app root
+ * so `middleware.ts` can import it. Stub when unset or unsupported (.json / .cjs).
+ */
+const materializeMiddlewareHookModule = async (handoff: Handoff, appPath: string): Promise<void> => {
+  const outFile = path.join(appPath, MIDDLEWARE_HOOK_OUT);
+  const configPath = handoff.getMainConfigFilePath();
+  const userMw = handoff.config?.hooks?.middleware;
+
+  if (typeof userMw !== 'function' || !configPath) {
+    await writeStubMiddlewareHook(outFile);
+    return;
+  }
+
+  const ext = path.extname(configPath).toLowerCase();
+  if (ext === '.json') {
+    await writeStubMiddlewareHook(outFile);
+    return;
+  }
+  if (ext === '.cjs') {
+    Logger.warn(
+      '[handoff] hooks.middleware is not bundled for handoff.config.cjs; use handoff.config.ts, .js, or .mjs instead.'
+    );
+    await writeStubMiddlewareHook(outFile);
+    return;
+  }
+
+  const base = path.basename(configPath);
+  const resolveDir = path.dirname(configPath);
+  const stdinContents = `import cfg from ${JSON.stringify(`./${base}`)};
+const resolved = cfg.default ?? cfg;
+export const userMiddleware = typeof resolved.hooks?.middleware === 'function' ? resolved.hooks.middleware : undefined;
+`;
+  const loader = ext === '.ts' || ext === '.mts' ? 'ts' : 'js';
+
+  try {
+    await esbuild.build({
+      stdin: {
+        contents: stdinContents,
+        resolveDir,
+        sourcefile: 'handoff-middleware-hook-entry.ts',
+        loader,
+      },
+      bundle: true,
+      platform: 'neutral',
+      format: 'esm',
+      target: 'es2022',
+      outfile: outFile,
+      logLevel: 'silent',
+      external: ['handoff-app'],
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    Logger.warn(`[handoff] Failed to bundle hooks.middleware (${msg}); no user middleware active.`);
+    await writeStubMiddlewareHook(outFile);
+  }
+};
 
 /**
  * Performs cleanup of the application directory by removing the existing app directory if it exists.
@@ -60,6 +125,7 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
     },
   });
   await syncPublicFiles(handoff);
+  await materializeMiddlewareHookModule(handoff, appPath);
 
   // Copy custom theme CSS if it exists in the user's project
   const customThemePath = path.resolve(handoff.workingPath, 'theme.css');

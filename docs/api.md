@@ -394,11 +394,19 @@ to generate only the integration code.
 
 ## Hooks
 
-Hooks let you extend the build and preview pipeline. Configure them in
-`handoff.config.js` (or `.cjs`) under the top-level `hooks` object. Hook names
-use camelCase (for example `validateComponent`, `jsBuildConfig`,
-`registerHandlebarsHelpers`). The Handoff CLI and Node API load this config when
-the `Handoff` instance is created.
+Hooks let you extend the build and preview pipeline, and (for `middleware`) the
+Next.js app that Handoff materializes under `.handoff/{projectId}/`. Configure
+them in `handoff.config.ts` / `.js` / `.mjs` (or `.cjs` for hooks that do not
+need `middleware`) under the top-level `hooks` object. Hook names use camelCase
+(for example `validateComponent`, `jsBuildConfig`, `registerHandlebarsHelpers`,
+`middleware`). The Handoff CLI and Node API load this config when the `Handoff`
+instance is created.
+
+**`hooks.middleware`:** only supported when the main config file is **TypeScript
+or ESM/CJS JavaScript** (`.ts`, `.mts`, `.js`, `.mjs`). It is **not** bundled from
+`handoff.config.json` or `handoff.config.cjs` (use `.ts` / `.js` / `.mjs` if you
+need this hook). After changing the hook, restart the Next dev server or re-run
+app initialization so `middleware-hook.mjs` is regenerated.
 
 ```js
 // handoff.config.js
@@ -453,6 +461,62 @@ module.exports = {
     },
   },
 };
+```
+
+### middleware
+
+Runs in the Handoff Next.js [`middleware`](https://nextjs.org/docs/app/building-your-application/routing/middleware)
+for every request matched by the built-in matcher (same scope as the default
+admin JWT gate). Your hook receives the `NextRequest` and **`defaultProxy`**, a
+function that runs Handoff’s default behavior (public paths, then optional
+`/admin` JWT checks when `DATABASE_URL` is set).
+
+**Arguments**
+
+* `request` — `NextRequest` from `next/server`.
+* `defaultProxy` — `async (request) => NextResponse` — call this to continue with
+  the built-in logic, wrap its result, or skip it entirely (e.g. return `401`
+  before calling it).
+
+**Returns**
+
+* `Promise<NextResponse>` — typically `return defaultProxy(request)` or a
+  redirect / error response.
+
+**Bundling**
+
+At app init (`initializeProjectApp`), Handoff uses esbuild to emit
+`middleware-hook.mjs` next to `middleware.ts`. Only `handoff-app` is marked
+external; keep the hook Edge-safe if your deployment runs middleware on the
+Edge runtime (avoid Node-only APIs unless you know your Next version runs this
+middleware on Node).
+
+**Example (HTTP Basic in front of Handoff defaults)**
+
+```ts
+// handoff.config.ts
+import { defineConfig } from 'handoff-app';
+import { NextResponse } from 'next/server';
+
+const expected =
+  'Basic ' + Buffer.from(`${process.env.HANDOFF_BASIC_USER ?? 'admin'}:${process.env.HANDOFF_BASIC_PASS ?? 'secret'}`).toString('base64');
+
+export default defineConfig({
+  hooks: {
+    middleware: async (request, defaultProxy) => {
+      const auth = request.headers.get('authorization');
+      if (auth !== expected) {
+        return new NextResponse('Unauthorized', {
+          status: 401,
+          headers: { 'WWW-Authenticate': 'Basic realm="Handoff"' },
+        });
+      }
+      const res = await defaultProxy(request);
+      res.headers.set('X-Handoff-Proxied-By', 'basic-auth');
+      return res;
+    },
+  },
+});
 ```
 
 ### postBuild

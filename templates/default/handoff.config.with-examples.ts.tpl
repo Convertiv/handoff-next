@@ -191,5 +191,18 @@ export default defineConfig({
     //   // Add your custom HTML build configuration here
     //   return config;
     // },
+
+    /**
+     * Optional Next.js middleware hook (bundled into `.handoff/{id}/middleware-hook.mjs`).
+     * Not supported from `handoff.config.cjs` / `.json`. Restart dev after changes.
+     *
+     * @example
+     * middleware: async (request, defaultProxy) => {
+     *   const res = await defaultProxy(request);
+     *   res.headers.set('X-Example', '1');
+     *   return res;
+     * }
+     */
+    // middleware: async (request, defaultProxy) => defaultProxy(request),
   },
 });
