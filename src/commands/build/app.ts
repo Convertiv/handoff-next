@@ -5,6 +5,7 @@ import { getSharedOptions } from '@handoff/commands/utils';
 
 export interface BuildAppArgs extends SharedArgs {
   skipComponents?: boolean;
+  mode?: 'dynamic' | 'vercel';
 }
 
 const command: CommandModule<{}, BuildAppArgs> = {
@@ -15,12 +16,16 @@ const command: CommandModule<{}, BuildAppArgs> = {
       describe: 'Skip building components before building the app',
       type: 'boolean',
       default: false,
+    }).option('mode', {
+      describe: 'Build mode',
+      choices: ['dynamic', 'vercel'] as const,
+      default: 'dynamic',
     });
     return getSharedOptions(yargs);
   },
   handler: async (args: BuildAppArgs) => {
     const handoff = new Handoff(args.debug, args.force);
-    await handoff.build(args.skipComponents ?? false);
+    await handoff.build(args.skipComponents ?? false, args.mode ?? 'dynamic');
   },
 };
 

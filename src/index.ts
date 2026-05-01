@@ -3,7 +3,7 @@ import fs from 'fs-extra';
 import { Types as CoreTypes, Handoff as HandoffRunner, Providers } from 'handoff-core';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
-import buildApp, { devApp, watchApp } from './app-builder/index.js';
+import buildApp, { BuildMode, devApp, watchApp } from './app-builder/index.js';
 import { ejectConfig, ejectPages, ejectTheme } from './cli/eject.js';
 import { makeComponent, makePage, makeTemplate } from './cli/make.js';
 import { initConfigWithMetadata, initRuntimeConfig, validateConfig } from './config/index.js';
@@ -115,9 +115,9 @@ class Handoff {
     return this;
   }
 
-  async build(skipComponents?: boolean): Promise<Handoff> {
+  async build(skipComponents?: boolean, mode: BuildMode = 'dynamic'): Promise<Handoff> {
     this.preRunner();
-    await buildApp(this, skipComponents);
+    await buildApp(this, skipComponents, mode);
     return this;
   }
 

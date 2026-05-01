@@ -11,7 +11,7 @@ import { buildMainCss } from '@handoff/transformers/preview/component/css';
 import { buildMainJS } from '@handoff/transformers/preview/component/javascript';
 import { Logger } from '@handoff/utils/logger';
 import { generatePlaygroundAssetsApi, generateTokensApi, persistClientConfig } from './client-config.js';
-import { getAppPath, syncPublicFiles } from './paths.js';
+import { getAppPath, getVercelRuntimePath, syncPublicFiles } from './paths.js';
 import {
   WatcherState,
   getRuntimeComponentsPathsToWatch,
@@ -70,10 +70,39 @@ function resolveNextBinFromHandoffPackage(handoffModulePath: string): string {
   }
 }
 
+const writeVercelRuntimePackage = async (handoff: Handoff, appPath: string): Promise<void> => {
+  const sourcePackagePath = path.resolve(handoff.modulePath, 'package.json');
+  const sourcePackageRaw = await fs.readFile(sourcePackagePath, 'utf-8');
+  const sourcePackage = JSON.parse(sourcePackageRaw) as {
+    dependencies?: Record<string, string>;
+  };
+  const deps = sourcePackage.dependencies ?? {};
+  const runtimePackage = {
+    name: `handoff-runtime-${handoff.getProjectId()}`,
+    private: true,
+    scripts: {
+      dev: 'next dev',
+      build: 'next build',
+      start: 'next start',
+    },
+    dependencies: {
+      next: deps.next ?? '^16.2.4',
+      react: deps.react ?? '^19.1.0',
+      'react-dom': deps['react-dom'] ?? '^19.1.0',
+    },
+  };
+  await fs.writeFile(path.resolve(appPath, 'package.json'), JSON.stringify(runtimePackage, null, 2) + '\n');
+};
+
 const MIDDLEWARE_HOOK_OUT = 'middleware-hook.mjs';
+export type BuildMode = 'dynamic' | 'vercel';
 
 const writeStubMiddlewareHook = async (outFile: string): Promise<void> => {
   await fs.writeFile(outFile, 'export const userMiddleware = undefined;\n', 'utf-8');
+};
+
+const resolveBuildAppPath = (handoff: Handoff, mode: BuildMode): string => {
+  return mode === 'vercel' ? getVercelRuntimePath(handoff) : getAppPath(handoff);
 };
 
 /**
@@ -138,8 +167,8 @@ export const userMiddleware = typeof resolved.hooks?.middleware === 'function' ?
  * Removes the materialized Next tree (`<workingPath>/.handoff/app/`).
  * SQLite at `<workingPath>/.handoff/local.db` and build cache at `.handoff/.cache/` are outside `app/` and are preserved.
  */
-const cleanupAppDirectory = async (handoff: Handoff): Promise<void> => {
-  const appPath = getAppPath(handoff);
+const cleanupAppDirectory = async (handoff: Handoff, mode: BuildMode): Promise<void> => {
+  const appPath = resolveBuildAppPath(handoff, mode);
 
   // Clean project app dir
   if (fs.existsSync(appPath)) {
@@ -152,9 +181,9 @@ const cleanupAppDirectory = async (handoff: Handoff): Promise<void> => {
  *
  * @returns The path to the prepared application directory
  */
-const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
+const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<string> => {
   const srcPath = path.resolve(handoff.modulePath, 'src', 'app');
-  const appPath = getAppPath(handoff);
+  const appPath = resolveBuildAppPath(handoff, mode);
 
   // Publish tokens API and playground assets manifest
   await generateTokensApi(handoff);
@@ -171,30 +200,32 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
       return true;
     },
   });
-  await syncPublicFiles(handoff);
+  await syncPublicFiles(handoff, appPath);
   await materializeMiddlewareHookModule(handoff, appPath);
 
   const hostNodeModules = resolveHostNodeModulesDir(handoff.modulePath);
-  // Symlink node_modules so Turbopack / Node resolve `next` from .handoff/app.
-  // Prefer a hoisted ancestor (tarball install); fall back to handoff-app/node_modules.
-  const appNodeModules = path.resolve(appPath, 'node_modules');
-  const sourceNodeModules = hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
-  if (fs.existsSync(sourceNodeModules)) {
-    try {
-      const existing = await fs.readlink(appNodeModules);
-      const resolvedExisting = path.resolve(path.dirname(appNodeModules), existing);
-      if (resolvedExisting !== path.resolve(sourceNodeModules)) {
-        await fs.remove(appNodeModules);
+  if (mode !== 'vercel') {
+    // Symlink node_modules so Turbopack / Node resolve `next` from .handoff/app.
+    // Prefer a hoisted ancestor (tarball install); fall back to handoff-app/node_modules.
+    const appNodeModules = path.resolve(appPath, 'node_modules');
+    const sourceNodeModules = hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
+    if (fs.existsSync(sourceNodeModules)) {
+      try {
+        const existing = await fs.readlink(appNodeModules);
+        const resolvedExisting = path.resolve(path.dirname(appNodeModules), existing);
+        if (resolvedExisting !== path.resolve(sourceNodeModules)) {
+          await fs.remove(appNodeModules);
+          await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
+        }
+      } catch {
+        if (fs.existsSync(appNodeModules)) {
+          await fs.remove(appNodeModules);
+        }
         await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
       }
-    } catch {
-      if (fs.existsSync(appNodeModules)) {
-        await fs.remove(appNodeModules);
-      }
-      await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
+    } else if (fs.existsSync(appNodeModules)) {
+      await fs.remove(appNodeModules);
     }
-  } else if (fs.existsSync(appNodeModules)) {
-    await fs.remove(appNodeModules);
   }
 
   // Copy custom theme CSS if it exists in the user's project
@@ -225,10 +256,11 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
   const escapedWebsocketPort = escapeForSingleQuotedJsString(String(handoffWebsocketPort));
   // Turbopack root must be a common ancestor of the app, handoff-app, and the
   // resolved host node_modules (symlink target may be hoisted outside handoff-app).
-  const turbopackRoot = commonAncestorDir(
-    appPath,
-    commonAncestorDir(handoffModulePath, path.resolve(sourceNodeModules))
-  );
+  const nodeModulesForRoot =
+    mode === 'vercel'
+      ? hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules')
+      : hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
+  const turbopackRoot = commonAncestorDir(appPath, commonAncestorDir(handoffModulePath, path.resolve(nodeModulesForRoot)));
   const escapedTurbopackRoot = escapeForSingleQuotedJsString(turbopackRoot);
 
   const placeholderValues: Record<string, string> = {
@@ -286,10 +318,10 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
 /**
  * Build the Next.js documentation application.
  */
-const buildApp = async (handoff: Handoff, skipComponents?: boolean): Promise<void> => {
+const buildApp = async (handoff: Handoff, skipComponents?: boolean, mode: BuildMode = 'dynamic'): Promise<void> => {
   skipComponents = skipComponents ?? false;
   // Perform cleanup
-  await cleanupAppDirectory(handoff);
+  await cleanupAppDirectory(handoff, mode);
 
   // Build components, then patterns (patterns depend on component output)
   if (!skipComponents) {
@@ -298,9 +330,17 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean): Promise<voi
   }
 
   // Prepare app
-  const appPath = await initializeProjectApp(handoff);
+  const appPath = await initializeProjectApp(handoff, mode);
 
   await persistClientConfig(handoff);
+
+  if (mode === 'vercel') {
+    await writeVercelRuntimePackage(handoff, appPath);
+    await fs.writeFile(path.resolve(appPath, '.gitignore'), 'node_modules\n.next\n', 'utf-8');
+    Logger.success(`[handoff] Vercel runtime prepared at ${appPath}`);
+    Logger.info('[handoff] Set Vercel Root Directory to "handoff-runtime" and leave Output Directory empty.');
+    return;
+  }
 
   const nextBin = resolveNextBinFromHandoffPackage(handoff.modulePath);
   const buildResult = spawn.sync(process.execPath, [nextBin, 'build'], {
@@ -357,7 +397,7 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
   // Build patterns after components are ready
   await buildPatterns(handoff);
 
-  const appPath = await initializeProjectApp(handoff);
+  const appPath = await initializeProjectApp(handoff, 'dynamic');
 
   // Persist client configuration
   await persistClientConfig(handoff);
@@ -371,7 +411,7 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
   };
 
   // Watch app source (debounced via scheduleHandler — see watchers.ts)
-  watchAppSource(handoff, state, initializeProjectApp);
+  watchAppSource(handoff, state, (h) => initializeProjectApp(h, 'dynamic'));
 
   const hostname = 'localhost';
   const port = handoff.config.app.ports?.app ?? 3000;
@@ -439,7 +479,7 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
  */
 export const devApp = async (handoff: Handoff): Promise<void> => {
   // Prepare app
-  const appPath = await initializeProjectApp(handoff);
+  const appPath = await initializeProjectApp(handoff, 'dynamic');
 
   // Purge app cache
   const moduleOutput = path.resolve(appPath, 'out');

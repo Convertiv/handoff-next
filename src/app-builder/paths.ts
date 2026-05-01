@@ -33,6 +33,16 @@ export const getAppPath = (handoff: Handoff): string => {
   return path.resolve(handoff.workingPath, '.handoff', 'app');
 };
 
+/**
+ * Gets the Vercel deployable runtime Next.js app directory.
+ *
+ * @param handoff - The handoff instance
+ * @returns Absolute path to the runtime app root (e.g. `<workingPath>/handoff-runtime`)
+ */
+export const getVercelRuntimePath = (handoff: Handoff): string => {
+  return path.resolve(handoff.workingPath, 'handoff-runtime');
+};
+
 const mirrorDirectory = async (sourcePath: string, destinationPath: string): Promise<void> => {
   if (!(await fs.pathExists(sourcePath))) {
     try {
@@ -63,8 +73,8 @@ const mirrorDirectory = async (sourcePath: string, destinationPath: string): Pro
 /**
  * Copy the public dir from the working dir into the materialized Next app (`getAppPath()` / `public/`).
  */
-export const syncPublicFiles = async (handoff: Handoff): Promise<void> => {
-  const appPath = getAppPath(handoff);
+export const syncPublicFiles = async (handoff: Handoff, targetAppPath?: string): Promise<void> => {
+  const appPath = targetAppPath ?? getAppPath(handoff);
   const workingPublicPath = getWorkingPublicPath(handoff);
   if (workingPublicPath) {
     const destinationPublicPath = path.resolve(appPath, 'public');

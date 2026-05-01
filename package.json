@@ -38,6 +38,7 @@
     "build": "tsc && tsc-alias -p tsconfig.json && node scripts/fix-dist-esm-imports.mjs",
     "build:static": "node ./dist/cli.js build:app",
     "build:dynamic": "node ./dist/cli.js build:app --mode dynamic",
+    "build:vercel": "node ./dist/cli.js build:app --mode vercel",
     "fetch": "node ./dist/cli.js fetch",
     "lint": "cd src/app && npx eslint app components lib",
     "release": "np --any-branch",
