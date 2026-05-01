@@ -32,6 +32,7 @@
     "node": ">=20.9.0"
   },
   "scripts": {
+    "prepare": "npm run build",
     "start": "node ./dist/cli.js start",
     "dev": "node ./dist/cli.js dev",
     "build": "tsc && tsc-alias -p tsconfig.json && node scripts/fix-dist-esm-imports.mjs",
