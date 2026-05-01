@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 
 /**
  * Idempotent SQLite DDL for local mode. Kept in code so it works when the Next app
- * runs from `.handoff/{projectId}/` without relying on `node_modules/.../migrations` paths.
+ * runs from `<workingPath>/.handoff/app/` without relying on `node_modules/.../migrations` paths.
  */
 export function runSqliteBootstrap(db: Database.Database): void {
   db.exec('PRAGMA foreign_keys = ON;');

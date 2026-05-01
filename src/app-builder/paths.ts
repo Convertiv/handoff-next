@@ -22,12 +22,15 @@ export const getWorkingPublicPath = (handoff: Handoff): string | null => {
 };
 
 /**
- * Gets the application path for a given handoff instance.
- * @param handoff - The handoff instance containing module path and figma project configuration
- * @returns The resolved path to the application directory
+ * Gets the materialized Next.js app directory (under the client working path).
+ * Uses `.handoff/app` so `cleanupAppDirectory` can remove the full tree without touching
+ * `.handoff/local.db` (SQLite) at the parent `.handoff/` folder.
+ *
+ * @param handoff - The handoff instance (workingPath = client / design repo root)
+ * @returns Absolute path to the Next app root (e.g. `<workingPath>/.handoff/app`)
  */
 export const getAppPath = (handoff: Handoff): string => {
-  return path.resolve(handoff.modulePath, '.handoff', `${handoff.getProjectId()}`);
+  return path.resolve(handoff.workingPath, '.handoff', 'app');
 };
 
 const mirrorDirectory = async (sourcePath: string, destinationPath: string): Promise<void> => {
@@ -58,7 +61,7 @@ const mirrorDirectory = async (sourcePath: string, destinationPath: string): Pro
 };
 
 /**
- * Copy the public dir from the working dir to the module dir.
+ * Copy the public dir from the working dir into the materialized Next app (`getAppPath()` / `public/`).
  */
 export const syncPublicFiles = async (handoff: Handoff): Promise<void> => {
   const appPath = getAppPath(handoff);

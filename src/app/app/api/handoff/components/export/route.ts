@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 import path from 'path';
 import { auth } from '@/lib/auth';
 import { exportComponentsToFilesystem } from '@/lib/server/component-export';
-import { getComponentExportProjectRoot } from '@/lib/server/handoff-config-load';
+import { getComponentExportProjectRoot } from '@/lib/server/handoff-config-project';
+
+/** Skip build-time route collection (avoids SQLite auth + parallel worker locks). */
+export const dynamic = 'force-dynamic';
 
 const MAX_EXPORT_PER_USER_PER_MINUTE = 10;
 const exportPostTimestampsByUser = new Map<string, number[]>();

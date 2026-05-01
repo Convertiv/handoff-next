@@ -2,7 +2,7 @@ import 'server-only';
 
 import { listReferenceMaterials } from '@/lib/db/queries';
 import { getDataProvider } from '@/lib/data';
-import { loadHandoffConfigFromDir } from '@/lib/server/handoff-config-load';
+import { loadHandoffConfigFromDir } from '@/lib/server/handoff-config-project';
 import type { handoffDesignArtifacts } from '@/lib/db/schema';
 
 type ArtifactRow = typeof handoffDesignArtifacts.$inferSelect;

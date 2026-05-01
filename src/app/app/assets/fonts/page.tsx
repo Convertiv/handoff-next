@@ -22,7 +22,7 @@ export default async function FontsPage() {
   const design = getTokens().localStyles;
   const { content, menu, metadata } = props;
 
-  const fontsDir = path.resolve(process.env.HANDOFF_MODULE_PATH ?? '', '.handoff', `${process.env.HANDOFF_PROJECT_ID}`, 'public', 'fonts');
+  const fontsDir = path.resolve(process.env.HANDOFF_WORKING_PATH ?? '', '.handoff', 'app', 'public', 'fonts');
   let customFonts: string[] = [];
   if (fs.existsSync(fontsDir)) {
     customFonts = fs.readdirSync(fontsDir).filter((f) => f.endsWith('.zip')).map((f) => f.replace('.zip', ''));

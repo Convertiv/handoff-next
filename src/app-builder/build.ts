@@ -1,6 +1,7 @@
 import spawn from 'cross-spawn';
 import esbuild from 'esbuild';
 import fs from 'fs-extra';
+import { createRequire } from 'node:module';
 import path from 'path';
 import Handoff from '@handoff/index';
 import { buildComponents } from '@handoff/pipeline/components';
@@ -25,6 +26,49 @@ import {
 import { createWebSocketServer } from './websocket.js';
 
 const escapeForSingleQuotedJsString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+/**
+ * Directory to use as `.handoff/app/node_modules` target.
+ * Tarball / hoisted installs often have no `node_modules` inside `handoff-app`;
+ * dependencies live in an ancestor `node_modules` (e.g. client project root).
+ */
+function resolveHostNodeModulesDir(handoffModulePath: string): string | null {
+  let dir = path.resolve(handoffModulePath);
+  for (;;) {
+    const candidate = path.join(dir, 'node_modules', 'next', 'package.json');
+    if (fs.existsSync(candidate)) {
+      return path.join(dir, 'node_modules');
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+/** Longest common ancestor directory of two absolute paths. */
+function commonAncestorDir(p1: string, p2: string): string {
+  const parts1 = path.resolve(p1).split(path.sep);
+  const parts2 = path.resolve(p2).split(path.sep);
+  const common: string[] = [];
+  for (let i = 0; i < Math.min(parts1.length, parts2.length); i++) {
+    if (parts1[i] === parts2[i]) common.push(parts1[i]);
+    else break;
+  }
+  return common.join(path.sep) || path.sep;
+}
+
+/** Run Next from handoff-app's dependency tree — avoids `npx next` when cwd has no node_modules (interactive install prompt). */
+function resolveNextBinFromHandoffPackage(handoffModulePath: string): string {
+  try {
+    const req = createRequire(path.join(path.resolve(handoffModulePath), 'package.json'));
+    return req.resolve('next/dist/bin/next');
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(
+      `Could not resolve Next.js from handoff-app at ${handoffModulePath}. Is "next" installed? ${msg}`
+    );
+  }
+}
 
 const MIDDLEWARE_HOOK_OUT = 'middleware-hook.mjs';
 
@@ -91,7 +135,8 @@ export const userMiddleware = typeof resolved.hooks?.middleware === 'function' ?
 };
 
 /**
- * Performs cleanup of the application directory by removing the existing app directory if it exists.
+ * Removes the materialized Next tree (`<workingPath>/.handoff/app/`).
+ * SQLite at `<workingPath>/.handoff/local.db` and build cache at `.handoff/.cache/` are outside `app/` and are preserved.
  */
 const cleanupAppDirectory = async (handoff: Handoff): Promise<void> => {
   const appPath = getAppPath(handoff);
@@ -120,12 +165,37 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
   await fs.copy(srcPath, appPath, {
     overwrite: true,
     filter: (file) => {
-      if (file.includes('next.config.mjs')) return false;
+      const rel = path.relative(srcPath, file);
+      if (rel.includes('next.config.mjs')) return false;
+      if (rel.split(path.sep).includes('node_modules')) return false;
       return true;
     },
   });
   await syncPublicFiles(handoff);
   await materializeMiddlewareHookModule(handoff, appPath);
+
+  const hostNodeModules = resolveHostNodeModulesDir(handoff.modulePath);
+  // Symlink node_modules so Turbopack / Node resolve `next` from .handoff/app.
+  // Prefer a hoisted ancestor (tarball install); fall back to handoff-app/node_modules.
+  const appNodeModules = path.resolve(appPath, 'node_modules');
+  const sourceNodeModules = hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
+  if (fs.existsSync(sourceNodeModules)) {
+    try {
+      const existing = await fs.readlink(appNodeModules);
+      const resolvedExisting = path.resolve(path.dirname(appNodeModules), existing);
+      if (resolvedExisting !== path.resolve(sourceNodeModules)) {
+        await fs.remove(appNodeModules);
+        await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
+      }
+    } catch {
+      if (fs.existsSync(appNodeModules)) {
+        await fs.remove(appNodeModules);
+      }
+      await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
+    }
+  } else if (fs.existsSync(appNodeModules)) {
+    await fs.remove(appNodeModules);
+  }
 
   // Copy custom theme CSS if it exists in the user's project
   const customThemePath = path.resolve(handoff.workingPath, 'theme.css');
@@ -153,6 +223,14 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
   const escapedModulePath = escapeForSingleQuotedJsString(handoffModulePath);
   const escapedExportPath = escapeForSingleQuotedJsString(handoffExportPath);
   const escapedWebsocketPort = escapeForSingleQuotedJsString(String(handoffWebsocketPort));
+  // Turbopack root must be a common ancestor of the app, handoff-app, and the
+  // resolved host node_modules (symlink target may be hoisted outside handoff-app).
+  const turbopackRoot = commonAncestorDir(
+    appPath,
+    commonAncestorDir(handoffModulePath, path.resolve(sourceNodeModules))
+  );
+  const escapedTurbopackRoot = escapeForSingleQuotedJsString(turbopackRoot);
+
   const placeholderValues: Record<string, string> = {
     '%HANDOFF_PROJECT_ID%': escapedProjectId,
     '%HANDOFF_APP_BASE_PATH%': escapedAppBasePath,
@@ -160,6 +238,7 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
     '%HANDOFF_MODULE_PATH%': escapedModulePath,
     '%HANDOFF_EXPORT_PATH%': escapedExportPath,
     '%HANDOFF_WEBSOCKET_PORT%': escapedWebsocketPort,
+    '%HANDOFF_TURBOPACK_ROOT%': escapedTurbopackRoot,
   };
   let nextConfigContent = await fs.readFile(nextConfigPath, 'utf-8');
   for (const [placeholder, value] of Object.entries(placeholderValues)) {
@@ -176,6 +255,31 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
   if (existingContent !== nextConfigContent) {
     await fs.writeFile(targetPath, nextConfigContent);
   }
+
+  // tsconfig paths must point at handoff-app/src from the materialized app dir.
+  // The template uses ./../../src/* which only works when the app lived under
+  // node_modules/handoff-app/.handoff/<id>/; under <workingPath>/.handoff/app
+  // that would resolve into the client repo instead.
+  const tsconfigPath = path.resolve(appPath, 'tsconfig.json');
+  const tsconfigRaw = await fs.readFile(tsconfigPath, 'utf-8');
+  const tsconfig = JSON.parse(tsconfigRaw) as {
+    compilerOptions?: { paths?: Record<string, string[]> };
+  };
+  if (!tsconfig.compilerOptions) {
+    tsconfig.compilerOptions = {};
+  }
+  if (!tsconfig.compilerOptions.paths) {
+    tsconfig.compilerOptions.paths = {};
+  }
+  const relToModuleSrc = path.relative(appPath, path.join(handoffModulePath, 'src'));
+  const posixRel = relToModuleSrc.split(path.sep).join('/');
+  const handoffPathGlob = `${posixRel.startsWith('.') ? '' : './'}${posixRel}/*`;
+  const prevHandoffGlob = tsconfig.compilerOptions.paths['@handoff/*']?.[0];
+  if (prevHandoffGlob !== handoffPathGlob) {
+    tsconfig.compilerOptions.paths['@handoff/*'] = [handoffPathGlob];
+    await fs.writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2) + '\n');
+  }
+
   return appPath;
 };
 
@@ -198,8 +302,8 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean): Promise<voi
 
   await persistClientConfig(handoff);
 
-  // Build app
-  const buildResult = spawn.sync('npx', ['next', 'build'], {
+  const nextBin = resolveNextBinFromHandoffPackage(handoff.modulePath);
+  const buildResult = spawn.sync(process.execPath, [nextBin, 'build'], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
@@ -285,7 +389,8 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
   }
   Logger.info(`Starting Next.js dev server at http://${hostname}:${port}…`);
 
-  const nextProcess = spawn('npx', ['next', 'dev', '--port', String(port)], {
+  const nextBin = resolveNextBinFromHandoffPackage(handoff.modulePath);
+  const nextProcess = spawn(process.execPath, [nextBin, 'dev', '--port', String(port)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
@@ -348,7 +453,8 @@ export const devApp = async (handoff: Handoff): Promise<void> => {
   const devPort = handoff.config.app.ports?.app ?? 3000;
   Logger.info(`Starting Next.js dev server on port ${devPort}…`);
 
-  const devResult = spawn.sync('npx', ['next', 'dev', '--port', String(devPort)], {
+  const nextBin = resolveNextBinFromHandoffPackage(handoff.modulePath);
+  const devResult = spawn.sync(process.execPath, [nextBin, 'dev', '--port', String(devPort)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {

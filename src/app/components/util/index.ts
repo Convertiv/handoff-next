@@ -747,9 +747,8 @@ const loadClientConfig = (): ClientConfigCache => {
     return cachedClientConfig;
   }
 
-  const modulePath = process.env.HANDOFF_MODULE_PATH ?? '';
-  const projectId = process.env.HANDOFF_PROJECT_ID ?? '';
-  const clientConfigPath = path.resolve(modulePath, '.handoff', projectId, 'client.config.json');
+  const workingPath = process.env.HANDOFF_WORKING_PATH ?? '';
+  const clientConfigPath = path.resolve(workingPath, '.handoff', 'app', 'client.config.json');
 
   if (!fs.existsSync(clientConfigPath)) {
     // Return empty default instead of throwing to support running without fetch

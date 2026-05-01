@@ -4,6 +4,7 @@ import { Types as HandoffTypes } from 'handoff-core';
 import * as stream from 'node:stream';
 import path from 'path';
 import Handoff from '@handoff/index';
+import { getAppPath } from '@handoff/app-builder/paths';
 import { Logger } from '@handoff/utils/logger';
 import { zipAssets } from './archive.js';
 import { createDocumentationObject } from './documentation.js';
@@ -123,8 +124,8 @@ export const figmaExtract = async (handoff: Handoff): Promise<HandoffTypes.IDocu
       : []),
   ]);
 
-  // define the output folder
-  const outputFolder = path.resolve(handoff.modulePath, '.handoff', `${handoff.getProjectId()}`, 'public');
+  // define the output folder (materialized Next app `public/`)
+  const outputFolder = path.join(getAppPath(handoff), 'public');
 
   // ensure output folder exists
   if (!fs.existsSync(outputFolder)) {
@@ -132,15 +133,9 @@ export const figmaExtract = async (handoff: Handoff): Promise<HandoffTypes.IDocu
   }
 
   // copy assets to output folder
-  fs.copyFileSync(
-    handoff.getIconsZipFilePath(),
-    path.join(handoff.modulePath, '.handoff', `${handoff.getProjectId()}`, 'public', 'icons.zip')
-  );
+  fs.copyFileSync(handoff.getIconsZipFilePath(), path.join(outputFolder, 'icons.zip'));
 
-  fs.copyFileSync(
-    handoff.getLogosZipFilePath(),
-    path.join(handoff.modulePath, '.handoff', `${handoff.getProjectId()}`, 'public', 'logos.zip')
-  );
+  fs.copyFileSync(handoff.getLogosZipFilePath(), path.join(outputFolder, 'logos.zip'));
 
   return documentationObject;
 };

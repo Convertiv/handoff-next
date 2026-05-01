@@ -48,7 +48,8 @@ export interface BuildCache {
  * Gets the path to the build cache file
  */
 export function getCachePath(handoff: Handoff): string {
-  return path.resolve(handoff.modulePath, '.handoff', handoff.getProjectId(), '.cache', 'build-cache.json');
+  /** Outside `.handoff/app/` so full app cleanup does not delete the cache. */
+  return path.resolve(handoff.workingPath, '.handoff', '.cache', 'build-cache.json');
 }
 
 /**

@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import fs from 'fs-extra';
-import Handoff from '../../../index';
+import Handoff from '@handoff/index';
 import { getDb } from '../db';
 import { figmaFetchJobs, handoffTokensSnapshots } from '../db/schema';
 import { getValidFigmaAccessTokenForUser } from './figma-auth';

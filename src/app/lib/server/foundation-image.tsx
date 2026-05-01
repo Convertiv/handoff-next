@@ -87,29 +87,43 @@ function isPlaceholder(v: string): boolean {
 let resolvedHandoffFontsDir: string | null | undefined;
 
 /**
- * Locate the .handoff/{projectId}/public/fonts directory.
- * Uses env vars when available, falls back to scanning .handoff/ in cwd.
+ * Locate `.handoff/app/public/fonts` (materialized Next app).
+ * Uses env when available, falls back to scanning cwd.
  */
 async function findHandoffFontsDir(): Promise<string | null> {
   if (resolvedHandoffFontsDir !== undefined) return resolvedHandoffFontsDir;
 
-  const modulePath = process.env.HANDOFF_MODULE_PATH ?? '';
-  const projectId = process.env.HANDOFF_PROJECT_ID ?? '';
-
-  if (!isPlaceholder(modulePath) && !isPlaceholder(projectId)) {
-    const dir = path.join(modulePath, '.handoff', projectId, 'public', 'fonts');
+  const workingPath = process.env.HANDOFF_WORKING_PATH ?? '';
+  if (!isPlaceholder(workingPath)) {
+    const dir = path.join(workingPath, '.handoff', 'app', 'public', 'fonts');
     if (await statDir(dir)) {
       resolvedHandoffFontsDir = dir;
       return dir;
     }
   }
 
+  const modulePath = process.env.HANDOFF_MODULE_PATH ?? '';
+  const projectId = process.env.HANDOFF_PROJECT_ID ?? '';
+  if (!isPlaceholder(modulePath) && !isPlaceholder(projectId)) {
+    const legacy = path.join(modulePath, '.handoff', projectId, 'public', 'fonts');
+    if (await statDir(legacy)) {
+      resolvedHandoffFontsDir = legacy;
+      return legacy;
+    }
+  }
+
   const roots = [
+    !isPlaceholder(workingPath) ? workingPath : null,
     !isPlaceholder(modulePath) ? modulePath : null,
     process.cwd(),
   ].filter(Boolean) as string[];
 
   for (const root of roots) {
+    const direct = path.join(root, '.handoff', 'app', 'public', 'fonts');
+    if (await statDir(direct)) {
+      resolvedHandoffFontsDir = direct;
+      return direct;
+    }
     const handoffDir = path.join(root, '.handoff');
     if (!(await statDir(handoffDir))) continue;
     let entries: Dirent[];
@@ -290,7 +304,7 @@ async function loadFontsForContext(ctx: DesignWorkbenchFoundationContext): Promi
     } else if (job.family !== 'Inter') {
       console.warn(
         `[foundation-image] No font data for "${job.family}" weight ${job.weight}. ` +
-          `Add TTF/OTF files under .handoff/<project>/public/fonts/${job.family.replace(/\s/g, '')}/ ` +
+          `Add TTF/OTF files under .handoff/app/public/fonts/${job.family.replace(/\s/g, '')}/ ` +
           `or HANDOFF_WORKING_PATH/fonts/${job.family.replace(/\s/g, '')}/, or use a Google Fonts family name.`
       );
     }

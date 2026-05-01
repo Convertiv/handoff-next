@@ -193,7 +193,7 @@ export default defineConfig({
     // },
 
     /**
-     * Optional Next.js middleware hook (bundled into `.handoff/{id}/middleware-hook.mjs`).
+     * Optional Next.js middleware hook (bundled into `.handoff/app/middleware-hook.mjs`).
      * Not supported from `handoff.config.cjs` / `.json`. Restart dev after changes.
      *
      * @example

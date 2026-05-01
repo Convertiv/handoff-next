@@ -4,7 +4,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { getDb } from '../db';
 import { handoffComponents } from '../db/schema';
-import { getComponentExportProjectRoot } from './handoff-config-load';
+import { getComponentExportProjectRoot } from './handoff-config-project';
 
 export type ExportComponentsOptions = {
   /** Absolute path to parent directory containing one folder per component id */

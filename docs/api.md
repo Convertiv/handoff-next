@@ -395,7 +395,7 @@ to generate only the integration code.
 ## Hooks
 
 Hooks let you extend the build and preview pipeline, and (for `middleware`) the
-Next.js app that Handoff materializes under `.handoff/{projectId}/`. Configure
+Next.js app that Handoff materializes under `<workingPath>/.handoff/app/`. Configure
 them in `handoff.config.ts` / `.js` / `.mjs` (or `.cjs` for hooks that do not
 need `middleware`) under the top-level `hooks` object. Hook names use camelCase
 (for example `validateComponent`, `jsBuildConfig`, `registerHandlebarsHelpers`,

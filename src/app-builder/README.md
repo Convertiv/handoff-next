@@ -5,7 +5,7 @@ Builds and runs the Next.js documentation app from runtime config + generated pr
 ## End-to-End Flow
 
 1. **Initialize app shell** (`build.ts`)
-   - Prepare `.handoff/<project>/app`, copy app sources, sync `public`, persist client config.
+   - Prepare `<workingPath>/.handoff/app`, copy app sources, sync `public`, persist client config.
 
 2. **Build component artifacts**
    - Production: `buildComponents` + `buildPatterns`.

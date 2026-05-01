@@ -1,4 +1,4 @@
-import type { PatternListObject, PatternObject } from '../../../transformers/preview/types';
+import type { PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
 import type { handoffPatterns } from '../db/schema';
 
 type PatternRow = typeof handoffPatterns.$inferSelect;

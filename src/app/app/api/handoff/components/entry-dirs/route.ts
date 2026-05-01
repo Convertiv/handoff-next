@@ -4,7 +4,10 @@ import {
   getComponentExportProjectRoot,
   loadHandoffConfigFromDir,
   resolveComponentEntryDirsAt,
-} from '@/lib/server/handoff-config-load';
+} from '@/lib/server/handoff-config-project';
+
+/** Skip build-time route collection (avoids SQLite auth + parallel worker locks). */
+export const dynamic = 'force-dynamic';
 
 /**
  * Component entry directories from `handoff.config` `entries.components`,

@@ -1,6 +1,5 @@
-import chalk from 'chalk';
-import fs from 'fs-extra';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const resolveBasePath = (rawBasePath) => {
   if (!rawBasePath || rawBasePath.startsWith('%HANDOFF_')) {
@@ -55,7 +54,7 @@ const nextConfig = {
       const clientConfigPath = path.resolve(env.HANDOFF_WORKING_PATH, 'handoff.config.json');
       if (fs.existsSync(clientConfigPath)) {
         // Load client configuration
-        const clientConfigRaw = fs.readFileSync(clientConfigPath);
+        const clientConfigRaw = fs.readFileSync(clientConfigPath, 'utf-8');
         const clientConfig = JSON.parse(clientConfigRaw);
         // Check if client configuration is a valid object
         if (typeof clientConfig === 'object' && !Array.isArray(clientConfig) && clientConfig !== null) {
@@ -70,7 +69,7 @@ const nextConfig = {
             foundTheme = true;
             content = content + `\n@import '${path.resolve(env.HANDOFF_WORKING_PATH, 'theme', clientConfig['app']['theme'])}';`;
             console.log(
-              `- ${chalk.cyan('info')} Using custom app theme (name: ${clientConfig['app']['theme']}, path: ${path.resolve(
+              `- info Using custom app theme (name: ${clientConfig['app']['theme']}, path: ${path.resolve(
                 env.HANDOFF_WORKING_PATH,
                 'theme',
                 clientConfig['app']['theme']
@@ -86,7 +85,7 @@ const nextConfig = {
           // Use custom theme
           content = content + `\n@import 'theme/default';`;
           console.log(
-            `- ${chalk.cyan('info')} Using default app theme override (path: ${path.resolve(
+            `- info Using default app theme override (path: ${path.resolve(
               env.HANDOFF_WORKING_PATH,
               'theme',
               `default.scss`
@@ -95,14 +94,15 @@ const nextConfig = {
         } else {
           // Use default theme
           content = content + `\n@import 'themes/default';`;
-          console.log(`- ${chalk.cyan('info')} Using default app theme`);
+          console.log(`- info Using default app theme`);
         }
       }
 
       return content;
     },
   },
-  turbopack: { 
+  turbopack: {
+    root: '%HANDOFF_TURBOPACK_ROOT%',
     resolveAlias: {
       '@handoff': path.resolve('%HANDOFF_MODULE_PATH%/src'),
       '@': path.resolve('.'),
