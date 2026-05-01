@@ -10,6 +10,7 @@ import Footer from '../../../components/Footer';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import Header from '../../../components/old/Header';
 import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '../../../components/util';
+import { getMaterializedAppRoot } from '../../../lib/server/handoff-app-paths';
 
 export async function generateMetadata() {
   const { props } = await fetchDocPageMarkdownAsync('docs/assets/', 'fonts', '/assets');
@@ -22,7 +23,7 @@ export default async function FontsPage() {
   const design = getTokens().localStyles;
   const { content, menu, metadata } = props;
 
-  const fontsDir = path.resolve(process.env.HANDOFF_WORKING_PATH ?? '', '.handoff', 'app', 'public', 'fonts');
+  const fontsDir = path.join(getMaterializedAppRoot(), 'public', 'fonts');
   let customFonts: string[] = [];
   if (fs.existsSync(fontsDir)) {
     customFonts = fs.readdirSync(fontsDir).filter((f) => f.endsWith('.zip')).map((f) => f.replace('.zip', ''));

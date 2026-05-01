@@ -38,5 +38,6 @@ Builds and runs the Next.js documentation app from runtime config + generated pr
 | `config-diff/index.ts` | Diff strategy exports + registry/finalizers |
 | `config-diff/strategies/pattern.ts` | Pattern snapshot/diff/apply strategy |
 | `client-config.ts` | Persist client runtime config + token API payload |
-| `paths.ts` | App/public path helpers + public sync |
+| `paths.ts` | App/public path helpers + public sync (app root from `path-contract.ts`) |
+| `path-contract.ts` | `getPathContract()` — working/module/app roots, materialization layout + overlay strategy |
 | `websocket.ts` | Dev reload WebSocket server |

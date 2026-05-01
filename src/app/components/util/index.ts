@@ -10,6 +10,7 @@ import path from 'path';
 import { ParsedUrlQuery } from 'querystring';
 import { getDb } from '../../lib/db';
 import { handoffTokensSnapshots } from '../../lib/db/schema';
+import { getMaterializedAppRoot } from '../../lib/server/handoff-app-paths';
 // Get the parsed url string type
 export interface IParams extends ParsedUrlQuery {
   slug: string | string[];
@@ -747,8 +748,7 @@ const loadClientConfig = (): ClientConfigCache => {
     return cachedClientConfig;
   }
 
-  const workingPath = process.env.HANDOFF_WORKING_PATH ?? '';
-  const clientConfigPath = path.resolve(workingPath, '.handoff', 'app', 'client.config.json');
+  const clientConfigPath = path.join(getMaterializedAppRoot(), 'client.config.json');
 
   if (!fs.existsSync(clientConfigPath)) {
     // Return empty default instead of throwing to support running without fetch

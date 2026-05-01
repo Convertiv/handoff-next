@@ -7,6 +7,12 @@ import { SlotMetadata } from '@handoff/transformers/preview/component';
 import { ComponentListObject, PatternListObject, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 import { ValidationResult } from './preview.js';
 
+/** @see NextAppConfig.materialization_layout */
+export type MaterializationLayout = 'legacy' | 'runtime' | 'ephemeral' | 'root';
+
+/** @see NextAppConfig.materialization_strategy */
+export type MaterializationStrategy = 'full' | 'overlay';
+
 export interface ImageStyle {
   name: string;
   style: string;
@@ -58,6 +64,22 @@ export type RegisterHandlebarsHelpersContext = {
 };
 
 export interface NextAppConfig {
+  /**
+   * Where the Next app is materialized relative to the Handoff working directory.
+   * - `legacy` (default): `<workingPath>/.handoff/app`
+   * - `runtime`: `<workingPath>/handoff-runtime` (stable sibling; optional if you commit a runtime tree)
+   * - `ephemeral`: `<workingPath>/.handoff/runtime` (CI/Vercel — do not commit; regenerate each build)
+   * - `root`: `<workingPath>` (deploy-root Next app; use with a dedicated repo root)
+   */
+  materialization_layout?: MaterializationLayout;
+  materializationLayout?: MaterializationLayout;
+  /**
+   * How Handoff updates the generated Next tree.
+   * - `full` (default): always copy template from `handoff-app`
+   * - `overlay`: skip full copy when `.handoff-app-bundle-version.json` matches (ignored when layout is `root`)
+   */
+  materialization_strategy?: MaterializationStrategy;
+  materializationStrategy?: MaterializationStrategy;
   theme?: string;
   title: string;
   client: string;

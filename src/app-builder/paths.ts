@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import Handoff from '@handoff/index';
+import { getPathContract } from './path-contract.js';
 
 /**
  * Gets the working public directory path for a given handoff instance.
@@ -22,26 +23,26 @@ export const getWorkingPublicPath = (handoff: Handoff): string | null => {
 };
 
 /**
- * Gets the materialized Next.js app directory (under the client working path).
- * Uses `.handoff/app` so `cleanupAppDirectory` can remove the full tree without touching
- * `.handoff/local.db` (SQLite) at the parent `.handoff/` folder.
- *
- * @param handoff - The handoff instance (workingPath = client / design repo root)
- * @returns Absolute path to the Next app root (e.g. `<workingPath>/.handoff/app`)
+ * Gets the materialized Next.js app directory (see `PathContract.appRoot`).
+ * Default layout is `.handoff/app`; override via `app.materialization_layout` or
+ * `HANDOFF_APP_MATERIALIZATION_LAYOUT`.
  */
 export const getAppPath = (handoff: Handoff): string => {
-  return path.resolve(handoff.workingPath, '.handoff', 'app');
+  return getPathContract(handoff).appRoot;
 };
 
 /**
- * Gets the Vercel deployable runtime Next.js app directory.
- *
- * @param handoff - The handoff instance
- * @returns Absolute path to the runtime app root (e.g. `<workingPath>/handoff-runtime`)
+ * Ephemeral Next app root for CI/Vercel (`prepare-runtime`, `build:app --mode vercel`).
+ * Always under `.handoff/runtime` — gitignore this path; regenerate on each build.
  */
-export const getVercelRuntimePath = (handoff: Handoff): string => {
-  return path.resolve(handoff.workingPath, 'handoff-runtime');
+export const getEphemeralRuntimePath = (handoff: Handoff): string => {
+  return path.resolve(handoff.workingPath, '.handoff', 'runtime');
 };
+
+/**
+ * @deprecated Use {@link getEphemeralRuntimePath}. Kept for compatibility; now resolves to `.handoff/runtime`.
+ */
+export const getVercelRuntimePath = getEphemeralRuntimePath;
 
 const mirrorDirectory = async (sourcePath: string, destinationPath: string): Promise<void> => {
   if (!(await fs.pathExists(sourcePath))) {

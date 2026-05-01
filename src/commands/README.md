@@ -7,6 +7,7 @@ Yargs command definitions for the handoff-app CLI. Each subdirectory maps to a C
 ```
 commands/
 ├── build/        # build:app, build:components
+├── prepare-runtime.ts
 ├── dev/          # dev (bare Next.js dev server)
 ├── eject/        # eject:config, eject:pages, eject:theme
 ├── fetch/        # fetch (Figma data pipeline)

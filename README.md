@@ -432,6 +432,7 @@ See [docs/api.md](docs/api.md#hooks) for hook arguments and examples.
 * [Integrate tokens with your project](https://www.handoff.com/docs/tokens/integration)
 * [Integrate with Github Actions CI/CD](https://www.handoff.com/docs/infrastructure/github/)
 * [Integrate with Bitbucket Pipelines CI/CD](https://www.handoff.com/docs/infrastructure/bitbucket/)
+* [Deploying to Vercel / Node hosts (path contract, layouts, `prepare-runtime`)](docs/DEPLOYMENT.md)
 
 ## Maintainers
 

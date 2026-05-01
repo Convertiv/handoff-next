@@ -59,6 +59,7 @@ Commands:
 
   build - Using the current tokens, build various outputs
     build:app [opts] - Builds the design system static application
+  prepare-runtime [opts] - Writes the Next.js Handoff app to `.handoff/runtime` for CI/Vercel (no `next build`)
 
   start [opts] - Starts the design system in development mode
 

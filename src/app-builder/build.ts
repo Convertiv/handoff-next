@@ -11,7 +11,13 @@ import { buildMainCss } from '@handoff/transformers/preview/component/css';
 import { buildMainJS } from '@handoff/transformers/preview/component/javascript';
 import { Logger } from '@handoff/utils/logger';
 import { generatePlaygroundAssetsApi, generateTokensApi, persistClientConfig } from './client-config.js';
-import { getAppPath, getVercelRuntimePath, syncPublicFiles } from './paths.js';
+import {
+  BUNDLE_VERSION_FILENAME,
+  getPathContract,
+  readHandoffPackageVersion,
+  resolveMaterializationLayout,
+} from './path-contract.js';
+import { getEphemeralRuntimePath, syncPublicFiles } from './paths.js';
 import {
   WatcherState,
   getRuntimeComponentsPathsToWatch,
@@ -95,14 +101,19 @@ const writeVercelRuntimePackage = async (handoff: Handoff, appPath: string): Pro
 };
 
 const MIDDLEWARE_HOOK_OUT = 'middleware-hook.mjs';
-export type BuildMode = 'dynamic' | 'vercel';
+
+/** Logged after materializing `.handoff/runtime` so users extend via `handoff.config`, not generated files. */
+export const EPHEMERAL_RUNTIME_SOURCE_GUARD =
+  '[handoff] Do not edit files under `.handoff/runtime` — they are regenerated. Use `handoff.config` hooks, `pages/`, `public/`, and documented overrides instead. Add `.handoff/runtime` to `.gitignore`.';
+
+export type BuildMode = 'dynamic' | 'vercel' | 'prepare-runtime';
 
 const writeStubMiddlewareHook = async (outFile: string): Promise<void> => {
   await fs.writeFile(outFile, 'export const userMiddleware = undefined;\n', 'utf-8');
 };
 
 const resolveBuildAppPath = (handoff: Handoff, mode: BuildMode): string => {
-  return mode === 'vercel' ? getVercelRuntimePath(handoff) : getAppPath(handoff);
+  return mode === 'vercel' || mode === 'prepare-runtime' ? getEphemeralRuntimePath(handoff) : getPathContract(handoff).appRoot;
 };
 
 /**
@@ -169,8 +180,14 @@ export const userMiddleware = typeof resolved.hooks?.middleware === 'function' ?
  */
 const cleanupAppDirectory = async (handoff: Handoff, mode: BuildMode): Promise<void> => {
   const appPath = resolveBuildAppPath(handoff, mode);
+  const contract = getPathContract(handoff);
 
-  // Clean project app dir
+  if (contract.layout === 'root' && path.resolve(appPath) === path.resolve(contract.workingRoot)) {
+    await fs.remove(path.join(appPath, '.next')).catch(() => undefined);
+    await fs.remove(path.join(appPath, 'out')).catch(() => undefined);
+    return;
+  }
+
   if (fs.existsSync(appPath)) {
     await fs.remove(appPath);
   }
@@ -184,6 +201,7 @@ const cleanupAppDirectory = async (handoff: Handoff, mode: BuildMode): Promise<v
 const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<string> => {
   const srcPath = path.resolve(handoff.modulePath, 'src', 'app');
   const appPath = resolveBuildAppPath(handoff, mode);
+  const contract = getPathContract(handoff);
 
   // Publish tokens API and playground assets manifest
   await generateTokensApi(handoff);
@@ -191,20 +209,41 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
 
   // Prepare project app dir
   await fs.ensureDir(appPath);
-  await fs.copy(srcPath, appPath, {
-    overwrite: true,
-    filter: (file) => {
-      const rel = path.relative(srcPath, file);
-      if (rel.includes('next.config.mjs')) return false;
-      if (rel.split(path.sep).includes('node_modules')) return false;
-      return true;
-    },
-  });
+
+  const wantVersion = await readHandoffPackageVersion(handoff.modulePath);
+  const layout = resolveMaterializationLayout(handoff);
+  const markerPath = path.join(appPath, BUNDLE_VERSION_FILENAME);
+  let skipFullCopy = false;
+  if (contract.strategy === 'overlay' && (await fs.pathExists(markerPath))) {
+    try {
+      const marker = await fs.readJson(markerPath);
+      if (marker.version === wantVersion && marker.layout === layout) {
+        skipFullCopy = true;
+      }
+    } catch {
+      /* force full copy */
+    }
+  }
+
+  if (!skipFullCopy) {
+    await fs.copy(srcPath, appPath, {
+      overwrite: true,
+      filter: (file) => {
+        const rel = path.relative(srcPath, file);
+        if (rel.includes('next.config.mjs')) return false;
+        if (rel.split(path.sep).includes('node_modules')) return false;
+        return true;
+      },
+    });
+  } else {
+    Logger.info(`[handoff] overlay materialization: skipped full app copy (handoff-app ${wantVersion}). Delete ${markerPath} to force a full refresh.`);
+  }
+
   await syncPublicFiles(handoff, appPath);
   await materializeMiddlewareHookModule(handoff, appPath);
 
   const hostNodeModules = resolveHostNodeModulesDir(handoff.modulePath);
-  if (mode !== 'vercel') {
+  if (mode !== 'vercel' && mode !== 'prepare-runtime') {
     // Symlink node_modules so Turbopack / Node resolve `next` from .handoff/app.
     // Prefer a hoisted ancestor (tarball install); fall back to handoff-app/node_modules.
     const appNodeModules = path.resolve(appPath, 'node_modules');
@@ -245,32 +284,33 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   const handoffWorkingPath = path.resolve(handoff.workingPath);
   const handoffModulePath = path.resolve(handoff.modulePath);
   const handoffExportPath = path.resolve(handoff.workingPath, handoff.exportsDirectory, handoff.getProjectId());
+  const handoffWorkingPathRel = path.relative(appPath, handoffWorkingPath);
+  const handoffModulePathRel = path.relative(appPath, handoffModulePath);
+  const handoffExportPathRel = path.relative(appPath, handoffExportPath);
   const nextConfigPath = path.resolve(srcPath, 'next.config.mjs');
   const targetPath = path.resolve(appPath, 'next.config.mjs');
   const handoffWebsocketPort = handoff.config.app.ports?.websocket ?? 3001;
   const escapedAppBasePath = escapeForSingleQuotedJsString(handoffAppBasePath);
   const escapedProjectId = escapeForSingleQuotedJsString(handoffProjectId);
-  const escapedWorkingPath = escapeForSingleQuotedJsString(handoffWorkingPath);
-  const escapedModulePath = escapeForSingleQuotedJsString(handoffModulePath);
-  const escapedExportPath = escapeForSingleQuotedJsString(handoffExportPath);
+  const escapedWorkingPathRel = escapeForSingleQuotedJsString(handoffWorkingPathRel);
+  const escapedModulePathRel = escapeForSingleQuotedJsString(handoffModulePathRel);
+  const escapedExportPathRel = escapeForSingleQuotedJsString(handoffExportPathRel);
   const escapedWebsocketPort = escapeForSingleQuotedJsString(String(handoffWebsocketPort));
   // Turbopack root must be a common ancestor of the app, handoff-app, and the
   // resolved host node_modules (symlink target may be hoisted outside handoff-app).
-  const nodeModulesForRoot =
-    mode === 'vercel'
-      ? hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules')
-      : hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
+  const nodeModulesForRoot = hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
   const turbopackRoot = commonAncestorDir(appPath, commonAncestorDir(handoffModulePath, path.resolve(nodeModulesForRoot)));
-  const escapedTurbopackRoot = escapeForSingleQuotedJsString(turbopackRoot);
+  const turbopackRootRel = path.relative(appPath, turbopackRoot);
+  const escapedTurbopackRootRel = escapeForSingleQuotedJsString(turbopackRootRel);
 
   const placeholderValues: Record<string, string> = {
     '%HANDOFF_PROJECT_ID%': escapedProjectId,
     '%HANDOFF_APP_BASE_PATH%': escapedAppBasePath,
-    '%HANDOFF_WORKING_PATH%': escapedWorkingPath,
-    '%HANDOFF_MODULE_PATH%': escapedModulePath,
-    '%HANDOFF_EXPORT_PATH%': escapedExportPath,
+    '%HANDOFF_WORKING_PATH_REL%': escapedWorkingPathRel,
+    '%HANDOFF_MODULE_PATH_REL%': escapedModulePathRel,
+    '%HANDOFF_EXPORT_PATH_REL%': escapedExportPathRel,
     '%HANDOFF_WEBSOCKET_PORT%': escapedWebsocketPort,
-    '%HANDOFF_TURBOPACK_ROOT%': escapedTurbopackRoot,
+    '%HANDOFF_TURBOPACK_ROOT_REL%': escapedTurbopackRootRel,
   };
   let nextConfigContent = await fs.readFile(nextConfigPath, 'utf-8');
   for (const [placeholder, value] of Object.entries(placeholderValues)) {
@@ -312,6 +352,12 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
     await fs.writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2) + '\n');
   }
 
+  await fs.writeJson(
+    markerPath,
+    { version: wantVersion, layout },
+    { spaces: 2 }
+  );
+
   return appPath;
 };
 
@@ -334,11 +380,16 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean, mode: BuildM
 
   await persistClientConfig(handoff);
 
-  if (mode === 'vercel') {
+  if (mode === 'vercel' || mode === 'prepare-runtime') {
     await writeVercelRuntimePackage(handoff, appPath);
-    await fs.writeFile(path.resolve(appPath, '.gitignore'), 'node_modules\n.next\n', 'utf-8');
-    Logger.success(`[handoff] Vercel runtime prepared at ${appPath}`);
-    Logger.info('[handoff] Set Vercel Root Directory to "handoff-runtime" and leave Output Directory empty.');
+    await fs.writeFile(path.resolve(appPath, '.gitignore'), 'node_modules\n.next\nout\n', 'utf-8');
+    Logger.success(`[handoff] Ephemeral runtime prepared at ${appPath}`);
+    Logger.warn(EPHEMERAL_RUNTIME_SOURCE_GUARD);
+    if (mode === 'vercel') {
+      Logger.info(
+        '[handoff] Vercel: do not commit `.handoff/runtime`. Run `next build` from that directory in your build step (see docs/DEPLOYMENT.md). Example root script: `handoff-app prepare-runtime && cd .handoff/runtime && npm install && next build`.'
+      );
+    }
     return;
   }
 

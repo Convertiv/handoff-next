@@ -7,6 +7,7 @@ import React from 'react';
 import { Resvg } from '@resvg/resvg-js';
 import satori from 'satori';
 import type { DesignWorkbenchFoundationContext } from '@/app/design/workbench-types';
+import { getMaterializedAppRoot } from './handoff-app-paths';
 
 const WIDTH = 1024;
 const PAD = 40;
@@ -92,6 +93,12 @@ let resolvedHandoffFontsDir: string | null | undefined;
  */
 async function findHandoffFontsDir(): Promise<string | null> {
   if (resolvedHandoffFontsDir !== undefined) return resolvedHandoffFontsDir;
+
+  const fromAppRoot = path.join(getMaterializedAppRoot(), 'public', 'fonts');
+  if (await statDir(fromAppRoot)) {
+    resolvedHandoffFontsDir = fromAppRoot;
+    return fromAppRoot;
+  }
 
   const workingPath = process.env.HANDOFF_WORKING_PATH ?? '';
   if (!isPlaceholder(workingPath)) {

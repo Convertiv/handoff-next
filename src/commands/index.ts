@@ -9,6 +9,7 @@ import initCommand from './init/index.js';
 import makeComponentCommand from './make/component.js';
 import makePageCommand from './make/page.js';
 import makeTemplateCommand from './make/template.js';
+import prepareRuntimeCommand from './prepare-runtime.js';
 import pullCommand from './pull.js';
 import pushCommand from './push.js';
 import scaffoldCommand from './scaffold/index.js';
@@ -19,6 +20,7 @@ import validateComponentsCommand from './validate/components.js';
 export const commands = [
   buildAppCommand,
   buildComponentsCommand,
+  prepareRuntimeCommand,
   devCommand,
   ejectConfigCommand,
   ejectPagesCommand,

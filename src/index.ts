@@ -4,6 +4,7 @@ import { Types as CoreTypes, Handoff as HandoffRunner, Providers } from 'handoff
 import path from 'path';
 import { fileURLToPath } from 'node:url';
 import buildApp, { BuildMode, devApp, watchApp } from './app-builder/index.js';
+import { getPathContract as resolveHandoffPathContract, type PathContract } from './app-builder/path-contract.js';
 import { ejectConfig, ejectPages, ejectTheme } from './cli/eject.js';
 import { makeComponent, makePage, makeTemplate } from './cli/make.js';
 import { initConfigWithMetadata, initRuntimeConfig, validateConfig } from './config/index.js';
@@ -59,6 +60,11 @@ class Handoff {
     Logger.init({ debug: this.debug });
     this.init(config);
     global.handoff = this;
+  }
+
+  /** Resolved filesystem roots for the materialized Next app (see `handoff-app` path contract). */
+  getPathContract(): PathContract {
+    return resolveHandoffPathContract(this);
   }
 
   init(configOverride?: Partial<Config>): Handoff {
@@ -118,6 +124,16 @@ class Handoff {
   async build(skipComponents?: boolean, mode: BuildMode = 'dynamic'): Promise<Handoff> {
     this.preRunner();
     await buildApp(this, skipComponents, mode);
+    return this;
+  }
+
+  /**
+   * Materialize the Next.js app to `.handoff/runtime` and write a minimal `package.json` for the host
+   * to install and run `next build` / `next start`. Does not run `next build`.
+   */
+  async prepareRuntime(skipComponents?: boolean): Promise<Handoff> {
+    this.preRunner();
+    await buildApp(this, skipComponents, 'prepare-runtime');
     return this;
   }
 
