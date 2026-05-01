@@ -77,12 +77,10 @@ function resolveNextBinFromHandoffPackage(handoffModulePath: string): string {
 }
 
 const writeVercelRuntimePackage = async (handoff: Handoff, appPath: string): Promise<void> => {
-  const sourcePackagePath = path.resolve(handoff.modulePath, 'package.json');
-  const sourcePackageRaw = await fs.readFile(sourcePackagePath, 'utf-8');
-  const sourcePackage = JSON.parse(sourcePackageRaw) as {
-    dependencies?: Record<string, string>;
-  };
-  const deps = sourcePackage.dependencies ?? {};
+  // No `next` / `react` here: `initializeProjectApp` symlinks `node_modules` to the host
+  // install (repo root). Running `npm install` inside this folder would duplicate `next`
+  // and break `tsc` / Vercel type-checking. Build with `cd .handoff/runtime && next build`
+  // so `next` resolves through the symlink.
   const runtimePackage = {
     name: `handoff-runtime-${handoff.getProjectId()}`,
     private: true,
@@ -91,11 +89,7 @@ const writeVercelRuntimePackage = async (handoff: Handoff, appPath: string): Pro
       build: 'next build',
       start: 'next start',
     },
-    dependencies: {
-      next: deps.next ?? '^16.2.4',
-      react: deps.react ?? '^19.1.0',
-      'react-dom': deps['react-dom'] ?? '^19.1.0',
-    },
+    dependencies: {},
   };
   await fs.writeFile(path.resolve(appPath, 'package.json'), JSON.stringify(runtimePackage, null, 2) + '\n');
 };
@@ -239,28 +233,27 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   await materializeMiddlewareHookModule(handoff, appPath);
 
   const hostNodeModules = resolveHostNodeModulesDir(handoff.modulePath);
-  if (mode !== 'vercel') {
-    // Symlink node_modules so Turbopack / Node resolve `next` from .handoff/app.
-    // Prefer a hoisted ancestor (tarball install); fall back to handoff-app/node_modules.
-    const appNodeModules = path.resolve(appPath, 'node_modules');
-    const sourceNodeModules = hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
-    if (fs.existsSync(sourceNodeModules)) {
-      try {
-        const existing = await fs.readlink(appNodeModules);
-        const resolvedExisting = path.resolve(path.dirname(appNodeModules), existing);
-        if (resolvedExisting !== path.resolve(sourceNodeModules)) {
-          await fs.remove(appNodeModules);
-          await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
-        }
-      } catch {
-        if (fs.existsSync(appNodeModules)) {
-          await fs.remove(appNodeModules);
-        }
+  // Symlink node_modules for every materialization mode (including Vercel ephemeral).
+  // A separate `npm install` inside `.handoff/runtime` would install a second `next`,
+  // breaking TypeScript (two incompatible `NextRequest` types) and route handler checks.
+  const appNodeModules = path.resolve(appPath, 'node_modules');
+  const sourceNodeModules = hostNodeModules ?? path.resolve(handoff.modulePath, 'node_modules');
+  if (fs.existsSync(sourceNodeModules)) {
+    try {
+      const existing = await fs.readlink(appNodeModules);
+      const resolvedExisting = path.resolve(path.dirname(appNodeModules), existing);
+      if (resolvedExisting !== path.resolve(sourceNodeModules)) {
+        await fs.remove(appNodeModules);
         await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
       }
-    } else if (fs.existsSync(appNodeModules)) {
-      await fs.remove(appNodeModules);
+    } catch {
+      if (fs.existsSync(appNodeModules)) {
+        await fs.remove(appNodeModules);
+      }
+      await fs.symlink(sourceNodeModules, appNodeModules, 'junction');
     }
+  } else if (fs.existsSync(appNodeModules)) {
+    await fs.remove(appNodeModules);
   }
 
   // Copy custom theme CSS if it exists in the user's project
@@ -385,7 +378,7 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean, mode: BuildM
       '[handoff] Do not edit files under `.handoff/runtime` — they are regenerated each build. Extend via handoff.config hooks, pages/, public/, and documented overrides.'
     );
     Logger.info(
-      '[handoff] To build for Vercel: `cd .handoff/runtime && npm install && next build`. See docs/DEPLOYMENT.md.'
+      '[handoff] To build for Vercel: `cd .handoff/runtime && next build` (uses symlinked `node_modules` from the repo root — do not run `npm install` inside `.handoff/runtime`). See docs/DEPLOYMENT.md.'
     );
     return;
   }

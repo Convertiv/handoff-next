@@ -1,5 +1,5 @@
+import { getDataProvider } from '@handoff/app/lib/data';
 import { NextResponse } from 'next/server';
-import { getDataProvider } from '../../../lib/data';
 
 export const dynamic = 'force-dynamic';
 

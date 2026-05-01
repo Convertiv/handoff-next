@@ -7,7 +7,7 @@
     "start": "handoff-app start",
     "dev": "handoff-app dev",
     "build": "handoff-app build:app",
-    "build:vercel": "handoff-app prepare-runtime && cd .handoff/runtime && npm install && next build",
+    "build:vercel": "handoff-app prepare-runtime && cd .handoff/runtime && next build",
     "fetch": "handoff-app fetch"
   },
   "dependencies": {},

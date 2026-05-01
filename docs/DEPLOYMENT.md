@@ -45,10 +45,10 @@ Never treat generated trees as source — extend via `handoff.config` hooks, `pa
 
 ### Option A: Ephemeral runtime (recommended — nothing committed)
 
-Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-runtime` command writes the Next.js app there; the Vercel build step then runs `next build` from that directory.
+Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-runtime` command writes the Next.js app there and **symlinks** `.handoff/runtime/node_modules` to your repository root’s `node_modules` so there is only one copy of `next` (required for TypeScript and Vercel). Do **not** run `npm install` inside `.handoff/runtime` — that would install a second `next` and break type-checking.
 
 1. Install `handoff-app` as a dependency.
-2. Add `next`, `react`, and `react-dom` as **direct** `dependencies` in your root `package.json`.
+2. Add `next`, `react`, and `react-dom` as **direct** `dependencies` in your root `package.json` (Vercel installs them at the repo root).
 3. Add build scripts:
 
 ```json
@@ -56,7 +56,7 @@ Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-run
   "scripts": {
     "start": "handoff-app start",
     "dev": "handoff-app dev",
-    "build:vercel": "handoff-app prepare-runtime && cd .handoff/runtime && npm install && next build"
+    "build:vercel": "handoff-app prepare-runtime && cd .handoff/runtime && next build"
   }
 }
 ```

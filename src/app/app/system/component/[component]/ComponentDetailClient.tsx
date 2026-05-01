@@ -1,28 +1,17 @@
 'use client';
 
-import { OptionalPreviewRender } from '@handoff/transformers/preview/types';
-import { PreviewObject } from '@handoff/types/preview';
-import { evaluateFilter, type Filter } from '@handoff/utils/filter';
-import { Download, Pencil, X } from 'lucide-react';
-import { startCase } from 'lodash';
-import { useSession } from 'next-auth/react';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
-import remarkGfm from 'remark-gfm';
-import { BuildStatusBanner } from '../../../../components/Component/BuildStatusBanner';
-import { CodeEditor } from '../../../../components/Component/CodeEditor';
-import { InlineComponentEditor } from '../../../../components/Component/InlineComponentEditor';
-import { ComponentPreview } from '../../../../components/Component/Preview';
-import { HotReloadProvider } from '../../../../components/context/HotReloadProvider';
-import { PreviewContextProvider } from '../../../../components/context/PreviewContext';
-import Layout from '../../../../components/Layout/Main';
-import { MarkdownComponents, remarkCodeMeta } from '../../../../components/Markdown/MarkdownComponents';
-import AnchorNav from '../../../../components/Navigation/AnchorNav';
-import PrevNextNav from '../../../../components/Navigation/PrevNextNav';
-import HeadersType from '../../../../components/Typography/Headers';
-import { handoffApiUrl } from '../../../../lib/api-path';
-import { Button } from '../../../../components/ui/button';
+import { BuildStatusBanner } from '@handoff/app/components/Component/BuildStatusBanner';
+import { CodeEditor } from '@handoff/app/components/Component/CodeEditor';
+import { InlineComponentEditor } from '@handoff/app/components/Component/InlineComponentEditor';
+import { ComponentPreview } from '@handoff/app/components/Component/Preview';
+import { HotReloadProvider } from '@handoff/app/components/context/HotReloadProvider';
+import { PreviewContextProvider } from '@handoff/app/components/context/PreviewContext';
+import Layout from '@handoff/app/components/Layout/Main';
+import { MarkdownComponents, remarkCodeMeta } from '@handoff/app/components/Markdown/MarkdownComponents';
+import AnchorNav from '@handoff/app/components/Navigation/AnchorNav';
+import PrevNextNav from '@handoff/app/components/Navigation/PrevNextNav';
+import HeadersType from '@handoff/app/components/Typography/Headers';
+import { Button } from '@handoff/app/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -30,10 +19,20 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../../../../components/ui/dialog';
-import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '../../../../components/ui/drawer';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../../components/ui/select';
-import { JsonTreeView } from '../../../../components/ui/json-tree-view';
+} from '@handoff/app/components/ui/dialog';
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@handoff/app/components/ui/drawer';
+import { JsonTreeView } from '@handoff/app/components/ui/json-tree-view';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@handoff/app/components/ui/select';
+import { handoffApiUrl } from '@handoff/app/lib/api-path';
+import { OptionalPreviewRender } from '@handoff/transformers/preview/types';
+import { PreviewObject } from '@handoff/types/preview';
+import { evaluateFilter, type Filter } from '@handoff/utils/filter';
+import { Download, Pencil, X } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import remarkGfm from 'remark-gfm';
 
 type GroupedPreviews = [string, Record<string, OptionalPreviewRender>][];
 
