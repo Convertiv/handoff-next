@@ -1,0 +1,14 @@
+/* Hero Dev 5 Styles */
+.hero-dev-5 {
+  background: var(--color-light-gradient);
+  padding: 4rem 0;
+  .text-content {
+    max-width: 600px;
+  }
+  .image-content img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+}

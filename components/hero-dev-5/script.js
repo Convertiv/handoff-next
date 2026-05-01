@@ -1,0 +1,1 @@
+// Minimal client script for hero-dev-5
