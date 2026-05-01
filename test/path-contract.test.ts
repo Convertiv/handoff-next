@@ -30,16 +30,6 @@ describe('getPathContract', () => {
     assert.strictEqual(c.appRoot, path.resolve('/project/handoff', 'handoff-runtime'));
   });
 
-  it('honors app.materialization_layout ephemeral', () => {
-    const c = getPathContract(
-      ctx({
-        config: { app: { materialization_layout: 'ephemeral' } } as Config,
-      })
-    );
-    assert.strictEqual(c.layout, 'ephemeral');
-    assert.strictEqual(c.appRoot, path.resolve('/project/handoff', '.handoff', 'runtime'));
-  });
-
   it('forces full strategy when layout is root', () => {
     const c = getPathContract(
       ctx({

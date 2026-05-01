@@ -44,7 +44,7 @@
     "lint": "cd src/app && npx eslint app components lib",
     "release": "np --any-branch",
     "test": "npm run lint && npm run test:unit",
-    "test:unit": "tsx --test test/path-contract.test.ts test/ephemeral-runtime.test.ts",
+    "test:unit": "tsx --test test/path-contract.test.ts test/ephemeral-runtime.test.ts test/next-config-resolve.test.ts test/static-provider.test.ts",
     "playwright:install": "npx playwright install chromium",
     "db:generate": "drizzle-kit generate",
     "db:generate:sqlite": "drizzle-kit generate --config drizzle-sqlite.config.ts",

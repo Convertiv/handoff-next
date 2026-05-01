@@ -13,8 +13,15 @@ const resolveBasePath = (rawBasePath) => {
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const resolveAbsoluteFromApp = (relPath, fallback = '') => {
-  if (!relPath || relPath.startsWith('%HANDOFF_')) {
+  if (relPath === undefined || relPath === null) {
     return fallback;
+  }
+  if (typeof relPath === 'string' && relPath.startsWith('%HANDOFF_')) {
+    return fallback;
+  }
+  // `path.relative(app, working)` is '' when the Next app root equals the Handoff working root (layout `root`).
+  if (relPath === '') {
+    return path.resolve(APP_DIR);
   }
   return path.resolve(APP_DIR, relPath);
 };

@@ -102,18 +102,14 @@ const writeVercelRuntimePackage = async (handoff: Handoff, appPath: string): Pro
 
 const MIDDLEWARE_HOOK_OUT = 'middleware-hook.mjs';
 
-/** Logged after materializing `.handoff/runtime` so users extend via `handoff.config`, not generated files. */
-export const EPHEMERAL_RUNTIME_SOURCE_GUARD =
-  '[handoff] Do not edit files under `.handoff/runtime` — they are regenerated. Use `handoff.config` hooks, `pages/`, `public/`, and documented overrides instead. Add `.handoff/runtime` to `.gitignore`.';
-
-export type BuildMode = 'dynamic' | 'vercel' | 'prepare-runtime';
+export type BuildMode = 'dynamic' | 'vercel';
 
 const writeStubMiddlewareHook = async (outFile: string): Promise<void> => {
   await fs.writeFile(outFile, 'export const userMiddleware = undefined;\n', 'utf-8');
 };
 
 const resolveBuildAppPath = (handoff: Handoff, mode: BuildMode): string => {
-  return mode === 'vercel' || mode === 'prepare-runtime' ? getEphemeralRuntimePath(handoff) : getPathContract(handoff).appRoot;
+  return mode === 'vercel' ? getEphemeralRuntimePath(handoff) : getPathContract(handoff).appRoot;
 };
 
 /**
@@ -243,7 +239,7 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   await materializeMiddlewareHookModule(handoff, appPath);
 
   const hostNodeModules = resolveHostNodeModulesDir(handoff.modulePath);
-  if (mode !== 'vercel' && mode !== 'prepare-runtime') {
+  if (mode !== 'vercel') {
     // Symlink node_modules so Turbopack / Node resolve `next` from .handoff/app.
     // Prefer a hoisted ancestor (tarball install); fall back to handoff-app/node_modules.
     const appNodeModules = path.resolve(appPath, 'node_modules');
@@ -284,7 +280,8 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   const handoffWorkingPath = path.resolve(handoff.workingPath);
   const handoffModulePath = path.resolve(handoff.modulePath);
   const handoffExportPath = path.resolve(handoff.workingPath, handoff.exportsDirectory, handoff.getProjectId());
-  const handoffWorkingPathRel = path.relative(appPath, handoffWorkingPath);
+  // `path.relative` is '' when app root equals working root (layout `root`); next.config must not treat that as "missing".
+  const handoffWorkingPathRel = path.relative(appPath, handoffWorkingPath) || '.';
   const handoffModulePathRel = path.relative(appPath, handoffModulePath);
   const handoffExportPathRel = path.relative(appPath, handoffExportPath);
   const nextConfigPath = path.resolve(srcPath, 'next.config.mjs');
@@ -380,16 +377,16 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean, mode: BuildM
 
   await persistClientConfig(handoff);
 
-  if (mode === 'vercel' || mode === 'prepare-runtime') {
+  if (mode === 'vercel') {
     await writeVercelRuntimePackage(handoff, appPath);
     await fs.writeFile(path.resolve(appPath, '.gitignore'), 'node_modules\n.next\nout\n', 'utf-8');
     Logger.success(`[handoff] Ephemeral runtime prepared at ${appPath}`);
-    Logger.warn(EPHEMERAL_RUNTIME_SOURCE_GUARD);
-    if (mode === 'vercel') {
-      Logger.info(
-        '[handoff] Vercel: do not commit `.handoff/runtime`. Run `next build` from that directory in your build step (see docs/DEPLOYMENT.md). Example root script: `handoff-app prepare-runtime && cd .handoff/runtime && npm install && next build`.'
-      );
-    }
+    Logger.warn(
+      '[handoff] Do not edit files under `.handoff/runtime` — they are regenerated each build. Extend via handoff.config hooks, pages/, public/, and documented overrides.'
+    );
+    Logger.info(
+      '[handoff] To build for Vercel: `cd .handoff/runtime && npm install && next build`. See docs/DEPLOYMENT.md.'
+    );
     return;
   }
 

@@ -18,7 +18,7 @@ const command: CommandModule<{}, PrepareRuntimeArgs> = {
     }) as Argv<PrepareRuntimeArgs>,
   handler: async (args: PrepareRuntimeArgs) => {
     const handoff = new Handoff(args.debug, args.force);
-    await handoff.prepareRuntime(args.skipComponents ?? false);
+    await handoff.build(args.skipComponents ?? false, 'vercel');
   },
 };
 

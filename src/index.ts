@@ -127,16 +127,6 @@ class Handoff {
     return this;
   }
 
-  /**
-   * Materialize the Next.js app to `.handoff/runtime` and write a minimal `package.json` for the host
-   * to install and run `next build` / `next start`. Does not run `next build`.
-   */
-  async prepareRuntime(skipComponents?: boolean): Promise<Handoff> {
-    this.preRunner();
-    await buildApp(this, skipComponents, 'prepare-runtime');
-    return this;
-  }
-
   async ejectConfig(): Promise<Handoff> {
     this.preRunner();
     await ejectConfig(this);

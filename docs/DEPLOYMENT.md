@@ -1,6 +1,16 @@
 # Deploying Handoff (Vercel and other hosts)
 
-Handoff materializes a Next.js app into a directory on disk. Paths are resolved at **runtime** in `next.config.mjs` (no machine-specific absolute paths in committed config).
+Handoff materializes a Next.js app from its templates and your design tokens. The generated app is **not source code** — extend it via `handoff.config` hooks, `pages/`, `public/`, and documented overrides.
+
+## CLI commands (quick reference)
+
+| Command | What it does |
+|---------|-------------|
+| `handoff-app start` | Materializes the app, starts the dev server, and watches for changes. **Use for local development.** |
+| `handoff-app dev` | Bare `next dev` inside an already-materialized app directory. |
+| `handoff-app build:app` | Materializes the app and runs `next build` (static export). |
+| `handoff-app build:app --mode vercel` | Materializes to `.handoff/runtime` for CI/Vercel (does **not** run `next build`). |
+| `handoff-app prepare-runtime` | Alias for `build:app --mode vercel`. |
 
 ## Path contract
 
@@ -10,13 +20,11 @@ Handoff materializes a Next.js app into a directory on disk. Paths are resolved 
 | **module root** | The installed `handoff-app` package (`Handoff.modulePath`) |
 | **app root** | Where `next dev` / `next build` run (`PathContract.appRoot`) |
 
-Configure where the app is materialized:
+Configure where the app is materialized via **`app.materialization_layout`** in `handoff.config` (or **`HANDOFF_APP_MATERIALIZATION_LAYOUT`** env):
 
-- **`app.materialization_layout`** in `handoff.config` (or **`HANDOFF_APP_MATERIALIZATION_LAYOUT`** env):
-  - `legacy` (default): `<working>/.handoff/app`
-  - `runtime`: `<working>/handoff-runtime` (optional stable sibling **only** if you intentionally commit that tree)
-  - `ephemeral`: `<working>/.handoff/runtime` (CI/Vercel — **do not commit**; regenerate each build)
-  - `root`: `<working>` — use only when the repo root **is** the Next app (dedicated deploy repo)
+- `legacy` (default): `<working>/.handoff/app`
+- `runtime`: `<working>/handoff-runtime` (stable sibling for host deploys)
+- `root`: `<working>` — use only when the repo root **is** the Next app (dedicated deploy repo)
 
 Optional **`app.materialization_strategy`** / **`HANDOFF_APP_MATERIALIZATION_STRATEGY`**:
 
@@ -25,59 +33,56 @@ Optional **`app.materialization_strategy`** / **`HANDOFF_APP_MATERIALIZATION_STR
 
 Programmatic access: `new Handoff().getPathContract()` (see `src/app-builder/path-contract.ts`).
 
-**Gitignore (recommended for all projects using Handoff):**
+**Gitignore (recommended for all projects):**
 
 ```gitignore
-.handoff/runtime
+.handoff/
 ```
 
-Also ignore `.handoff/app` if you use the default layout and do not want the materialized app in git. Never treat generated trees as source — extend via `handoff.config` hooks, `pages/`, `public/`, and documented overrides.
+Never treat generated trees as source — extend via `handoff.config` hooks, `pages/`, `public/`, and documented overrides.
 
-## Vercel (recommended flows)
+## Vercel deployment
 
-### A. Deploy from repo root (layout `root`)
+### Option A: Ephemeral runtime (recommended — nothing committed)
 
-1. Set `app.materialization_layout` to `root` in `handoff.config` (or set env in Vercel).
-2. Run `handoff-app build:app` in CI or locally so the Next tree and config exist at the repo root (or commit a one-time bootstrap).
-3. Vercel **Root Directory**: repository root. **Output Directory**: leave empty. **Framework**: Next.js.
-4. Ensure `next`, `react`, and `react-dom` are **direct** `dependencies` of the deployed project so Vercel detects the framework.
+Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-runtime` command writes the Next.js app there; the Vercel build step then runs `next build` from that directory.
 
-### B. Ephemeral runtime (recommended — **no** committed Next tree)
-
-Materialize during the Vercel build step under **`.handoff/runtime`** (gitignored). The host project runs `next build` with cwd set to that directory after `handoff-app` writes a minimal `package.json` there.
-
-1. **Install** `handoff-app` in the repo (dependency or devDependency).
-2. Add **`next`**, **`react`**, and **`react-dom`** as **direct** `dependencies` of the **repository root** `package.json` (Handoff copies compatible versions into the ephemeral `package.json`, but Vercel’s framework detection and installs are simplest when Next is a root dependency).
-3. **Build command** at repo root should prepare the runtime, install inside it, then build, for example:
+1. Install `handoff-app` as a dependency.
+2. Add `next`, `react`, and `react-dom` as **direct** `dependencies` in your root `package.json`.
+3. Add build scripts:
 
 ```json
 {
   "scripts": {
-    "prepare:runtime": "handoff-app prepare-runtime",
-    "build": "npm run prepare:runtime && cd .handoff/runtime && npm install && next build",
-    "start": "cd .handoff/runtime && next start"
+    "start": "handoff-app start",
+    "dev": "handoff-app dev",
+    "build:vercel": "handoff-app prepare-runtime && cd .handoff/runtime && npm install && next build"
   }
 }
 ```
 
-4. Vercel **Root Directory**: repository root. **Output Directory**: empty (Next emits `.next` under `.handoff/runtime`).
+4. Vercel settings:
+   - **Root Directory**: repository root
+   - **Build Command**: `npm run build:vercel`
+   - **Output Directory**: `.handoff/runtime/.next`
+   - **Framework**: Next.js
 
-**CLI equivalents:**
+### Option B: Deploy from repo root (layout `root`)
 
-- `handoff-app prepare-runtime` — materialize only (same output tree as `build:app --mode vercel`; neither runs `next build`).
-- `handoff-app build:app --mode vercel` — same materialization; kept for backwards compatibility.
+1. Set `app.materialization_layout` to `root` in `handoff.config` (or set the env var in Vercel).
+2. Run `handoff-app build:app` — the Next tree materializes at the repo root.
+3. Vercel **Root Directory**: repository root. **Framework**: Next.js.
+4. Ensure `next`, `react`, and `react-dom` are **direct** `dependencies`.
 
-You can set `app.materialization_layout` to `ephemeral` for local `build:app` / `start` so the dev server uses `.handoff/runtime` with symlinks to your host `node_modules` (Handoff still manages template copy and config).
+### Option C: Committed sibling `handoff-runtime`
 
-### C. Legacy sibling `handoff-runtime` (optional)
-
-If you use `materialization_layout: runtime` and **choose** to commit `<working>/handoff-runtime`, you may point Vercel’s root directory at that folder. Prefer **ephemeral** (section B) for a clean repo.
+If you use `materialization_layout: runtime` and commit `<working>/handoff-runtime`, point Vercel's root directory at that folder. Prefer Option A for a clean repo.
 
 ## Environment variables
 
 | Variable | Purpose |
 |----------|---------|
-| `HANDOFF_APP_MATERIALIZATION_LAYOUT` | `legacy` \| `runtime` \| `ephemeral` \| `root` |
+| `HANDOFF_APP_MATERIALIZATION_LAYOUT` | `legacy` \| `runtime` \| `root` |
 | `HANDOFF_APP_MATERIALIZATION_STRATEGY` | `full` \| `overlay` |
 
-`HANDOFF_APP_ROOT` is set automatically in generated `next.config.mjs` for server/client code that needs the materialized app directory (see `src/app/lib/server/handoff-app-paths.ts`).
+`HANDOFF_APP_ROOT` is set automatically in the generated `next.config.mjs`.

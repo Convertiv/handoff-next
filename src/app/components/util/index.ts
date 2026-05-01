@@ -9,6 +9,7 @@ import { groupBy, startCase, uniq } from 'lodash';
 import path from 'path';
 import { ParsedUrlQuery } from 'querystring';
 import { getDb } from '../../lib/db';
+import { getPublicApiDir } from '../../lib/data/static-provider';
 import { handoffTokensSnapshots } from '../../lib/db/schema';
 import { getMaterializedAppRoot } from '../../lib/server/handoff-app-paths';
 // Get the parsed url string type
@@ -502,14 +503,7 @@ const staticBuildTokenMenu = () => {
  * Fetch patterns from the patterns.json API file
  */
 export const fetchPatterns = (): { id: string; title: string; description: string; group: string }[] => {
-  const patternsFilePath = path.resolve(
-    process.env.HANDOFF_MODULE_PATH ?? '',
-    '.handoff',
-    `${process.env.HANDOFF_PROJECT_ID}`,
-    'public',
-    'api',
-    'patterns.json'
-  );
+  const patternsFilePath = path.join(getPublicApiDir(), 'patterns.json');
 
   if (!fs.existsSync(patternsFilePath)) {
     return [];
@@ -658,31 +652,10 @@ export const fetchComponents = (options?: FetchComponentsOptions) => {
 
   // Include components from components.json API if requested
   if (includeApi) {
-    const componentsFileExists = fs.existsSync(
-      path.resolve(
-        process.env.HANDOFF_MODULE_PATH ?? '',
-        '.handoff',
-        `${process.env.HANDOFF_PROJECT_ID}`,
-        'public',
-        'api',
-        'components.json'
-      )
-    );
+    const componentsFile = path.join(getPublicApiDir(), 'components.json');
 
-    if (componentsFileExists) {
-      const componentList = JSON.parse(
-        fs.readFileSync(
-          path.resolve(
-            process.env.HANDOFF_MODULE_PATH ?? '',
-            '.handoff',
-            `${process.env.HANDOFF_PROJECT_ID}`,
-            'public',
-            'api',
-            'components.json'
-          ),
-          'utf-8'
-        )
-      ) as ComponentListObject[];
+    if (fs.existsSync(componentsFile)) {
+      const componentList = JSON.parse(fs.readFileSync(componentsFile, 'utf-8')) as ComponentListObject[];
 
       componentList.forEach((component) => {
         components[component.id] = {
@@ -696,7 +669,7 @@ export const fetchComponents = (options?: FetchComponentsOptions) => {
   }
 
   // Merge per-component JSON snapshots produced by DB-backed builds into the menu tree.
-  const dynamicComponentDir = path.resolve(process.env.HANDOFF_MODULE_PATH ?? '', 'src', 'app', 'public', 'api', 'component');
+  const dynamicComponentDir = path.join(getPublicApiDir(), 'component');
   if (fs.existsSync(dynamicComponentDir)) {
     const componentFiles = fs.readdirSync(dynamicComponentDir).filter((f) => f.endsWith('.json'));
     componentFiles.forEach((fileName) => {

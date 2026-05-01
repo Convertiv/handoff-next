@@ -39,11 +39,6 @@ export const getEphemeralRuntimePath = (handoff: Handoff): string => {
   return path.resolve(handoff.workingPath, '.handoff', 'runtime');
 };
 
-/**
- * @deprecated Use {@link getEphemeralRuntimePath}. Kept for compatibility; now resolves to `.handoff/runtime`.
- */
-export const getVercelRuntimePath = getEphemeralRuntimePath;
-
 const mirrorDirectory = async (sourcePath: string, destinationPath: string): Promise<void> => {
   if (!(await fs.pathExists(sourcePath))) {
     try {

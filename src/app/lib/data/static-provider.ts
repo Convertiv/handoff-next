@@ -7,14 +7,19 @@ import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getTokens, stat
 import type { DataProvider, DocPageContent } from './types';
 import type { SectionLink } from '../../components/util';
 
+/** Built JSON from `build:components` / pipeline lives under `<HANDOFF_WORKING_PATH>/public/api`. */
 export function getPublicApiDir(): string {
-  return path.resolve(
-    process.env.HANDOFF_MODULE_PATH ?? '',
-    '.handoff',
-    process.env.HANDOFF_PROJECT_ID ?? '',
-    'public',
-    'api'
-  );
+  const working = process.env.HANDOFF_WORKING_PATH?.trim();
+  if (working && !working.startsWith('%HANDOFF_')) {
+    return path.resolve(working, 'public', 'api');
+  }
+  const mod = process.env.HANDOFF_MODULE_PATH?.trim();
+  const id = process.env.HANDOFF_PROJECT_ID?.trim();
+  if (mod && id && !mod.startsWith('%HANDOFF_') && !id.startsWith('%HANDOFF_')) {
+    const legacy = path.resolve(mod, '.handoff', id, 'public', 'api');
+    if (fs.existsSync(legacy)) return legacy;
+  }
+  return path.resolve(process.cwd(), 'public', 'api');
 }
 
 export class StaticDataProvider implements DataProvider {

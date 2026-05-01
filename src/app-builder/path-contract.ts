@@ -24,11 +24,11 @@ export const BUNDLE_VERSION_FILENAME = '.handoff-app-bundle-version.json';
 
 export function resolveMaterializationLayout(ctx: HandoffPathContext): MaterializationLayout {
   const env = process.env.HANDOFF_APP_MATERIALIZATION_LAYOUT?.trim().toLowerCase();
-  if (env === 'legacy' || env === 'runtime' || env === 'ephemeral' || env === 'root') {
+  if (env === 'legacy' || env === 'runtime' || env === 'root') {
     return env;
   }
   const cfg = ctx.config?.app?.materialization_layout ?? ctx.config?.app?.materializationLayout;
-  if (cfg === 'legacy' || cfg === 'runtime' || cfg === 'ephemeral' || cfg === 'root') {
+  if (cfg === 'legacy' || cfg === 'runtime' || cfg === 'root') {
     return cfg;
   }
   return 'legacy';
@@ -47,9 +47,6 @@ export function resolveAppRoot(ctx: HandoffPathContext, layout: MaterializationL
   const workingRoot = path.resolve(ctx.workingPath);
   if (layout === 'runtime') {
     return path.resolve(workingRoot, 'handoff-runtime');
-  }
-  if (layout === 'ephemeral') {
-    return path.resolve(workingRoot, '.handoff', 'runtime');
   }
   if (layout === 'root') {
     return workingRoot;
