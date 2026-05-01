@@ -1,8 +1,8 @@
 import { CommandModule } from 'yargs';
-import Handoff from '../index';
-import { runSyncStatus } from '../cli/sync/run-sync-status';
-import { SharedArgs } from './types';
-import { getSharedOptions } from './utils';
+import Handoff from '@handoff/index';
+import { runSyncStatus } from '@handoff/cli/sync/run-sync-status';
+import { SharedArgs } from './types.js';
+import { getSharedOptions } from './utils.js';
 
 export interface SyncStatusArgs extends SharedArgs {}
 

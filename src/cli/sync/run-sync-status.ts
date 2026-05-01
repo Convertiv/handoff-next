@@ -1,7 +1,7 @@
-import type { SyncStatusResponse } from '../../types/handoff-sync';
-import type Handoff from '../../index';
-import { Logger } from '../../utils/logger';
-import { readSyncState } from './sync-state';
+import type { SyncStatusResponse } from '@handoff/types/handoff-sync';
+import type Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { readSyncState } from './sync-state.js';
 
 function requireEnv(name: string): string {
   const v = process.env[name];

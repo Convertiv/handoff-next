@@ -1,7 +1,7 @@
 import { CommandModule } from 'yargs';
-import Handoff from '../..';
-import { SharedArgs } from '../types';
-import { getSharedOptions } from '../utils';
+import Handoff from '@handoff/index';
+import { SharedArgs } from '@handoff/commands/types';
+import { getSharedOptions } from '@handoff/commands/utils';
 
 export interface BuildComponentsArgs extends SharedArgs {
   component?: string;

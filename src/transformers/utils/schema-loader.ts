@@ -1,9 +1,9 @@
 import path from 'path';
-import { Logger } from '../../utils/logger';
-import { generatePropertiesFromDocgen } from '../docgen';
-import { SlotMetadata } from '../preview/component';
-import { buildAndEvaluateModule } from './module';
-import { isValidSchemaObject, loadSchemaFromExports } from './schema';
+import { Logger } from '@handoff/utils/logger';
+import { generatePropertiesFromDocgen } from '@handoff/transformers/docgen/index';
+import { SlotMetadata } from '@handoff/transformers/preview/component';
+import { buildAndEvaluateModule } from './module.js';
+import { isValidSchemaObject, loadSchemaFromExports } from './schema.js';
 
 /**
  * Loads and processes schema from a separate schema file

@@ -1,5 +1,5 @@
 import { CommandModule } from 'yargs';
-import create from '../../cli/create';
+import create from '@handoff/cli/create';
 
 export interface InitArgs {}
 

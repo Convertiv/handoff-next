@@ -2,7 +2,7 @@
 
 import { hideBin } from 'yargs/helpers';
 import yargs from 'yargs/yargs';
-import { commands } from './commands';
+import { commands } from './commands/index.js';
 
 class HandoffCliError extends Error {
   exitCode: number;

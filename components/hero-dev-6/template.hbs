@@ -1,14 +1,24 @@
-<div class="hero-dev-6 d-flex align-items-center justify-content-center p-5" style="background-image: url('{{properties.backgroundImage.src}}');">
-  <div class="row w-100">
-    <div class="col-md-6">
-      <p class="text-muted">PREVIOUS / CURRENT</p>
-      <h1 class="fw-bold">{{properties.title}}</h1>
-      <p class="mb-4">{{properties.subtitle}}</p>
-      <button class="btn btn-primary me-2">{{properties.primaryCTA}}</button>
-      <button class="btn btn-outline-primary">{{properties.secondaryCTA}}</button>
-    </div>
-    <div class="col-md-6">
-      <img src="{{properties.compositionImage.src}}" alt="Composition Elements" class="img-fluid rounded-3">
+<head>
+  {{{style}}}
+  {{{script}}}
+</head>
+
+<body class='preview-body'>
+  <div
+    class='hero-dev-6 d-flex align-items-center justify-content-center p-5'
+    style="background-image: url('{{properties.backgroundImage.src}}');"
+  >
+    <div class='row w-100'>
+      <div class='col-md-6'>
+        <p class='text-muted'>PREVIOUS / CURRENT</p>
+        <h1 class='fw-bold'>{{properties.title}}</h1>
+        <p class='mb-4'>{{properties.subtitle}}</p>
+        <button class='btn btn-primary me-2'>{{properties.primaryCTA}}</button>
+        <button class='btn btn-outline-primary'>{{properties.secondaryCTA}}</button>
+      </div>
+      <div class='col-md-6'>
+        <img src='{{properties.compositionImage.src}}' alt='Composition Elements' class='img-fluid rounded-3' />
+      </div>
     </div>
   </div>
-</div>
+</body>

@@ -12,6 +12,7 @@ import {
 } from '../../components/ui/dialog';
 import { Label } from '../../components/ui/label';
 import { RadioGroup, RadioGroupItem } from '../../components/ui/radio-group';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Badge } from '../../components/ui/badge';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -29,6 +30,8 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   onImported?: () => void;
 };
+
+type EntryDirRow = { relative: string; absolute: string };
 
 function statusBadge(status: ComponentDiff['status']) {
   switch (status) {
@@ -228,34 +231,99 @@ export function ComponentSyncDialog({ open, onOpenChange, onImported }: Props) {
 export function ComponentExportButton({ onDone }: { onDone?: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [exportDirDialogOpen, setExportDirDialogOpen] = useState(false);
+  const [exportDirOptions, setExportDirOptions] = useState<EntryDirRow[]>([]);
+  const [selectedExportDir, setSelectedExportDir] = useState('');
 
-  const run = async () => {
-    if (!confirm('Export all database components to the components/ folder and create a git commit?')) return;
+  const postExportAll = useCallback(async (outputDir: string) => {
+    const res = await fetch(handoffApiUrl('/api/handoff/components/export'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ autoCommit: true, outputDir }),
+    });
+    const data = (await res.json()) as { error?: string; exported?: string[]; commitSha?: string; gitWarning?: string };
+    if (!res.ok) throw new Error(data.error ?? 'Export failed');
+    setMsg(
+      `Exported ${data.exported?.length ?? 0} component(s) to "${outputDir}".${data.commitSha ? ` Commit: ${data.commitSha.slice(0, 7)}` : ''}${data.gitWarning ? ` ${data.gitWarning}` : ''}`
+    );
+    onDone?.();
+  }, [onDone]);
+
+  const startExport = useCallback(async () => {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetch(handoffApiUrl('/api/handoff/components/export'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ autoCommit: true }),
-      });
-      const data = (await res.json()) as { error?: string; exported?: string[]; commitSha?: string; gitWarning?: string };
-      if (!res.ok) throw new Error(data.error ?? 'Export failed');
-      setMsg(
-        `Exported ${data.exported?.length ?? 0} component(s).${data.commitSha ? ` Commit: ${data.commitSha.slice(0, 7)}` : ''}${data.gitWarning ? ` ${data.gitWarning}` : ''}`
-      );
-      onDone?.();
+      const res = await fetch(handoffApiUrl('/api/handoff/components/entry-dirs'), { credentials: 'include' });
+      const data = (await res.json()) as { error?: string; dirs?: EntryDirRow[] };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to load export destinations');
+      const dirs = data.dirs ?? [];
+      let outputDir = 'components';
+      if (dirs.length === 1) outputDir = dirs[0]!.relative;
+      if (dirs.length > 1) {
+        setExportDirOptions(dirs);
+        setSelectedExportDir(dirs[0]!.relative);
+        setExportDirDialogOpen(true);
+        return;
+      }
+      if (!confirm(`Export all database components to "${outputDir}" and create a git commit?`)) return;
+      await postExportAll(outputDir);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Error');
     } finally {
       setBusy(false);
     }
-  };
+  }, [postExportAll]);
+
+  const confirmExportDirDialog = useCallback(async () => {
+    if (!confirm(`Export all components to "${selectedExportDir}" and create a git commit?`)) {
+      setExportDirDialogOpen(false);
+      return;
+    }
+    setExportDirDialogOpen(false);
+    setBusy(true);
+    try {
+      await postExportAll(selectedExportDir);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Error');
+    } finally {
+      setBusy(false);
+    }
+  }, [postExportAll, selectedExportDir]);
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void run()}>
+      <Dialog open={exportDirDialogOpen} onOpenChange={setExportDirDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Choose export folder</DialogTitle>
+            <DialogDescription>
+              Pick a directory from <code className="text-xs">entries.components</code>. All components export as sibling folders under this path.
+            </DialogDescription>
+          </DialogHeader>
+          <Select value={selectedExportDir} onValueChange={setSelectedExportDir}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select folder" />
+            </SelectTrigger>
+            <SelectContent>
+              {exportDirOptions.map((d) => (
+                <SelectItem key={d.relative} value={d.relative}>
+                  {d.relative}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" size="sm" onClick={() => setExportDirDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={() => void confirmExportDirDialog()}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void startExport()}>
         {busy ? 'Exporting…' : 'Export all to code'}
       </Button>
       {msg ? <span className="max-w-xs text-right text-xs text-muted-foreground">{msg}</span> : null}

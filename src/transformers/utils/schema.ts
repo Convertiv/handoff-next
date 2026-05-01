@@ -1,5 +1,5 @@
-import { Logger } from '../../utils/logger';
-import { SlotMetadata, SlotType } from '../preview/component';
+import { Logger } from '@handoff/utils/logger';
+import { SlotMetadata, SlotType } from '@handoff/transformers/preview/component';
 
 /**
  * Ensures all properties have proper IDs assigned recursively

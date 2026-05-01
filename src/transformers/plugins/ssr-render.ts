@@ -5,24 +5,24 @@ import path from 'path';
 import React from 'react';
 import ReactDOMServer from 'react-dom/server';
 import { Plugin, normalizePath } from 'vite';
-import Handoff from '../..';
-import { Logger } from '../../utils/logger';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
 import {
     enrichPropertiesWithDocgen,
     generateDocsArtifact,
     generatePropertiesFromDocgen,
     getPropertiesFromGeneratedDocs,
-} from '../docgen';
-import { SlotMetadata } from '../preview/component';
-import { MAIN_COMPONENT_CSS_FILE } from '../preview/component/css';
-import { TransformComponentTokensResult } from '../preview/types';
-import { DEFAULT_CLIENT_BUILD_CONFIG, createReactResolvePlugin } from '../utils/build';
-import { formatHtml, trimPreview } from '../utils/html';
-import { buildAndEvaluateModule } from '../utils/module';
-import { loadSchemaFromComponent, loadSchemaFromFile } from '../utils/schema-loader';
-import { slugify } from '../utils/string';
-import { extractComponentName, generateUsageSnippet } from '../utils/usage';
-import { createViteLogger } from '../utils/vite-logger';
+} from '@handoff/transformers/docgen/index';
+import { SlotMetadata } from '@handoff/transformers/preview/component';
+import { MAIN_COMPONENT_CSS_FILE } from '@handoff/transformers/preview/component/css';
+import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
+import { DEFAULT_CLIENT_BUILD_CONFIG, createReactResolvePlugin } from '@handoff/transformers/utils/build';
+import { formatHtml, trimPreview } from '@handoff/transformers/utils/html';
+import { buildAndEvaluateModule } from '@handoff/transformers/utils/module';
+import { loadSchemaFromComponent, loadSchemaFromFile } from '@handoff/transformers/utils/schema-loader';
+import { slugify } from '@handoff/transformers/utils/string';
+import { extractComponentName, generateUsageSnippet } from '@handoff/transformers/utils/usage';
+import { createViteLogger } from '@handoff/transformers/utils/vite-logger';
 
 /**
  * React component type for SSR rendering

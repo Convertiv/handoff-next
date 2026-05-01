@@ -1,4 +1,4 @@
-import { PatternListObject } from '../../transformers/preview/types';
+import { PatternListObject } from '@handoff/transformers/preview/types';
 
 type RawPatternDeclaration = Record<string, any>;
 

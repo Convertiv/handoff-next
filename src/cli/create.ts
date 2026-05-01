@@ -3,6 +3,9 @@ import chalk from 'chalk';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Get the current handoff-app version from package.json

@@ -1,4 +1,4 @@
-import Handoff from '../..';
+import Handoff from '@handoff/index';
 
 /**
  * Optional hints for post-build finalizers (e.g. selective pattern rebuild).

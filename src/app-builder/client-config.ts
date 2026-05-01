@@ -1,9 +1,9 @@
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '..';
-import { getClientConfig } from '../config';
-import { Logger } from '../utils/logger';
-import { getAppPath } from './paths';
+import Handoff from '@handoff/index';
+import { getClientConfig } from '@handoff/config/index';
+import { Logger } from '@handoff/utils/logger';
+import { getAppPath } from './paths.js';
 
 /**
  * Publishes the tokens API files to the public directory.

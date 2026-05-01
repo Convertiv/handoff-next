@@ -1,7 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '../../../index';
-import { PatternListObject, PatternObject } from '../types';
+import Handoff from '@handoff/index';
+import { PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
 
 export const getPatternAPIPath = (handoff: Handoff): string => {
   const patternPath = path.resolve(handoff.workingPath, 'public/api/pattern');

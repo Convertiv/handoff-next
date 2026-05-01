@@ -1,5 +1,5 @@
 import type React from 'react';
-import type { ComponentObject } from '../transformers/preview/types';
+import type { ComponentObject } from '@handoff/transformers/preview/types';
 
 export type RendererKind = 'react' | 'handlebars' | 'csf';
 

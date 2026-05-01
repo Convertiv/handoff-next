@@ -21,9 +21,10 @@ import {
   Tablet,
   Text,
 } from 'lucide-react';
-import React, { useCallback, useContext, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { HotReloadContext } from '../context/HotReloadProvider';
 import { usePreviewContext } from '../context/PreviewContext';
+import { sanitizePreviewUrlForOpen } from '@/lib/preview-url';
 import RulesSheet from '../Foundations/RulesSheet';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -58,7 +59,7 @@ export const ComponentDisplay: React.FC<{
   defaultHeight?: string | undefined;
   title?: string;
   onPreviewChange?: (previewUrl: string) => void;
-  /** When true, hide "open in new tab" (same-origin, unsandboxed) — e.g. dynamic mode user-built previews. */
+  /** When true, hide "open in new tab" (e.g. untrusted preview URL sources). When false, opens only after {@link sanitizePreviewUrlForOpen}. */
   hideOpenInNewTab?: boolean;
 }> = ({ component, defaultHeight, title, onPreviewChange, hideOpenInNewTab = false }) => {
   const context = usePreviewContext();
@@ -97,24 +98,45 @@ export const ComponentDisplay: React.FC<{
     return context.variants;
   }, [component?.figmaComponentId, component?.previews, context.preview, context.variants]);
 
-  const onLoad = useCallback(() => {
+  const measureIframeContentHeight = useCallback(() => {
     if (defaultHeight) {
       setHeight(defaultHeight);
-    } else if (ref.current) {
-      if (ref.current.contentWindow.document.body) {
-        setHeight(ref.current.contentWindow.document.body.scrollHeight + 'px');
-      }
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultHeight, ref]);
+    const el = ref.current;
+    if (!el?.contentWindow) return;
+    try {
+      const doc = el.contentDocument ?? el.contentWindow.document;
+      const body = doc.body;
+      const html = doc.documentElement;
+      if (!body) return;
+      const sh = Math.max(
+        body.scrollHeight,
+        body.offsetHeight,
+        html?.clientHeight ?? 0,
+        html?.scrollHeight ?? 0,
+        html?.offsetHeight ?? 0
+      );
+      if (sh > 0) setHeight(`${sh}px`);
+    } catch {
+      /* e.g. opaque sandbox — height stays at default until fixed */
+    }
+  }, [defaultHeight]);
+
+  const onIframeLoad = useCallback(() => {
+    measureIframeContentHeight();
+    requestAnimationFrame(() => measureIframeContentHeight());
+    window.setTimeout(() => measureIframeContentHeight(), 100);
+    window.setTimeout(() => measureIframeContentHeight(), 450);
+  }, [measureIframeContentHeight]);
 
   React.useEffect(() => {
-    onLoad();
-    window.addEventListener('resize', onLoad);
+    measureIframeContentHeight();
+    window.addEventListener('resize', measureIframeContentHeight);
     return () => {
-      window.removeEventListener('resize', onLoad);
+      window.removeEventListener('resize', measureIframeContentHeight);
     };
-  }, [onLoad]);
+  }, [measureIframeContentHeight]);
 
   const transformPreviewUrl = (url: string) => {
     let target = url;
@@ -166,6 +188,20 @@ export const ComponentDisplay: React.FC<{
 
   const { reloadCounter } = useContext(HotReloadContext);
 
+  React.useEffect(() => {
+    if (!previewUrl) return;
+    const t0 = window.setTimeout(() => measureIframeContentHeight(), 0);
+    const t1 = window.setTimeout(() => measureIframeContentHeight(), 200);
+    return () => {
+      window.clearTimeout(t0);
+      window.clearTimeout(t1);
+    };
+  }, [previewUrl, reloadCounter, measureIframeContentHeight]);
+
+  React.useEffect(() => {
+    measureIframeContentHeight();
+  }, [width, measureIframeContentHeight]);
+
   // Helper to check if an option is valid given other current selections
   const isOptionValid = (property: string, value: string) => {
     if (!component?.previews || !context.variantFilter) return true;
@@ -178,6 +214,20 @@ export const ComponentDisplay: React.FC<{
     return Object.values(component.previews).some((preview: any) =>
       Object.entries(testFilter).every(([key, val]) => preview.values[key] === val)
     );
+  };
+
+  const safePreviewFile = useMemo(() => (previewUrl ? sanitizePreviewUrlForOpen(previewUrl) : null), [previewUrl]);
+
+  const parseCssPx = (v: string, fallback: number) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+
+  const scaledFrameStyle: React.CSSProperties = {
+    width: parseCssPx(width, 1100) * scale,
+    height: parseCssPx(height, 100) * scale,
+    margin: '0 auto',
+    overflow: 'hidden',
   };
 
   return (
@@ -283,8 +333,10 @@ export const ComponentDisplay: React.FC<{
                       <Button
                         className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-3"
                         onClick={() => {
-                          if (ref.current) {
-                            ref.current.contentWindow.location.reload();
+                          try {
+                            ref.current?.contentWindow?.location.reload();
+                          } catch {
+                            /* sandbox / opaque origin */
                           }
                         }}
                         variant="ghost"
@@ -318,7 +370,10 @@ export const ComponentDisplay: React.FC<{
                         <Button
                           className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-3"
                           onClick={() => {
-                            window.open(`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${previewUrl}`, '_blank');
+                            const safe = sanitizePreviewUrlForOpen(previewUrl);
+                            if (!safe) return;
+                            const base = process.env.HANDOFF_APP_BASE_PATH ?? '';
+                            window.open(`${base}/api/component/${safe}`, '_blank', 'noopener,noreferrer');
                           }}
                           variant="ghost"
                         >
@@ -333,13 +388,17 @@ export const ComponentDisplay: React.FC<{
             </div>
 
             <div className="dotted-bg w-full p-8">
-              {previewUrl ? (
-                <div>
+              {previewUrl && safePreviewFile ? (
+                <div style={scaledFrameStyle}>
+                  {/*
+                    allow-same-origin: parent must read iframe document for auto-height.
+                    Previews are same-origin Handoff output (trusted pipeline), not third-party URLs.
+                  */}
                   <iframe
                     key={`${previewUrl}-${reloadCounter}`}
                     title="Component preview"
-                    sandbox="allow-scripts"
-                    onLoad={onLoad}
+                    sandbox="allow-scripts allow-same-origin"
+                    onLoad={onIframeLoad}
                     ref={ref}
                     height={height}
                     style={{
@@ -349,10 +408,14 @@ export const ComponentDisplay: React.FC<{
                       transformOrigin: 'left top',
                       transition: 'all 0.2s ease-in-out',
                       display: 'block',
-                      margin: '0 auto',
+                      margin: 0,
                     }}
-                    src={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${previewUrl}`}
+                    src={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${safePreviewFile}`}
                   />
+                </div>
+              ) : previewUrl ? (
+                <div className="flex items-center justify-center p-8 text-sm text-amber-700 dark:text-amber-400">
+                  Preview URL is not in an allowed format.
                 </div>
               ) : (
                 <div className="flex items-center justify-center p-8 text-sm text-gray-500">

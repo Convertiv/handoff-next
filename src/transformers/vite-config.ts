@@ -1,5 +1,5 @@
 import type { InlineConfig } from 'vite';
-import { createViteLogger } from './utils/vite-logger';
+import { createViteLogger } from './utils/vite-logger.js';
 
 const viteBaseConfig: InlineConfig = {
   customLogger: createViteLogger(),

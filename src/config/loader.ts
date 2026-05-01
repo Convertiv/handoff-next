@@ -1,10 +1,11 @@
 import esbuild from 'esbuild';
 import fs from 'fs-extra';
-import { createRequire } from 'module';
+import { createRequire } from 'node:module';
 import path from 'path';
-import { Config } from '../types/config';
-import { Logger } from '../utils/logger';
-import { defaultConfig } from './defaults';
+import { fileURLToPath } from 'node:url';
+import { Config } from '@handoff/types/config';
+import { Logger } from '@handoff/utils/logger';
+import { defaultConfig } from './defaults.js';
 
 const CONFIG_FILE_PREFERENCE = [
   'handoff.config.ts',
@@ -50,6 +51,8 @@ const evaluateTypeScriptConfig = (filePath: string, handoffModulePath: string): 
   return mod.exports;
 };
 
+const loaderDir = path.dirname(fileURLToPath(import.meta.url));
+
 const loadConfigFile = (configPath: string): Config => {
   if (configPath.endsWith('.json')) {
     const buffer = fs.readFileSync(configPath);
@@ -57,14 +60,15 @@ const loadConfigFile = (configPath: string): Config => {
   }
 
   if (configPath.endsWith('.ts')) {
-    const handoffModulePath = path.resolve(__dirname, '../..');
+    const handoffModulePath = path.resolve(loaderDir, '../..');
     const importedConfig = evaluateTypeScriptConfig(configPath, handoffModulePath);
     return (importedConfig.default || importedConfig) as Config;
   }
 
-  // Invalidate require cache to ensure fresh read
-  delete require.cache[require.resolve(configPath)];
-  const importedConfig = require(configPath);
+  const req = createRequire(configPath);
+  const resolved = req.resolve(configPath);
+  delete req.cache[resolved];
+  const importedConfig = req(configPath);
   return (importedConfig.default || importedConfig) as Config;
 };
 

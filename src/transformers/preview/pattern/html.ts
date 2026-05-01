@@ -1,4 +1,4 @@
-import escape from 'lodash/escape';
+import escape from 'lodash/escape.js';
 import { parse } from 'node-html-parser';
 
 /**

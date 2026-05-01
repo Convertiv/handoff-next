@@ -1,5 +1,5 @@
-import { Config } from '../types/config';
-import { Logger } from '../utils/logger';
+import { Config } from '@handoff/types/config';
+import { Logger } from '@handoff/utils/logger';
 
 /**
  * Validates that the configuration has the required Figma credentials.

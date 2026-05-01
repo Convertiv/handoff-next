@@ -1,4 +1,4 @@
-import type Handoff from '../../index';
+import type Handoff from '@handoff/index';
 
 /**
  * Absolute path to the declaration file (`*.handoff.*` / legacy) for a component or pattern id.

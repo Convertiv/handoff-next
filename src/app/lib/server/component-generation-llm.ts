@@ -30,7 +30,8 @@ function rendererRules(renderer: RendererKind, scssPreamble: string): string {
     : `If the project's similar-component examples include an @import preamble, replicate it exactly. Otherwise start SCSS with a comment and use var(--color-*) for colors.`;
 
   const rules: Record<RendererKind, string> = {
-    handlebars: `Use Handlebars (.hbs) with Bootstrap 5 utility classes (d-flex, row, col-*, gap-*, fw-bold, text-muted, rounded-3, etc.). ${scssGuidance} Scope custom rules under a class named after the component id.`,
+    handlebars: `Use Handlebars (.hbs) with Bootstrap 5 utility classes (d-flex, row, col-*, gap-*, fw-bold, text-muted, rounded-3, etc.). ${scssGuidance} Scope custom rules under a class named after the component id.
+The template MUST be a complete HTML document fragment for Handoff previews: start with <head> containing {{{style}}} and {{{script}}} (triple mustaches), then <body class="preview-body">, your component markup, then </body>. Those helpers inject compiled CSS and JS — required for correct preview rendering.`,
     react: `Use React + TSX with functional components. Prefer utility classes consistent with the project (Tailwind-style if implied by examples). Export default component + Props interface. ${scssGuidance}`,
     csf: `Use CSF3-style Storybook file: default export meta + named exports for stories. Include at least two previews mapped via component props. ${scssGuidance}`,
   };
@@ -43,7 +44,15 @@ function a11yInstructions(standard: string): string {
   return 'Follow sensible semantic HTML; no formal WCAG level required.';
 }
 
-export type AssetRef = { label: string; httpPath: string };
+export type AssetRef = {
+  label: string;
+  httpPath: string;
+  /** From layered extraction: background | foreground | decorative | … */
+  role?: string;
+  /** Hint for Handoff property mapping, e.g. backgroundImage | image | logo */
+  usage?: string;
+  description?: string;
+};
 
 export async function generateComponentWithLlm(opts: {
   artifact: ArtifactRow;
@@ -94,14 +103,26 @@ Rules:
 - Component id is "${componentId}" — use in data-component, BEM root class, or file-appropriate naming.
 - ${rendererRules(renderer, opts.scssPreamble ?? '')}
 - Accessibility: ${a11yInstructions(a11yStandard)}
-- IMAGES: When extracted asset images are provided with HTTP paths, use those exact paths in your template (e.g. as <img src="..."> or background-image URLs) and in preview values. This is critical — do not use placeholder URLs like "https://example.com/image.jpg".
+- IMAGES: NEVER hardcode image URLs (including \`/api/component/...\`) in templates, SCSS url(), or TSX. Every image (hero photo, background, icon) MUST be a Handlebars binding like \`{{properties.image.src}}\` or a React prop fed from data. Define each image in \`properties\` with \`"type": "image"\` (and nested \`src\` / structure per project patterns in reference materials). Use extracted asset HTTP paths ONLY inside \`previews.design.values\` to populate those image properties for the design preview — not in entry source markup.
+- EXTRACTED ASSET METADATA: When asset list includes \`role\` / \`usage\`, map \`usage: backgroundImage\` (or role \`background\`) to a property like \`properties.backgroundImage.src\`; map \`usage: image\` / role \`foreground\` / \`media\` to hero \`properties.image.src\` or the closest pattern in reference materials. Align preview values so each URL sits on the matching property.
 - VISUAL FIDELITY: Study the target design image carefully. Match the layout precisely: column ratios, spacing, font sizes, colors, border radius, shadows, background images. The "design" preview values must contain the real text from the design image, not lorem ipsum.
 `;
 
   const assetRefs = opts.assetRefs ?? [];
-  const assetRefBlock = assetRefs.length > 0
-    ? `\n## Extracted asset files (use these URLs in your template and preview values)\n${assetRefs.map((a, i) => `- Asset ${i}: "${a.label}" → ${a.httpPath}`).join('\n')}\n`
-    : '';
+  const assetRefBlock =
+    assetRefs.length > 0
+      ? `\n## Extracted asset files\nFor each asset below, wire an \`image\`-type property in the schema (use \`role\` / \`usage\` hints to pick property names), then set that property's URL in \`previews.design.values\` only — do not paste these paths into templates or SCSS.\n${assetRefs
+        .map((a, i) => {
+          const bits = [
+            a.role ? `role=${a.role}` : '',
+            a.usage ? `usage=${a.usage}` : '',
+            a.description ? `description=${a.description.slice(0, 160)}` : '',
+          ].filter(Boolean);
+          const meta = bits.length ? ` (${bits.join('; ')})` : '';
+          return `- Asset ${i}: "${a.label}"${meta} → ${a.httpPath}`;
+        })
+        .join('\n')}\n`
+      : '';
 
   const userParts: ChatMessage['content'] = [
     {
@@ -116,13 +137,19 @@ Rules:
 
   if (useExtractedAssets && Array.isArray(artifact.assets)) {
     let n = 0;
-    for (const a of artifact.assets as { imageUrl?: string; label?: string }[]) {
-      if (n >= 4) break;
+    const assetArr = artifact.assets as { imageUrl?: string; label?: string; role?: string; usage?: string; description?: string }[];
+    for (let i = 0; i < assetArr.length && n < 4; i++) {
+      const a = assetArr[i]!;
       const u = typeof a?.imageUrl === 'string' ? a.imageUrl : '';
       const part = await imageUrlToVisionPart(u);
       if (part) {
-        const ref = assetRefs.find((r) => r.label === a?.label);
-        const refNote = ref ? ` — USE this path in your code: ${ref.httpPath}` : '';
+        const ref = assetRefs[i] ?? assetRefs.find((r) => r.label === a?.label);
+        const hint = [a.role && `role=${a.role}`, a.usage && `usage=${a.usage}`, ref?.usage && ref.usage !== a.usage ? `refUsage=${ref.usage}` : '']
+          .filter(Boolean)
+          .join(', ');
+        const refNote = ref
+          ? ` — Reference ${ref.httpPath} in previews.design.values for the image property implied by ${hint || 'label/usage'} (not in template markup).`
+          : '';
         userParts.push({ type: 'text', text: `Extracted asset: ${a?.label || 'asset'}${refNote}` }, part);
         n += 1;
       }
@@ -144,6 +171,13 @@ Rules:
   );
 
   return parseGeneratedComponentJson(raw, renderer, componentId);
+}
+
+/** Ensure .hbs includes Handoff preview injection points when the model omits them. */
+function ensureHandlebarsPreviewShell(template: string, componentId: string): string {
+  if (/\{\{\{\s*style\s*\}\}\}/.test(template)) return template;
+  const inner = template.trim() || `  <section data-component="${componentId}"><p>{{title}}</p></section>`;
+  return `<head>\n  {{{style}}}\n  {{{script}}}\n</head>\n\n<body class="preview-body">\n${inner}\n</body>\n`;
 }
 
 function parseGeneratedComponentJson(raw: string, renderer: RendererKind, componentId: string): LlmGeneratedComponent {
@@ -174,7 +208,10 @@ function parseGeneratedComponentJson(raw: string, renderer: RendererKind, compon
   if (renderer === 'csf' && typeof es.story === 'string') entrySources.story = es.story;
 
   if (renderer === 'handlebars' && !entrySources.template) {
-    entrySources.template = `<head>\n  {{{style}}}\n  {{{script}}}\n</head>\n<body class="theme preview-body">\n  <section data-component="${componentId}"><p>{{title}}</p></section>\n</body>\n`;
+    entrySources.template = `<head>\n  {{{style}}}\n  {{{script}}}\n</head>\n\n<body class="preview-body">\n  <section data-component="${componentId}"><p>{{title}}</p></section>\n</body>\n`;
+  }
+  if (renderer === 'handlebars' && entrySources.template) {
+    entrySources.template = ensureHandlebarsPreviewShell(entrySources.template, componentId);
   }
   if (renderer === 'react' && !entrySources.component) {
     entrySources.component = `import React from 'react';\nexport default function Generated() { return <div className="theme preview-body">Generated</div>; }\n`;

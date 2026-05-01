@@ -1,5 +1,5 @@
 import chokidar from 'chokidar';
-import { Logger } from '../../utils/logger';
+import { Logger } from '@handoff/utils/logger';
 
 export interface WatcherState {
   busy: boolean;

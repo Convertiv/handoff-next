@@ -1,5 +1,5 @@
 import { WebSocket, WebSocketServer } from 'ws';
-import { Logger } from '../utils/logger';
+import { Logger } from '@handoff/utils/logger';
 
 export interface HandoffWebSocket extends WebSocket {
   isAlive: boolean;

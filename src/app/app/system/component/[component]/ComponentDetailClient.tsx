@@ -23,10 +23,21 @@ import PrevNextNav from '../../../../components/Navigation/PrevNextNav';
 import HeadersType from '../../../../components/Typography/Headers';
 import { handoffApiUrl } from '../../../../lib/api-path';
 import { Button } from '../../../../components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../../../components/ui/dialog';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '../../../../components/ui/drawer';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../../../components/ui/select';
 import { JsonTreeView } from '../../../../components/ui/json-tree-view';
 
 type GroupedPreviews = [string, Record<string, OptionalPreviewRender>][];
+
+type EntryDirRow = { relative: string; absolute: string };
 
 const groupPreviewsByVariantProperty = (items: Record<string, OptionalPreviewRender>, variantProperty: string): GroupedPreviews => {
   const grouped: GroupedPreviews = [];
@@ -59,6 +70,9 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
   const [hotKey, setHotKey] = useState(0);
   const [editing, setEditing] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [exportDirDialogOpen, setExportDirDialogOpen] = useState(false);
+  const [exportDirOptions, setExportDirOptions] = useState<EntryDirRow[]>([]);
+  const [selectedExportDir, setSelectedExportDir] = useState('');
 
   const { data: session, status } = useSession();
   const canEditDynamic = useMemo(
@@ -97,26 +111,61 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
     void fetchComponentData();
   }, [fetchComponentData, id]);
 
-  const exportToCode = useCallback(async () => {
-    if (!confirm(`Export "${id}" to the components/ folder and git commit?`)) return;
-    setExportBusy(true);
-    try {
+  const postExport = useCallback(
+    async (outputDir: string) => {
       const res = await fetch(handoffApiUrl('/api/handoff/components/export'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ componentIds: [id], autoCommit: true }),
+        body: JSON.stringify({ componentIds: [id], autoCommit: true, outputDir }),
       });
       const data = (await res.json()) as { error?: string; gitWarning?: string; commitSha?: string };
       if (!res.ok) throw new Error(data.error ?? 'Export failed');
       const extra = [data.commitSha ? `Commit ${data.commitSha.slice(0, 7)}` : null, data.gitWarning].filter(Boolean).join(' — ');
       alert(extra ? `Exported. ${extra}` : 'Exported.');
+    },
+    [id]
+  );
+
+  const exportToCode = useCallback(async () => {
+    setExportBusy(true);
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/components/entry-dirs'), { credentials: 'include' });
+      const data = (await res.json()) as { error?: string; dirs?: EntryDirRow[] };
+      if (!res.ok) throw new Error(data.error ?? 'Failed to load export destinations');
+      const dirs = data.dirs ?? [];
+      let outputDir = 'components';
+      if (dirs.length === 1) outputDir = dirs[0]!.relative;
+      if (dirs.length > 1) {
+        setExportDirOptions(dirs);
+        setSelectedExportDir(dirs[0]!.relative);
+        setExportDirDialogOpen(true);
+        return;
+      }
+      if (!confirm(`Export "${id}" to "${outputDir}" and git commit?`)) return;
+      await postExport(outputDir);
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Export failed');
     } finally {
       setExportBusy(false);
     }
-  }, [id]);
+  }, [id, postExport]);
+
+  const confirmExportDirDialog = useCallback(async () => {
+    if (!confirm(`Export "${id}" to "${selectedExportDir}" and git commit?`)) {
+      setExportDirDialogOpen(false);
+      return;
+    }
+    setExportDirDialogOpen(false);
+    setExportBusy(true);
+    try {
+      await postExport(selectedExportDir);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExportBusy(false);
+    }
+  }, [id, postExport, selectedExportDir]);
 
   useEffect(() => {
     if (!component) return;
@@ -149,6 +198,37 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
 
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata}>
+      <Dialog open={exportDirDialogOpen} onOpenChange={setExportDirDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Choose export folder</DialogTitle>
+            <DialogDescription>
+              Pick a directory from <code className="text-xs">handoff.config</code> <code className="text-xs">entries.components</code>. Files
+              are written under the linked project root.
+            </DialogDescription>
+          </DialogHeader>
+          <Select value={selectedExportDir} onValueChange={setSelectedExportDir}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select folder" />
+            </SelectTrigger>
+            <SelectContent>
+              {exportDirOptions.map((d) => (
+                <SelectItem key={d.relative} value={d.relative}>
+                  {d.relative}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" size="sm" onClick={() => setExportDirDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="button" size="sm" onClick={() => void confirmExportDirDialog()}>
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-col gap-3 pb-14">
         <small className="text-sm font-medium text-sky-600 dark:text-gray-300">Components</small>
         <HeadersType.H1>{displayTitle}</HeadersType.H1>
@@ -232,7 +312,6 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
                       bestPracticesCard={bestPracticesForSlice(cpi)}
                       properties={cpi === componentPreviews.length - 1}
                       validations={cpi === componentPreviews.length - 1}
-                      hideOpenInNewTab={true}
                     >
                       <p>Define a simple contact form</p>
                     </ComponentPreview>
@@ -243,7 +322,7 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
           ) : (
             <HotReloadProvider key={`hot-reload-${id}-${hotKey}`} connect={componentHotReloadIsAvailable}>
               <PreviewContextProvider key={`preview-context-${id}`} id={id} defaultMetadata={metadata} defaultMenu={menu} defaultPreview={componentPreviews} defaultConfig={config}>
-                <ComponentPreview key={`component-preview-${id}`} title={metadata.title} bestPracticesCard={bestPracticesSingle} properties validations hideOpenInNewTab={true}>
+                <ComponentPreview key={`component-preview-${id}`} title={metadata.title} bestPracticesCard={bestPracticesSingle} properties validations>
                   <p>Define a simple contact form</p>
                 </ComponentPreview>
               </PreviewContextProvider>

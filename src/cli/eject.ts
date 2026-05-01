@@ -1,8 +1,8 @@
 import * as p from '@clack/prompts';
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '../index';
-import { Logger } from '../utils/logger';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
 
 /**
  * Eject the config to the working directory

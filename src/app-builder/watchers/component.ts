@@ -1,9 +1,9 @@
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '../..';
-import { ComponentSegment } from '../../transformers/preview/component/builder';
-import { ComponentListObject } from '../../transformers/preview/types';
-import { normalizePathForCompare } from '../../utils/path';
+import Handoff from '@handoff/index';
+import { ComponentSegment } from '@handoff/transformers/preview/component/builder';
+import { ComponentListObject } from '@handoff/transformers/preview/types';
+import { normalizePathForCompare } from '@handoff/utils/path';
 
 export type RuntimeComponentEntryType = keyof ComponentListObject['entries'];
 

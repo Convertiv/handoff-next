@@ -1,13 +1,13 @@
 import react from '@vitejs/plugin-react';
 import { Types as CoreTypes } from 'handoff-core';
 import { InlineConfig, build as viteBuild } from 'vite';
-import { RendererKind } from '../../../declarations/types';
-import Handoff from '../../../index';
-import { Logger } from '../../../utils/logger';
-import { csfRenderPlugin, handlebarsPreviewsPlugin, ssrRenderPlugin } from '../../plugins';
-import viteBaseConfig from '../../vite-config';
-import { getComponentOutputPath } from '../component';
-import { TransformComponentTokensResult } from '../types';
+import { RendererKind } from '@handoff/declarations/types';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { csfRenderPlugin, handlebarsPreviewsPlugin, ssrRenderPlugin } from '@handoff/transformers/plugins';
+import viteBaseConfig from '@handoff/transformers/vite-config';
+import { getComponentOutputPath } from '@handoff/transformers/preview/component';
+import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 
 const resolveRenderer = (data: TransformComponentTokensResult): RendererKind | undefined => {
   const templatePath = data.entries?.template || '';

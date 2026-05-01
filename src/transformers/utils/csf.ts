@@ -1,5 +1,5 @@
-import { startCase } from 'lodash';
-import { OptionalPreviewRender } from '../preview/types';
+import startCase from 'lodash/startCase.js';
+import { OptionalPreviewRender } from '@handoff/transformers/preview/types';
 
 export type StoryObject = {
   name?: string;

@@ -1,15 +1,15 @@
 import 'dotenv/config';
-import Handoff from '..';
-import buildApp from '../app-builder';
-import { Logger } from '../utils/logger';
-import { figmaExtract, validateFigmaAuth } from './figma';
-import { buildCustomFonts, buildStyles } from './styles';
-import { validateHandoffRequirements } from './validation';
+import Handoff from '@handoff/index';
+import buildApp from '@handoff/app-builder/index';
+import { Logger } from '@handoff/utils/logger';
+import { figmaExtract, validateFigmaAuth } from './figma.js';
+import { buildCustomFonts, buildStyles } from './styles.js';
+import { validateHandoffRequirements } from './validation.js';
 
 // Re-exports used by other modules
-export { readPrevJSONFile, zip, zipAssets } from './archive';
-export { buildComponents } from './components';
-export { buildPatterns } from './patterns';
+export { readPrevJSONFile, zip, zipAssets } from './archive.js';
+export { buildComponents } from './components.js';
+export { buildPatterns } from './patterns.js';
 
 /**
  * Run the entire Figma data pipeline:

@@ -1,4 +1,4 @@
-import { ClientConfig, Config } from '../types/config';
+import { ClientConfig, Config } from '@handoff/types/config';
 
 export interface ImageStyle {
   name: string;

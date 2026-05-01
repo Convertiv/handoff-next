@@ -1,15 +1,15 @@
 import spawn from 'cross-spawn';
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '..';
-import { buildComponents } from '../pipeline/components';
-import { buildPatterns } from '../pipeline/patterns';
-import processComponents from '../transformers/preview/component/builder';
-import { buildMainCss } from '../transformers/preview/component/css';
-import { buildMainJS } from '../transformers/preview/component/javascript';
-import { Logger } from '../utils/logger';
-import { generatePlaygroundAssetsApi, generateTokensApi, persistClientConfig } from './client-config';
-import { getAppPath, syncPublicFiles } from './paths';
+import Handoff from '@handoff/index';
+import { buildComponents } from '@handoff/pipeline/components';
+import { buildPatterns } from '@handoff/pipeline/patterns';
+import processComponents from '@handoff/transformers/preview/component/builder';
+import { buildMainCss } from '@handoff/transformers/preview/component/css';
+import { buildMainJS } from '@handoff/transformers/preview/component/javascript';
+import { Logger } from '@handoff/utils/logger';
+import { generatePlaygroundAssetsApi, generateTokensApi, persistClientConfig } from './client-config.js';
+import { getAppPath, syncPublicFiles } from './paths.js';
 import {
   WatcherState,
   getRuntimeComponentsPathsToWatch,
@@ -20,8 +20,8 @@ import {
   watchPublicDirectory,
   watchRuntimeComponents,
   watchRuntimeConfiguration,
-} from './watchers';
-import { createWebSocketServer } from './websocket';
+} from './watchers.js';
+import { createWebSocketServer } from './websocket.js';
 
 const escapeForSingleQuotedJsString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 

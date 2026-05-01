@@ -1,14 +1,13 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { InlineConfig, Plugin, build as viteBuild } from 'vite';
-import { initRuntimeConfig } from '../../../config';
-import Handoff from '../../../index';
-import { formatDurationMs } from '../../../utils/duration';
-import { Logger } from '../../../utils/logger';
-import viteBaseConfig from '../../vite-config';
-import { getComponentOutputPath } from '../component';
-import { TransformComponentTokensResult } from '../types';
-const { pathToFileURL } = require('url');
+import { initRuntimeConfig } from '@handoff/config/index';
+import Handoff from '@handoff/index';
+import { formatDurationMs } from '@handoff/utils/duration';
+import { Logger } from '@handoff/utils/logger';
+import viteBaseConfig from '@handoff/transformers/vite-config';
+import { getComponentOutputPath } from '@handoff/transformers/preview/component';
+import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 
 export const MAIN_COMPONENT_CSS_FILE = 'main.css';
 export const SHARED_COMPONENT_CSS_FILE = 'shared.css';
@@ -92,7 +91,7 @@ const buildCssBundle = async ({
             loadPaths,
             quietDeps: true,
             silenceDeprecations: ['import', 'legacy-js-api'],
-          },
+          } as Record<string, unknown>,
         },
       },
     };

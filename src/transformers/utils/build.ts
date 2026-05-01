@@ -1,5 +1,8 @@
 import esbuild from 'esbuild';
+import { createRequire } from 'node:module';
 import path from 'path';
+
+const requireFromHere = createRequire(import.meta.url);
 
 /**
  * Default esbuild configuration for SSR builds
@@ -36,7 +39,7 @@ export const DEFAULT_CLIENT_BUILD_CONFIG: esbuild.BuildOptions = {
 export function resolveModule(id: string, searchDirs: string[]): string {
   for (const dir of searchDirs) {
     try {
-      const resolved = require.resolve(id, {
+      const resolved = requireFromHere.resolve(id, {
         paths: [path.resolve(dir)],
       });
       return resolved;

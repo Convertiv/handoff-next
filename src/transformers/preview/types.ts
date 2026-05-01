@@ -1,9 +1,9 @@
 import type { GeneratedDocs } from 'handoff-docgen';
-import { Card } from '../../app/components/Component/Cards';
-import type { RendererKind } from '../../declarations/types';
-import { ValidationResult } from '../../types/preview';
-import { Filter } from '../../utils/filter';
-import { SlotMetadata } from './component';
+import { Card } from '@handoff/app/components/Component/Cards';
+import type { RendererKind } from '@handoff/declarations/types';
+import { ValidationResult } from '@handoff/types/preview';
+import { Filter } from '@handoff/utils/filter';
+import { SlotMetadata } from './component.js';
 
 export enum ComponentType {
   Element = 'element',

@@ -1,13 +1,13 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { InlineConfig, build as viteBuild } from 'vite';
-import { initRuntimeConfig } from '../../../config';
-import Handoff from '../../../index';
-import { formatDurationMs } from '../../../utils/duration';
-import { Logger } from '../../../utils/logger';
-import viteBaseConfig from '../../vite-config';
-import { getComponentOutputPath } from '../component';
-import { TransformComponentTokensResult } from '../types';
+import { initRuntimeConfig } from '@handoff/config/index';
+import Handoff from '@handoff/index';
+import { formatDurationMs } from '@handoff/utils/duration';
+import { Logger } from '@handoff/utils/logger';
+import viteBaseConfig from '@handoff/transformers/vite-config';
+import { getComponentOutputPath } from '@handoff/transformers/preview/component';
+import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 
 export const MAIN_COMPONENT_JS_FILE = 'main.js';
 

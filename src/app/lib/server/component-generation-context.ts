@@ -2,6 +2,7 @@ import 'server-only';
 
 import { listReferenceMaterials } from '@/lib/db/queries';
 import { getDataProvider } from '@/lib/data';
+import { loadHandoffConfigFromDir } from '@/lib/server/handoff-config-load';
 import type { handoffDesignArtifacts } from '@/lib/db/schema';
 
 type ArtifactRow = typeof handoffDesignArtifacts.$inferSelect;
@@ -136,4 +137,29 @@ export async function discoverScssImportPattern(): Promise<string> {
   if (count < 2 && list.length > 3) return '';
 
   return topPreamble;
+}
+
+/**
+ * Build a single-line SCSS import from `handoff.config` `entries.scss` (e.g.
+ * `integration/sass/main.scss` → `@import "~/integration/sass/main.scss";`).
+ */
+export function scssPreambleFromConfigEntry(scssEntry: string): string {
+  const raw = scssEntry.trim();
+  if (!raw || /^https?:\/\//i.test(raw)) return '';
+  const oneLine = raw.replace(/\s+/g, ' ');
+  if (oneLine.startsWith('@import ') || oneLine.startsWith('@use ')) {
+    return oneLine.endsWith(';') ? oneLine : `${oneLine};`;
+  }
+  let p = raw.replace(/^\.\//, '').replace(/\\/g, '/');
+  if (!p) return '';
+  if (p.startsWith('~/')) return `@import "${p}";`;
+  return `@import "~/${p}";`;
+}
+
+/** Cold-start fallback when no DB components define an import preamble yet. */
+export function discoverScssEntryFromConfig(workingDir: string): string {
+  const loaded = loadHandoffConfigFromDir(workingDir);
+  const scss = loaded?.config?.entries?.scss?.trim();
+  if (!scss) return '';
+  return scssPreambleFromConfigEntry(scss);
 }

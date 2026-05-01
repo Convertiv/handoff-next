@@ -2,12 +2,12 @@ import { existsSync } from 'fs';
 import matter from 'gray-matter';
 import fs from 'fs-extra';
 import path from 'path';
-import type { SyncChange, SyncChangeset } from '../../types/handoff-sync';
-import type Handoff from '../../index';
-import { sha256File, sha256String } from './hash';
-import { entityKey, type EntityFingerprint, type HandoffSyncStateFile } from './sync-state';
-import { getDeclarationAbsPathForEntity } from './resolve-declaration';
-import { Logger } from '../../utils/logger';
+import type { SyncChange, SyncChangeset } from '@handoff/types/handoff-sync';
+import type Handoff from '@handoff/index';
+import { sha256File, sha256String } from './hash.js';
+import { entityKey, type EntityFingerprint, type HandoffSyncStateFile } from './sync-state.js';
+import { getDeclarationAbsPathForEntity } from './resolve-declaration.js';
+import { Logger } from '@handoff/utils/logger';
 
 export type PullSummary = {
   written: string[];

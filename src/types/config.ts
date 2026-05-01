@@ -1,10 +1,10 @@
 import { BuildOptions } from 'esbuild';
 import type Handlebars from 'handlebars';
 import { Types as HandoffTypes } from 'handoff-core';
-import { InlineConfig } from 'vite';
-import { SlotMetadata } from '../transformers/preview/component';
-import { ComponentListObject, PatternListObject, TransformComponentTokensResult } from '../transformers/preview/types';
-import { ValidationResult } from './preview';
+import type { InlineConfig } from 'vite';
+import { SlotMetadata } from '@handoff/transformers/preview/component';
+import { ComponentListObject, PatternListObject, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
+import { ValidationResult } from './preview.js';
 
 export interface ImageStyle {
   name: string;

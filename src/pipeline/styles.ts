@@ -1,10 +1,10 @@
 import fs from 'fs-extra';
 import { Types as HandoffTypes, Transformers } from 'handoff-core';
-import { sortedUniq } from 'lodash';
+import sortedUniq from 'lodash/sortedUniq.js';
 import path from 'path';
-import Handoff from '..';
-import { FontFamily } from '../types/font';
-import { zip } from './archive';
+import Handoff from '@handoff/index';
+import { FontFamily } from '@handoff/types/font';
+import { zip } from './archive.js';
 
 /**
  * Build just the custom fonts — zips font directories and copies them to the export folder.

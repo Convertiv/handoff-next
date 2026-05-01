@@ -1,9 +1,9 @@
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '../index';
-import { Logger } from '../utils/logger';
-import { normalizePathForCompare } from '../utils/path';
-import { computeDirectoryState, computeFileState, directoryStatesMatch, FileState, statesMatch } from './file-state';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { normalizePathForCompare } from '@handoff/utils/path';
+import { computeDirectoryState, computeFileState, directoryStatesMatch, FileState, statesMatch } from './file-state.js';
 
 /** Current cache format version - bump when structure changes */
 const CACHE_VERSION = '1.0.0';

@@ -4,7 +4,7 @@ export {
   defineHandlebarsComponent,
   definePattern,
   defineReactComponent
-} from './helpers';
+} from './helpers.js';
 
 export type {
   CsfDeclarationConfig,
@@ -15,5 +15,5 @@ export type {
   PatternComponentRef,
   ReactDeclarationConfig,
   RendererKind
-} from './types';
+} from './types.js';
 

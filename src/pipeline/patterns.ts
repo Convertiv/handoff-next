@@ -1,5 +1,5 @@
-import Handoff from '..';
-import { ProcessPatternsOptions, processPatterns } from '../transformers/preview/pattern/builder';
+import Handoff from '@handoff/index';
+import { ProcessPatternsOptions, processPatterns } from '@handoff/transformers/preview/pattern/builder';
 
 export type { ProcessPatternsOptions };
 

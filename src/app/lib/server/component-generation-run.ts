@@ -7,11 +7,12 @@ import type { ComponentListObject } from '@handoff/transformers/preview/types';
 import { getBuildJob, insertBuildJob, spawnComponentBuildWorker, resolveHandoffRepoRoot } from '@/lib/server/component-builder';
 import {
   buildFoundationContextBlock,
+  discoverScssEntryFromConfig,
   discoverScssImportPattern,
   loadReferenceMaterialsMarkdown,
   pickSimilarComponentExamples,
 } from '@/lib/server/component-generation-context';
-import { generateComponentWithLlm, type LlmGeneratedComponent } from '@/lib/server/component-generation-llm';
+import { generateComponentWithLlm, type AssetRef, type LlmGeneratedComponent } from '@/lib/server/component-generation-llm';
 import { compareDesignToPreviewScreenshot } from '@/lib/server/component-visual-compare';
 import { captureComponentPreviewPng, componentPreviewPathPrefix, internalHandoffServerOrigin } from '@/lib/server/component-preview-screenshot';
 import type { RendererKind } from '@/lib/server/component-scaffold';
@@ -20,11 +21,20 @@ import { getDb } from '@/lib/db';
 import {
   getComponentGenerationJob,
   getDesignArtifactById,
+  listReferenceMaterials,
   updateComponentGenerationJob,
 } from '@/lib/db/queries';
+import { regenerateAllReferenceMaterialsPersisted } from '@/lib/server/reference-material-persist';
 import { handoffComponents } from '@/lib/db/schema';
 
-type SavedAsset = { label: string; httpPath: string; localPath: string };
+type SavedAsset = {
+  label: string;
+  httpPath: string;
+  localPath: string;
+  role?: string;
+  usage?: string;
+  description?: string;
+};
 
 const MIME_TO_EXT: Record<string, string> = {
   'image/png': '.png',
@@ -35,23 +45,47 @@ const MIME_TO_EXT: Record<string, string> = {
   'image/svg+xml': '.svg',
 };
 
+function prependScssPreambleIfMissing(scss: string, preamble: string): string {
+  const p = preamble.trim();
+  if (!p) return scss;
+  const s = scss || '';
+  if (s.includes(p)) return s;
+  return `${p}\n\n${s}`;
+}
+
+function warnIfHardcodedApiComponentUrls(gen: LlmGeneratedComponent, log: unknown[]): void {
+  const parts: { key: string; text: string }[] = [];
+  if (gen.entrySources.template) parts.push({ key: 'template', text: gen.entrySources.template });
+  if (gen.entrySources.component) parts.push({ key: 'component', text: gen.entrySources.component });
+  if (gen.entrySources.story) parts.push({ key: 'story', text: gen.entrySources.story });
+  if (gen.entrySources.scss) parts.push({ key: 'scss', text: gen.entrySources.scss });
+  for (const { key, text } of parts) {
+    if (text.includes('/api/component/')) {
+      console.warn(
+        `[component-generation] entrySources.${key} contains hardcoded /api/component/ — use image-type properties and previews.design.values instead.`
+      );
+      log.push({ action: 'warn_hardcoded_asset_urls', key, t: new Date().toISOString() });
+    }
+  }
+}
+
 /**
  * Persist extracted asset data-URLs to disk so templates can reference them
  * via HTTP path (e.g. `/api/component/hero-dev-6-asset-0.png`).
  */
 async function persistExtractedAssets(
   componentId: string,
-  assets: unknown[]
+  assets: unknown[],
+  workingPath: string
 ): Promise<SavedAsset[]> {
-  const repoRoot = resolveHandoffRepoRoot();
-  const publicDir = path.join(repoRoot, 'src/app/public/api/component');
+  const publicDir = path.join(workingPath, 'public/api/component');
   await fs.mkdirp(publicDir);
 
   const saved: SavedAsset[] = [];
   let idx = 0;
   for (const raw of assets) {
     if (!raw || typeof raw !== 'object') continue;
-    const a = raw as { label?: string; imageUrl?: string };
+    const a = raw as { label?: string; imageUrl?: string; role?: string; usage?: string; description?: string };
     const dataUrl = typeof a.imageUrl === 'string' ? a.imageUrl : '';
     if (!dataUrl.startsWith('data:image/')) continue;
 
@@ -69,6 +103,9 @@ async function persistExtractedAssets(
       label: typeof a.label === 'string' ? a.label : `asset-${idx}`,
       httpPath: `/api/component/${filename}`,
       localPath,
+      role: typeof a.role === 'string' ? a.role : undefined,
+      usage: typeof a.usage === 'string' ? a.usage : undefined,
+      description: typeof a.description === 'string' ? a.description : undefined,
     });
     idx++;
   }
@@ -134,10 +171,22 @@ export async function runComponentGenerationJob(jobId: number): Promise<void> {
     return;
   }
 
+  const workingPath = process.env.HANDOFF_WORKING_PATH?.trim() || resolveHandoffRepoRoot();
+
   const renderer = row.renderer as RendererKind;
   const log: unknown[] = [];
   const max = row.maxIterations ?? 3;
   const goalScore = Number(process.env.HANDOFF_COMPONENT_VISUAL_THRESHOLD || 0.78);
+
+  try {
+    const refs = await listReferenceMaterials();
+    const hasContent = refs.some((r) => (r.content?.trim().length ?? 0) > 50);
+    if (!hasContent) {
+      await regenerateAllReferenceMaterialsPersisted({ actorUserId: row.userId ?? null });
+    }
+  } catch {
+    /* non-fatal: generation continues with placeholder reference text */
+  }
 
   let referenceMarkdown = '';
   try {
@@ -156,12 +205,21 @@ export async function runComponentGenerationJob(jobId: number): Promise<void> {
   } catch {
     scssPreamble = '';
   }
+  if (!scssPreamble.trim()) {
+    scssPreamble = discoverScssEntryFromConfig(workingPath);
+  }
 
-  let assetRefs: { label: string; httpPath: string }[] = [];
+  let assetRefs: AssetRef[] = [];
   if (row.useExtractedAssets && Array.isArray(artifact.assets) && artifact.assets.length > 0) {
     try {
-      const saved = await persistExtractedAssets(row.componentId, artifact.assets as unknown[]);
-      assetRefs = saved.map((s) => ({ label: s.label, httpPath: s.httpPath }));
+      const saved = await persistExtractedAssets(row.componentId, artifact.assets as unknown[], workingPath);
+      assetRefs = saved.map((s) => ({
+        label: s.label,
+        httpPath: s.httpPath,
+        role: s.role,
+        usage: s.usage,
+        description: s.description,
+      }));
     } catch {
       assetRefs = [];
     }
@@ -203,6 +261,9 @@ export async function runComponentGenerationJob(jobId: number): Promise<void> {
         refinement,
         actorUserId: row.userId,
       });
+
+      lastGen.entrySources.scss = prependScssPreambleIfMissing(lastGen.entrySources.scss, scssPreamble);
+      warnIfHardcodedApiComponentUrls(lastGen, log);
 
       const payload = buildDbPayload(row.componentId, renderer, lastGen);
 

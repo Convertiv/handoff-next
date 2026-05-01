@@ -1,8 +1,8 @@
 import { CommandModule } from 'yargs';
-import Handoff from '../../';
-import { Logger } from '../../utils/logger';
-import { SharedArgs } from '../types';
-import { getSharedOptions } from '../utils';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { SharedArgs } from '@handoff/commands/types';
+import { getSharedOptions } from '@handoff/commands/utils';
 
 export interface MakeTemplateArgs extends SharedArgs {
   component: string;

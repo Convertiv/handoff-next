@@ -1,6 +1,6 @@
-import Handoff from '../..';
-import { patternDiffStrategy } from './strategies/pattern';
-import { ConfigDiffStrategy, FinalizeContext } from './types';
+import Handoff from '@handoff/index';
+import { patternDiffStrategy } from './strategies/pattern.js';
+import { ConfigDiffStrategy, FinalizeContext } from './types.js';
 
 const strategies = new Map<string, ConfigDiffStrategy>([
   [patternDiffStrategy.kind, patternDiffStrategy],

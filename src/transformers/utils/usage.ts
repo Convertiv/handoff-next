@@ -1,5 +1,5 @@
 import path from 'path';
-import { SlotMetadata, SlotType } from '../preview/component';
+import { SlotMetadata, SlotType } from '@handoff/transformers/preview/component';
 
 const CHILDREN_PROP = 'children';
 const INDENT = '  ';

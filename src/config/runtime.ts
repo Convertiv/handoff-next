@@ -1,15 +1,15 @@
 import esbuild from 'esbuild';
 import fs from 'fs-extra';
-import { createRequire } from 'module';
+import { createRequire } from 'node:module';
 import path from 'path';
-import { ComponentListObject, PatternListObject } from '../transformers/preview/types';
-import { createCsfStoryPreviews } from '../transformers/utils/csf';
-import { buildAndEvaluateModuleSync } from '../transformers/utils/module';
-import { Config, ConfigFileEntry, RuntimeConfig } from '../types/config';
-import { Logger } from '../utils/logger';
-import { normalizePathForCompare } from '../utils/path';
-import { normalizeComponentDeclaration } from './normalizers/declaration';
-import { normalizePatternDeclaration } from './normalizers/pattern';
+import { ComponentListObject, PatternListObject } from '@handoff/transformers/preview/types';
+import { createCsfStoryPreviews } from '@handoff/transformers/utils/csf';
+import { buildAndEvaluateModuleSync } from '@handoff/transformers/utils/module';
+import { Config, ConfigFileEntry, RuntimeConfig } from '@handoff/types/config';
+import { Logger } from '@handoff/utils/logger';
+import { normalizePathForCompare } from '@handoff/utils/path';
+import { normalizeComponentDeclaration } from './normalizers/declaration.js';
+import { normalizePatternDeclaration } from './normalizers/pattern.js';
 
 /**
  * Handoff instance shape needed by initRuntimeConfig.
@@ -120,9 +120,10 @@ const loadDeclarationFile = (filePath: string, handoffModulePath: string): any =
     return evaluateTypeScriptDeclaration(filePath, handoffModulePath);
   }
 
-  // Invalidate require cache to ensure fresh read
-  delete require.cache[require.resolve(filePath)];
-  return require(filePath);
+  const req = createRequire(filePath);
+  const resolved = req.resolve(filePath);
+  delete req.cache[resolved];
+  return req(filePath);
 };
 
 const discoverCsfPreviews = (

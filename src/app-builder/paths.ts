@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '..';
+import Handoff from '@handoff/index';
 
 /**
  * Gets the working public directory path for a given handoff instance.

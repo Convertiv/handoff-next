@@ -1,3 +1,3 @@
-export { buildComponents } from '../pipeline/components';
-export { default, devApp, watchApp } from './build';
+export { buildComponents } from '@handoff/pipeline/components';
+export { default, devApp, watchApp } from './build.js';
 

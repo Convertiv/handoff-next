@@ -148,18 +148,8 @@ async function main() {
     const ms = Date.now() - t0;
     console.log(`Built component ${componentId} in ${ms}ms`);
 
-    const builtDir = path.join(workingDir, 'public/api/component');
-    const destDir = path.join(repoRoot, 'src/app/public/api/component');
-    await fs.mkdirp(destDir);
-
-    if (await fs.pathExists(builtDir)) {
-      const names = await fs.readdir(builtDir);
-      for (const name of names) {
-        if (name === componentId || name.startsWith(`${componentId}.`) || name.startsWith(`${componentId}-`)) {
-          await fs.copy(path.join(builtDir, name), path.join(destDir, name), { overwrite: true });
-        }
-      }
-    }
+    // Built artifacts stay under the linked client project (HANDOFF_WORKING_PATH);
+    // app-builder / dev sync mirrors public from there — do not copy into handoff-app.
 
     await fs.remove(path.join(repoRoot, '.handoff-component-builds', String(jobId))).catch(() => undefined);
 

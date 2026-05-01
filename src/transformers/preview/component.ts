@@ -1,11 +1,11 @@
 import type { DocAnnotation, TypeNode } from 'handoff-docgen';
 import path from 'path';
-import Handoff from '../../index';
-import { getAPIPath } from './component/api';
-import processComponents from './component/builder';
-import { buildMainCss } from './component/css';
-import { buildMainJS } from './component/javascript';
-import writeComponentSummaryAPI from './component/summary';
+import Handoff from '@handoff/index';
+import { getAPIPath } from './component/api.js';
+import processComponents from './component/builder.js';
+import { buildMainCss } from './component/css.js';
+import { buildMainJS } from './component/javascript.js';
+import writeComponentSummaryAPI from './component/summary.js';
 
 export interface ComponentMetadata {
   title: string;

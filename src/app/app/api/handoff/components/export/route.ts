@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import path from 'path';
 import { auth } from '@/lib/auth';
 import { exportComponentsToFilesystem } from '@/lib/server/component-export';
-import { getHandoffRepoRoot } from '@/lib/server/handoff-config-load';
+import { getComponentExportProjectRoot } from '@/lib/server/handoff-config-load';
 
 const MAX_EXPORT_PER_USER_PER_MINUTE = 10;
 const exportPostTimestampsByUser = new Map<string, number[]>();
@@ -22,12 +22,12 @@ function recordPost(userId: string, now: number): void {
 }
 
 function safeOutputDir(raw: string | undefined): string {
-  const root = path.normalize(getHandoffRepoRoot());
+  const root = path.normalize(getComponentExportProjectRoot());
   const rel = (raw?.trim() || 'components').replace(/^\/+/, '');
   const abs = path.isAbsolute(rel) ? path.normalize(rel) : path.resolve(root, rel);
   const rootWithSep = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
   if (abs !== root && !abs.startsWith(rootWithSep)) {
-    throw new Error('outputDir must be inside the repository root');
+    throw new Error('outputDir must be inside the project root (HANDOFF_WORKING_PATH or handoff-app repo)');
   }
   return abs;
 }

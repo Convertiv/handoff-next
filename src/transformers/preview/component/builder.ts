@@ -1,5 +1,5 @@
 import { Types as CoreTypes } from 'handoff-core';
-import cloneDeep from 'lodash/cloneDeep';
+import cloneDeep from 'lodash/cloneDeep.js';
 import {
   BuildCache,
   checkOutputExists,
@@ -12,19 +12,19 @@ import {
   pruneRemovedComponents,
   saveBuildCache,
   updateComponentCacheEntry,
-} from '../../../cache';
-import Handoff from '../../../index';
-import { formatDurationMs } from '../../../utils/duration';
-import { Logger } from '../../../utils/logger';
-import { ensureIds } from '../../utils/schema';
-import { ComponentListObject, ComponentType, OptionalPreviewRender, TransformComponentTokensResult } from '../types';
-import { readComponentApi, readComponentMetadataApi, writeComponentApi } from './api';
-import { removeComponentApi, syncComponentArtifacts } from './artifacts';
-import { getDocumentedPreviews } from './previews';
-import { removeComponentFromSummaryApi, updateComponentSummaryApi } from './summary';
-import buildComponentCss from './css';
-import buildPreviews from './html';
-import buildComponentJs from './javascript';
+} from '@handoff/cache/index';
+import Handoff from '@handoff/index';
+import { formatDurationMs } from '@handoff/utils/duration';
+import { Logger } from '@handoff/utils/logger';
+import { ensureIds } from '@handoff/transformers/utils/schema';
+import { ComponentListObject, ComponentType, OptionalPreviewRender, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
+import { readComponentApi, readComponentMetadataApi, writeComponentApi } from './api.js';
+import { removeComponentApi, syncComponentArtifacts } from './artifacts.js';
+import { getDocumentedPreviews } from './previews.js';
+import { removeComponentFromSummaryApi, updateComponentSummaryApi } from './summary.js';
+import buildComponentCss from './css.js';
+import buildPreviews from './html.js';
+import buildComponentJs from './javascript.js';
 
 const defaultComponent: TransformComponentTokensResult = {
   id: '',

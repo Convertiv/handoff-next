@@ -3,10 +3,10 @@ import fs from 'fs-extra';
 import { Types as HandoffTypes } from 'handoff-core';
 import * as stream from 'node:stream';
 import path from 'path';
-import Handoff from '..';
-import { Logger } from '../utils/logger';
-import { zipAssets } from './archive';
-import { createDocumentationObject } from './documentation';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { zipAssets } from './archive.js';
+import { createDocumentationObject } from './documentation.js';
 
 /**
  * Validate the figma auth tokens.

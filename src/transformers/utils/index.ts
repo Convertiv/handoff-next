@@ -6,22 +6,22 @@
  */
 
 // Schema utilities
-export * from './schema';
+export * from './schema.js';
 
 // HTML utilities
-export * from './html';
+export * from './html.js';
 
 // Build utilities
-export * from './build';
+export * from './build.js';
 
 // Module utilities
-export * from './module';
+export * from './module.js';
 
 // CSF utilities
-export * from './csf';
+export * from './csf.js';
 
 // Handlebars utilities
-export * from './handlebars';
+export * from './handlebars.js';
 
 // Schema loader utilities
-export * from './schema-loader';
+export * from './schema-loader.js';

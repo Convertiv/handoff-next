@@ -21,6 +21,7 @@
     "handoff"
   ],
   "homepage": "https://www.handoff.com/",
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
@@ -33,7 +34,7 @@
   "scripts": {
     "start": "node ./dist/cli.js start",
     "dev": "node ./dist/cli.js dev",
-    "build": "tsc",
+    "build": "tsc && tsc-alias -p tsconfig.json && node scripts/fix-dist-esm-imports.mjs",
     "build:static": "node ./dist/cli.js build:app",
     "build:dynamic": "node ./dist/cli.js build:app --mode dynamic",
     "fetch": "node ./dist/cli.js fetch",
@@ -155,6 +156,7 @@
     "np": "^10.2.0",
     "prettier-plugin-tailwindcss": "^0.7.0",
     "sass-embedded": "^1.89.0",
+    "tsc-alias": "^1.8.16",
     "tsx": "^4.21.0",
     "typescript": "5.6.3"
   }

@@ -1,10 +1,10 @@
 import fs from 'fs';
 import { Types as HandoffTypes } from 'handoff-core';
 import path from 'path';
-import Handoff from '..';
-import { getAPIPath } from '../transformers/preview/component/api';
-import { generateSpriteManifest, generateSvgSprite } from '../transformers/utils/svg-sprite';
-import { Logger } from '../utils/logger';
+import Handoff from '@handoff/index';
+import { getAPIPath } from '@handoff/transformers/preview/component/api';
+import { generateSpriteManifest, generateSvgSprite } from '@handoff/transformers/utils/svg-sprite';
+import { Logger } from '@handoff/utils/logger';
 
 export const createDocumentationObject = async (handoff: Handoff): Promise<HandoffTypes.IDocumentationObject> => {
   const runner = await handoff.getRunner();

@@ -1,11 +1,11 @@
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '../../../index';
-import { TransformComponentTokensResult } from '../types';
-import { getDocumentedPreviews } from './previews';
-import { getAPIPath, sanitizeComponentApiData } from './api';
-import { MAIN_COMPONENT_CSS_FILE, SHARED_COMPONENT_CSS_FILE } from './css';
-import { MAIN_COMPONENT_JS_FILE } from './javascript';
+import Handoff from '@handoff/index';
+import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
+import { getDocumentedPreviews } from './previews.js';
+import { getAPIPath, sanitizeComponentApiData } from './api.js';
+import { MAIN_COMPONENT_CSS_FILE, SHARED_COMPONENT_CSS_FILE } from './css.js';
+import { MAIN_COMPONENT_JS_FILE } from './javascript.js';
 
 const COMPONENT_JS_RESERVED_FILES = new Set([MAIN_COMPONENT_JS_FILE]);
 const COMPONENT_CSS_RESERVED_FILES = new Set([MAIN_COMPONENT_CSS_FILE, SHARED_COMPONENT_CSS_FILE]);

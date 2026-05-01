@@ -1,8 +1,8 @@
 import { CommandModule } from 'yargs';
-import Handoff from '../index';
-import { runPull } from '../cli/sync/run-pull';
-import { SharedArgs } from './types';
-import { getSharedOptions } from './utils';
+import Handoff from '@handoff/index';
+import { runPull } from '@handoff/cli/sync/run-pull';
+import { SharedArgs } from './types.js';
+import { getSharedOptions } from './utils.js';
 
 export interface PullArgs extends SharedArgs {}
 

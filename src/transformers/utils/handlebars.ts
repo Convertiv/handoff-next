@@ -1,8 +1,8 @@
 import Handlebars from 'handlebars';
-import { RegisterHandlebarsHelpersContext } from '../../types/config';
-import { Logger } from '../../utils/logger';
-import { SlotMetadata } from '../preview/component';
-import { HandlebarsContext } from '../types';
+import { RegisterHandlebarsHelpersContext } from '@handoff/types/config';
+import { Logger } from '@handoff/utils/logger';
+import { SlotMetadata } from '@handoff/transformers/preview/component';
+import { HandlebarsContext } from '@handoff/transformers/types';
 
 /**
  * Registers common Handlebars helpers, then runs optional `hooks.registerHandlebarsHelpers`.

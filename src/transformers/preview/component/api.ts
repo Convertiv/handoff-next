@@ -1,8 +1,8 @@
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '../../../index';
-import { ComponentListObject, TransformComponentTokensResult } from '../types';
-import { getDocumentedPreviews } from './previews';
+import Handoff from '@handoff/index';
+import { ComponentListObject, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
+import { getDocumentedPreviews } from './previews.js';
 
 export const sanitizeComponentApiData = (
   component: TransformComponentTokensResult

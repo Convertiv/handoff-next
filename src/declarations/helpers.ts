@@ -5,7 +5,7 @@ import {
   HandlebarsDeclarationConfig,
   ReactComponentType,
   ReactDeclarationConfig,
-} from './types';
+} from './types.js';
 
 export const defineReactComponent = <TProps>(
   _component: ReactComponentType<TProps>,

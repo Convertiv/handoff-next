@@ -1,6 +1,9 @@
 import esbuild from 'esbuild';
-import { ModuleEvaluationResult } from '../types';
-import { DEFAULT_SSR_BUILD_CONFIG } from './build';
+import { createRequire } from 'node:module';
+import { ModuleEvaluationResult } from '@handoff/transformers/types';
+import { DEFAULT_SSR_BUILD_CONFIG } from './build.js';
+
+const requireFromHere = createRequire(import.meta.url);
 
 function createModuleBuildConfig(entryPath: string, handoff: any): esbuild.BuildOptions {
   const defaultBuildConfig: esbuild.BuildOptions = {
@@ -16,7 +19,7 @@ function createModuleBuildConfig(entryPath: string, handoff: any): esbuild.Build
 function evaluateBuiltModule(code: string): ModuleEvaluationResult {
   const mod: any = { exports: {} };
   const func = new Function('require', 'module', 'exports', code);
-  func(require, mod, mod.exports);
+  func(requireFromHere, mod, mod.exports);
   return mod;
 }
 

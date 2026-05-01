@@ -4,7 +4,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { getDb } from '../db';
 import { handoffComponents } from '../db/schema';
-import { getHandoffRepoRoot } from './handoff-config-load';
+import { getComponentExportProjectRoot } from './handoff-config-load';
 
 export type ExportComponentsOptions = {
   /** Absolute path to parent directory containing one folder per component id */
@@ -108,7 +108,7 @@ export async function exportComponentsToFilesystem(opts: ExportComponentsOptions
   let gitWarning: string | undefined;
 
   if (opts.autoCommit !== false && exported.length > 0) {
-    const cwd = getHandoffRepoRoot();
+    const cwd = getComponentExportProjectRoot();
     const check = spawnSync('git', ['rev-parse', '--is-inside-work-tree'], { cwd, encoding: 'utf8' });
     if (check.status !== 0 || check.stdout.trim() !== 'true') {
       gitWarning = 'Not a git repository; skipped auto-commit.';

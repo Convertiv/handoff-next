@@ -6,9 +6,9 @@
  * rendering approach and can be easily tested and maintained.
  */
 
-export { handlebarsPreviewsPlugin } from './handlebars-previews';
-export { ssrRenderPlugin } from './ssr-render';
-export { csfRenderPlugin } from './csf-render';
+export { handlebarsPreviewsPlugin } from './handlebars-previews.js';
+export { ssrRenderPlugin } from './ssr-render.js';
+export { csfRenderPlugin } from './csf-render.js';
 
 // Re-export types for convenience
-export type { PluginFactory } from '../types';
+export type { PluginFactory } from '@handoff/transformers/types';

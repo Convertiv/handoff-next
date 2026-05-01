@@ -1,25 +1,25 @@
 import chokidar from 'chokidar';
 import fs from 'fs-extra';
 import path from 'path';
-import Handoff from '..';
-import processComponents, { ComponentSegment } from '../transformers/preview/component/builder';
-import { buildMainCss } from '../transformers/preview/component/css';
-import { buildMainJS } from '../transformers/preview/component/javascript';
-import { Logger } from '../utils/logger';
-import { isPathInside, normalizePathForCompare } from '../utils/path';
-import { persistClientConfig } from './client-config';
-import { getStrategy, runAllFinalizers, type FinalizeContext } from './config-diff';
-import { syncPublicFiles } from './paths';
+import Handoff from '@handoff/index';
+import processComponents, { ComponentSegment } from '@handoff/transformers/preview/component/builder';
+import { buildMainCss } from '@handoff/transformers/preview/component/css';
+import { buildMainJS } from '@handoff/transformers/preview/component/javascript';
+import { Logger } from '@handoff/utils/logger';
+import { isPathInside, normalizePathForCompare } from '@handoff/utils/path';
+import { persistClientConfig } from './client-config.js';
+import { getStrategy, runAllFinalizers, type FinalizeContext } from './config-diff/index.js';
+import { syncPublicFiles } from './paths.js';
 import {
   getRuntimeComponentsPathsToWatch,
   mapEntryTypeToSegment,
   resolveComponentIdForChangedFile,
   RuntimeComponentEntryType,
-} from './watchers/component';
-import { scheduleHandler, WatcherState } from './watchers/utils';
+} from './watchers/component.js';
+import { scheduleHandler, WatcherState } from './watchers/utils.js';
 
-export { getRuntimeComponentsPathsToWatch, mapEntryTypeToSegment } from './watchers/component';
-export type { WatcherState } from './watchers/utils';
+export { getRuntimeComponentsPathsToWatch, mapEntryTypeToSegment } from './watchers/component.js';
+export type { WatcherState } from './watchers/utils.js';
 
 /**
  * Watches the working public directory for changes and updates the app.

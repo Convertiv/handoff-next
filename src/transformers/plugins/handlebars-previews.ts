@@ -3,13 +3,13 @@ import Handlebars from 'handlebars';
 import { Types as CoreTypes } from 'handoff-core';
 import path from 'path';
 import { Plugin } from 'vite';
-import Handoff from '../..';
-import { Logger } from '../../utils/logger';
-import { TransformComponentTokensResult } from '../preview/types';
-import { createHandlebarsContext, registerHandlebarsHelpers } from '../utils/handlebars';
-import { formatHtmlWithWrapper, trimPreview } from '../utils/html';
-import { slugify } from '../utils/string';
-import { createViteLogger } from '../utils/vite-logger';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
+import { createHandlebarsContext, registerHandlebarsHelpers } from '@handoff/transformers/utils/handlebars';
+import { formatHtmlWithWrapper, trimPreview } from '@handoff/transformers/utils/html';
+import { slugify } from '@handoff/transformers/utils/string';
+import { createViteLogger } from '@handoff/transformers/utils/vite-logger';
 
 /**
  * Preview data interface for Handlebars rendering

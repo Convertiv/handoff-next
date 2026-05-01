@@ -1,4 +1,4 @@
-import { Config } from '../types/config';
+import { Config } from '@handoff/types/config';
 
 const normalizeAppConfig = (app?: Config['app']): Config['app'] => {
   if (!app) return app;

@@ -1,20 +1,20 @@
-import buildAppCommand from './build/app';
-import buildComponentsCommand from './build/components';
-import devCommand from './dev';
-import ejectConfigCommand from './eject/config';
-import ejectPagesCommand from './eject/pages';
-import ejectThemeCommand from './eject/theme';
-import fetchCommand from './fetch';
-import initCommand from './init';
-import makeComponentCommand from './make/component';
-import makePageCommand from './make/page';
-import makeTemplateCommand from './make/template';
-import pullCommand from './pull';
-import pushCommand from './push';
-import scaffoldCommand from './scaffold';
-import startCommand from './start';
-import syncStatusCommand from './sync-status';
-import validateComponentsCommand from './validate/components';
+import buildAppCommand from './build/app.js';
+import buildComponentsCommand from './build/components.js';
+import devCommand from './dev/index.js';
+import ejectConfigCommand from './eject/config.js';
+import ejectPagesCommand from './eject/pages.js';
+import ejectThemeCommand from './eject/theme.js';
+import fetchCommand from './fetch/index.js';
+import initCommand from './init/index.js';
+import makeComponentCommand from './make/component.js';
+import makePageCommand from './make/page.js';
+import makeTemplateCommand from './make/template.js';
+import pullCommand from './pull.js';
+import pushCommand from './push.js';
+import scaffoldCommand from './scaffold/index.js';
+import startCommand from './start/index.js';
+import syncStatusCommand from './sync-status.js';
+import validateComponentsCommand from './validate/components.js';
 
 export const commands = [
   buildAppCommand,

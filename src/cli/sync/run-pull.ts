@@ -1,9 +1,9 @@
-import type { SyncChangeset } from '../../types/handoff-sync';
-import type Handoff from '../../index';
-import { Logger } from '../../utils/logger';
-import { applySyncChangeset } from './apply-pull';
-import { readSyncState, writeSyncState, type HandoffSyncStateFile } from './sync-state';
-import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env';
+import type { SyncChangeset } from '@handoff/types/handoff-sync';
+import type Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { applySyncChangeset } from './apply-pull.js';
+import { readSyncState, writeSyncState, type HandoffSyncStateFile } from './sync-state.js';
+import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env.js';
 
 /**
  * Pull remote sync events and write local `pages/` and `*.handoff.json` declarations.

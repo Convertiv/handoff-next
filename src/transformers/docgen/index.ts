@@ -1,8 +1,8 @@
 import fs from 'fs-extra';
 import path from 'path';
 import { createGenerator, type DocGenerator, type GeneratedDocs } from 'handoff-docgen';
-import { Logger } from '../../utils/logger';
-import { SlotMetadata, SlotType } from '../preview/component';
+import { Logger } from '@handoff/utils/logger';
+import { SlotMetadata, SlotType } from '@handoff/transformers/preview/component';
 
 const DEFAULT_DOCGEN_MAX_DEPTH = 7;
 const DEFAULT_DOCGEN_EXCLUDE_DIRECTORIES = ['dist', 'build', '.next'];

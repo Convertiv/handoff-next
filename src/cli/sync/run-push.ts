@@ -1,11 +1,11 @@
 import matter from 'gray-matter';
 import fs from 'fs-extra';
 import path from 'path';
-import type { SyncUploadBody } from '../../types/handoff-sync';
-import type Handoff from '../../index';
-import { Logger } from '../../utils/logger';
-import { getDeclarationAbsPathForEntity } from './resolve-declaration';
-import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env';
+import type { SyncUploadBody } from '@handoff/types/handoff-sync';
+import type Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { getDeclarationAbsPathForEntity } from './resolve-declaration.js';
+import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env.js';
 
 async function collectMarkdownFiles(rootDir: string): Promise<string[]> {
   const out: string[] = [];

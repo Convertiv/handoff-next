@@ -1,6 +1,6 @@
 import path from 'path';
-import { RendererKind } from '../../declarations/types';
-import { ComponentListObject } from '../../transformers/preview/types';
+import { RendererKind } from '@handoff/declarations/types';
+import { ComponentListObject } from '@handoff/transformers/preview/types';
 
 type RawDeclaration = Record<string, any>;
 

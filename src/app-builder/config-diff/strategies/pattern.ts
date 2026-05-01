@@ -1,10 +1,10 @@
-import Handoff from '../../..';
-import { buildPatterns } from '../../../pipeline/patterns';
-import processComponents, { ComponentSegment } from '../../../transformers/preview/component/builder';
-import { getPatternIdsReferencingComponents } from '../../../transformers/preview/pattern/builder';
-import { Logger } from '../../../utils/logger';
-import { diffMapSnapshots, MapSnapshot, stableStringify } from '../snapshot';
-import { ConfigDiffStrategy, FinalizeContext } from '../types';
+import Handoff from '@handoff/index';
+import { buildPatterns } from '@handoff/pipeline/patterns';
+import processComponents, { ComponentSegment } from '@handoff/transformers/preview/component/builder';
+import { getPatternIdsReferencingComponents } from '@handoff/transformers/preview/pattern/builder';
+import { Logger } from '@handoff/utils/logger';
+import { diffMapSnapshots, MapSnapshot, stableStringify } from '@handoff/app-builder/config-diff/snapshot';
+import { ConfigDiffStrategy, FinalizeContext } from '@handoff/app-builder/config-diff/types';
 
 /**
  * Snapshots every __pattern_{patternId}_* synthetic preview entry across all

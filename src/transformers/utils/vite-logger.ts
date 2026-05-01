@@ -1,5 +1,5 @@
 import { LogOptions, Logger as ViteLogger } from 'vite';
-import { Logger } from '../../utils/logger';
+import { Logger } from '@handoff/utils/logger';
 
 export const createViteLogger = (): ViteLogger => {
   const warnedMessages = new Set<string>();

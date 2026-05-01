@@ -1,23 +1,23 @@
 import fs from 'fs-extra';
 import { Types as CoreTypes } from 'handoff-core';
-import { startCase } from 'lodash';
+import startCase from 'lodash/startCase.js';
 import path from 'path';
 import React from 'react';
 import ReactDOMServer from 'react-dom/server';
 import reactElementToJSXString from 'react-element-to-jsx-string';
 import { Plugin } from 'vite';
-import Handoff from '../..';
-import { Logger } from '../../utils/logger';
-import { generateDocsArtifact, getPropertiesForComponentFromDocs } from '../docgen';
-import { SlotMetadata, SlotType } from '../preview/component';
-import { MAIN_COMPONENT_CSS_FILE } from '../preview/component/css';
-import { TransformComponentTokensResult } from '../preview/types';
-import { formatHtml, trimPreview } from '../utils/html';
-import { buildAndEvaluateModule } from '../utils/module';
-import { ensureIds } from '../utils/schema';
-import { extractComponentName, generateUsageSnippet } from '../utils/usage';
-import { createCsfStoryPreviews, CsfMeta, getCsfStoryEntries, StoryObject } from '../utils/csf';
-import { createViteLogger } from '../utils/vite-logger';
+import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
+import { generateDocsArtifact, getPropertiesForComponentFromDocs } from '@handoff/transformers/docgen/index';
+import { SlotMetadata, SlotType } from '@handoff/transformers/preview/component';
+import { MAIN_COMPONENT_CSS_FILE } from '@handoff/transformers/preview/component/css';
+import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
+import { formatHtml, trimPreview } from '@handoff/transformers/utils/html';
+import { buildAndEvaluateModule } from '@handoff/transformers/utils/module';
+import { ensureIds } from '@handoff/transformers/utils/schema';
+import { extractComponentName, generateUsageSnippet } from '@handoff/transformers/utils/usage';
+import { createCsfStoryPreviews, CsfMeta, getCsfStoryEntries, StoryObject } from '@handoff/transformers/utils/csf';
+import { createViteLogger } from '@handoff/transformers/utils/vite-logger';
 
 type ComponentImportInfo = {
   componentName: string;
@@ -377,7 +377,7 @@ export function csfRenderPlugin(
       const componentImportInfo = resolveComponentImportInfo(sourceCode);
       const usageComponentName = componentImportInfo?.componentName || componentName || extractComponentName(templatePath);
       const usageImportStatement =
-        componentImportInfo?.importStatement || `import ${usageComponentName} from './${usageComponentName}';`;
+        componentImportInfo?.importStatement || `import ${usageComponentName} from './${usageComponentName}.js';`;
       if (generatedDocs && componentName) {
         const docgenProperties = getPropertiesForComponentFromDocs(
           generatedDocs,

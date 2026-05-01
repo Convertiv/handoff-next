@@ -1,4 +1,4 @@
-import { Logger } from '../utils/logger';
+import { Logger } from '@handoff/utils/logger';
 
 /**
  * Validates that the Node.js runtime meets the minimum version requirements.

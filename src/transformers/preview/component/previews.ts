@@ -1,4 +1,4 @@
-import type { OptionalPreviewRender } from '../types';
+import type { OptionalPreviewRender } from '@handoff/transformers/preview/types';
 
 /**
  * Returns previews exposed in docs/API; synthetic pattern previews (`__pattern_*`) are omitted.

@@ -2,22 +2,22 @@ import dotenv from 'dotenv';
 import fs from 'fs-extra';
 import { Types as CoreTypes, Handoff as HandoffRunner, Providers } from 'handoff-core';
 import path from 'path';
-import buildApp, { devApp, watchApp } from './app-builder';
-import { ejectConfig, ejectPages, ejectTheme } from './cli/eject';
-import { makeComponent, makePage, makeTemplate } from './cli/make';
-import { initConfigWithMetadata, initRuntimeConfig, validateConfig } from './config';
-import pipeline, { buildComponents, buildPatterns } from './pipeline';
-import processComponents, { ComponentSegment } from './transformers/preview/component/builder';
-import { Config, ConfigFileEntry, RuntimeConfig } from './types/config';
-import { Logger } from './utils/logger';
-import { generateFilesystemSafeId, normalizePathForCompare } from './utils/path';
+import { fileURLToPath } from 'node:url';
+import buildApp, { devApp, watchApp } from './app-builder/index.js';
+import { ejectConfig, ejectPages, ejectTheme } from './cli/eject.js';
+import { makeComponent, makePage, makeTemplate } from './cli/make.js';
+import { initConfigWithMetadata, initRuntimeConfig, validateConfig } from './config/index.js';
+import pipeline, { buildComponents, buildPatterns } from './pipeline/index.js';
+import processComponents, { ComponentSegment } from './transformers/preview/component/builder.js';
+import { Config, ConfigFileEntry, RuntimeConfig } from './types/config.js';
+import { Logger } from './utils/logger.js';
+import { generateFilesystemSafeId, normalizePathForCompare } from './utils/path.js';
 
 // Load .env from cwd first, then walk up to find a parent .env (common project layout:
 // project-root/.env  +  project-root/handoff/  ← cwd when `handoff-app start` runs).
 dotenv.config(); // cwd
 for (let dir = path.resolve(process.cwd(), '..'); ; dir = path.resolve(dir, '..')) {
   const candidate = path.join(dir, '.env');
-  console.log('candidate', candidate);
   if (fs.existsSync(candidate)) {
     dotenv.config({ path: candidate }); // won't overwrite keys already set
     break;
@@ -29,7 +29,7 @@ class Handoff {
   config: Config | null;
   debug: boolean = false;
   force: boolean = false;
-  modulePath: string = path.resolve(__filename, '../..');
+  modulePath: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   workingPath: string = process.cwd();
   exportsDirectory: string = 'exported';
   sitesDirectory: string = 'out';
@@ -331,8 +331,8 @@ class Handoff {
   }
 }
 
-export { defineConfig } from './config';
-export { defineComponent, defineCsfComponent, defineHandlebarsComponent, definePattern, defineReactComponent } from './declarations';
+export { defineConfig } from './config/index.js';
+export { defineComponent, defineCsfComponent, defineHandlebarsComponent, definePattern, defineReactComponent } from './declarations/index.js';
 export type {
   CsfDeclarationConfig,
   DeclarationPreview,
@@ -342,9 +342,9 @@ export type {
   PatternComponentRef,
   ReactDeclarationConfig,
   RendererKind,
-} from './declarations';
-export type { ComponentObject as Component } from './transformers/preview/types';
-export type { Config, RegisterHandlebarsHelpersContext } from './types/config';
+} from './declarations/index.js';
+export type { ComponentObject as Component } from './transformers/preview/types.js';
+export type { Config, RegisterHandlebarsHelpersContext } from './types/config.js';
 
 // Export transformers and types from handoff-core
 export { Transformers as CoreTransformers, TransformerUtils as CoreTransformerUtils, Types as CoreTypes } from 'handoff-core';

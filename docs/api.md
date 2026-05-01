@@ -85,14 +85,23 @@ Imports manifests + source files from disk into the database (upsert). If any se
 | **409** | Conflicts — include `overwriteAll: true` or per-id `decisions` |
 | **429** | Too many ingest requests per minute |
 
-### `POST /api/handoff/components/export`
+### `GET /api/handoff/components/entry-dirs`
 
-Writes DB components back to the repo under `components/` (default), using legacy folder layout (`<id>/<id>.js`, `template.hbs`, `style.scss`, `script.js`). Runs `git add` + `git commit` on that path when `autoCommit` is not `false`.
+Returns configured component roots from `handoff.config` `entries.components`, resolved against `HANDOFF_WORKING_PATH` when set, otherwise the handoff-app repo root. Used by the UI to pick an export destination.
 
 | | |
 | --- | --- |
 | **Auth** | **Admin** only |
-| **Body** | Optional: `componentIds`, `outputDir` (must stay under repo root), `autoCommit` |
+| **200** | `{ "projectRoot": string, "dirs": [{ "relative": string, "absolute": string }] }` |
+
+### `POST /api/handoff/components/export`
+
+Writes DB components to disk under `outputDir/<id>/` (legacy layout: `<id>.js`, `template.hbs`, `style.scss`, `script.js`). Default `outputDir` is `components`, resolved relative to **`HANDOFF_WORKING_PATH`** when set, otherwise the handoff-app repo root. Runs `git add` + `git commit` from that project root when `autoCommit` is not `false`.
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** only |
+| **Body** | Optional: `componentIds`, `outputDir` (must stay under the resolved project root), `autoCommit` |
 | **200** | `{ "exported", "commitSha?", "gitMessage?", "gitWarning?" }` |
 | **429** | Too many export requests per minute |
 
