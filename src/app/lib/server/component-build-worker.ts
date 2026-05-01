@@ -1,16 +1,36 @@
 /**
  * Standalone worker: `npx tsx src/app/lib/server/component-build-worker.ts <jobId>`
- * Run from handoff-app repo root with DATABASE_URL + HANDOFF_MODE=dynamic.
+ * Run from handoff-app repo root with DATABASE_URL (Postgres) or local SQLite (no DATABASE_URL).
  */
 import { eq } from 'drizzle-orm';
 import fs from 'fs-extra';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { buildHandoffDeclarationCjs } from './component-scaffold';
+import { buildHandoffDeclarationCjs, type DeclarationPreviewEntry } from './component-scaffold';
 import { resolveHandoffRepoRoot } from './component-builder';
 import { getDb } from '../db';
 import { componentBuildJobs, handoffComponents } from '../db/schema';
 import { logEvent } from './event-log';
+
+function declPreviewsFromData(data: Record<string, unknown>): Record<string, DeclarationPreviewEntry> | undefined {
+  const raw = data.previews;
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, DeclarationPreviewEntry> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== 'object') continue;
+    const o = v as Record<string, unknown>;
+    const title = typeof o.title === 'string' ? o.title : k;
+    const values = (
+      o.values && typeof o.values === 'object'
+        ? o.values
+        : o.args && typeof o.args === 'object'
+          ? o.args
+          : {}
+    ) as Record<string, unknown>;
+    out[k] = { title, values };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 async function loadHandoff(repoRoot: string) {
   const srcTs = path.join(repoRoot, 'src/index.ts');
@@ -28,12 +48,9 @@ async function main() {
     process.exit(1);
   }
 
-  process.env.HANDOFF_MODE = process.env.HANDOFF_MODE || 'dynamic';
+  console.log(`[component-build-worker] starting jobId=${jobId}`);
+
   const db = getDb();
-  if (!db) {
-    console.error('No database (HANDOFF_MODE=dynamic and DATABASE_URL required)');
-    process.exit(1);
-  }
 
   const [job] = await db.select().from(componentBuildJobs).where(eq(componentBuildJobs.id, jobId));
   if (!job) {
@@ -63,11 +80,11 @@ async function main() {
 
   await db.update(componentBuildJobs).set({ status: 'building' }).where(eq(componentBuildJobs.id, jobId));
 
-  const repoRoot = resolveHandoffRepoRoot();
-  const relBundle = `.handoff-component-builds/${jobId}/${componentId}`;
-  const bundleAbs = path.join(repoRoot, relBundle);
+    const repoRoot = resolveHandoffRepoRoot();
+    const workingDir = process.env.HANDOFF_WORKING_PATH?.trim() || repoRoot;
+    const bundleAbs = path.join(repoRoot, `.handoff-component-builds/${jobId}/${componentId}`);
 
-  try {
+    try {
     await fs.remove(bundleAbs);
     await fs.mkdirp(bundleAbs);
 
@@ -99,34 +116,46 @@ async function main() {
       group: row.group ?? '',
       type: row.type ?? 'element',
       renderer,
+      previews: declPreviewsFromData(data),
     });
     await writeFile(`${componentId}.handoff.cjs`, decl);
+
+    // chdir to the project's working directory so the Handoff constructor
+    // picks up the correct handoff.config.js (with cssBuildConfig hooks,
+    // Vite aliases, scss entries, etc.) instead of the repo root config.
+    process.chdir(workingDir);
 
     const Handoff = await loadHandoff(repoRoot);
     const handoff = new Handoff(false, true, {
       entries: {
-        components: [relBundle],
+        components: [bundleAbs],
       },
     });
+
+    const workerTimeoutMs = (() => {
+      const n = Number(process.env.HANDOFF_COMPONENT_WORKER_TIMEOUT_MS);
+      if (Number.isFinite(n) && n >= 15_000) return Math.min(n, 900_000);
+      return 180_000;
+    })();
 
     const t0 = Date.now();
     await Promise.race([
       handoff.component(componentId),
       new Promise<never>((_, rej) => {
-        setTimeout(() => rej(new Error('Build timeout after 30s')), 30_000);
+        setTimeout(() => rej(new Error(`Build timeout after ${Math.round(workerTimeoutMs / 1000)}s`)), workerTimeoutMs);
       }),
     ]);
     const ms = Date.now() - t0;
     console.log(`Built component ${componentId} in ${ms}ms`);
 
-    const builtDir = path.join(repoRoot, 'public/api/component');
+    const builtDir = path.join(workingDir, 'public/api/component');
     const destDir = path.join(repoRoot, 'src/app/public/api/component');
     await fs.mkdirp(destDir);
 
     if (await fs.pathExists(builtDir)) {
       const names = await fs.readdir(builtDir);
       for (const name of names) {
-        if (name === componentId || name.startsWith(`${componentId}.`)) {
+        if (name === componentId || name.startsWith(`${componentId}.`) || name.startsWith(`${componentId}-`)) {
           await fs.copy(path.join(builtDir, name), path.join(destDir, name), { overwrite: true });
         }
       }

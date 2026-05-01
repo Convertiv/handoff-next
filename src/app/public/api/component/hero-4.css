@@ -1,0 +1,15 @@
+/* @import '~/integration/sass/main.scss'; */
+.hero-4 {
+  color: var(--color-text-base);
+  background-size: cover;
+  background-position: center;
+  min-height: 60vh;
+}
+.hero-4 .btn-primary {
+  background-color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.hero-4 .btn-secondary {
+  background-color: var(--color-secondary);
+  border-color: var(--color-secondary);
+}

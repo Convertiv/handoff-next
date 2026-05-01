@@ -1,6 +1,6 @@
 /**
  * Standalone worker: `npx tsx src/app/lib/server/design-asset-worker.ts <artifactId>`
- * Run from handoff-app repo root with DATABASE_URL, HANDOFF_MODE=dynamic, HANDOFF_AI_API_KEY.
+ * Run from handoff-app repo root with DATABASE_URL or local SQLite + HANDOFF_AI_API_KEY.
  */
 import { runDesignAssetExtractionForArtifact } from './design-asset-extractor';
 import { getDb } from '../db';
@@ -12,12 +12,7 @@ async function main() {
     process.exit(1);
   }
 
-  process.env.HANDOFF_MODE = process.env.HANDOFF_MODE || 'dynamic';
-  const db = getDb();
-  if (!db) {
-    console.error('No database (HANDOFF_MODE=dynamic and DATABASE_URL required)');
-    process.exit(1);
-  }
+  getDb();
 
   await runDesignAssetExtractionForArtifact(artifactId);
   process.exit(0);

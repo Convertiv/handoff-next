@@ -30,9 +30,6 @@ type IngestBody = {
 };
 
 export async function POST(request: NextRequest) {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

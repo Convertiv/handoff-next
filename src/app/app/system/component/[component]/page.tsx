@@ -4,7 +4,7 @@ import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getCurrentSecti
 import { getDataProvider } from '../../../../lib/data';
 import ComponentDetailClient from './ComponentDetailClient';
 
-export const dynamicParams = process.env.HANDOFF_MODE === 'dynamic' ? true : false;
+export const dynamicParams = true;
 
 function listToLegacySummaries(list: ComponentListObject[]) {
   return list.map((c) => ({

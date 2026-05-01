@@ -1,9 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function POST(request: NextRequest) {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const { resetPassword } = await import('@/lib/server/auth-reset');
   const formData = await request.formData();
   const token = String(formData.get('token') || '');

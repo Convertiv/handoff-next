@@ -1,0 +1,63 @@
+{
+  "id": "hero-dev-6",
+  "title": "Hero with Image and CTA",
+  "figma": "",
+  "image": "",
+  "description": "A hero section featuring a main heading, subheading, paragraph text, and call-to-action buttons, accompanied by an image.",
+  "preview": "",
+  "type": "block",
+  "group": "Combos",
+  "should_do": [],
+  "should_not_do": [],
+  "categories": [],
+  "tags": [],
+  "previews": {
+    "generic": {
+      "title": "Generic Hero Section",
+      "values": {
+        "background_image": "https://example.com/image.jpg",
+        "subheading": "Previous / Current",
+        "main_heading": "Main heading longer example.",
+        "paragraph": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut scelerisque scelerisque mattis. Phasellus blandit dignissim imperdiet. Cras nec tincidunt urna. Duis nec pretium diam, ac rhoncus turpis.",
+        "primary_cta": "Primary CTA",
+        "secondary_cta": "Secondary CTA"
+      },
+      "url": "hero-dev-6-generic.html"
+    },
+    "design": {
+      "title": "Design Hero Section",
+      "values": {
+        "background_image": "https://example.com/image.jpg",
+        "subheading": "PREVIOUS / CURRENT",
+        "main_heading": "Main heading longer example.",
+        "paragraph": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut scelerisque scelerisque mattis. Phasellus blandit dignissim imperdiet. Cras nec tincidunt urna. Duis nec pretium diam, ac rhoncus turpis.",
+        "primary_cta": "Primary CTA",
+        "secondary_cta": "Secondary CTA"
+      },
+      "url": "hero-dev-6-design.html"
+    }
+  },
+  "properties": {},
+  "code": "<div data-component=\"hero-dev-6\" class=\"hero-dev-6 d-flex align-items-center p-4 bg-light rounded-3\" style=\"background-image: url({{background_image}}); background-size: cover;\">\n  <div class=\"content col-6\">\n    <div class=\"text-muted mb-2\">{{subheading}}</div>\n    <h1 class=\"fw-bold mb-3\">{{main_heading}}</h1>\n    <div class=\"mb-4\">{{{paragraph}}}</div>\n    <div class=\"d-flex gap-3\">\n      <a href=\"#\" class=\"btn btn-primary\">{{primary_cta}}</a>\n      <a href=\"#\" class=\"btn btn-secondary\">{{secondary_cta}}</a>\n    </div>\n  </div>\n</div>",
+  "html": "<html lang=\"en\">\n  <div\n    data-component=\"hero-dev-6\"\n    class=\"hero-dev-6 d-flex align-items-center p-4 bg-light rounded-3\"\n    style=\"background-image: url(); background-size: cover\"\n  >\n    <div class=\"content col-6\">\n      <div class=\"text-muted mb-2\"></div>\n      <h1 class=\"fw-bold mb-3\"></h1>\n      <div class=\"mb-4\"></div>\n      <div class=\"d-flex gap-3\">\n        <a href=\"#\" class=\"btn btn-primary\"></a>\n        <a href=\"#\" class=\"btn btn-secondary\"></a>\n      </div>\n    </div>\n  </div>\n</html>",
+  "format": "handlebars",
+  "js": "// JavaScript for hero-dev-6",
+  "css": "/* hero-dev-6 styles */\n.hero-dev-6 {\n  color: var(--color-dark);\n  background-color: var(--color-light);\n}",
+  "sass": "/* hero-dev-6 styles */\n.hero-dev-6 {\n  color: var(--color-dark);\n  background-color: var(--color-light);\n}\n",
+  "name": "Hero with Image and CTA",
+  "renderer": "handlebars",
+  "entries": {
+    "template": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/10/hero-dev-6/hero-dev-6.hbs",
+    "scss": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/10/hero-dev-6/hero-dev-6.scss",
+    "js": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/10/hero-dev-6/hero-dev-6.client.js"
+  },
+  "options": {
+    "transformer": {
+      "defaults": {},
+      "replace": {},
+      "cssRootClass": null,
+      "tokenNameSegments": null
+    }
+  },
+  "jsCompiled": "\"use strict\";\n"
+}

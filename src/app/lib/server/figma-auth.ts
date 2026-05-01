@@ -21,7 +21,6 @@ function isExpired(expiresAt?: number | null): boolean {
 
 export async function getFigmaAccountForUser(userId: string): Promise<FigmaAccountRow | null> {
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
   const [row] = await db
     .select()
     .from(accounts)
@@ -70,7 +69,6 @@ async function refreshFigmaAccessToken(account: FigmaAccountRow): Promise<FigmaA
   const expiresAt = json.expires_in ? Math.floor(Date.now() / 1000) + json.expires_in : account.expires_at;
 
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
 
   await db
     .update(accounts)

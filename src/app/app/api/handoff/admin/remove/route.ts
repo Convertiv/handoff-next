@@ -1,9 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function POST(request: NextRequest) {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const { auth } = await import('@/lib/auth');
   const { removeUser } = await import('@/lib/server/admin-users');
   try {

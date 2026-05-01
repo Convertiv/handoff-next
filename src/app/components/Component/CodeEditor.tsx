@@ -17,7 +17,7 @@ type CodeEditorProps = {
 function entrySourcesFromPreview(preview: PreviewObject | undefined): { main: string; scss: string; js: string; renderer: string } {
   const data = preview as unknown as { entrySources?: Record<string, string>; renderer?: string };
   const es = data?.entrySources ?? {};
-  const renderer = String(data?.renderer ?? preview?.renderer ?? 'handlebars');
+  const renderer = String(data?.renderer ?? 'handlebars');
   let main = '';
   if (renderer === 'react') main = es.component ?? '';
   else if (renderer === 'csf') main = es.story ?? '';

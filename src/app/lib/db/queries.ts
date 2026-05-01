@@ -1,13 +1,16 @@
 import { and, count, desc, eq, gte, ilike, lte, ne, or, sql } from 'drizzle-orm';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
+import { usePostgres } from './dialect';
 import { getDb } from './index';
 import {
   componentBuildJobs,
+  componentGenerationJobs,
   figmaFetchJobs,
   handoffComponents,
   handoffDesignArtifacts,
   handoffEventLog,
   handoffPatterns,
+  handoffReferenceMaterials,
   handoffTokensSnapshots,
   users,
 } from './schema';
@@ -16,13 +19,11 @@ export type { AdminBuildTaskRow };
 
 export async function getDbComponents() {
   const db = getDb();
-  if (!db) return [];
   return db.select().from(handoffComponents);
 }
 
 export async function getDbPatterns() {
   const db = getDb();
-  if (!db) return [];
   return db.select().from(handoffPatterns);
 }
 
@@ -34,7 +35,6 @@ export type DbPatternFilter = {
 
 export async function getDbPatternsFiltered(filters: DbPatternFilter) {
   const db = getDb();
-  if (!db) return [];
   const clauses = [];
   if (filters.source?.trim()) {
     clauses.push(eq(handoffPatterns.source, filters.source.trim()));
@@ -45,7 +45,13 @@ export async function getDbPatternsFiltered(filters: DbPatternFilter) {
   const q = filters.q?.trim();
   if (q) {
     const like = `%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
-    clauses.push(or(ilike(handoffPatterns.title, like), ilike(handoffPatterns.description, like))!);
+    if (usePostgres()) {
+      clauses.push(or(ilike(handoffPatterns.title, like), ilike(handoffPatterns.description, like))!);
+    } else {
+      clauses.push(
+        sql`(lower(${handoffPatterns.title}) like lower(${like}) escape '\\' or lower(${handoffPatterns.description}) like lower(${like}) escape '\\')`
+      );
+    }
   }
   if (clauses.length === 0) {
     return db.select().from(handoffPatterns).orderBy(desc(handoffPatterns.updatedAt));
@@ -59,14 +65,12 @@ export async function getDbPatternsFiltered(filters: DbPatternFilter) {
 
 export async function getDbPatternById(id: string) {
   const db = getDb();
-  if (!db) return null;
   const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
   return row ?? null;
 }
 
 export async function getRecentBuildJobs(limit = 50) {
   const db = getDb();
-  if (!db) return [];
   return db
     .select()
     .from(componentBuildJobs)
@@ -83,7 +87,6 @@ function assetsExtractionErrorFromMetadata(metadata: unknown): string | null {
 /** Design artifacts that have run (or are running) composite asset extraction — excludes `assets_status = none`. */
 export async function getRecentDesignArtifactAssetJobs(limit = 80) {
   const db = getDb();
-  if (!db) return [];
   return db
     .select({
       id: handoffDesignArtifacts.id,
@@ -105,19 +108,35 @@ function adminBuildTaskSortTime(row: AdminBuildTaskRow): number {
     if (t) return new Date(t).getTime();
     return row.jobId;
   }
+  if (row.kind === 'component_generation') {
+    const t = row.completedAt ?? row.createdAt;
+    if (t) return new Date(t).getTime();
+    return row.generationJobId;
+  }
   if (row.updatedAt) return new Date(row.updatedAt).getTime();
   if (row.createdAt) return new Date(row.createdAt).getTime();
   return 0;
 }
 
 /** Merged timeline for the admin Builds dashboard (component Vite jobs + design asset extraction). */
+export async function getRecentComponentGenerationJobs(limit = 80) {
+  const db = getDb();
+  return db
+    .select()
+    .from(componentGenerationJobs)
+    .orderBy(desc(componentGenerationJobs.id))
+    .limit(limit);
+}
+
 export async function getMergedAdminBuildTasks(
   componentJobLimit = 100,
-  artifactJobLimit = 100
+  artifactJobLimit = 100,
+  generationJobLimit = 80
 ): Promise<AdminBuildTaskRow[]> {
-  const [jobs, artifacts] = await Promise.all([
+  const [jobs, artifacts, genJobs] = await Promise.all([
     getRecentBuildJobs(componentJobLimit),
     getRecentDesignArtifactAssetJobs(artifactJobLimit),
+    getRecentComponentGenerationJobs(generationJobLimit),
   ]);
 
   const rows: AdminBuildTaskRow[] = [
@@ -143,6 +162,20 @@ export async function getMergedAdminBuildTasks(
         updatedAt: a.updatedAt ?? null,
       })
     ),
+    ...genJobs.map(
+      (g): AdminBuildTaskRow => ({
+        kind: 'component_generation',
+        generationJobId: g.id,
+        artifactId: g.artifactId,
+        componentId: g.componentId,
+        status: g.status,
+        error: g.error ?? null,
+        createdAt: g.createdAt ?? null,
+        completedAt: g.completedAt ?? null,
+        iteration: g.iteration,
+        visualScore: g.visualScore != null ? Number(g.visualScore) : null,
+      })
+    ),
   ];
 
   rows.sort((a, b) => adminBuildTaskSortTime(b) - adminBuildTaskSortTime(a));
@@ -152,7 +185,6 @@ export async function getMergedAdminBuildTasks(
 /** Count jobs still in queue or actively building (used to cap concurrent builds). */
 export async function countQueuedOrBuildingJobs(): Promise<number> {
   const db = getDb();
-  if (!db) return 0;
   const [row] = await db
     .select({ n: count() })
     .from(componentBuildJobs)
@@ -162,7 +194,6 @@ export async function countQueuedOrBuildingJobs(): Promise<number> {
 
 export async function getDbTokensSnapshot(): Promise<unknown | null> {
   const db = getDb();
-  if (!db) return null;
   const rows = await db
     .select()
     .from(handoffTokensSnapshots)
@@ -173,72 +204,23 @@ export async function getDbTokensSnapshot(): Promise<unknown | null> {
 
 export async function insertFigmaFetchJob(triggeredByUserId: string): Promise<number> {
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
   const [row] = await db.insert(figmaFetchJobs).values({ status: 'queued', triggeredByUserId }).returning({ id: figmaFetchJobs.id });
   return row.id;
 }
 
 export async function getFigmaFetchJob(jobId: number) {
   const db = getDb();
-  if (!db) return null;
   const [row] = await db.select().from(figmaFetchJobs).where(eq(figmaFetchJobs.id, jobId));
   return row ?? null;
 }
 
 export async function countQueuedOrRunningFigmaFetchJobs(): Promise<number> {
   const db = getDb();
-  if (!db) return 0;
   const [row] = await db
     .select({ n: count() })
     .from(figmaFetchJobs)
     .where(or(eq(figmaFetchJobs.status, 'queued'), eq(figmaFetchJobs.status, 'running')));
   return Number(row?.n ?? 0);
-}
-
-export type EventLogInsertInput = {
-  category: string;
-  eventType: string;
-  status?: string;
-  actorUserId?: string | null;
-  route?: string | null;
-  entityType?: string | null;
-  entityId?: string | null;
-  durationMs?: number | null;
-  error?: string | null;
-  provider?: string | null;
-  model?: string | null;
-  estimatedInputTokens?: number | null;
-  estimatedOutputTokens?: number | null;
-  estimatedCostUsd?: number | null;
-  requestPreview?: string | null;
-  metadata?: Record<string, unknown>;
-};
-
-export async function insertEventLog(input: EventLogInsertInput): Promise<number | null> {
-  const db = getDb();
-  if (!db) return null;
-  const [row] = await db
-    .insert(handoffEventLog)
-    .values({
-      category: input.category,
-      eventType: input.eventType,
-      status: input.status ?? 'success',
-      actorUserId: input.actorUserId ?? null,
-      route: input.route ?? null,
-      entityType: input.entityType ?? null,
-      entityId: input.entityId ?? null,
-      durationMs: input.durationMs ?? null,
-      error: input.error ?? null,
-      provider: input.provider ?? null,
-      model: input.model ?? null,
-      estimatedInputTokens: input.estimatedInputTokens ?? null,
-      estimatedOutputTokens: input.estimatedOutputTokens ?? null,
-      estimatedCostUsd: input.estimatedCostUsd != null ? String(input.estimatedCostUsd) : null,
-      requestPreview: input.requestPreview ?? null,
-      metadata: input.metadata ?? {},
-    })
-    .returning({ id: handoffEventLog.id });
-  return row?.id ?? null;
 }
 
 export type AiEventRow = {
@@ -268,8 +250,8 @@ export async function getAiEventsForRange({
   to: Date;
   limit?: number;
 }): Promise<AiEventRow[]> {
+  if (!usePostgres()) return [];
   const db = getDb();
-  if (!db) return [];
   const rows = await db
     .select({
       id: handoffEventLog.id,
@@ -309,10 +291,11 @@ export type AiCostSummary = {
 };
 
 export async function getAiCostSummaryForRange({ from, to }: { from: Date; to: Date }): Promise<AiCostSummary> {
-  const db = getDb();
-  if (!db) {
+  if (!usePostgres()) {
     return { totalCalls: 0, successCalls: 0, failedCalls: 0, totalCostUsd: 0, byModel: [], byDay: [] };
   }
+  const db = getDb();
+
   const [totals] = await db
     .select({
       totalCalls: count(),
@@ -384,7 +367,6 @@ export type DesignArtifactInsert = {
 
 export async function insertDesignArtifact(input: DesignArtifactInsert) {
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
   const [row] = await db
     .insert(handoffDesignArtifacts)
     .values({
@@ -413,7 +395,6 @@ export async function updateDesignArtifact(
   patch: Partial<Omit<DesignArtifactInsert, 'id' | 'userId'>>
 ): Promise<boolean> {
   const db = getDb();
-  if (!db) return false;
   const values: Partial<typeof handoffDesignArtifacts.$inferInsert> = { updatedAt: new Date() };
   if (patch.title !== undefined) values.title = patch.title;
   if (patch.description !== undefined) values.description = patch.description;
@@ -444,7 +425,6 @@ export async function updateDesignArtifactById(
   patch: Partial<Omit<DesignArtifactInsert, 'id' | 'userId'>>
 ): Promise<boolean> {
   const db = getDb();
-  if (!db) return false;
   const values: Partial<typeof handoffDesignArtifacts.$inferInsert> = { updatedAt: new Date() };
   if (patch.title !== undefined) values.title = patch.title;
   if (patch.description !== undefined) values.description = patch.description;
@@ -471,7 +451,6 @@ export async function updateDesignArtifactById(
 
 export async function getDesignArtifactById(id: string) {
   const db = getDb();
-  if (!db) return null;
   const [row] = await db.select().from(handoffDesignArtifacts).where(eq(handoffDesignArtifacts.id, id));
   return row ?? null;
 }
@@ -479,7 +458,6 @@ export async function getDesignArtifactById(id: string) {
 /** Atomically move `assets_status` from `pending` to `extracting`. Returns false if another worker claimed or status changed. */
 export async function claimDesignArtifactForExtraction(id: string): Promise<boolean> {
   const db = getDb();
-  if (!db) return false;
   const updated = await db
     .update(handoffDesignArtifacts)
     .set({ assetsStatus: 'extracting', updatedAt: new Date() })
@@ -498,7 +476,6 @@ export async function finalizeDesignArtifactExtraction(
   }
 ): Promise<void> {
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
   const row = await getDesignArtifactById(id);
   const prevMeta =
     row?.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
@@ -526,7 +503,6 @@ export type DesignArtifactListFilter = {
 
 export async function getDesignArtifacts(filter: DesignArtifactListFilter = {}) {
   const db = getDb();
-  if (!db) return [];
   const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
   const clauses = [];
   if (filter.status?.trim()) {
@@ -544,4 +520,106 @@ export async function getDesignArtifacts(filter: DesignArtifactListFilter = {}) 
     .where(and(...clauses))
     .orderBy(desc(handoffDesignArtifacts.updatedAt))
     .limit(limit);
+}
+
+/** Reference materials for design-to-component LLM context. */
+export async function listReferenceMaterials() {
+  const db = getDb();
+  return db.select().from(handoffReferenceMaterials).orderBy(handoffReferenceMaterials.id);
+}
+
+export async function getReferenceMaterialById(id: string) {
+  const db = getDb();
+  const [row] = await db.select().from(handoffReferenceMaterials).where(eq(handoffReferenceMaterials.id, id));
+  return row ?? null;
+}
+
+export async function upsertReferenceMaterial(
+  id: string,
+  content: string,
+  metadata: Record<string, unknown> = {}
+): Promise<void> {
+  const db = getDb();
+  const now = new Date();
+  await db
+    .insert(handoffReferenceMaterials)
+    .values({ id, content, generatedAt: now, metadata })
+    .onConflictDoUpdate({
+      target: handoffReferenceMaterials.id,
+      set: { content, generatedAt: now, metadata },
+    });
+}
+
+export type ComponentGenerationJobInsert = {
+  artifactId: string;
+  userId: string;
+  componentId: string;
+  renderer: string;
+  maxIterations?: number;
+  a11yStandard?: string;
+  behaviorPrompt?: string;
+  useExtractedAssets?: boolean;
+};
+
+export async function insertComponentGenerationJob(input: ComponentGenerationJobInsert): Promise<number> {
+  const db = getDb();
+  const [row] = await db
+    .insert(componentGenerationJobs)
+    .values({
+      artifactId: input.artifactId,
+      userId: input.userId,
+      componentId: input.componentId,
+      renderer: input.renderer,
+      status: 'queued',
+      maxIterations: input.maxIterations ?? 3,
+      a11yStandard: input.a11yStandard ?? 'none',
+      behaviorPrompt: input.behaviorPrompt ?? '',
+      useExtractedAssets: input.useExtractedAssets ?? true,
+    })
+    .returning({ id: componentGenerationJobs.id });
+  return row.id;
+}
+
+export async function getComponentGenerationJob(id: number) {
+  const db = getDb();
+  const [row] = await db.select().from(componentGenerationJobs).where(eq(componentGenerationJobs.id, id));
+  return row ?? null;
+}
+
+export async function updateComponentGenerationJob(
+  id: number,
+  patch: Partial<{
+    status: string;
+    iteration: number;
+    generationLog: unknown[];
+    validationResults: Record<string, unknown>;
+    visualScore: number | null;
+    lastBuildJobId: number | null;
+    error: string | null | undefined;
+    completedAt: Date | null;
+  }>
+): Promise<void> {
+  const db = getDb();
+  const set: Partial<typeof componentGenerationJobs.$inferInsert> = {};
+  if (patch.status !== undefined) set.status = patch.status;
+  if (patch.iteration !== undefined) set.iteration = patch.iteration;
+  if (patch.generationLog !== undefined) set.generationLog = patch.generationLog as typeof componentGenerationJobs.$inferInsert.generationLog;
+  if (patch.validationResults !== undefined)
+    set.validationResults = patch.validationResults as typeof componentGenerationJobs.$inferInsert.validationResults;
+  if (patch.visualScore !== undefined) set.visualScore = patch.visualScore != null ? String(patch.visualScore) : null;
+  if (patch.lastBuildJobId !== undefined) set.lastBuildJobId = patch.lastBuildJobId;
+  if (patch.error !== undefined) set.error = patch.error ?? null;
+  if (patch.completedAt !== undefined) set.completedAt = patch.completedAt;
+  await db.update(componentGenerationJobs).set(set).where(eq(componentGenerationJobs.id, id));
+}
+
+export async function getLatestComponentGenerationJobForArtifact(artifactId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(componentGenerationJobs)
+    .where(eq(componentGenerationJobs.artifactId, artifactId))
+    .orderBy(desc(componentGenerationJobs.id))
+    .limit(1);
+  return row ?? null;
 }

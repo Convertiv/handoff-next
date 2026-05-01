@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle, ImageIcon, Loader2, Package, XCircle, Clock } from 'lucide-react';
+import { CheckCircle, ImageIcon, Loader2, Package, Sparkles, XCircle, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '../../../components/Layout/Main';
@@ -86,8 +86,38 @@ function durationMs(start: Date | string | null | undefined, end: Date | string 
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function ComponentGenerationStatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'queued':
+    case 'generating':
+    case 'building':
+    case 'validating':
+    case 'iterating':
+      return (
+        <Badge variant="outline" className="gap-1 border-violet-300 text-violet-800 dark:border-violet-700 dark:text-violet-300">
+          <Loader2 className="h-3 w-3 animate-spin" /> {status}
+        </Badge>
+      );
+    case 'complete':
+      return (
+        <Badge variant="outline" className="gap-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400">
+          <CheckCircle className="h-3 w-3" /> Complete
+        </Badge>
+      );
+    case 'failed':
+      return (
+        <Badge variant="outline" className="gap-1 border-red-300 text-red-700 dark:border-red-700 dark:text-red-400">
+          <XCircle className="h-3 w-3" /> Failed
+        </Badge>
+      );
+    default:
+      return <Badge variant="outline">{status}</Badge>;
+  }
+}
+
 function StatusCell({ row }: { row: AdminBuildTaskRow }) {
   if (row.kind === 'component_build') return <ComponentStatusBadge status={row.status} />;
+  if (row.kind === 'component_generation') return <ComponentGenerationStatusBadge status={row.status} />;
   return <AssetExtractionStatusBadge status={row.status} />;
 }
 
@@ -106,12 +136,15 @@ export default function BuildsClient({
   const [tasks, setTasks] = useState<AdminBuildTaskRow[]>(initialTasks);
   const layoutMeta = { metaTitle: 'Builds', metaDescription: 'Component preview builds and design asset extraction jobs' };
 
-  const hasActiveAssetJob = useMemo(
-    () =>
+  const hasActiveAssetJob = useMemo(() => {
+    const genActive = (s: string) =>
+      ['queued', 'generating', 'building', 'validating', 'iterating'].includes(s);
+    return (
       tasks.some((t) => t.kind === 'design_asset_extraction' && (t.status === 'pending' || t.status === 'extracting')) ||
-      tasks.some((t) => t.kind === 'component_build' && (t.status === 'queued' || t.status === 'building')),
-    [tasks]
-  );
+      tasks.some((t) => t.kind === 'component_build' && (t.status === 'queued' || t.status === 'building')) ||
+      tasks.some((t) => t.kind === 'component_generation' && genActive(t.status))
+    );
+  }, [tasks]);
 
   const refresh = useCallback(async () => {
     try {
@@ -141,8 +174,8 @@ export default function BuildsClient({
       <div className="mx-auto max-w-5xl">
         <h1 className="mb-1 text-xl font-semibold">Builds</h1>
         <p className="mb-6 text-sm text-muted-foreground">
-          Component preview (Vite) jobs and saved-design <strong>asset extraction</strong> (background image isolation). Rows refresh automatically
-          while jobs are in progress.
+          Component preview (Vite) jobs, saved-design <strong>asset extraction</strong>, and <strong>design-to-component</strong> AI generation. Rows
+          refresh automatically while jobs are in progress.
         </p>
         {message ? (
           <p className="text-sm text-muted-foreground">{message}</p>
@@ -188,6 +221,48 @@ export default function BuildsClient({
                       <TableCell className="text-xs text-muted-foreground">{formatDate(row.createdAt)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{formatDate(row.completedAt)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">{durationMs(row.createdAt, row.completedAt)}</TableCell>
+                      <TableCell className="max-w-xs truncate text-xs text-red-500">{row.error ?? '—'}</TableCell>
+                    </TableRow>
+                  );
+                }
+                if (row.kind === 'component_generation') {
+                  const terminal = row.status === 'complete' || row.status === 'failed';
+                  return (
+                    <TableRow key={`g-${row.generationJobId}`}>
+                      <TableCell className="text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Sparkles className="h-3.5 w-3.5 shrink-0" />
+                          Gen component
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">#{row.generationJobId}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-col gap-0.5">
+                          <Link
+                            href={`${basePath}/system/component/${encodeURIComponent(row.componentId)}/`}
+                            className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400"
+                          >
+                            {row.componentId}
+                          </Link>
+                          <Link
+                            href={`${basePath}/designs/${encodeURIComponent(row.artifactId)}/`}
+                            className="text-xs text-muted-foreground hover:underline"
+                          >
+                            from design…
+                          </Link>
+                          {row.visualScore != null ? (
+                            <span className="text-xs text-muted-foreground">score {Number(row.visualScore).toFixed(2)}</span>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <StatusCell row={row} />
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDate(row.createdAt)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{terminal ? formatDate(row.completedAt) : '—'}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {terminal ? durationMs(row.createdAt, row.completedAt) : '—'}
+                      </TableCell>
                       <TableCell className="max-w-xs truncate text-xs text-red-500">{row.error ?? '—'}</TableCell>
                     </TableRow>
                   );

@@ -81,7 +81,11 @@ const Headings = (element: any) => {
   const { children, node } = element;
   const type = (node?.tagName as string) || 'h6';
   const normalized = React.Children.toArray(children);
-  const hasVisibleContent = normalized.some((c) => c != null && c !== '' && c !== false);
+  const hasVisibleContent = normalized.some((c) => {
+    if (c == null || c === '') return false;
+    if (typeof c === 'boolean') return c;
+    return true;
+  });
 
   if (!hasVisibleContent) {
     const tag = headingClass[type] ? type : 'h6';

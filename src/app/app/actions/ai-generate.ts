@@ -1,18 +1,12 @@
 'use server';
 
 import { auth } from '../../lib/auth';
-import { isDynamic } from '../../lib/mode';
-
-function guardDynamic() {
-  if (!isDynamic()) throw new Error('Actions require HANDOFF_MODE=dynamic');
-}
 
 /**
  * Stub for AI-powered component generation. Uses the API key from env vars.
  * Extend this to call OpenAI or Anthropic and return structured component data.
  */
 export async function generateComponentWithAI(prompt: string, provider: 'openai' | 'anthropic' = 'openai') {
-  guardDynamic();
   const session = await auth();
   if (!session?.user) throw new Error('Unauthorized');
 

@@ -1,10 +1,9 @@
-import { spawn } from 'child_process';
+import { spawnTsxWorker } from './spawn-tsx-worker';
 import path from 'path';
 import { resolveHandoffRepoRoot } from './component-builder';
 
 const WORKER_ENV_KEYS = [
   'DATABASE_URL',
-  'HANDOFF_MODE',
   'NODE_ENV',
   'PATH',
   'HOME',
@@ -21,11 +20,18 @@ const WORKER_ENV_KEYS = [
   'TMP',
 ] as const;
 
+const NEXT_INLINED_ENV: Record<string, string | undefined> = {
+  HANDOFF_WORKING_PATH: process.env.HANDOFF_WORKING_PATH,
+};
+
 function buildDesignAssetWorkerEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of WORKER_ENV_KEYS) {
     const v = process.env[key];
     if (v !== undefined) out[key] = v;
+  }
+  for (const [key, v] of Object.entries(NEXT_INLINED_ENV)) {
+    if (v !== undefined && !out[key]) out[key] = v;
   }
   if (!out.NODE_ENV) {
     out.NODE_ENV = process.env.NODE_ENV ?? 'development';
@@ -39,11 +45,11 @@ function buildDesignAssetWorkerEnv(): Record<string, string> {
 export function spawnDesignAssetWorker(artifactId: string): void {
   const repoRoot = resolveHandoffRepoRoot();
   const worker = path.join(repoRoot, 'src/app/lib/server/design-asset-worker.ts');
-  const preload = path.join(repoRoot, 'src/app/lib/server/component-build-preload.cjs');
-  const child = spawn('node', ['--require', preload, '--import', 'tsx', worker, artifactId], {
-    cwd: repoRoot,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, ...buildDesignAssetWorkerEnv() },
+  const child = spawnTsxWorker({
+    repoRoot,
+    workerScript: worker,
+    workerArgs: [artifactId],
+    env: buildDesignAssetWorkerEnv(),
   });
   child.stderr?.on('data', (chunk) => {
     console.error(`[design-asset ${artifactId}]`, chunk.toString());

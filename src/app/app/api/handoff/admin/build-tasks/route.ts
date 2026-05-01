@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { isDynamic } from '@/lib/mode';
 import { getMergedAdminBuildTasks } from '@/lib/db/queries';
 
 /** Admin-only merged build queue: component Vite jobs + design asset extraction. */
 export async function GET() {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

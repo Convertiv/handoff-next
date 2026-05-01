@@ -694,30 +694,26 @@ export const fetchComponents = (options?: FetchComponentsOptions) => {
     }
   }
 
-  // In dynamic mode, merge per-component JSON snapshots produced by DB-backed builds.
-  // This makes newly built dynamic components appear in the menu tree without requiring
-  // a full static `components.json` regeneration pass.
-  if ((process.env.HANDOFF_MODE ?? '') === 'dynamic') {
-    const dynamicComponentDir = path.resolve(process.env.HANDOFF_MODULE_PATH ?? '', 'src', 'app', 'public', 'api', 'component');
-    if (fs.existsSync(dynamicComponentDir)) {
-      const componentFiles = fs.readdirSync(dynamicComponentDir).filter((f) => f.endsWith('.json'));
-      componentFiles.forEach((fileName) => {
-        try {
-          const parsed = JSON.parse(fs.readFileSync(path.resolve(dynamicComponentDir, fileName), 'utf-8')) as Partial<ComponentListObject>;
-          const fileId = fileName.replace(/\.json$/, '');
-          const id = typeof parsed.id === 'string' && parsed.id.length > 0 ? parsed.id : fileId;
-          components[id] = {
-            ...(components[id] ?? {}),
-            type: ((parsed.type as ComponentType) || components[id]?.type || ComponentType.Element) as ComponentType,
-            group: parsed.group || components[id]?.group || '',
-            description: parsed.description || components[id]?.description || '',
-            name: parsed.title || components[id]?.name || '',
-          };
-        } catch {
-          // ignore malformed component artifact
-        }
-      });
-    }
+  // Merge per-component JSON snapshots produced by DB-backed builds into the menu tree.
+  const dynamicComponentDir = path.resolve(process.env.HANDOFF_MODULE_PATH ?? '', 'src', 'app', 'public', 'api', 'component');
+  if (fs.existsSync(dynamicComponentDir)) {
+    const componentFiles = fs.readdirSync(dynamicComponentDir).filter((f) => f.endsWith('.json'));
+    componentFiles.forEach((fileName) => {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(path.resolve(dynamicComponentDir, fileName), 'utf-8')) as Partial<ComponentListObject>;
+        const fileId = fileName.replace(/\.json$/, '');
+        const id = typeof parsed.id === 'string' && parsed.id.length > 0 ? parsed.id : fileId;
+        components[id] = {
+          ...(components[id] ?? {}),
+          type: ((parsed.type as ComponentType) || components[id]?.type || ComponentType.Element) as ComponentType,
+          group: parsed.group || components[id]?.group || '',
+          description: parsed.description || components[id]?.description || '',
+          name: parsed.title || components[id]?.name || '',
+        };
+      } catch {
+        // ignore malformed component artifact
+      }
+    });
   }
 
   const items =
@@ -823,21 +819,21 @@ export const getTokens = (): CoreTypes.IDocumentationObject => {
   return JSON.parse(data.toString()) as CoreTypes.IDocumentationObject;
 };
 
-/** Dynamic mode helper: prefer DB token snapshot, fallback to filesystem tokens.json. */
+/** Prefer DB token snapshot, fallback to filesystem tokens.json. */
 export const getTokensForRuntime = async (): Promise<CoreTypes.IDocumentationObject> => {
-  if ((process.env.HANDOFF_MODE ?? '') === 'dynamic') {
+  try {
     const db = getDb();
-    if (db) {
-      const rows = await db
-        .select()
-        .from(handoffTokensSnapshots)
-        .orderBy(desc(handoffTokensSnapshots.id))
-        .limit(1);
-      const payload = rows[0]?.payload;
-      if (payload && typeof payload === 'object') {
-        return payload as CoreTypes.IDocumentationObject;
-      }
+    const rows = await db
+      .select()
+      .from(handoffTokensSnapshots)
+      .orderBy(desc(handoffTokensSnapshots.id))
+      .limit(1);
+    const payload = rows[0]?.payload;
+    if (payload && typeof payload === 'object') {
+      return payload as CoreTypes.IDocumentationObject;
     }
+  } catch {
+    // ignore DB errors and fall back to filesystem tokens
   }
   return getTokens();
 };

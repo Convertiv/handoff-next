@@ -2,9 +2,9 @@ openapi: 3.0.3
 info:
   title: Handoff App HTTP API
   description: |
-    REST routes exposed by the Handoff documentation app (Next.js) when
-    `HANDOFF_MODE=dynamic`. Paths are relative to the app origin; if
-    `HANDOFF_APP_BASE_PATH` is set, prefix all paths (e.g. `/docs/api/handoff/components`).
+    REST routes exposed by the Handoff documentation app (Next.js).
+    Paths are relative to the app origin; if `HANDOFF_APP_BASE_PATH` is set,
+    prefix all paths (e.g. `/docs/api/handoff/components`).
   version: 1.0.0
 
 servers:
@@ -189,8 +189,7 @@ paths:
       tags: [handoff-components]
       summary: Get one component by id
       description: |
-        Returns the full `handoff_component` row. Available only when
-        `HANDOFF_MODE=dynamic`. Requires a signed-in user (any role).
+        Returns the full `handoff_component` row. Requires a signed-in user (any role).
       security:
         - sessionCookie: []
       parameters:
@@ -233,7 +232,6 @@ paths:
       summary: Partially update a component
       description: |
         Applies a partial update to columns and merged `data` jsonb. Admin only.
-        Available only when `HANDOFF_MODE=dynamic`.
       security:
         - sessionCookie: []
       requestBody:

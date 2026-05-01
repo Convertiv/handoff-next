@@ -13,7 +13,7 @@ const RESET_EXPIRY_MS = 60 * 60 * 1000;
 export async function requestPasswordReset(email: string): Promise<{ ok: true }> {
   const normalized = email.trim().toLowerCase();
   const db = getDb();
-  if (!db || !normalized) return { ok: true };
+  if (!normalized) return { ok: true };
 
   const [u] = await db.select().from(users).where(eq(users.email, normalized)).limit(1);
   if (!u) {
@@ -62,7 +62,6 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true }>
 
 export async function resetPassword(token: string, newPassword: string): Promise<{ ok: true } | { error: string }> {
   const db = getDb();
-  if (!db) return { error: 'Database not configured.' };
   if (!token || newPassword.length < 8) return { error: 'Password must be at least 8 characters.' };
 
   const tokenHash = sha256Hex(token);

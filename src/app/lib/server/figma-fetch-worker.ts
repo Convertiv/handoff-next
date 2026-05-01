@@ -13,12 +13,7 @@ async function main() {
     process.exit(1);
   }
 
-  process.env.HANDOFF_MODE = process.env.HANDOFF_MODE || 'dynamic';
   const db = getDb();
-  if (!db) {
-    console.error('No database (HANDOFF_MODE=dynamic and DATABASE_URL required)');
-    process.exit(1);
-  }
 
   const [job] = await db.select().from(figmaFetchJobs).where(eq(figmaFetchJobs.id, jobId));
   if (!job) {
@@ -69,6 +64,16 @@ async function main() {
     const tokensPath = handoff.getTokensFilePath();
     const payload = (await fs.readJSON(tokensPath)) as unknown;
     await db.insert(handoffTokensSnapshots).values({ payload: payload as Record<string, unknown> });
+
+    try {
+      const { regenerateAllReferenceMaterialsPersisted } = await import('./reference-material-persist');
+      await regenerateAllReferenceMaterialsPersisted({
+        actorUserId: job.triggeredByUserId ?? undefined,
+        skipLlm: false,
+      });
+    } catch (refErr) {
+      console.error('[figma-fetch-worker] reference materials regenerate failed', refErr);
+    }
 
     await db
       .update(figmaFetchJobs)

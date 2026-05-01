@@ -10,8 +10,8 @@ import { getDataProvider } from '../../lib/data';
 import { notFound, redirect } from 'next/navigation';
 import DocCatchAllClient from './DocCatchAllClient';
 
-/** Allow runtime-only DB pages in dynamic mode; static export lists all paths at build time. */
-export const dynamicParams = process.env.HANDOFF_MODE === 'dynamic';
+/** Allow runtime-only DB pages (always dynamic server). */
+export const dynamicParams = true;
 
 export async function generateStaticParams() {
   const paths = buildCatchAllStaticPaths().map((p) => ({ slug: p.params.slug }));
@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const docPath = dirParts.length > 0 ? `docs/${dirParts.join('/')}/` : 'docs/';
   const pageSlug = docsRouteToPageSlug(dirParts, file);
 
-  if (process.env.HANDOFF_MODE === 'dynamic') {
+  {
     const row = await getHandoffPageBySlug(pageSlug);
     if (row) {
       const m = normalizePageMetadata(row.frontmatter);
@@ -69,7 +69,7 @@ export default async function MarkdownCatchAllPage({ params }: { params: Promise
 
   let props = (await fetchDocPageMarkdownAsync(docPath, file, sectionId)).props;
 
-  if (process.env.HANDOFF_MODE === 'dynamic') {
+  {
     const row = await getHandoffPageBySlug(pageSlug);
     if (row) {
       const menu = await getDataProvider().getMenu();

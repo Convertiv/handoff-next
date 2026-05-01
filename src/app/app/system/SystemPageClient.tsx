@@ -10,7 +10,6 @@ import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { APIComponentList } from '../../components/Component/ComponentLists';
 import Layout from '../../components/Layout/Main';
-import { useAuthUi } from '../../components/context/AuthUiContext';
 import { NewComponentForm } from './NewComponentForm';
 import { FigmaFetchControls } from './FigmaFetchControls';
 import { ComponentExportButton, ComponentSyncDialog } from './ComponentSyncDialog';
@@ -24,18 +23,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../
 export default function SystemPageClient({ content, menu, metadata, current, config }) {
   const [components, setComponents] = useState<PreviewObject[]>(undefined);
   const [syncOpen, setSyncOpen] = useState(false);
-  const { authEnabled } = useAuthUi();
   const { data: session, status } = useSession();
-  const isDynamic = (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
-  const canSync =
-    authEnabled &&
-    status === 'authenticated' &&
-    Boolean(session?.user) &&
-    session?.user?.role === 'admin' &&
-    isDynamic;
+  const canSync = status === 'authenticated' && Boolean(session?.user) && session?.user?.role === 'admin';
   const fetchComponents = async () => {
     const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
-    const url = isDynamic ? `${basePath}/api/components` : `${basePath}/api/components.json`;
+    const url = `${basePath}/api/components`;
     const data = await fetch(url).then((res) => res.json());
     setComponents(data as PreviewObject[]);
   };

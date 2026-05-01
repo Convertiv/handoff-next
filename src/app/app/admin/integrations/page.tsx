@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
-import { isDynamic } from '../../../lib/mode';
+import { usePostgres } from '../../../lib/db/dialect';
 import { getClientRuntimeConfig } from '../../../components/util';
 import { getDataProvider } from '../../../lib/data';
 import IntegrationsClient from './IntegrationsClient';
@@ -15,12 +15,12 @@ export default async function AdminIntegrationsPage() {
   const config = getClientRuntimeConfig();
   const menu = await getDataProvider().getMenu();
 
-  if (!isDynamic()) {
+  if (!usePostgres()) {
     return (
       <IntegrationsClient
         config={config}
         menu={menu}
-        message="Integrations are only available in dynamic mode."
+        message="OAuth integrations require Postgres (set DATABASE_URL)."
       />
     );
   }

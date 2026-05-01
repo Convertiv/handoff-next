@@ -49,10 +49,18 @@ export const watchPublicDirectory = (handoff: Handoff, wss: (msg: string) => voi
 /**
  * Watches the application source code for changes.
  */
-export const watchAppSource = (handoff: Handoff, initializeProjectApp: (handoff: Handoff) => Promise<string>) => {
+export const watchAppSource = (
+  handoff: Handoff,
+  state: WatcherState,
+  initializeProjectApp: (handoff: Handoff) => Promise<string>
+) => {
+  const watchRoot = path.resolve(handoff.modulePath, 'src', 'app');
   chokidar
-    .watch(path.resolve(handoff.modulePath, 'src', 'app'), {
-      ignored: /(^|[\/\\])\../, // ignore dotfiles
+    .watch(watchRoot, {
+      ignored: [
+        /(^|[\/\\])\../, // ignore dotfiles
+        /[\/\\]public[\/\\]api[\/\\]/, // ignore generated component output
+      ],
       persistent: true,
       ignoreInitial: true,
     })
@@ -61,11 +69,13 @@ export const watchAppSource = (handoff: Handoff, initializeProjectApp: (handoff:
         case 'add':
         case 'change':
         case 'unlink':
-          try {
-            await initializeProjectApp(handoff);
-          } catch (e) {
-            Logger.error('Error initializing project app:', e);
-          }
+          await scheduleHandler(state, 'appSource', async () => {
+            try {
+              await initializeProjectApp(handoff);
+            } catch (e) {
+              Logger.error('Error initializing project app:', e);
+            }
+          });
           break;
       }
     });

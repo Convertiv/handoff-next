@@ -65,7 +65,7 @@ export const buildPreviews = async (
       build: {
         outDir: getComponentOutputPath(handoff),
         emptyOutDir: false,
-        rollupOptions: {
+        rolldownOptions: {
           input: { script: 'script' },
         },
       },

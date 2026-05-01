@@ -3,11 +3,6 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function proxy(request: NextRequest) {
-  const mode = process.env.HANDOFF_MODE;
-  if (!mode || mode === 'static' || mode.startsWith('%HANDOFF_')) {
-    return NextResponse.next();
-  }
-
   const publicPaths = [
     '/api/auth',
     '/_next',
@@ -28,7 +23,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  /** Local SQLite mode: trusted single-user; skip JWT gate for /admin. */
+  const isLocalSqlite = !process.env.DATABASE_URL?.trim();
+
   if (pathname.startsWith('/admin')) {
+    if (isLocalSqlite) {
+      return NextResponse.next();
+    }
     const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
     const token = await getToken({ req: request, secret });
     if (!token?.sub) {

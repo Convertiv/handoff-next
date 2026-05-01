@@ -1,7 +1,7 @@
 /**
- * Seed Postgres from static `public/api` JSON (run with HANDOFF_MODE=dynamic + DATABASE_URL).
+ * Seed DB from static `public/api` JSON (Postgres or local SQLite).
  *
- * Usage: `HANDOFF_MODE=dynamic DATABASE_URL=... npx tsx src/app/lib/db/seed.ts`
+ * Usage: `DATABASE_URL=... npx tsx src/app/lib/db/seed.ts` (omit DATABASE_URL for SQLite)
  */
 import 'dotenv/config';
 import fs from 'fs-extra';
@@ -35,12 +35,7 @@ function resolveApiDir(): string {
 }
 
 async function main() {
-  process.env.HANDOFF_MODE = process.env.HANDOFF_MODE || 'dynamic';
   const db = getDb();
-  if (!db) {
-    console.error('Set HANDOFF_MODE=dynamic and DATABASE_URL');
-    process.exit(1);
-  }
 
   await seedBootstrapAdmin(db);
 

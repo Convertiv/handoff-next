@@ -1,6 +1,4 @@
-import 'server-only';
-
-import { insertEventLog, type EventLogInsertInput } from '../db/queries';
+import { insertEventLog, type EventLogInsertInput } from '../db/event-log-store';
 
 type AiPricing = {
   inputPer1M?: number;

@@ -2,7 +2,7 @@ import Script from 'next/script';
 import { getClientRuntimeConfig } from '../components/util';
 import { auth } from '../lib/auth';
 import { getDataProvider } from '../lib/data';
-import { getMode } from '../lib/mode';
+import { usePostgres } from '../lib/db/dialect';
 import Providers from './providers';
 import '../css/index.css';
 import '../css/theme.css';
@@ -11,8 +11,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const config = getClientRuntimeConfig();
   const menu = await getDataProvider().getMenu();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
-  const authEnabled = getMode() === 'dynamic';
-  const session = authEnabled ? await auth().catch(() => null) : null;
+  const authEnabled = usePostgres();
+  const session = await auth().catch(() => null);
 
   return (
     <html lang="en" suppressHydrationWarning>

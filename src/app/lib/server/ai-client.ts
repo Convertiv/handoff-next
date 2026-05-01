@@ -17,13 +17,27 @@ export type ImageEditInput = {
   data: Buffer;
 };
 
+/** When true, AI routes forward to HANDOFF_CLOUD_URL with HANDOFF_CLOUD_TOKEN (no local OpenAI key). */
+export function shouldProxyAi(): boolean {
+  if (process.env.HANDOFF_AI_API_KEY?.trim()) return false;
+  return Boolean(process.env.HANDOFF_CLOUD_URL?.trim() && process.env.HANDOFF_CLOUD_TOKEN?.trim());
+}
+
 export function isServerAiConfigured(): boolean {
   const key = process.env.HANDOFF_AI_API_KEY?.trim();
-  return Boolean(key && key.length > 0);
+  console.log('env', process.env);
+  return Boolean(key && key.length > 0) || shouldProxyAi();
 }
 
 export function getServerAiModel(): string {
   return process.env.HANDOFF_AI_MODEL?.trim() || 'gpt-4.1';
+}
+
+/** Upper bound for OpenAI chat fetch (connect + response); avoids hung generation when API stalls. */
+function openAiChatRequestTimeoutMs(): number {
+  const n = Number(process.env.HANDOFF_AI_REQUEST_TIMEOUT_MS);
+  if (Number.isFinite(n) && n >= 30_000) return Math.min(n, 600_000);
+  return 180_000;
 }
 
 /** Build an image_url content part from a base64 PNG/JPEG buffer. */
@@ -151,39 +165,54 @@ export async function openAiImageEdit({
  */
 export async function openAiChatJson(
   messages: ChatMessage[],
-  options?: { actorUserId?: string | null; route?: string | null; eventType?: string }
+  options?: {
+    actorUserId?: string | null;
+    route?: string | null;
+    eventType?: string;
+    model?: string;
+    /** Default 8192; raise for large JSON payloads (e.g. generated components). */
+    maxTokens?: number;
+  }
 ): Promise<string> {
   const startedAt = Date.now();
   const apiKey = process.env.HANDOFF_AI_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('HANDOFF_AI_API_KEY is not configured.');
   }
-  const model = getServerAiModel();
+  const model = options?.model?.trim() || getServerAiModel();
   const requestPreview = messages
     .filter((m) => m.role === 'user')
     .map((m) =>
-      typeof m.content === 'string'
-        ? m.content
-        : m.content
-            .map((part) => (part.type === 'text' ? part.text : '[image]'))
-            .join(' ')
+      typeof m.content === 'string' ? m.content : m.content.map((part) => (part.type === 'text' ? part.text : '[image]')).join(' ')
     )
     .join('\n\n')
     .slice(0, 1000);
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      response_format: { type: 'json_object' },
-      messages,
-      temperature: 0.7,
-    }),
-  });
+  const timeoutMs = openAiChatRequestTimeoutMs();
+  let response: Response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        response_format: { type: 'json_object' },
+        messages,
+        temperature: 0.7,
+        max_tokens: options?.maxTokens ?? 8192,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : '';
+    if (name === 'AbortError' || name === 'TimeoutError') {
+      throw new Error(`OpenAI chat request timed out after ${timeoutMs}ms (raise HANDOFF_AI_REQUEST_TIMEOUT_MS for slow vision calls).`);
+    }
+    throw e;
+  }
 
   if (!response.ok) {
     const body = await response.text();

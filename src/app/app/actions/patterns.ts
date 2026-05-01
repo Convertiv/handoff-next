@@ -5,11 +5,6 @@ import { auth } from '../../lib/auth';
 import { getDb } from '../../lib/db';
 import { insertSyncEvent } from '../../lib/db/sync-queries';
 import { editHistory, handoffPatterns } from '../../lib/db/schema';
-import { isDynamic } from '../../lib/mode';
-
-function guardDynamic() {
-  if (!isDynamic()) throw new Error('Actions require HANDOFF_MODE=dynamic');
-}
 
 function sessionUserIdForSync(user: { id?: string | null } | undefined): string | null {
   const id = user?.id;
@@ -40,10 +35,9 @@ export async function createPattern(data: {
   source?: string;
   thumbnail?: string | null;
 }) {
-  guardDynamic();
   const session = await auth();
   if (!session?.user) throw new Error('Unauthorized');
-  const db = getDb()!;
+  const db = getDb();
 
   const userId = typeof session.user.id === 'string' && session.user.id.length > 0 ? session.user.id : null;
   const source = data.source?.trim() || 'playground';
@@ -99,10 +93,9 @@ export async function updatePattern(
     thumbnail: string | null;
   }>
 ) {
-  guardDynamic();
   const session = await auth();
   if (!session?.user) throw new Error('Unauthorized');
-  const db = getDb()!;
+  const db = getDb();
 
   await db
     .update(handoffPatterns)
@@ -131,10 +124,9 @@ export async function updatePattern(
 }
 
 export async function deletePattern(id: string) {
-  guardDynamic();
   const session = await auth();
   if (!session?.user) throw new Error('Unauthorized');
-  const db = getDb()!;
+  const db = getDb();
 
   await insertSyncEvent({
     entityType: 'pattern',

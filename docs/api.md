@@ -1,16 +1,18 @@
 # Handoff API
 
-Handoff exposes a **JavaScript API** (the `Handoff` class in `handoff-app`) for interacting with the pipeline, and—when you run the documentation app in **dynamic mode**—an **HTTP API** for authenticated users to read and edit database-backed components and trigger preview builds.
+Handoff exposes a **JavaScript API** (the `Handoff` class in `handoff-app`) for interacting with the pipeline, and—when you run the full Next.js documentation app—an **HTTP API** for authenticated users to read and edit database-backed components and trigger preview builds. (Local dev without `DATABASE_URL` uses embedded SQLite and a synthetic admin session; set `DATABASE_URL` for Postgres + real NextAuth.)
 
 The JavaScript API lets you integrate Handoff into Node applications, CI/CD, and command line tools, hook into pipeline execution, and generate build artifacts.
 
 An **OpenAPI 3** description of the HTTP routes lives in [`api_spec.yaml`](api_spec.yaml) in this folder.
 
-## Handoff App HTTP API (dynamic mode)
+## Handoff App HTTP API
 
-These routes are served by the Next.js app under your deployment origin. If `HANDOFF_APP_BASE_PATH` is set (for example `/docs`), prefix every path with that base. All routes below require `HANDOFF_MODE=dynamic` on the server; otherwise they respond with **404** and a JSON error.
+These routes are served by the Next.js app under your deployment origin. If `HANDOFF_APP_BASE_PATH` is set (for example `/docs`), prefix every path with that base. They require a valid session (cookie) unless noted; some admin-only routes return **403** without the right role.
 
 Use `fetch(..., { credentials: 'include' })` so the NextAuth session cookie is sent.
+
+**CLI sync to a remote Handoff (Postgres) instance:** set `HANDOFF_CLOUD_URL` to the remote app origin and `HANDOFF_CLOUD_TOKEN` to the same secret configured as `HANDOFF_SYNC_SECRET` on the server. Legacy names `HANDOFF_SYNC_URL` / `HANDOFF_SYNC_SECRET` still work. Then run `handoff sync:push` / `handoff sync:pull`.
 
 ### `GET /api/handoff/components?id={componentId}`
 
@@ -23,7 +25,7 @@ Returns the full `handoff_component` row (columns + `data` jsonb) for the given 
 | **200** | JSON row: `id`, `path`, `title`, `description`, `group`, `image`, `type`, `properties`, `previews`, `data`, timestamps |
 | **400** | Missing `id` |
 | **401** | Not authenticated |
-| **404** | Component not found, or not in dynamic mode |
+| **404** | Component not found |
 
 ### `PATCH /api/handoff/components`
 
@@ -37,7 +39,7 @@ Partially updates a component: top-level fields and a merged `data` object (incl
 | **400** | Missing `id` |
 | **401** | Not authenticated |
 | **403** | Not admin |
-| **404** | Component not found, or not in dynamic mode |
+| **404** | Component not found |
 
 ### `POST /api/handoff/components/build`
 
@@ -60,7 +62,7 @@ Polls a single build job created by `POST`.
 | **Auth** | **Admin** only |
 | **Query** | `jobId` (required) — integer from POST response |
 | **200** | `{ id, componentId, status, error, createdAt, completedAt }` — `status` is one of `queued`, `building`, `complete`, `failed` |
-| **404** | Job not found, or not in dynamic mode |
+| **404** | Job not found |
 
 ### `GET /api/handoff/components/diff`
 
@@ -96,7 +98,7 @@ Writes DB components back to the repo under `components/` (default), using legac
 
 ### `GET /api/components`
 
-Returns the JSON array used by the system components list. In dynamic mode this is read from the database at request time; in static export mode it is generated at build time.
+Returns the JSON array used by the system components list (resolved from the database / filesystem at request time).
 
 | | |
 | --- | --- |
@@ -104,7 +106,7 @@ Returns the JSON array used by the system components list. In dynamic mode this 
 
 ### `POST /api/handoff/figma/fetch`
 
-Queues a GUI-triggered Figma fetch job in dynamic mode. The worker uses the current admin user's linked Figma OAuth account, runs the fetch pipeline, and writes refreshed token outputs to both filesystem artifacts and the DB snapshot table.
+Queues a GUI-triggered Figma fetch job. The worker uses the current admin user's linked Figma OAuth account, runs the fetch pipeline, and writes refreshed token outputs to both filesystem artifacts and the DB snapshot table.
 
 | | |
 | --- | --- |
@@ -149,7 +151,7 @@ Returns one pattern row for loading into the Playground (`components`, `data.pre
 
 ### `POST /api/handoff/patterns/{id}/clone`
 
-Clones a DB pattern to a new id with `source: playground` (dynamic mode only).
+Clones a DB pattern to a new id with `source: playground`.
 
 | | |
 | --- | --- |
@@ -173,11 +175,11 @@ Runs the Playground wizard prompt against OpenAI using the server key. Rate-limi
 | **Auth** | Signed-in user |
 | **Body** | `{ "description": string, "content?": string, "currentPageSummary?": { id, title }[] }` |
 | **200** | `{ "entries": BulkComponentEntry[], "warnings": string[] }` |
-| **503** | `HANDOFF_AI_API_KEY` not set |
+| **503** | No server AI: neither `HANDOFF_AI_API_KEY` nor cloud proxy (`HANDOFF_CLOUD_URL` + `HANDOFF_CLOUD_TOKEN` on the client, with matching `HANDOFF_SYNC_SECRET` + `HANDOFF_AI_API_KEY` on the upstream) |
 
 ### `POST /api/handoff/ai/generate-design`
 
-Design workbench image edit (OpenAI `images/edits`). Requires `HANDOFF_AI_API_KEY`. Rate-limited per user.
+Design workbench image edit (OpenAI `images/edits`). Requires `HANDOFF_AI_API_KEY` on this server, or is reached via **cloud AI proxy** (see [README](../README.md#server-ai-openai-key-or-team-cloud-proxy)). Rate-limited per user (or per `X-Handoff-Proxy-Acting-User` when called with sync bearer).
 
 | | |
 | --- | --- |
@@ -216,10 +218,21 @@ Lightweight updates without a full POST body.
 | | |
 | --- | --- |
 | **Auth** | Signed-in user (owner or **admin**) |
-| **Body** | JSON: `id` (required). One of: `publicAccess` (boolean) to enable/disable the public share surface; `extractAssets: true` to reset `assets` and re-run background extraction (requires `HANDOFF_AI_API_KEY`). |
-| **200** | `{ "id", "publicAccess": … }` or `{ "id", "extractionQueued": true }` |
+| **Body** | JSON: `id` (required). One of: `publicAccess` (boolean) to enable/disable the public share surface; `extractAssets: true` to reset `assets` and re-run extraction (`HANDOFF_AI_API_KEY` for async worker, or `HANDOFF_CLOUD_URL` + `HANDOFF_CLOUD_TOKEN` for synchronous proxy + write-back). |
+| **200** | `{ "id", "publicAccess": … }`, `{ "id", "extractionQueued": true }`, or `{ "id", "extractionImmediate": true, "assets", "assetsStatus" }` when extraction completed via cloud proxy |
 | **400** | Missing `id` or unsupported fields |
 | **404** | Not found or not permitted |
+
+### `POST /api/handoff/ai/design-artifact-extract`
+
+Runs **synchronous** background/elements image extraction (same OpenAI `images/edits` pipeline as the design-asset worker) on a single composite `imageUrl` (data URL or `http(s)` image). Used internally when a local Handoff proxies asset extraction to a cloud that holds `HANDOFF_AI_API_KEY`.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user **or** `Authorization: Bearer` matching `HANDOFF_SYNC_SECRET` |
+| **Body** | JSON: `imageUrl` (required) |
+| **200** | `{ "assets": …[], "assetsStatus": "done" \| "failed", "extractionError": string \| null }` |
+| **400** / **503** | Missing `imageUrl` / server AI not configured |
 
 ### `GET /api/handoff/ai/design-artifact/:id/public`
 
@@ -250,6 +263,50 @@ Returns one artifact if the signed-in user owns it, or if the user is an **admin
 | **Auth** | Signed-in user |
 | **200** | `{ "artifact": handoff_design_artifact }` |
 | **404** | Not found or not permitted |
+
+### `POST /api/handoff/ai/generate-component`
+
+Starts an **async design-to-component** job: LLM generates Handlebars/React/CSF sources, writes `handoff_component`, runs the Vite preview build worker, screenshots the `design` preview, and iterates with a vision model until visual score / accessibility checks pass (or max iterations). Work is scheduled with Next.js `after()`.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user (must own the artifact, or **admin**) |
+| **Body** | JSON: `artifactId`, `componentName` (new slug), `renderer` (`handlebars` \| `react` \| `csf`), optional `behaviorPrompt`, `a11yStandard` (`none` \| `wcag-aa` \| `wcag-aaa`), `useExtractedAssets` (default true), `maxIterations` (1–5, default 3) |
+| **200** | `{ "jobId": number }` |
+| **400** / **403** / **404** / **409** | Validation, forbidden, artifact missing, or component id already exists |
+| **503** | No server AI on this host (or unreachable via proxy from the caller) |
+
+**Timeouts / dev:** cold Vite + Sass builds often exceed 90s. Set `HANDOFF_COMPONENT_BUILD_WAIT_MS` (poll window, default 300000) and `HANDOFF_COMPONENT_WORKER_TIMEOUT_MS` (per `handoff.component()` in the worker child, default 120000; passed via the worker env allowlist). Use `HANDOFF_APP_INTERNAL_ORIGIN` so Playwright can open preview URLs from background jobs.
+
+### `GET /api/handoff/ai/generate-component`
+
+Poll generation job status.
+
+| | |
+| --- | --- |
+| **Auth** | Signed-in user |
+| **Query** | `jobId` (number) **or** `artifactId` (returns latest job for that artifact) |
+| **200** | `{ "job": component_generation_job \| null }` |
+
+### `GET /api/handoff/admin/reference-materials`
+
+Lists generated markdown blobs used as LLM context (`catalog`, `property-patterns`, `tokens`, `icons`).
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** |
+| **Query** | Optional `id` — returns full row including `content` for one material |
+| **200** | `{ "materials": [...] }` or `{ "material": row }` |
+
+### `POST /api/handoff/admin/reference-materials`
+
+Regenerates reference materials from the live component catalog and tokens (property-patterns may call the LLM unless `skipLlm: true`).
+
+| | |
+| --- | --- |
+| **Auth** | **Admin** |
+| **Body** | `{ "all": true }` or `{ "id": "catalog" \| "tokens" \| "icons" \| "property-patterns" }`, optional `skipLlm` |
+| **200** | `{ "ok": true, ... }` |
 
 ### Security notes
 

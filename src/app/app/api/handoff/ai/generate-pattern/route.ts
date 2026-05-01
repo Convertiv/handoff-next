@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import type { PlaygroundComponent } from '@/components/Playground/types';
-import { auth } from '@/lib/auth';
+import { authOrCloudToken, rateLimitUserId } from '@/lib/sync-auth';
 import { getDataProvider } from '@/lib/data';
-import { isDynamic } from '@/lib/mode';
-import { openAiChatJson } from '@/lib/server/ai-client';
+import { openAiChatJson, shouldProxyAi } from '@/lib/server/ai-client';
+import { proxyAiToCloud } from '@/lib/server/ai-proxy';
 import { buildSystemPrompt, buildUserPrompt, type PageBlockSummary } from '@/components/Playground/Wizard/prompt-builder';
 import { parseWizardResponse } from '@/components/Playground/Wizard/response-parser';
 
@@ -32,22 +32,21 @@ type Body = {
 };
 
 export async function POST(request: NextRequest) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
-  if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
-    return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
-  }
-
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const ctx = await authOrCloudToken(request);
+  if (ctx instanceof NextResponse) return ctx;
 
   const now = Date.now();
-  const userId = session.user.id;
+  const userId = rateLimitUserId(ctx, request);
   if (pruneAndCountRecent(userId, 60_000, now) >= MAX_PER_USER_PER_MINUTE) {
     return NextResponse.json({ error: 'Too many AI requests; try again in a minute.' }, { status: 429 });
+  }
+
+  if (shouldProxyAi()) {
+    return proxyAiToCloud(request, { actingUserId: ctx.userId !== 'cloud-proxy' ? ctx.userId : undefined });
+  }
+
+  if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+    return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
   }
 
   const body = (await request.json().catch(() => ({}))) as Body;

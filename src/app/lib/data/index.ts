@@ -1,4 +1,3 @@
-import { getMode } from '../mode';
 import { DynamicDataProvider } from './dynamic-provider';
 import { StaticDataProvider } from './static-provider';
 import type { DataProvider } from './types';
@@ -12,7 +11,7 @@ let cached: DataProvider | null = null;
 
 export function getDataProvider(): DataProvider {
   if (cached) return cached;
-  cached = getMode() === 'dynamic' ? new DynamicDataProvider() : new StaticDataProvider();
+  cached = new DynamicDataProvider();
   return cached;
 }
 

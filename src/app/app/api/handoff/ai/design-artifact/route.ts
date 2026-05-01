@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { isDynamic } from '@/lib/mode';
 import {
   getDesignArtifactById,
   getDesignArtifacts,
@@ -14,6 +13,7 @@ import {
   sanitizeSourceImagesForStorage,
 } from '@/lib/server/design-artifact-persist';
 import { scheduleDesignAssetExtraction } from '@/lib/server/design-asset-schedule';
+import { isServerAiConfigured, shouldProxyAi } from '@/lib/server/ai-client';
 
 const ALLOWED_STATUS = new Set(['draft', 'review', 'approved']);
 
@@ -34,9 +34,6 @@ type PostBody = {
 };
 
 export async function POST(request: NextRequest) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -89,7 +86,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ id, updated: true });
     }
 
-    const hasAiKey = Boolean(process.env.HANDOFF_AI_API_KEY?.trim());
+    const canExtractLocally = Boolean(process.env.HANDOFF_AI_API_KEY?.trim());
     const id = await insertDesignArtifact({
       title,
       description,
@@ -102,13 +99,13 @@ export async function POST(request: NextRequest) {
       conversationHistory,
       metadata: body.metadata,
       assets: [],
-      assetsStatus: hasAiKey ? 'pending' : 'none',
+      assetsStatus: canExtractLocally ? 'pending' : 'none',
       publicAccess: false,
     });
     if (!id) {
       return NextResponse.json({ error: 'Failed to save' }, { status: 500 });
     }
-    if (hasAiKey) {
+    if (canExtractLocally) {
       scheduleDesignAssetExtraction(id);
     }
     return NextResponse.json({ id, created: true });
@@ -134,9 +131,6 @@ type PatchBody = {
 };
 
 export async function PATCH(request: NextRequest) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -157,6 +151,72 @@ export async function PATCH(request: NextRequest) {
 
   try {
     if (body.extractAssets === true) {
+      if (!isServerAiConfigured()) {
+        return NextResponse.json(
+          { error: 'Server AI is not configured (HANDOFF_AI_API_KEY or HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN).' },
+          { status: 503 }
+        );
+      }
+
+      if (shouldProxyAi()) {
+        const base = process.env.HANDOFF_CLOUD_URL?.trim().replace(/\/$/, '');
+        const token = process.env.HANDOFF_CLOUD_TOKEN?.trim();
+        if (!base || !token) {
+          return NextResponse.json({ error: 'Cloud AI proxy is not configured.' }, { status: 503 });
+        }
+        const extractUrl = `${base}/api/handoff/ai/design-artifact-extract`;
+        let upstream: Response;
+        try {
+          upstream = await fetch(extractUrl, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ imageUrl: row.imageUrl }),
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Fetch failed';
+          return NextResponse.json({ error: `Cloud extract unreachable: ${msg}` }, { status: 502 });
+        }
+        const remote = (await upstream.json().catch(() => ({}))) as {
+          assets?: unknown;
+          assetsStatus?: string;
+          extractionError?: string | null;
+          error?: string;
+        };
+        if (!upstream.ok) {
+          return NextResponse.json(
+            { error: remote.error || `Cloud extract failed (${upstream.status})` },
+            { status: upstream.status >= 400 ? upstream.status : 502 }
+          );
+        }
+        const assets = Array.isArray(remote.assets) ? sanitizeDesignAssetsForStorage(remote.assets) : [];
+        const assetsStatus = remote.assetsStatus === 'done' || remote.assetsStatus === 'failed' ? remote.assetsStatus : 'failed';
+        const prevMeta =
+          row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+            ? { ...(row.metadata as Record<string, unknown>) }
+            : {};
+        if (remote.extractionError) prevMeta.assetsExtractionError = remote.extractionError;
+        else delete prevMeta.assetsExtractionError;
+
+        const ok = await updateDesignArtifactById(id, {
+          assets: assets as typeof row.assets,
+          assetsStatus,
+          metadata: prevMeta,
+        });
+        if (!ok) {
+          return NextResponse.json({ error: 'Not found or not owned by you' }, { status: 404 });
+        }
+        return NextResponse.json({
+          id,
+          extractionQueued: false,
+          extractionImmediate: true,
+          assets,
+          assetsStatus,
+        });
+      }
+
       if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
         return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
       }
@@ -189,9 +249,6 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

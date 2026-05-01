@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { InlineConfig, build as viteBuild } from 'vite';
+import { InlineConfig, Plugin, build as viteBuild } from 'vite';
 import { initRuntimeConfig } from '../../../config';
 import Handoff from '../../../index';
 import { formatDurationMs } from '../../../utils/duration';
@@ -39,27 +39,56 @@ const buildCssBundle = async ({
   // Store the current NODE_ENV value
   const oldNodeEnv = process.env.NODE_ENV;
   try {
+    const absEntry = path.resolve(entry);
+
+    // Write a tiny JS wrapper that imports the real CSS/SCSS entry.
+    // This prevents Vite 8's vite:css-post plugin from treating the entry
+    // chunk as a "pure CSS chunk," which triggers a referenceId lookup bug
+    // in Rolldown's generateBundle hook.
+    const wrapperDir = path.resolve(outputPath, '.handoff-css-tmp');
+    const wrapperFile = path.resolve(wrapperDir, '_css_entry.js');
+    await fs.ensureDir(wrapperDir);
+    await fs.writeFile(wrapperFile, `import ${JSON.stringify(absEntry)};\nexport default 0;\n`);
+
+    // Rename the emitted CSS asset to the desired filename and remove the
+    // JS stub chunk from the bundle so only the CSS is written to disk.
+    const renameCssPlugin: Plugin = {
+      name: 'handoff-rename-css',
+      apply: 'build',
+      enforce: 'post',
+      generateBundle(_, bundle) {
+        for (const [fileName, asset] of Object.entries(bundle)) {
+          if (fileName.endsWith('.css') && fileName !== outputFilename) {
+            (asset as { fileName: string }).fileName = outputFilename;
+            bundle[outputFilename] = asset;
+            delete bundle[fileName];
+          }
+        }
+        for (const [fileName, chunk] of Object.entries(bundle)) {
+          if (chunk.type === 'chunk') {
+            delete bundle[fileName];
+          }
+        }
+      },
+    };
+
     let viteConfig: InlineConfig = {
       ...viteBaseConfig,
+      plugins: [...(viteBaseConfig.plugins || []), renameCssPlugin],
       build: {
         ...viteBaseConfig.build,
         outDir: outputPath,
         emptyOutDir: false,
         minify: false,
-        rollupOptions: {
-          input: {
-            style: entry,
-          },
-          output: {
-            // TODO: This was an edge case where we needed to output a different filename for the CSS file
-            assetFileNames: outputFilename,
-          },
+        lib: {
+          entry: wrapperFile,
+          formats: ['es'],
         },
       },
       css: {
         preprocessorOptions: {
           scss: {
-            api: 'legacy',
+            api: 'modern',
             loadPaths,
             quietDeps: true,
             silenceDeprecations: ['import', 'legacy-js-api'],
@@ -73,7 +102,11 @@ const buildCssBundle = async ({
       viteConfig = handoff.config.hooks.cssBuildConfig(viteConfig);
     }
 
-    await viteBuild(viteConfig);
+    try {
+      await viteBuild(viteConfig);
+    } finally {
+      await fs.remove(wrapperDir).catch(() => {});
+    }
   } catch (e) {
     Logger.error(`Failed to build CSS for "${entry}"`);
     throw e;
@@ -198,7 +231,9 @@ export const buildMainCss = async (handoff: Handoff): Promise<void> => {
           loadPaths,
           handoff,
         });
-        Logger.info(`Finished building styles for global entry (${MAIN_COMPONENT_CSS_FILE}) in ${formatDurationMs(Date.now() - startedAt)}`);
+        Logger.info(
+          `Finished building styles for global entry (${MAIN_COMPONENT_CSS_FILE}) in ${formatDurationMs(Date.now() - startedAt)}`
+        );
       } catch {
         // buildCssBundle already logs failure for the entry path
       }

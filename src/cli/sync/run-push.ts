@@ -5,14 +5,7 @@ import type { SyncUploadBody } from '../../types/handoff-sync';
 import type Handoff from '../../index';
 import { Logger } from '../../utils/logger';
 import { getDeclarationAbsPathForEntity } from './resolve-declaration';
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v || !String(v).trim()) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return String(v).trim();
-}
+import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env';
 
 async function collectMarkdownFiles(rootDir: string): Promise<string[]> {
   const out: string[] = [];
@@ -48,8 +41,8 @@ async function readComponentOrPatternJson(handoff: Handoff, kind: 'component' | 
  * Scan local project and POST declarations + pages to the remote Handoff API.
  */
 export async function runPush(handoff: Handoff): Promise<void> {
-  const baseUrl = requireEnv('HANDOFF_SYNC_URL').replace(/\/$/, '');
-  const secret = requireEnv('HANDOFF_SYNC_SECRET');
+  const baseUrl = getSyncRemoteUrl();
+  const secret = getSyncRemoteSecret();
 
   const changes: SyncUploadBody['changes'] = [];
 

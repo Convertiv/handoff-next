@@ -305,7 +305,8 @@ export function csfRenderPlugin(
     },
     async generateBundle(_, bundle) {
       for (const [fileName, chunkInfo] of Object.entries(bundle)) {
-        if (chunkInfo.type === 'chunk' && fileName.includes(PLUGIN_CONSTANTS.SCRIPT_ID)) {
+        const chunk = chunkInfo as { type?: string };
+        if (chunk.type === 'chunk' && fileName.includes(PLUGIN_CONSTANTS.SCRIPT_ID)) {
           delete bundle[fileName];
         }
       }

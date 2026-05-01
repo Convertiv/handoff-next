@@ -28,7 +28,19 @@ function stable(obj: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stable(rec[k])}`).join(',')}}`;
 }
 
-function payloadFromDbRow(data: unknown, row: typeof handoffComponents.$inferSelect): Record<string, unknown> {
+type DbComponentRowShape = {
+  id: string;
+  title: string;
+  description: string | null;
+  group: string | null;
+  image: string | null;
+  type: string | null;
+  properties: unknown;
+  previews: unknown;
+  source?: string | null;
+};
+
+function payloadFromDbRow(data: unknown, row: DbComponentRowShape): Record<string, unknown> {
   if (data && typeof data === 'object' && !Array.isArray(data)) {
     return data as Record<string, unknown>;
   }
@@ -84,7 +96,7 @@ export async function diffFilesystemVsDatabase(): Promise<ComponentDiff[]> {
       continue;
     }
 
-    const dbPayload = payloadFromDbRow(row.data, row);
+    const dbPayload = payloadFromDbRow((row as DbComponentRowShape & { data: unknown }).data, row as DbComponentRowShape);
     const fields: FieldDiff[] = [];
     for (const field of COMPARE_KEYS) {
       const fsVal = (payload as Record<string, unknown>)[field];
@@ -102,13 +114,13 @@ export async function diffFilesystemVsDatabase(): Promise<ComponentDiff[]> {
       id,
       status: fields.length === 0 ? 'unchanged' : 'modified',
       fields,
-      dbSource: row.source ?? null,
+      dbSource: (row as DbComponentRowShape).source ?? null,
     });
   }
 
   for (const row of dbRows) {
     if (!fsIds.has(row.id)) {
-      const dbPayload = payloadFromDbRow(row.data, row);
+      const dbPayload = payloadFromDbRow((row as DbComponentRowShape & { data: unknown }).data, row as DbComponentRowShape);
       out.push({
         id: row.id,
         status: 'db_only',
@@ -117,7 +129,7 @@ export async function diffFilesystemVsDatabase(): Promise<ComponentDiff[]> {
           filesystem: null,
           database: stable(dbPayload[field]),
         })),
-        dbSource: row.source ?? null,
+        dbSource: (row as DbComponentRowShape).source ?? null,
       });
     }
   }

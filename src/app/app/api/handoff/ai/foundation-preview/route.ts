@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { isDynamic } from '@/lib/mode';
 import { renderFoundationsImage, shouldRasterizeFoundations } from '@/lib/server/foundation-image';
 import type { DesignWorkbenchFoundationContext } from '@/app/design/workbench-types';
 
@@ -9,10 +8,6 @@ type Body = {
 };
 
 export async function POST(request: Request) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
-
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

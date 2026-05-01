@@ -3,21 +3,14 @@ import type Handoff from '../../index';
 import { Logger } from '../../utils/logger';
 import { applySyncChangeset } from './apply-pull';
 import { readSyncState, writeSyncState, type HandoffSyncStateFile } from './sync-state';
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v || !String(v).trim()) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return String(v).trim();
-}
+import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env';
 
 /**
  * Pull remote sync events and write local `pages/` and `*.handoff.json` declarations.
  */
 export async function runPull(handoff: Handoff): Promise<void> {
-  const baseUrl = requireEnv('HANDOFF_SYNC_URL').replace(/\/$/, '');
-  const secret = requireEnv('HANDOFF_SYNC_SECRET');
+  const baseUrl = getSyncRemoteUrl();
+  const secret = getSyncRemoteSecret();
 
   const workPath = handoff.workingPath;
   let state = await readSyncState(workPath);
@@ -30,7 +23,7 @@ export async function runPull(handoff: Handoff): Promise<void> {
     };
   }
   if (state.remoteUrl !== baseUrl) {
-    Logger.warn(`HANDOFF_SYNC_URL changed (${state.remoteUrl} -> ${baseUrl}); resetting sync cursor.`);
+    Logger.warn(`Sync remote URL changed (${state.remoteUrl} -> ${baseUrl}); resetting sync cursor.`);
     state.remoteUrl = baseUrl;
     state.lastSyncVersion = 0;
   }

@@ -60,7 +60,6 @@ function writeCjsManifest(outDir: string, manifest: Record<string, unknown>): vo
  */
 export async function exportComponentsToFilesystem(opts: ExportComponentsOptions): Promise<ExportComponentsResult> {
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
 
   const ids = opts.componentIds;
   const rows =

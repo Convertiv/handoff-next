@@ -47,7 +47,7 @@ Output rules:
 - Keep the same relative sizing and spacing between elements
 - Output a single image.`;
 
-async function imageUrlToEditInput(imageUrl: string): Promise<ImageEditInput | null> {
+export async function imageUrlToEditInput(imageUrl: string): Promise<ImageEditInput | null> {
   const trimmed = imageUrl.trim();
   const dataMatch = /^data:(image\/(?:png|jpeg|webp|jpg));base64,(.+)$/i.exec(trimmed);
   if (dataMatch) {
@@ -79,50 +79,42 @@ async function imageUrlToEditInput(imageUrl: string): Promise<ImageEditInput | n
   return null;
 }
 
+export type ExtractDesignAssetsResult = {
+  assets: unknown[];
+  assetsStatus: 'done' | 'failed';
+  extractionError: string | null;
+};
+
 /**
- * Background worker entry: claim pending row, run gpt-image-2 isolation edit, persist assets.
+ * Run gpt-image-2 isolation edits on a composite image (no DB). Used by worker and cloud extract API.
  */
-export async function runDesignAssetExtractionForArtifact(artifactId: string): Promise<void> {
-  const claimed = await claimDesignArtifactForExtraction(artifactId);
-  if (!claimed) {
-    console.log('[design-asset-extractor] skip (not pending or already claimed)', artifactId);
-    return;
-  }
-
-  const row = await getDesignArtifactById(artifactId);
-  if (!row?.imageUrl?.trim()) {
-    await finalizeDesignArtifactExtraction(artifactId, {
-      assets: [],
-      assetsStatus: 'failed',
-      extractionError: 'No composite image on artifact.',
-    });
-    return;
-  }
-
+export async function extractDesignAssetsFromCompositeImage(params: {
+  imageUrl: string;
+  actorUserId: string | null;
+}): Promise<ExtractDesignAssetsResult> {
+  const { imageUrl, actorUserId } = params;
   if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
-    await finalizeDesignArtifactExtraction(artifactId, {
+    return {
       assets: [],
       assetsStatus: 'failed',
       extractionError: 'HANDOFF_AI_API_KEY is not configured.',
-    });
-    return;
+    };
   }
 
   try {
-    const input = await imageUrlToEditInput(row.imageUrl);
+    const input = await imageUrlToEditInput(imageUrl);
     if (!input) {
-      await finalizeDesignArtifactExtraction(artifactId, {
+      return {
         assets: [],
         assetsStatus: 'failed',
         extractionError: 'Could not read composite image (need data URL or http image).',
-      });
-      return;
+      };
     }
 
     const editOpts = {
       model: 'gpt-image-2' as const,
       size: '1024x1024' as const,
-      actorUserId: row.userId,
+      actorUserId,
       route: 'worker:design-asset',
     };
 
@@ -167,27 +159,53 @@ export async function runDesignAssetExtractionForArtifact(artifactId: string): P
       const errors = [bgResult, elemResult]
         .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
         .map((r) => (r.reason instanceof Error ? r.reason.message : String(r.reason)));
-      await finalizeDesignArtifactExtraction(artifactId, {
+      return {
         assets: [],
         assetsStatus: 'failed',
         extractionError: errors.join(' | ').slice(0, 2000),
-      });
-      return;
+      };
     }
 
-    const assets = sanitizeDesignAssetsForStorage(rawAssets) as typeof rawAssets;
-
-    await finalizeDesignArtifactExtraction(artifactId, {
-      assets,
-      assetsStatus: 'done',
-      extractionError: null,
-    });
+    const assets = sanitizeDesignAssetsForStorage(rawAssets) as unknown[];
+    return { assets, assetsStatus: 'done', extractionError: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await finalizeDesignArtifactExtraction(artifactId, {
+    return {
       assets: [],
       assetsStatus: 'failed',
       extractionError: msg.slice(0, 2000),
-    });
+    };
   }
+}
+
+/**
+ * Background worker entry: claim pending row, run gpt-image-2 isolation edit, persist assets.
+ */
+export async function runDesignAssetExtractionForArtifact(artifactId: string): Promise<void> {
+  const claimed = await claimDesignArtifactForExtraction(artifactId);
+  if (!claimed) {
+    console.log('[design-asset-extractor] skip (not pending or already claimed)', artifactId);
+    return;
+  }
+
+  const row = await getDesignArtifactById(artifactId);
+  if (!row?.imageUrl?.trim()) {
+    await finalizeDesignArtifactExtraction(artifactId, {
+      assets: [],
+      assetsStatus: 'failed',
+      extractionError: 'No composite image on artifact.',
+    });
+    return;
+  }
+
+  const result = await extractDesignAssetsFromCompositeImage({
+    imageUrl: row.imageUrl,
+    actorUserId: row.userId,
+  });
+
+  await finalizeDesignArtifactExtraction(artifactId, {
+    assets: result.assets,
+    assetsStatus: result.assetsStatus,
+    extractionError: result.extractionError,
+  });
 }

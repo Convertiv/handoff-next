@@ -15,12 +15,12 @@ const trimSlashes = (input: string): string => {
   return input.replace(/^\/+|\/+$/g, '');
 };
 
-const isDynamicBuild = (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
+const showSavedDesignsNav = true;
 
 const APP_TOOL_LINKS = [
   { title: 'Patterns', path: '/patterns' },
   { title: 'Playground', path: '/playground' },
-  ...(isDynamicBuild ? [{ title: 'Saved designs', path: '/designs' }] : []),
+  ...(showSavedDesignsNav ? [{ title: 'Saved designs', path: '/designs' }] : []),
 ];
 
 export function MainNav() {

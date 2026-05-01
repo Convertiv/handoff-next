@@ -10,6 +10,7 @@ import type { Metadata, SectionLink } from '../../../components/util';
 import { Button } from '../../../components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../../components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../../components/ui/tooltip';
+import { GenerateComponentModal } from './GenerateComponentModal';
 
 export type SavedDesignArtifactDetail = {
   id: string;
@@ -79,6 +80,103 @@ function normalizeArtifactDetail(raw: SavedDesignArtifactDetail | Record<string,
 const POLL_MS = 5000;
 const POLL_MAX = 48;
 
+const GEN_POLL_MS = 4000;
+
+export type ComponentGenerationJobRow = {
+  id: number;
+  artifactId: string;
+  componentId: string;
+  renderer: string;
+  status: string;
+  iteration: number | null;
+  maxIterations: number | null;
+  visualScore: string | number | null;
+  error: string | null;
+  generationLog?: unknown;
+  validationResults?: unknown;
+  createdAt?: string | Date | null;
+  completedAt?: string | Date | null;
+};
+
+function isGenJobTerminal(status: string): boolean {
+  return status === 'complete' || status === 'failed';
+}
+
+const STATUS_STYLES: Record<string, string> = {
+  queued: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+  generating: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+  building: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+  validating: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+  iterating: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300',
+  complete: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
+  failed: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
+};
+
+function GenStatusBadge({ status }: { status: string }) {
+  const cls = STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-600';
+  return <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}>{status}</span>;
+}
+
+type LogEntry = { action?: string; iter?: number; error?: string; msg?: string; score?: number; differences?: string[]; a11yPassed?: boolean; buildJobId?: number; t?: string };
+
+const ACTION_LABELS: Record<string, string> = {
+  llm_generated: 'LLM generated component code',
+  build_ok: 'Vite build succeeded',
+  build_failed: 'Vite build failed',
+  screenshot_failed: 'Preview screenshot failed',
+  compare: 'Visual comparison',
+};
+
+function GenerationLog({ log, status }: { log?: unknown; status: string }) {
+  const entries = Array.isArray(log) ? (log as LogEntry[]) : [];
+  if (entries.length === 0 && isGenJobTerminal(status)) return null;
+
+  return (
+    <Collapsible defaultOpen={!isGenJobTerminal(status)} className="mt-2 rounded-md border">
+      <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted/50">
+        Build log ({entries.length} {entries.length === 1 ? 'step' : 'steps'})
+        {!isGenJobTerminal(status) && entries.length > 0 ? <Loader2Icon className="h-3 w-3 animate-spin" /> : null}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="max-h-64 overflow-y-auto border-t px-3 py-2">
+          {entries.length === 0 ? (
+            <p className="py-2 text-xs text-muted-foreground">Waiting for first step…</p>
+          ) : (
+            <ol className="space-y-1.5">
+              {entries.map((e, i) => (
+                <li key={i} className="text-xs leading-relaxed">
+                  <span className="font-mono text-muted-foreground">{e.iter ? `[${e.iter}]` : '   '}</span>{' '}
+                  <span className={e.action === 'build_failed' || e.action === 'screenshot_failed' ? 'text-destructive' : ''}>
+                    {ACTION_LABELS[e.action ?? ''] ?? e.action ?? 'step'}
+                  </span>
+                  {e.action === 'compare' && e.score != null ? (
+                    <span className="ml-1 text-muted-foreground">
+                      — score {e.score.toFixed(2)}{e.a11yPassed === false ? ', a11y issues' : ''}
+                    </span>
+                  ) : null}
+                  {e.action === 'compare' && e.differences && e.differences.length > 0 ? (
+                    <ul className="ml-6 mt-0.5 list-disc text-muted-foreground">
+                      {e.differences.slice(0, 5).map((d, j) => <li key={j}>{d}</li>)}
+                      {e.differences.length > 5 ? <li>…and {e.differences.length - 5} more</li> : null}
+                    </ul>
+                  ) : null}
+                  {e.action === 'build_ok' && e.buildJobId ? (
+                    <span className="ml-1 text-muted-foreground">— build #{e.buildJobId}</span>
+                  ) : null}
+                  {(e.error || e.msg) ? (
+                    <span className="ml-1 text-destructive">— {e.error || e.msg}</span>
+                  ) : null}
+                  {e.t ? <span className="ml-2 text-muted-foreground/60">{new Date(e.t).toLocaleTimeString()}</span> : null}
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function assetsStatusOf(a: SavedDesignArtifactDetail | null): string {
   if (!a) return 'none';
   const r = a as Record<string, unknown>;
@@ -96,6 +194,8 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
   const [notice, setNotice] = useState<string | null>(null);
   const [extractionTimedOut, setExtractionTimedOut] = useState(false);
   const pollTicksRef = useRef(0);
+  const [genModalOpen, setGenModalOpen] = useState(false);
+  const [genJob, setGenJob] = useState<ComponentGenerationJobRow | null>(null);
 
   const fetchArtifact = useCallback(async () => {
     if (message || !artifactId) return null;
@@ -130,6 +230,35 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
       cancelled = true;
     };
   }, [artifactId, message, fetchArtifact]);
+
+  const fetchGenJob = useCallback(
+    async (opts?: { jobId?: number }) => {
+      if (message || !artifactId) return;
+      const q =
+        typeof opts?.jobId === 'number' && opts.jobId > 0
+          ? `jobId=${encodeURIComponent(String(opts.jobId))}`
+          : `artifactId=${encodeURIComponent(artifactId)}`;
+      const res = await fetch(handoffApiUrl(`/api/handoff/ai/generate-component?${q}`), { credentials: 'include' });
+      const json = (await res.json().catch(() => ({}))) as { job?: ComponentGenerationJobRow | null; error?: string };
+      if (!res.ok) return;
+      setGenJob(json.job ?? null);
+    },
+    [artifactId, message]
+  );
+
+  useEffect(() => {
+    if (message || !artifactId) return;
+    void fetchGenJob();
+  }, [artifactId, message, fetchGenJob]);
+
+  const genNeedsPoll = Boolean(genJob && !isGenJobTerminal(genJob.status));
+  useEffect(() => {
+    if (!genNeedsPoll) return;
+    const id = window.setInterval(() => {
+      void fetchGenJob({ jobId: genJob?.id });
+    }, GEN_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [genNeedsPoll, genJob?.id, fetchGenJob]);
 
   const assetsStatus = assetsStatusOf(artifact);
   const shouldPoll = Boolean(
@@ -232,10 +361,28 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
         credentials: 'include',
         body: JSON.stringify({ id: artifactId, extractAssets: true }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        extractionImmediate?: boolean;
+        assets?: SavedDesignArtifactDetail['assets'];
+        assetsStatus?: string;
+      };
       if (!res.ok) throw new Error(json.error || 'Could not queue extraction.');
-      setArtifact((prev) => (prev ? { ...prev, assetsStatus: 'pending', assets: [] } : prev));
-      setNotice('Asset extraction queued. This page will update when ready.');
+      if (json.extractionImmediate && Array.isArray(json.assets)) {
+        setArtifact((prev) =>
+          prev
+            ? {
+                ...prev,
+                assetsStatus: typeof json.assetsStatus === 'string' ? json.assetsStatus : 'done',
+                assets: json.assets,
+              }
+            : prev
+        );
+        setNotice('Asset extraction finished.');
+      } else {
+        setArtifact((prev) => (prev ? { ...prev, assetsStatus: 'pending', assets: [] } : prev));
+        setNotice('Asset extraction queued. This page will update when ready.');
+      }
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'Retry failed.');
     } finally {
@@ -306,20 +453,21 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                       Open in workbench
                     </Link>
                   </Button>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex">
-                        <Button type="button" variant="secondary" size="sm" disabled>
-                          Generate component
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="max-w-xs">
-                      Coming soon — generate a coded component from this design and extracted assets.
-                    </TooltipContent>
-                  </Tooltip>
+                  <Button type="button" variant="secondary" size="sm" onClick={() => setGenModalOpen(true)}>
+                    Generate component
+                  </Button>
                 </div>
               </div>
+
+              <GenerateComponentModal
+                open={genModalOpen}
+                onOpenChange={setGenModalOpen}
+                artifactId={artifactId}
+                hasExtractedAssets={assetsStatus === 'done' && assets.length > 0}
+                onJobStarted={(jobId) => {
+                  void fetchGenJob({ jobId });
+                }}
+              />
 
               {artifact.description ? (
                 <div className="rounded-lg border bg-muted/30 px-4 py-3">
@@ -400,6 +548,48 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                 {assetsStatus === 'done' && assets.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No separate assets were returned.</p>
                 ) : null}
+              </section>
+
+              <section className="space-y-2 rounded-lg border p-4">
+                <h2 className="text-sm font-semibold">Component generation</h2>
+                {!genJob ? (
+                  <p className="text-sm text-muted-foreground">No generation job yet. Use Generate component above to create one.</p>
+                ) : (
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      <span className="text-muted-foreground">Job</span> #{genJob.id} ·{' '}
+                      <span className="font-mono">{genJob.componentId}</span> · {genJob.renderer}
+                    </p>
+                    <p>
+                      <span className="text-muted-foreground">Status</span>{' '}
+                      <GenStatusBadge status={genJob.status} />
+                      {typeof genJob.iteration === 'number' ? ` · iteration ${genJob.iteration}/${genJob.maxIterations ?? 3}` : null}
+                    </p>
+                    {genJob.visualScore != null && genJob.visualScore !== '' ? (
+                      <p>
+                        <span className="text-muted-foreground">Visual score</span> {Number(genJob.visualScore).toFixed(2)}
+                      </p>
+                    ) : null}
+                    {genJob.error ? (
+                      <p className="text-destructive">
+                        {genJob.status === 'complete' ? 'Note: ' : ''}
+                        {genJob.error}
+                      </p>
+                    ) : null}
+                    {genJob.status === 'complete' ? (
+                      <Button variant="outline" size="sm" asChild>
+                        <Link href={`${basePath}/system/component/${encodeURIComponent(genJob.componentId)}/`}>Open component</Link>
+                      </Button>
+                    ) : null}
+                    {!isGenJobTerminal(genJob.status) ? (
+                      <p className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2Icon className="h-4 w-4 animate-spin" />
+                        Generation in progress…
+                      </p>
+                    ) : null}
+                    <GenerationLog log={genJob.generationLog} status={genJob.status} />
+                  </div>
+                )}
               </section>
 
               <Collapsible className="rounded-lg border">

@@ -172,7 +172,8 @@ export function ssrRenderPlugin(
     async generateBundle(_, bundle) {
       // Remove all JS chunks to prevent conflicts
       for (const [fileName, chunkInfo] of Object.entries(bundle)) {
-        if (chunkInfo.type === 'chunk' && fileName.includes(PLUGIN_CONSTANTS.SCRIPT_ID)) {
+        const chunk = chunkInfo as { type?: string };
+        if (chunk.type === 'chunk' && fileName.includes(PLUGIN_CONSTANTS.SCRIPT_ID)) {
           delete bundle[fileName];
         }
       }

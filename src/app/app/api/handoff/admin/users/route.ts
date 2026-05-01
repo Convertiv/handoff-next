@@ -1,9 +1,6 @@
 import { NextResponse } from 'next/server';
 
 export async function GET() {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const { auth } = await import('@/lib/auth');
   const { listUsers } = await import('@/lib/server/admin-users');
   try {

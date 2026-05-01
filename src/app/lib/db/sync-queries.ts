@@ -18,7 +18,6 @@ export type InsertSyncEventInput = {
 
 export async function insertSyncEvent(input: InsertSyncEventInput): Promise<number | null> {
   const db = getDb();
-  if (!db) return null;
   const [row] = await db
     .insert(syncEvents)
     .values({
@@ -34,7 +33,6 @@ export async function insertSyncEvent(input: InsertSyncEventInput): Promise<numb
 
 export async function getLatestSyncEventId(): Promise<number> {
   const db = getDb();
-  if (!db) return 0;
   const rows = await db.select({ id: syncEvents.id }).from(syncEvents).orderBy(desc(syncEvents.id)).limit(1);
   return rows[0]?.id ?? 0;
 }
@@ -42,9 +40,6 @@ export async function getLatestSyncEventId(): Promise<number> {
 export async function fetchSyncChangesSince(since: number): Promise<SyncChangeset> {
   const db = getDb();
   const latest = await getLatestSyncEventId();
-  if (!db) {
-    return { version: latest, changes: [] };
-  }
   const rows = await db
     .select()
     .from(syncEvents)
@@ -66,17 +61,11 @@ export async function fetchSyncChangesSince(since: number): Promise<SyncChangese
 export async function getSyncStatus(): Promise<SyncStatusResponse> {
   const db = getDb();
   const latestVersion = await getLatestSyncEventId();
-  if (!db) {
-    return {
-      latestVersion,
-      counts: { components: 0, patterns: 0, pages: 0, syncEvents: 0 },
-    };
-  }
 
-  const [comp] = await db.select({ c: sql<number>`count(*)::int` }).from(handoffComponents);
-  const [pat] = await db.select({ c: sql<number>`count(*)::int` }).from(handoffPatterns);
-  const [pg] = await db.select({ c: sql<number>`count(*)::int` }).from(handoffPages);
-  const [ev] = await db.select({ c: sql<number>`count(*)::int` }).from(syncEvents);
+  const [comp] = await db.select({ c: sql<number>`count(*)` }).from(handoffComponents);
+  const [pat] = await db.select({ c: sql<number>`count(*)` }).from(handoffPatterns);
+  const [pg] = await db.select({ c: sql<number>`count(*)` }).from(handoffPages);
+  const [ev] = await db.select({ c: sql<number>`count(*)` }).from(syncEvents);
 
   return {
     latestVersion,
@@ -98,7 +87,6 @@ export async function applyUploadedChange(input: {
   userId?: string | null;
 }): Promise<void> {
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
 
   const { entityType, entityId, action, data, userId } = input;
 

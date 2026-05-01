@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { isDynamic } from '@/lib/mode';
 import {
   captureComponentPreviewPng,
   originFromRequestHeaders,
@@ -8,10 +7,6 @@ import {
 } from '@/lib/server/component-preview-screenshot';
 
 export async function GET(request: NextRequest) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
-
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

@@ -3,7 +3,6 @@
 import { CheckCircle, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { signIn, useSession } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
-import { useAuthUi } from '../../components/context/AuthUiContext';
 import { Button } from '../../components/ui/button';
 import { handoffApiUrl } from '../../lib/api-path';
 
@@ -19,14 +18,8 @@ type StatusPayload = {
 };
 
 export function FigmaFetchControls() {
-  const { authEnabled } = useAuthUi();
   const { data: session, status } = useSession();
-  const canUse =
-    authEnabled &&
-    status === 'authenticated' &&
-    Boolean(session?.user) &&
-    session?.user?.role === 'admin' &&
-    (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
+  const canUse = status === 'authenticated' && Boolean(session?.user) && session?.user?.role === 'admin';
 
   const [connected, setConnected] = useState(false);
   const [oauthConfigured, setOauthConfigured] = useState(false);

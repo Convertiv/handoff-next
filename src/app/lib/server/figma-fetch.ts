@@ -1,10 +1,9 @@
-import { spawn } from 'child_process';
+import { spawnTsxWorker } from './spawn-tsx-worker';
 import path from 'path';
 import { resolveHandoffRepoRoot } from './component-builder';
 
 const WORKER_ENV_ALLOWLIST = [
   'DATABASE_URL',
-  'HANDOFF_MODE',
   'NODE_ENV',
   'PATH',
   'HOME',
@@ -26,11 +25,19 @@ const WORKER_ENV_ALLOWLIST = [
   'AUTH_FIGMA_SECRET',
 ] as const;
 
+const NEXT_INLINED_ENV: Record<string, string | undefined> = {
+  HANDOFF_WORKING_PATH: process.env.HANDOFF_WORKING_PATH,
+  HANDOFF_EXPORT_PATH: process.env.HANDOFF_EXPORT_PATH,
+};
+
 function buildWorkerEnv(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of WORKER_ENV_ALLOWLIST) {
     const v = process.env[key];
     if (v !== undefined) out[key] = v;
+  }
+  for (const [key, v] of Object.entries(NEXT_INLINED_ENV)) {
+    if (v !== undefined && !out[key]) out[key] = v;
   }
   if (!out.NODE_ENV) {
     out.NODE_ENV = process.env.NODE_ENV ?? 'development';
@@ -42,10 +49,10 @@ function buildWorkerEnv(): Record<string, string> {
 export function spawnFigmaFetchWorker(jobId: number): void {
   const repoRoot = resolveHandoffRepoRoot();
   const worker = path.join(repoRoot, 'src/app/lib/server/figma-fetch-worker.ts');
-  const preload = path.join(repoRoot, 'src/app/lib/server/component-build-preload.cjs');
-  const child = spawn('node', ['--require', preload, '--import', 'tsx', worker, String(jobId)], {
-    cwd: repoRoot,
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const child = spawnTsxWorker({
+    repoRoot,
+    workerScript: worker,
+    workerArgs: [String(jobId)],
     env: buildWorkerEnv(),
   });
   child.stderr?.on('data', (chunk) => {

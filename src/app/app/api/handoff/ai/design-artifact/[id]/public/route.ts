@@ -1,15 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { isDynamic } from '@/lib/mode';
 import { getDesignArtifactById } from '@/lib/db/queries';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 /** Public read of a design artifact when `public_access` is enabled. No auth. */
 export async function GET(_request: NextRequest, context: RouteContext) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
-
   const { id } = await context.params;
   const artifactId = (id ?? '').trim();
   if (!artifactId) {

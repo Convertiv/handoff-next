@@ -164,7 +164,6 @@ export async function upsertIngestedComponents(
   opts: UpsertIngestOptions
 ): Promise<{ ingested: string[]; skipped: string[]; kept: string[] }> {
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
 
   const ingested: string[] = [];
   const skipped: string[] = [];

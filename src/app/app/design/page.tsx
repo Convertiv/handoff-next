@@ -1,9 +1,9 @@
 import type { ComponentListObject } from '@handoff/transformers/preview/types';
 import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../components/util';
 import { getDataProvider } from '../../lib/data';
-import { isDynamic } from '../../lib/mode';
 import { isServerAiConfigured } from '../../lib/server/ai-client';
 import { serializeFoundationsFromTokens } from '../../lib/server/design-prompt-builder';
+import type { Metadata as DocMetadata } from '../../components/util';
 import DesignClient from './DesignClient';
 import type {
   DesignWorkbenchComponentPreviewRef,
@@ -62,7 +62,7 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
 
   const { props } = await fetchDocPageMarkdownAsync('docs/', 'design', '/design');
   const config = getClientRuntimeConfig();
-  const serverAiAvailable = isDynamic() && isServerAiConfigured();
+  const serverAiAvailable = isServerAiConfigured();
 
   let components: DesignWorkbenchComponentRow[] = [];
   let foundations: DesignWorkbenchFoundationContext = { colors: [], typography: [], effects: [], spacing: [] };
@@ -80,7 +80,7 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
   return (
     <DesignClient
       menu={props.menu}
-      metadata={props.metadata}
+      metadata={props.metadata as DocMetadata}
       current={props.current}
       config={config}
       serverAiAvailable={serverAiAvailable}

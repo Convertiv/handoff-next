@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { Suspense } from 'react';
-import { isDynamic } from '../../lib/mode';
+import { usePostgres } from '../../lib/db/dialect';
 import LoginClient from './LoginClient';
 
 export const metadata: Metadata = {
@@ -9,10 +9,13 @@ export const metadata: Metadata = {
 };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reset?: string }> }) {
-  if (!isDynamic()) {
+  if (!usePostgres()) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
-        <p className="text-muted-foreground">Sign in is only available when the app runs in dynamic mode (HANDOFF_MODE=dynamic).</p>
+        <p className="text-muted-foreground">
+          Sign in is only available when the app uses a team database. Set <code className="rounded bg-muted px-1">DATABASE_URL</code> for Postgres
+          (local solo dev uses embedded SQLite without accounts).
+        </p>
       </div>
     );
   }

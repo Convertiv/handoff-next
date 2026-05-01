@@ -85,6 +85,13 @@
       "when": 1778200000000,
       "tag": "0011_design_artifact_assets_and_sharing",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1778300000000,
+      "tag": "0012_component_generation_and_reference",
+      "breakpoints": true
     }
   ]
 }

@@ -2,9 +2,6 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { applyHandoffComponentPatch, getHandoffComponentRow, type ComponentPatchBody } from '@/lib/server/handoff-component-patch';
 
 export async function GET(request: NextRequest) {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const { auth } = await import('@/lib/auth');
   const session = await auth();
   if (!session?.user?.id) {
@@ -29,9 +26,6 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const { auth } = await import('@/lib/auth');
   const session = await auth();
   if (!session?.user?.id) {

@@ -1,6 +1,6 @@
 # Security: Component Builds & Dynamic Editing
 
-This document records the threat model for **database-backed components** in `HANDOFF_MODE=dynamic`, where authenticated users can edit source, trigger Vite builds, and view previews.
+This document records the threat model for **database-backed components** in the full Next.js Handoff app, where authenticated users can edit source, trigger Vite builds, and view previews.
 
 ## Architecture (attack surface)
 
@@ -25,7 +25,7 @@ flowchart TD
 | **Secret leakage** | Malicious build code could read `process.env` or filesystem. | Worker receives **allowlisted env vars** only |
 | **IDOR** | Any logged-in user could PATCH or build any component. | **Admin role** required for API + server actions |
 | **Path traversal** | Malicious `component_id` could escape build directories. | **Strict slug** regex + max length on create |
-| **XSS (preview)** | Built HTML runs in browser; iframe sandbox limits parent access. | **Hide “Open in new tab”** in dynamic mode (unsandboxed same-origin) |
+| **XSS (preview)** | Built HTML runs in browser; iframe sandbox limits parent access. | **Hide “Open in new tab”** for DB-backed previews (unsandboxed same-origin) |
 | **DoS** | Flood build queue or huge payloads. | **Rate limit** builds per user; **cap** concurrent queued+building jobs |
 
 ## Current mitigations (baseline)
@@ -36,9 +36,9 @@ flowchart TD
 ## Gaps addressed by MVP hardening
 
 1. **RBAC**: `PATCH` `/api/handoff/components`, `GET`/`POST` `/api/handoff/components/build`, and server actions `createComponent` / `updateComponent` / `deleteComponent` require `session.user.role === 'admin'`. `GET` `/api/handoff/components?id=` remains **any authenticated user** so viewers can load component pages (full row may include sources; tighten later with a public projection if needed).
-2. **Env stripping**: Worker spawn uses an explicit allowlist (`DATABASE_URL`, `HANDOFF_MODE`, `NODE_ENV`, `PATH`, `HOME`, `HANDOFF_APP_BASE_PATH`, `HANDOFF_COMPONENT_BUILD_REPO_ROOT`, `TZ`).
+2. **Env stripping**: Worker spawn uses an explicit allowlist (`DATABASE_URL`, `NODE_ENV`, `PATH`, `HOME`, `HANDOFF_APP_BASE_PATH`, `HANDOFF_COMPONENT_BUILD_REPO_ROOT`, `TZ`).
 3. **Component IDs**: Only slugs matching `^[a-z0-9][a-z0-9-]{0,127}$` (1–128 chars) may be created.
-4. **XSS escape hatch**: “Open in new tab” is hidden when `NEXT_PUBLIC_HANDOFF_MODE=dynamic`.
+4. **XSS escape hatch**: “Open in new tab” is hidden for DB-backed previews in the full server app.
 5. **Rate limits**: Per-user POST limit (e.g. 5/minute) and global cap on `queued` + `building` jobs before accepting new builds.
 
 ## Future phase: containerized builds

@@ -8,11 +8,7 @@ import { editHistory, handoffComponents } from '../../lib/db/schema';
 import { isValidComponentId } from '../../lib/component-id';
 import { applyHandoffComponentPatch } from '../../lib/server/handoff-component-patch';
 import { scaffoldNewComponentPayload, type RendererKind } from '../../lib/server/component-scaffold';
-import { isDynamic } from '../../lib/mode';
-
-function guardDynamic() {
-  if (!isDynamic()) throw new Error('Actions require HANDOFF_MODE=dynamic');
-}
+import { scheduleReferenceMaterialsRegenerate } from '../../lib/server/reference-material-schedule';
 
 function sessionUserIdForSync(user: { id?: string | null } | undefined): string | null {
   const id = user?.id;
@@ -33,10 +29,9 @@ export async function createComponent(data: {
   renderer?: RendererKind;
   payload?: Record<string, unknown>;
 }) {
-  guardDynamic();
   const session = await auth();
   requireAdmin(session);
-  const db = getDb()!;
+  const db = getDb();
 
   if (!isValidComponentId(data.id)) {
     throw new Error(
@@ -89,6 +84,8 @@ export async function createComponent(data: {
     userId: sessionUserIdForSync(session.user),
   });
 
+  scheduleReferenceMaterialsRegenerate({ actorUserId: session.user.id ?? undefined, skipLlm: false });
+
   return { success: true };
 }
 
@@ -96,18 +93,17 @@ export async function updateComponent(
   id: string,
   updates: Partial<{ title: string; description: string; group: string; type: string; data: Record<string, unknown> }>
 ) {
-  guardDynamic();
   const session = await auth();
   requireAdmin(session);
   await applyHandoffComponentPatch(session, id, updates);
+  scheduleReferenceMaterialsRegenerate({ actorUserId: session.user.id ?? undefined, skipLlm: false });
   return { success: true };
 }
 
 export async function deleteComponent(id: string) {
-  guardDynamic();
   const session = await auth();
   requireAdmin(session);
-  const db = getDb()!;
+  const db = getDb();
 
   await insertSyncEvent({
     entityType: 'component',

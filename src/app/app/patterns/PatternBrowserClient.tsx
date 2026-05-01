@@ -41,7 +41,6 @@ export default function PatternBrowserClient({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
-  const isDynamic = (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
 
   const load = useCallback(async () => {
@@ -122,7 +121,7 @@ export default function PatternBrowserClient({
     }
   };
 
-  const showActions = isDynamic && status === 'authenticated';
+  const showActions = status === 'authenticated';
 
   return (
     <Layout
@@ -143,7 +142,7 @@ export default function PatternBrowserClient({
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Patterns</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Search saved layouts and open them in the Playground. {!isDynamic && 'Editing is available in dynamic mode.'}
+              Search saved layouts and open them in the Playground.
             </p>
           </div>
           <Button asChild>

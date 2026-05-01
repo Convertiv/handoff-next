@@ -1,12 +1,13 @@
 import { DrizzleAdapter } from '@auth/drizzle-adapter';
 import NextAuth, { type NextAuthConfig } from 'next-auth';
+import type { Session } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import GitHub from 'next-auth/providers/github';
 import Google from 'next-auth/providers/google';
 import { eq } from 'drizzle-orm';
 import { getDb } from './db';
 import * as schema from './db/schema';
-import { getMode } from './mode';
+import { useSqlite } from './db/dialect';
 import { verifyPassword } from './passwords';
 import { logEvent } from './server/event-log';
 
@@ -75,19 +76,20 @@ const useDatabaseSession = Boolean(db && loginOauth.length > 0);
  * - Linked-account providers (Figma) use the adapter for token storage but don't affect
  *   session strategy — the user stays signed in via their credentials session.
  */
-export const { handlers, auth, signIn, signOut } = NextAuth({
+const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
   trustHost: true,
   pages: {
     signIn: '/login',
   },
   adapter:
     useAdapter && db
-      ? DrizzleAdapter(db, {
+      ? // schema-active + dual DB: adapter types expect one dialect; runtime matches `getDb()`.
+        DrizzleAdapter(db as never, {
           usersTable: schema.users,
           accountsTable: schema.accounts,
           sessionsTable: schema.sessions,
           verificationTokensTable: schema.verificationTokens,
-        })
+        } as never)
       : undefined,
   session: { strategy: useDatabaseSession ? 'database' : 'jwt' },
   providers: [
@@ -100,9 +102,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        if (getMode() !== 'dynamic') return null;
         const conn = getDb();
-        if (!conn) return null;
         const email = String(credentials?.email ?? '')
           .trim()
           .toLowerCase();
@@ -172,5 +172,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       });
     },
   },
-  secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
+  secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? (useSqlite() ? 'handoff-local-dev-not-a-real-secret' : undefined),
 });
+
+export { handlers, signIn, signOut };
+
+/** Local SQLite: synthetic admin session. Postgres: NextAuth session. */
+export async function auth(): Promise<Session | null> {
+  if (useSqlite()) {
+    return {
+      user: {
+        id: 'local',
+        name: 'Local dev',
+        email: 'local@handoff.local',
+        emailVerified: null,
+        image: null,
+        role: 'admin',
+      },
+      expires: new Date(Date.now() + 60 * 864e5).toISOString(),
+    } as Session;
+  }
+  return (await nextAuthLibAuth()) as Session | null;
+}

@@ -5,8 +5,6 @@ import { getDb } from '@/lib/db';
 import { getDbPatternById } from '@/lib/db/queries';
 import { editHistory, handoffPatterns } from '@/lib/db/schema';
 import { insertSyncEvent } from '@/lib/db/sync-queries';
-import { isDynamic } from '@/lib/mode';
-
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -17,10 +15,6 @@ function sessionUserIdForSync(user: { id?: string | null } | undefined): string 
 }
 
 export async function POST(_request: Request, context: RouteContext) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
-
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

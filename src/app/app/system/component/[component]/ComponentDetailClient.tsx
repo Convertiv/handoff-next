@@ -14,7 +14,6 @@ import { BuildStatusBanner } from '../../../../components/Component/BuildStatusB
 import { CodeEditor } from '../../../../components/Component/CodeEditor';
 import { InlineComponentEditor } from '../../../../components/Component/InlineComponentEditor';
 import { ComponentPreview } from '../../../../components/Component/Preview';
-import { useAuthUi } from '../../../../components/context/AuthUiContext';
 import { HotReloadProvider } from '../../../../components/context/HotReloadProvider';
 import { PreviewContextProvider } from '../../../../components/context/PreviewContext';
 import Layout from '../../../../components/Layout/Main';
@@ -61,23 +60,15 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
   const [editing, setEditing] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
 
-  const { authEnabled } = useAuthUi();
   const { data: session, status } = useSession();
   const canEditDynamic = useMemo(
-    () =>
-      authEnabled &&
-      status === 'authenticated' &&
-      Boolean(session?.user) &&
-      session?.user?.role === 'admin' &&
-      (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic',
-    [authEnabled, session?.user, session?.user?.role, status]
+    () => status === 'authenticated' && Boolean(session?.user) && session?.user?.role === 'admin',
+    [session?.user, status]
   );
 
   const appBasePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const normalizedBasePath = appBasePath ? `/${appBasePath.replace(/^\/+|\/+$/g, '')}` : '';
   const componentRoute = (componentId: string) => `${normalizedBasePath}/system/component/${componentId}`;
-
-  const isDynamic = (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
 
   const fetchComponentData = useCallback(async () => {
     const staticRes = await fetch(`${normalizedBasePath}/api/component/${id}.json`);
@@ -87,18 +78,16 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
       setHotKey((k) => k + 1);
       return;
     }
-    if (isDynamic) {
-      const dbRes = await fetch(`${normalizedBasePath}/api/handoff/components?id=${encodeURIComponent(id)}`, { credentials: 'include' });
-      if (dbRes.ok) {
-        const row = await dbRes.json();
-        const data = row.data && typeof row.data === 'object' ? row.data : row;
-        setComponent(data as PreviewObject);
-        setHotKey((k) => k + 1);
-        return;
-      }
+    const dbRes = await fetch(`${normalizedBasePath}/api/handoff/components?id=${encodeURIComponent(id)}`, { credentials: 'include' });
+    if (dbRes.ok) {
+      const row = await dbRes.json();
+      const data = row.data && typeof row.data === 'object' ? row.data : row;
+      setComponent(data as PreviewObject);
+      setHotKey((k) => k + 1);
+      return;
     }
     setComponent(undefined);
-  }, [id, normalizedBasePath, isDynamic]);
+  }, [id, normalizedBasePath]);
 
   const previousLink = previousComponent ? { href: componentRoute(previousComponent.id), title: previousComponent.name } : null;
   const nextLink = nextComponent ? { href: componentRoute(nextComponent.id), title: nextComponent.name } : null;
@@ -180,7 +169,7 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
                 {editing ? <><X strokeWidth={2} /> Done editing</> : <><Pencil strokeWidth={2} /> Edit</>}
               </Button>
             )}
-            {canEditDynamic && isDynamic ? (
+            {canEditDynamic ? (
               <Button
                 type="button"
                 variant="outline"
@@ -243,7 +232,7 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
                       bestPracticesCard={bestPracticesForSlice(cpi)}
                       properties={cpi === componentPreviews.length - 1}
                       validations={cpi === componentPreviews.length - 1}
-                      hideOpenInNewTab={isDynamic}
+                      hideOpenInNewTab={true}
                     >
                       <p>Define a simple contact form</p>
                     </ComponentPreview>
@@ -254,7 +243,7 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
           ) : (
             <HotReloadProvider key={`hot-reload-${id}-${hotKey}`} connect={componentHotReloadIsAvailable}>
               <PreviewContextProvider key={`preview-context-${id}`} id={id} defaultMetadata={metadata} defaultMenu={menu} defaultPreview={componentPreviews} defaultConfig={config}>
-                <ComponentPreview key={`component-preview-${id}`} title={metadata.title} bestPracticesCard={bestPracticesSingle} properties validations hideOpenInNewTab={isDynamic}>
+                <ComponentPreview key={`component-preview-${id}`} title={metadata.title} bestPracticesCard={bestPracticesSingle} properties validations hideOpenInNewTab={true}>
                   <p>Define a simple contact form</p>
                 </ComponentPreview>
               </PreviewContextProvider>

@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { Suspense } from 'react';
-import { isDynamic } from '../../lib/mode';
+import { usePostgres } from '../../lib/db/dialect';
 import ResetPasswordClient from './ResetPasswordClient';
 
 export const metadata: Metadata = {
@@ -9,10 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default function ResetPasswordPage() {
-  if (!isDynamic()) {
+  if (!usePostgres()) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
-        <p className="text-muted-foreground">Password reset is only available in dynamic mode.</p>
+        <p className="text-muted-foreground">Password reset requires a Postgres-backed deployment (set DATABASE_URL).</p>
       </div>
     );
   }

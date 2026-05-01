@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useCallback, useState } from 'react';
 import { handoffApiUrl } from '../../lib/api-path';
-import { useAuthUi } from '../context/AuthUiContext';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
 
@@ -20,10 +19,8 @@ type InlineComponentEditorProps = {
 };
 
 function useCanEditDynamic() {
-  const { authEnabled } = useAuthUi();
   const { data: session, status } = useSession();
-  const mode = process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '';
-  return authEnabled && status === 'authenticated' && Boolean(session?.user) && mode === 'dynamic';
+  return status === 'authenticated' && Boolean(session?.user);
 }
 
 export function InlineComponentEditor({

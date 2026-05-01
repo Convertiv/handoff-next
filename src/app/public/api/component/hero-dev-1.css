@@ -1,0 +1,25 @@
+/* hero-dev-1 styles */
+.hero-dev-1 {
+  background: var(--light-ssc-blues);
+  padding: 2rem;
+}
+
+.hero-dev-1 h1 {
+  font-family: "Barlow", sans-serif;
+  font-size: 76px;
+  font-weight: 400;
+}
+
+.hero-dev-1 p {
+  color: var(--color-text-muted);
+}
+
+.hero-dev-1 .btn-primary {
+  background-color: var(--color-ssc-blue);
+  border-color: var(--color-ssc-blue);
+}
+
+.hero-dev-1 .btn-outline-primary {
+  color: var(--color-ssc-blue);
+  border-color: var(--color-ssc-blue);
+}

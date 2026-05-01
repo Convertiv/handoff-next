@@ -1,8 +1,7 @@
-// vite.config.ts
-import { defineConfig } from 'vite';
+import type { InlineConfig } from 'vite';
 import { createViteLogger } from './utils/vite-logger';
 
-export default defineConfig({
+const viteBaseConfig: InlineConfig = {
   customLogger: createViteLogger(),
   publicDir: false,
   build: {
@@ -11,10 +10,12 @@ export default defineConfig({
       formats: ['es'],
       fileName: (_, entryName) => `${entryName}.js`,
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: [],
     },
     emptyOutDir: false,
-    minify: 'esbuild',
+    minify: true,
   },
-});
+};
+
+export default viteBaseConfig;

@@ -17,4 +17,16 @@ export type AdminBuildTaskRow =
       error: string | null;
       createdAt: Date | string | null;
       updatedAt: Date | string | null;
+    }
+  | {
+      kind: 'component_generation';
+      generationJobId: number;
+      artifactId: string;
+      componentId: string;
+      status: string;
+      error: string | null;
+      createdAt: Date | string | null;
+      completedAt: Date | string | null;
+      iteration: number;
+      visualScore: number | null;
     };

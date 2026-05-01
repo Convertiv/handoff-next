@@ -25,11 +25,21 @@ function lruSet(key: string, buf: Buffer): void {
 
 let browserPromise: Promise<Browser> | null = null;
 
+const BROWSER_LAUNCH_TIMEOUT_MS = 30_000;
+
 async function getBrowser(): Promise<Browser> {
   if (!browserPromise) {
-    browserPromise = chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    browserPromise = Promise.race([
+      chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Chromium launch timed out')), BROWSER_LAUNCH_TIMEOUT_MS)
+      ),
+    ]).catch((err) => {
+      browserPromise = null;
+      throw err;
     });
   }
   return browserPromise;
@@ -71,12 +81,23 @@ export function originFromRequestHeaders(headers: Headers): string {
   return `${proto}://${host}`;
 }
 
+/** Origin for server-side Playwright when there is no incoming request (background jobs). */
+export function internalHandoffServerOrigin(): string {
+  const explicit = process.env.HANDOFF_APP_INTERNAL_ORIGIN?.trim();
+  if (explicit) return explicit.replace(/\/+$/, '');
+  return `http://127.0.0.1:${process.env.PORT || '3000'}`;
+}
+
 /**
  * Renders a component preview HTML page in headless Chromium and returns a PNG buffer.
  * Results are cached in-memory (LRU) by preview pathname.
  */
-export async function captureComponentPreviewPng(requestOrigin: string, previewPathname: string): Promise<Buffer> {
-  const cacheKey = previewPathname;
+export async function captureComponentPreviewPng(
+  requestOrigin: string,
+  previewPathname: string,
+  opts?: { cacheKeySuffix?: string }
+): Promise<Buffer> {
+  const cacheKey = `${previewPathname}${opts?.cacheKeySuffix ?? ''}`;
   const hit = lruGet(cacheKey);
   if (hit) return hit;
 
@@ -88,7 +109,8 @@ export async function captureComponentPreviewPng(requestOrigin: string, previewP
   });
   const page = await context.newPage();
   try {
-    await page.goto(absoluteUrl, { waitUntil: 'networkidle', timeout: 60_000 });
+    // `load` avoids dev/HMR pages that never reach `networkidle`; static previews still paint after load.
+    await page.goto(absoluteUrl, { waitUntil: 'load', timeout: 60_000 });
     await new Promise((r) => setTimeout(r, 400));
     const buf = await page.screenshot({ type: 'png', fullPage: true });
     const buffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);

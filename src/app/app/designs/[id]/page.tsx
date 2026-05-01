@@ -1,20 +1,17 @@
-import type { Metadata } from 'next';
+import type { Metadata as NextMetadata } from 'next';
 import { redirect } from 'next/navigation';
-import { getClientRuntimeConfig } from '../../../components/util';
+import { getClientRuntimeConfig, type Metadata } from '../../../components/util';
 import { getDataProvider } from '../../../lib/data';
 import { auth } from '../../../lib/auth';
-import { isDynamic } from '../../../lib/mode';
 import SavedDesignDetailClient from './SavedDesignDetailClient';
 
 type PageProps = { params: Promise<{ id: string }> };
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({ params }: PageProps): Promise<NextMetadata> {
   const { id } = await params;
   return {
     title: `Design — ${id.slice(0, 8)}…`,
     description: 'Saved design from the Design workbench.',
-    metaTitle: 'Saved design',
-    metaDescription: 'View a saved design artifact.',
   };
 }
 
@@ -29,18 +26,6 @@ export default async function SavedDesignDetailPage({ params }: PageProps) {
     metaTitle: 'Saved design',
     metaDescription: 'View a saved design artifact.',
   };
-
-  if (!isDynamic()) {
-    return (
-      <SavedDesignDetailClient
-        config={config}
-        menu={menu}
-        metadata={baseMeta}
-        artifactId={artifactId}
-        message="This view is only available in dynamic mode with a database."
-      />
-    );
-  }
 
   const session = await auth();
   if (!session?.user) {

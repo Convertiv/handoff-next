@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import fs from 'fs-extra';
 import { Types as CoreTypes, Handoff as HandoffRunner, Providers } from 'handoff-core';
 import path from 'path';
@@ -10,8 +10,20 @@ import pipeline, { buildComponents, buildPatterns } from './pipeline';
 import processComponents, { ComponentSegment } from './transformers/preview/component/builder';
 import { Config, ConfigFileEntry, RuntimeConfig } from './types/config';
 import { Logger } from './utils/logger';
-import { normalizePathForCompare } from './utils/path';
-import { generateFilesystemSafeId } from './utils/path';
+import { generateFilesystemSafeId, normalizePathForCompare } from './utils/path';
+
+// Load .env from cwd first, then walk up to find a parent .env (common project layout:
+// project-root/.env  +  project-root/handoff/  ← cwd when `handoff-app start` runs).
+dotenv.config(); // cwd
+for (let dir = path.resolve(process.cwd(), '..'); ; dir = path.resolve(dir, '..')) {
+  const candidate = path.join(dir, '.env');
+  console.log('candidate', candidate);
+  if (fs.existsSync(candidate)) {
+    dotenv.config({ path: candidate }); // won't overwrite keys already set
+    break;
+  }
+  if (path.dirname(dir) === dir) break; // filesystem root
+}
 
 class Handoff {
   config: Config | null;
@@ -57,7 +69,7 @@ class Handoff {
     this.exportsDirectory = config.exportsOutputDirectory ?? this.exportsDirectory;
     this.sitesDirectory = config.sitesOutputDirectory ?? this.exportsDirectory;
     [this.runtimeConfig, this._configFilePaths, this._configFileIndex] = initRuntimeConfig(this);
-    if(this.config.app.base_path && !process.env.HANDOFF_APP_BASE_PATH) {
+    if (this.config.app.base_path && !process.env.HANDOFF_APP_BASE_PATH) {
       process.env.HANDOFF_APP_BASE_PATH = this.config.app.base_path ?? '';
     }
     return this;
@@ -319,16 +331,8 @@ class Handoff {
   }
 }
 
-export type { ComponentObject as Component } from './transformers/preview/types';
-export type { Config, RegisterHandlebarsHelpersContext } from './types/config';
 export { defineConfig } from './config';
-export {
-  defineComponent,
-  defineCsfComponent,
-  defineHandlebarsComponent,
-  definePattern,
-  defineReactComponent,
-} from './declarations';
+export { defineComponent, defineCsfComponent, defineHandlebarsComponent, definePattern, defineReactComponent } from './declarations';
 export type {
   CsfDeclarationConfig,
   DeclarationPreview,
@@ -339,6 +343,8 @@ export type {
   ReactDeclarationConfig,
   RendererKind,
 } from './declarations';
+export type { ComponentObject as Component } from './transformers/preview/types';
+export type { Config, RegisterHandlebarsHelpersContext } from './types/config';
 
 // Export transformers and types from handoff-core
 export { Transformers as CoreTransformers, TransformerUtils as CoreTransformerUtils, Types as CoreTypes } from 'handoff-core';

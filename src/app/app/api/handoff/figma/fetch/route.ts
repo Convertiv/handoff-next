@@ -24,9 +24,6 @@ function recordPost(userId: string, now: number): void {
 }
 
 export async function POST(_request: NextRequest) {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const { auth } = await import('@/lib/auth');
   const session = await auth();
   if (!session?.user?.id) {
@@ -82,9 +79,6 @@ export async function POST(_request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const { auth } = await import('@/lib/auth');
   const session = await auth();
   if (!session?.user?.id) {

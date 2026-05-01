@@ -63,7 +63,6 @@ function mergeDataJson(prev: Record<string, unknown>, patch: Record<string, unkn
 export async function applyHandoffComponentPatch(session: Session | null, id: string, patch: ComponentPatchBody): Promise<void> {
   if (!session?.user) throw new Error('Unauthorized');
   const db = getDb();
-  if (!db) throw new Error('Database unavailable');
 
   const [row] = await db.select().from(handoffComponents).where(eq(handoffComponents.id, id));
   if (!row) throw new Error('Not found');
@@ -119,7 +118,6 @@ export async function applyHandoffComponentPatch(session: Session | null, id: st
 
 export async function getHandoffComponentRow(id: string) {
   const db = getDb();
-  if (!db) return null;
   const [row] = await db.select().from(handoffComponents).where(eq(handoffComponents.id, id));
   return row ?? null;
 }

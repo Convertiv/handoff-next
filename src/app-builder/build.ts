@@ -52,15 +52,10 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
 
   // Prepare project app dir
   await fs.ensureDir(appPath);
-  const isStaticExport = (process.env.HANDOFF_MODE ?? 'static') !== 'dynamic';
   await fs.copy(srcPath, appPath, {
     overwrite: true,
     filter: (file) => {
       if (file.includes('next.config.mjs')) return false;
-      if (isStaticExport && path.basename(file) === 'proxy.ts') return false;
-      if (isStaticExport && file.includes(path.join('api', 'auth'))) return false;
-      if (isStaticExport && file.includes(path.join('api', 'handoff'))) return false;
-      if (isStaticExport && file.includes(path.join('lib', 'server'))) return false;
       return true;
     },
   });
@@ -92,7 +87,6 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
   const escapedModulePath = escapeForSingleQuotedJsString(handoffModulePath);
   const escapedExportPath = escapeForSingleQuotedJsString(handoffExportPath);
   const escapedWebsocketPort = escapeForSingleQuotedJsString(String(handoffWebsocketPort));
-  const escapedHandoffMode = escapeForSingleQuotedJsString(process.env.HANDOFF_MODE ?? 'static');
   const placeholderValues: Record<string, string> = {
     '%HANDOFF_PROJECT_ID%': escapedProjectId,
     '%HANDOFF_APP_BASE_PATH%': escapedAppBasePath,
@@ -100,13 +94,22 @@ const initializeProjectApp = async (handoff: Handoff): Promise<string> => {
     '%HANDOFF_MODULE_PATH%': escapedModulePath,
     '%HANDOFF_EXPORT_PATH%': escapedExportPath,
     '%HANDOFF_WEBSOCKET_PORT%': escapedWebsocketPort,
-    '%HANDOFF_MODE%': escapedHandoffMode,
   };
   let nextConfigContent = await fs.readFile(nextConfigPath, 'utf-8');
   for (const [placeholder, value] of Object.entries(placeholderValues)) {
     nextConfigContent = nextConfigContent.split(placeholder).join(value);
   }
-  await fs.writeFile(targetPath, nextConfigContent);
+  // Only write next.config.mjs when content differs to avoid triggering
+  // a Next.js dev-server restart on every watcher-driven re-init.
+  let existingContent: string | undefined;
+  try {
+    existingContent = await fs.readFile(targetPath, 'utf-8');
+  } catch {
+    /* file doesn't exist yet */
+  }
+  if (existingContent !== nextConfigContent) {
+    await fs.writeFile(targetPath, nextConfigContent);
+  }
   return appPath;
 };
 
@@ -130,7 +133,7 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean): Promise<voi
   await persistClientConfig(handoff);
 
   // Build app
-  const buildResult = spawn.sync('npx', ['next', 'build', '--webpack'], {
+  const buildResult = spawn.sync('npx', ['next', 'build'], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
@@ -160,8 +163,14 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean): Promise<voi
     await fs.remove(output);
   }
 
-  // Copy the build files into the project output directory
-  await fs.copy(path.resolve(appPath, 'out'), output);
+  const staticOut = path.resolve(appPath, 'out');
+  if (await fs.pathExists(staticOut)) {
+    await fs.copy(staticOut, output);
+  } else {
+    Logger.warn(
+      `[handoff] No out/ after next build (static export removed). The production app is at ${appPath} — run \`npx next start\` from that directory.`
+    );
+  }
 };
 
 /**
@@ -183,27 +192,40 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
   // Persist client configuration
   await persistClientConfig(handoff);
 
-  // Watch app source
-  watchAppSource(handoff, initializeProjectApp);
+  const state: WatcherState = {
+    busy: false,
+    pendingHandlers: new Map(),
+    runtimeComponentsWatcher: null,
+    runtimeConfigurationWatcher: null,
+    componentDirectoriesWatcher: null,
+  };
+
+  // Watch app source (debounced via scheduleHandler — see watchers.ts)
+  watchAppSource(handoff, state, initializeProjectApp);
 
   const hostname = 'localhost';
   const port = handoff.config.app.ports?.app ?? 3000;
 
-  // purge out cache
+  // purge out cache and stale bundler output (e.g. after switching webpack → Turbopack)
   const moduleOutput = path.resolve(appPath, 'out');
   if (fs.existsSync(moduleOutput)) {
     await fs.remove(moduleOutput);
     // create empty directory
     await fs.ensureDir(moduleOutput);
   }
+  const nextCache = path.resolve(appPath, '.next');
+  if (fs.existsSync(nextCache)) {
+    await fs.remove(nextCache);
+  }
   Logger.info(`Starting Next.js dev server at http://${hostname}:${port}…`);
 
-  const nextProcess = spawn('npx', ['next', 'dev', '--webpack', '--port', String(port)], {
+  const nextProcess = spawn('npx', ['next', 'dev', '--port', String(port)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
       ...process.env,
       NODE_ENV: 'development',
+      PORT: String(port),
     },
   });
   Logger.pipeChildStreams(nextProcess.stdout, nextProcess.stderr);
@@ -230,14 +252,6 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
     ignored: /(^|[\/\\])\../, // ignore dotfiles
     persistent: true,
     ignoreInitial: true,
-  };
-
-  const state: WatcherState = {
-    busy: false,
-    pendingHandlers: new Map(),
-    runtimeComponentsWatcher: null,
-    runtimeConfigurationWatcher: null,
-    componentDirectoriesWatcher: null,
   };
 
   watchPublicDirectory(handoff, wss, state, chokidarConfig);
@@ -268,12 +282,13 @@ export const devApp = async (handoff: Handoff): Promise<void> => {
   const devPort = handoff.config.app.ports?.app ?? 3000;
   Logger.info(`Starting Next.js dev server on port ${devPort}…`);
 
-  const devResult = spawn.sync('npx', ['next', 'dev', '--webpack', '--port', String(devPort)], {
+  const devResult = spawn.sync('npx', ['next', 'dev', '--port', String(devPort)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
       ...process.env,
       NODE_ENV: 'development',
+      PORT: String(devPort),
     },
   });
 

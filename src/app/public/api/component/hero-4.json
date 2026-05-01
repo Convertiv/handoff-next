@@ -1,0 +1,61 @@
+{
+  "id": "hero-4",
+  "title": "Hero 4",
+  "figma": "",
+  "image": "",
+  "description": "A hero component with a background image, headline, subheadline, and action buttons.",
+  "preview": "",
+  "type": "block",
+  "group": "Hero Components",
+  "should_do": [],
+  "should_not_do": [],
+  "categories": [],
+  "tags": [],
+  "previews": {
+    "design": {
+      "title": "Design Hero",
+      "values": {
+        "headline": "AI-enabled software for financial and health organizations.",
+        "button1Text": "Explore our solutions",
+        "button2Text": "Learn how we help",
+        "subheadline": "SS&C is one of the world's largest providers of AI-enabled software and services for financial services and health organizations.",
+        "backgroundImage": "https://example.com/background.jpg"
+      },
+      "url": "hero-4-design.html"
+    },
+    "generic": {
+      "title": "Generic Hero",
+      "values": {
+        "headline": "Your Headline Here",
+        "button1Text": "Primary Action",
+        "button2Text": "Secondary Action",
+        "subheadline": "Your subheadline here",
+        "backgroundImage": "https://example.com/image.jpg"
+      },
+      "url": "hero-4-generic.html"
+    }
+  },
+  "properties": {},
+  "code": "<div class=\"hero-4 d-flex align-items-center\" style=\"background-image: url('{{backgroundImage}}');\">\n  <div class=\"container\">\n    <div class=\"row\">\n      <div class=\"col-lg-6\">\n        <p class=\"text-muted\">PREVIOUS / CURRENT</p>\n        <h1 class=\"fw-bold\">{{headline}}</h1>\n        <p class=\"text-muted\">{{subheadline}}</p>\n        <div class=\"d-flex gap-3\">\n          <a href=\"#\" class=\"btn btn-primary\">{{button1Text}}</a>\n          <a href=\"#\" class=\"btn btn-secondary\">{{button2Text}}</a>\n        </div>\n      </div>\n    </div>\n  </div>\n</div>",
+  "html": "<html lang=\"en\">\n  <div\n    class=\"hero-4 d-flex align-items-center\"\n    style=\"background-image: url(&quot;&quot;)\"\n  >\n    <div class=\"container\">\n      <div class=\"row\">\n        <div class=\"col-lg-6\">\n          <p class=\"text-muted\">PREVIOUS / CURRENT</p>\n          <h1 class=\"fw-bold\"></h1>\n          <p class=\"text-muted\"></p>\n          <div class=\"d-flex gap-3\">\n            <a href=\"#\" class=\"btn btn-primary\"></a>\n            <a href=\"#\" class=\"btn btn-secondary\"></a>\n          </div>\n        </div>\n      </div>\n    </div>\n  </div>\n</html>",
+  "format": "handlebars",
+  "js": "// No interactive behavior for hero-4.",
+  "css": "/* @import '~/integration/sass/main.scss'; */\n.hero-4 {\n  color: var(--color-text-base);\n  background-size: cover;\n  background-position: center;\n  min-height: 60vh;\n}\n.hero-4 .btn-primary {\n  background-color: var(--color-primary);\n  border-color: var(--color-primary);\n}\n.hero-4 .btn-secondary {\n  background-color: var(--color-secondary);\n  border-color: var(--color-secondary);\n}",
+  "sass": "/* @import '~/integration/sass/main.scss'; */\n.hero-4 {\n  color: var(--color-text-base);\n  background-size: cover;\n  background-position: center;\n  min-height: 60vh;\n  .btn-primary {\n    background-color: var(--color-primary);\n    border-color: var(--color-primary);\n  }\n  .btn-secondary {\n    background-color: var(--color-secondary);\n    border-color: var(--color-secondary);\n  }\n}",
+  "name": "Hero 4",
+  "renderer": "handlebars",
+  "entries": {
+    "template": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/15/hero-4/hero-4.hbs",
+    "scss": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/15/hero-4/hero-4.scss",
+    "js": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/15/hero-4/hero-4.client.js"
+  },
+  "options": {
+    "transformer": {
+      "defaults": {},
+      "replace": {},
+      "cssRootClass": null,
+      "tokenNameSegments": null
+    }
+  },
+  "jsCompiled": "\"use strict\";\n"
+}

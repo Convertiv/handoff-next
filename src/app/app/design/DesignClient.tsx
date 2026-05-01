@@ -268,7 +268,9 @@ const DesignWorkbenchPage = ({
   const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
     if (!serverAiAvailable) {
-      setError('Design generation requires dynamic mode and HANDOFF_AI_API_KEY. Configure server AI in Integrations.');
+      setError(
+        'Design generation needs server AI: set HANDOFF_AI_API_KEY, or HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN to use your team cloud. Configure in Integrations / .env.'
+      );
       return;
     }
 
@@ -576,7 +578,9 @@ const DesignWorkbenchPage = ({
           <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
             {!serverAiAvailable ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                Design workbench needs <strong>dynamic mode</strong> and <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_AI_API_KEY</code>.
+                Design workbench needs server AI: <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_AI_API_KEY</code> or{' '}
+                <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_URL</code> +{' '}
+                <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code> (team proxy).
               </p>
             ) : null}
 
@@ -743,11 +747,9 @@ const DesignWorkbenchPage = ({
                   <Button variant="secondary" size="sm" className="w-full" onClick={() => setSaveOpen(true)}>
                     Save for review
                   </Button>
-                  {(process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic' ? (
-                    <Button variant="ghost" size="sm" className="h-auto w-full py-1 text-[11px] text-muted-foreground" asChild>
-                      <Link href={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/designs/`}>View saved designs</Link>
-                    </Button>
-                  ) : null}
+                  <Button variant="ghost" size="sm" className="h-auto w-full py-1 text-[11px] text-muted-foreground" asChild>
+                    <Link href={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/designs/`}>View saved designs</Link>
+                  </Button>
                 </div>
               ) : null}
             </div>

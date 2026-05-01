@@ -6,7 +6,6 @@ import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isValidComponentId } from '../../lib/component-id';
 import { createComponent } from '../actions/components';
-import { useAuthUi } from '../../components/context/AuthUiContext';
 import { handoffApiUrl } from '../../lib/api-path';
 import { Button } from '../../components/ui/button';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '../../components/ui/drawer';
@@ -33,14 +32,8 @@ type SlugStatus = 'idle' | 'checking' | 'available' | 'taken' | 'invalid';
 
 export function NewComponentForm() {
   const router = useRouter();
-  const { authEnabled } = useAuthUi();
   const { data: session, status } = useSession();
-  const canCreate =
-    authEnabled &&
-    status === 'authenticated' &&
-    Boolean(session?.user) &&
-    session?.user?.role === 'admin' &&
-    (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
+  const canCreate = status === 'authenticated' && Boolean(session?.user) && session?.user?.role === 'admin';
 
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');

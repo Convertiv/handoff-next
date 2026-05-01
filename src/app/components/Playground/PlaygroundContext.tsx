@@ -89,7 +89,8 @@ export function PlaygroundProvider({
   initialPatternId?: string;
 }) {
   const { status } = useSession();
-  const isDynamicApp = (process.env.NEXT_PUBLIC_HANDOFF_MODE ?? '') === 'dynamic';
+  /** Full Handoff server (DB-backed patterns, etc.); static export mode has been removed. */
+  const isDynamicApp = true;
 
   const [components, setComponents] = useState<PlaygroundComponent[]>([]);
   const [selectedComponents, setSelectedComponents] = useState<SelectedPlaygroundComponent[]>([]);

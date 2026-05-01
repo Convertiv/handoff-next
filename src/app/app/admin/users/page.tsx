@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
-import { isDynamic } from '../../../lib/mode';
+import { usePostgres } from '../../../lib/db/dialect';
 import { listUsers } from '../../../lib/server/admin-users';
 import UsersClient from './UsersClient';
 
@@ -11,10 +11,10 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminUsersPage() {
-  if (!isDynamic()) {
+  if (!usePostgres()) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
-        <p className="text-muted-foreground">User administration is only available in dynamic mode.</p>
+        <p className="text-muted-foreground">User administration requires Postgres (set DATABASE_URL). Local SQLite mode is single-user.</p>
       </div>
     );
   }

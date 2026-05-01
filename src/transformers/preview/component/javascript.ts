@@ -42,8 +42,8 @@ const buildJsBundle = async (
           formats: ['cjs'],
           fileName: () => outputFilename,
         },
-        rollupOptions: {
-          ...viteBaseConfig.build?.rollupOptions,
+        rolldownOptions: {
+          ...viteBaseConfig.build?.rolldownOptions,
           output: {
             exports: 'named',
           },

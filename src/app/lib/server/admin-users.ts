@@ -27,7 +27,6 @@ export type UserRowDto = {
 export async function listUsers(session: Session | null): Promise<UserRowDto[]> {
   requireAdmin(session);
   const db = getDb();
-  if (!db) throw new Error('Database not configured');
 
   const rows = await db.select().from(users);
   return rows.map((r) => ({
@@ -46,7 +45,6 @@ export async function inviteUser(
 ): Promise<{ ok: true } | { error: string }> {
   const s = requireAdmin(session);
   const db = getDb();
-  if (!db) return { error: 'Database not configured' };
 
   const normalized = email.trim().toLowerCase();
   if (!normalized || !normalized.includes('@')) return { error: 'Invalid email.' };
@@ -92,7 +90,6 @@ export async function inviteUser(
 export async function removeUser(session: Session | null, userId: string): Promise<{ ok: true } | { error: string }> {
   const s = requireAdmin(session);
   const db = getDb();
-  if (!db) return { error: 'Database not configured' };
   if (!userId) return { error: 'Missing user id.' };
   if (userId === s.user!.id) return { error: 'You cannot remove your own account.' };
 
@@ -114,7 +111,6 @@ export async function updateUserRole(
 ): Promise<{ ok: true } | { error: string }> {
   requireAdmin(session);
   const db = getDb();
-  if (!db) return { error: 'Database not configured' };
   if (newRole !== 'admin' && newRole !== 'member') return { error: 'Invalid role.' };
 
   const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1);

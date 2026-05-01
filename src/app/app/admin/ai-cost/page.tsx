@@ -4,7 +4,6 @@ import { getClientRuntimeConfig } from '../../../components/util';
 import { getDataProvider } from '../../../lib/data';
 import { getAiCostSummaryForRange, getAiEventsForRange } from '../../../lib/db/queries';
 import { auth } from '../../../lib/auth';
-import { isDynamic } from '../../../lib/mode';
 import AiCostClient from './AiCostClient';
 
 export const metadata: Metadata = {
@@ -15,18 +14,6 @@ export const metadata: Metadata = {
 export default async function AdminAiCostPage() {
   const config = getClientRuntimeConfig();
   const menu = await getDataProvider().getMenu();
-
-  if (!isDynamic()) {
-    return (
-      <AiCostClient
-        config={config}
-        menu={menu}
-        initialEvents={[]}
-        initialSummary={{ totalCalls: 0, successCalls: 0, failedCalls: 0, totalCostUsd: 0, byModel: [], byDay: [] }}
-        message="AI cost analytics are only available in dynamic mode."
-      />
-    );
-  }
 
   const session = await auth();
   if (!session?.user) {

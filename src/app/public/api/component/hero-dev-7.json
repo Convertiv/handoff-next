@@ -1,0 +1,63 @@
+{
+  "id": "hero-dev-7",
+  "title": "Hero Section",
+  "figma": "",
+  "image": "",
+  "description": "A hero section with main heading, subheading, and call-to-action buttons.",
+  "preview": "",
+  "type": "block",
+  "group": "Combos",
+  "should_do": [],
+  "should_not_do": [],
+  "categories": [],
+  "tags": [],
+  "previews": {
+    "generic": {
+      "title": "Generic Preview",
+      "values": {
+        "title": "Main heading longer example.",
+        "paragraph": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut scelerisque scelerisque mattis. Phasellus blandit dignissim imperdiet. Cras nec tincidunt urna. Duis nec pretium diam, ac rhoncus turpis.",
+        "primary_cta": "Primary CTA",
+        "secondary_cta": "Secondary CTA",
+        "background_image": "/api/component/hero-dev-7-asset-0.png",
+        "composition_elements": "/api/component/hero-dev-7-asset-1.png"
+      },
+      "url": "hero-dev-7-generic.html"
+    },
+    "design": {
+      "title": "Design Preview",
+      "values": {
+        "title": "Main heading longer example.",
+        "paragraph": "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Ut scelerisque scelerisque mattis. Phasellus blandit dignissim imperdiet. Cras nec tincidunt urna. Duis nec pretium diam, ac rhoncus turpis.",
+        "primary_cta": "Primary CTA",
+        "secondary_cta": "Secondary CTA",
+        "background_image": "/api/component/hero-dev-7-asset-0.png",
+        "composition_elements": "/api/component/hero-dev-7-asset-1.png"
+      },
+      "url": "hero-dev-7-design.html"
+    }
+  },
+  "properties": {},
+  "code": "<div class=\"hero-dev-7 d-flex align-items-center\" style=\"background-image: url({{background_image}});\">\n  <div class=\"container\">\n    <div class=\"row\">\n      <div class=\"col-md-6\">\n        <div class=\"text-muted mb-2\">PREVIOUS / CURRENT</div>\n        <h1 class=\"fw-bold mb-3\">{{title}}</h1>\n        <p class=\"text-muted mb-4\">{{{paragraph}}}</p>\n        <div class=\"d-flex gap-3\">\n          <button class=\"btn btn-primary\">{{primary_cta}}</button>\n          <button class=\"btn btn-outline-primary\">{{secondary_cta}}</button>\n        </div>\n      </div>\n      <div class=\"col-md-6\">\n        <img src=\"{{composition_elements}}\" alt=\"Visual Elements\" class=\"img-fluid\">\n      </div>\n    </div>\n  </div>\n</div>",
+  "html": "<html lang=\"en\">\n  <div\n    class=\"hero-dev-7 d-flex align-items-center\"\n    style=\"background-image: url()\"\n  >\n    <div class=\"container\">\n      <div class=\"row\">\n        <div class=\"col-md-6\">\n          <div class=\"text-muted mb-2\">PREVIOUS / CURRENT</div>\n          <h1 class=\"fw-bold mb-3\">Hero Section</h1>\n          <p class=\"text-muted mb-4\"></p>\n          <div class=\"d-flex gap-3\">\n            <button class=\"btn btn-primary\"></button>\n            <button class=\"btn btn-outline-primary\"></button>\n          </div>\n        </div>\n        <div class=\"col-md-6\">\n          <img src=\"\" alt=\"Visual Elements\" class=\"img-fluid\" />\n        </div>\n      </div>\n    </div>\n  </div>\n</html>",
+  "format": "handlebars",
+  "js": "// Hero section script\n",
+  "css": "/* Hero Section Styles */\n.hero-dev-7 {\n  background-size: cover;\n  background-position: center;\n  color: var(--color-base);\n}",
+  "sass": "/* Hero Section Styles */\n.hero-dev-7 {\n  background-size: cover;\n  background-position: center;\n  color: var(--color-base);\n}\n",
+  "name": "Hero Section",
+  "renderer": "handlebars",
+  "entries": {
+    "template": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/11/hero-dev-7/hero-dev-7.hbs",
+    "scss": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/11/hero-dev-7/hero-dev-7.scss",
+    "js": "/Users/bradleymering/Documents/Projects/Handoff/handoff-app/.handoff-component-builds/11/hero-dev-7/hero-dev-7.client.js"
+  },
+  "options": {
+    "transformer": {
+      "defaults": {},
+      "replace": {},
+      "cssRootClass": null,
+      "tokenNameSegments": null
+    }
+  },
+  "jsCompiled": "\"use strict\";\n"
+}

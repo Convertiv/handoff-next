@@ -25,7 +25,6 @@ export function docsRouteToPageSlug(dirParts: string[], file: string): string {
 
 export async function getHandoffPageBySlug(slug: string): Promise<HandoffPageRow | null> {
   const db = getDb();
-  if (!db) return null;
   const [row] = await db.select().from(handoffPages).where(eq(handoffPages.slug, slug)).limit(1);
   if (!row) return null;
   return {
@@ -59,7 +58,6 @@ export async function upsertHandoffPage(
 ): Promise<HandoffPageRow> {
   requireSession(session);
   const db = getDb();
-  if (!db) throw new Error('Database not configured');
 
   const trimmedSlug = slug.replace(/^\/+|\/+$/g, '');
   if (!trimmedSlug) throw new Error('Invalid slug');

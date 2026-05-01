@@ -46,7 +46,29 @@ function esc(s: string): string {
   return JSON.stringify(s);
 }
 
-export function handoffJsHandlebars(id: string, title: string, description: string, group: string, type: string): string {
+export type DeclarationPreviewEntry = { title: string; values?: Record<string, unknown> };
+
+function previewsToCjsBlock(previews: Record<string, DeclarationPreviewEntry> | undefined): string {
+  const map =
+    previews && Object.keys(previews).length > 0
+      ? previews
+      : { default: { title: 'Default', values: {} as Record<string, unknown> } };
+  const lines: string[] = [];
+  for (const [key, p] of Object.entries(map)) {
+    const vals = p.values && typeof p.values === 'object' ? p.values : {};
+    lines.push(`    ${JSON.stringify(key)}: { title: ${esc(p.title || key)}, args: ${JSON.stringify(vals)} },`);
+  }
+  return `{\n${lines.join('\n')}\n  }`;
+}
+
+export function handoffJsHandlebars(
+  id: string,
+  title: string,
+  description: string,
+  group: string,
+  type: string,
+  previews?: Record<string, DeclarationPreviewEntry>
+): string {
   return `module.exports = {
   id: ${esc(id)},
   name: ${esc(title)},
@@ -59,14 +81,19 @@ export function handoffJsHandlebars(id: string, title: string, description: stri
     scss: ${esc(`./${id}.scss`)},
     js: ${esc(`./${id}.client.js`)},
   },
-  previews: {
-    default: { title: 'Default', args: {} },
-  },
+  previews: ${previewsToCjsBlock(previews)},
 };
 `;
 }
 
-export function handoffJsReact(id: string, title: string, description: string, group: string, type: string): string {
+export function handoffJsReact(
+  id: string,
+  title: string,
+  description: string,
+  group: string,
+  type: string,
+  previews?: Record<string, DeclarationPreviewEntry>
+): string {
   return `module.exports = {
   id: ${esc(id)},
   name: ${esc(title)},
@@ -79,14 +106,19 @@ export function handoffJsReact(id: string, title: string, description: string, g
     scss: ${esc(`./${id}.scss`)},
     js: ${esc(`./${id}.client.js`)},
   },
-  previews: {
-    default: { title: 'Default', args: {} },
-  },
+  previews: ${previewsToCjsBlock(previews)},
 };
 `;
 }
 
-export function handoffJsCsf(id: string, title: string, description: string, group: string, type: string): string {
+export function handoffJsCsf(
+  id: string,
+  title: string,
+  description: string,
+  group: string,
+  type: string,
+  previews?: Record<string, DeclarationPreviewEntry>
+): string {
   return `module.exports = {
   id: ${esc(id)},
   name: ${esc(title)},
@@ -99,9 +131,7 @@ export function handoffJsCsf(id: string, title: string, description: string, gro
     scss: ${esc(`./${id}.scss`)},
     js: ${esc(`./${id}.client.js`)},
   },
-  previews: {
-    default: { title: 'Default', args: {} },
-  },
+  previews: ${previewsToCjsBlock(previews)},
 };
 `;
 }
@@ -163,10 +193,12 @@ export function buildHandoffDeclarationCjs(data: {
   group: string;
   type: string;
   renderer?: string;
+  /** Preview keys → { title, values } (emitted as `args` in CJS for Handoff normalizer). */
+  previews?: Record<string, DeclarationPreviewEntry>;
 }): string {
-  const { id, title, description, group, type } = data;
+  const { id, title, description, group, type, previews } = data;
   const renderer = data.renderer ?? 'handlebars';
-  if (renderer === 'react') return handoffJsReact(id, title, description, group, type);
-  if (renderer === 'csf') return handoffJsCsf(id, title, description, group, type);
-  return handoffJsHandlebars(id, title, description, group, type);
+  if (renderer === 'react') return handoffJsReact(id, title, description, group, type, previews);
+  if (renderer === 'csf') return handoffJsCsf(id, title, description, group, type, previews);
+  return handoffJsHandlebars(id, title, description, group, type, previews);
 }

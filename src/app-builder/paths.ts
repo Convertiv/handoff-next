@@ -32,13 +32,29 @@ export const getAppPath = (handoff: Handoff): string => {
 
 const mirrorDirectory = async (sourcePath: string, destinationPath: string): Promise<void> => {
   if (!(await fs.pathExists(sourcePath))) {
-    await fs.remove(destinationPath);
+    try {
+      await fs.remove(destinationPath);
+    } catch {
+      /* ignore concurrent removal */
+    }
     return;
   }
 
-  await fs.remove(destinationPath);
+  try {
+    await fs.remove(destinationPath);
+  } catch {
+    /* ignore concurrent removal */
+  }
   await fs.ensureDir(path.dirname(destinationPath));
-  await fs.copy(sourcePath, destinationPath, { overwrite: true });
+  try {
+    await fs.copy(sourcePath, destinationPath, { overwrite: true });
+  } catch (e: unknown) {
+    const code = e && typeof e === 'object' && 'code' in e ? (e as NodeJS.ErrnoException).code : undefined;
+    if (code === 'ENOENT' || code === 'EEXIST') {
+      return; // concurrent watcher; next event may retry
+    }
+    throw e;
+  }
 };
 
 /**

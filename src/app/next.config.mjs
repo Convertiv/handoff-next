@@ -10,18 +10,12 @@ const resolveBasePath = (rawBasePath) => {
   return trimmed ? `/${trimmed}` : '';
 };
 
-const rawMode = typeof process !== 'undefined' ? process.env.HANDOFF_MODE : undefined;
-const handoffMode =
-  !rawMode || rawMode.startsWith('%HANDOFF_') ? 'static' : rawMode;
-const isStaticExportMode = handoffMode !== 'dynamic';
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  ...(isStaticExportMode ? { output: 'export' } : {}),
   reactStrictMode: true,
   pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
   trailingSlash: true,
-  serverExternalPackages: ['@resvg/resvg-js', 'playwright-core'],
+  serverExternalPackages: ['@resvg/resvg-js', 'playwright-core', 'better-sqlite3', 'drizzle-orm/better-sqlite3', 'drizzle-orm/better-sqlite3/migrator'],
   experimental: {
     externalDir: true,
   },
@@ -38,11 +32,9 @@ const nextConfig = {
     HANDOFF_MODULE_PATH: '%HANDOFF_MODULE_PATH%',
     HANDOFF_EXPORT_PATH: '%HANDOFF_EXPORT_PATH%',
     HANDOFF_WEBSOCKET_PORT: '%HANDOFF_WEBSOCKET_PORT%',
-    HANDOFF_MODE: '%HANDOFF_MODE%',
-    NEXT_PUBLIC_HANDOFF_MODE: '%HANDOFF_MODE%',
   },
   images: {
-    unoptimized: isStaticExportMode,
+    unoptimized: false,
   },
   sassOptions: {
     additionalData: (content, _) => {
@@ -57,7 +49,6 @@ const nextConfig = {
         HANDOFF_MODULE_PATH: '%HANDOFF_MODULE_PATH%',
         HANDOFF_EXPORT_PATH: '%HANDOFF_EXPORT_PATH%',
         HANDOFF_WEBSOCKET_PORT: '%HANDOFF_WEBSOCKET_PORT%',
-        HANDOFF_MODE: '%HANDOFF_MODE%',
       };
 
       // Check if client configuration exists

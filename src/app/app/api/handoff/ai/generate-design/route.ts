@@ -1,6 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { auth } from '@/lib/auth';
-import { isDynamic } from '@/lib/mode';
+import { authOrCloudToken, rateLimitUserId } from '@/lib/sync-auth';
 import {
   buildDesignGenerationPrompt,
   type DesignConversationTurn,
@@ -8,7 +7,8 @@ import {
   type DesignWorkbenchFoundationContext,
 } from '@/lib/server/design-prompt-builder';
 import { renderFoundationsImage } from '@/lib/server/foundation-image';
-import { openAiImageEdit, type ImageEditInput } from '@/lib/server/ai-client';
+import { openAiImageEdit, shouldProxyAi, type ImageEditInput } from '@/lib/server/ai-client';
+import { proxyAiToCloud } from '@/lib/server/ai-proxy';
 
 const MAX_PER_USER_PER_MINUTE = 10;
 const timestampsByUser = new Map<string, number[]>();
@@ -44,22 +44,21 @@ function safeJson<T>(raw: string | null, fallback: T): T {
 }
 
 export async function POST(request: NextRequest) {
-  if (!isDynamic()) {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
-  if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
-    return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
-  }
-
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const ctx = await authOrCloudToken(request);
+  if (ctx instanceof NextResponse) return ctx;
 
   const now = Date.now();
-  const userId = session.user.id;
+  const userId = rateLimitUserId(ctx, request);
   if (pruneAndCountRecent(userId, 60_000, now) >= MAX_PER_USER_PER_MINUTE) {
     return NextResponse.json({ error: 'Too many AI requests; try again in a minute.' }, { status: 429 });
+  }
+
+  if (shouldProxyAi()) {
+    return proxyAiToCloud(request, { actingUserId: ctx.userId !== 'cloud-proxy' ? ctx.userId : undefined });
+  }
+
+  if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+    return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
   }
 
   try {

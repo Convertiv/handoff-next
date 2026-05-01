@@ -12,8 +12,6 @@ import { getDb } from './index';
 import { users } from './schema';
 
 async function main() {
-  process.env.HANDOFF_MODE = process.env.HANDOFF_MODE || 'dynamic';
-
   const email = process.env.HANDOFF_ADMIN_EMAIL?.trim().toLowerCase();
   const plain = process.env.HANDOFF_ADMIN_PASSWORD;
   if (!email || !plain) {
@@ -22,10 +20,6 @@ async function main() {
   }
 
   const db = getDb();
-  if (!db) {
-    console.error('Set HANDOFF_MODE=dynamic and DATABASE_URL');
-    process.exit(1);
-  }
 
   const [{ n }] = await db.select({ n: count() }).from(users);
   if ((n ?? 0) > 0) {

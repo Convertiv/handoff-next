@@ -3,9 +3,6 @@ import { auth } from '@/lib/auth';
 import { diffFilesystemVsDatabase } from '@/lib/server/component-diff';
 
 export async function GET() {
-  if (process.env.HANDOFF_MODE !== 'dynamic') {
-    return NextResponse.json({ error: 'Not available' }, { status: 404 });
-  }
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
