@@ -1,0 +1,27 @@
+@import "~/integration/sass/main.scss";
+
+.hero-dev-6 {
+  background-size: cover;
+  background-position: center;
+  color: var(--ssc-blue);
+}
+
+.hero-dev-6 h1 {
+  font-size: 2.5rem;
+  color: var(--base);
+}
+
+.hero-dev-6 p {
+  font-size: 1rem;
+  color: var(--muted);
+}
+
+.hero-dev-6 button {
+  font-size: 1rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+}
+
+.hero-dev-6 img {
+  box-shadow: var(--shadow-100);
+}

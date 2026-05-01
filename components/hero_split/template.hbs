@@ -1,0 +1,171 @@
+<head>
+  {{{style}}} {{{script}}}
+</head>
+
+<body class="preview-body">
+  <section class="hero u-relative" {{#if properties.dark}} data-bs-theme="dark" {{/if}}>
+    <div class="background">
+      {{#if properties.backgroundVideo}}
+      <video playsinline="" autoplay="" muted="" loop="">
+        <source src="{{properties.backgroundVideo}}" type="video/mp4" />
+        Your browser does not support the video tag.
+      </video>
+      {{/if}} {{#if properties.backgroundImage.src}}
+      <picture>
+        <source srcset="{{properties.backgroundImage.src}}" />
+        <img src="{{properties.backgroundImage.src}}" alt="{{properties.backgroundImage.alt}}" />
+      </picture>
+      {{/if}}
+    </div>
+    <div
+      class="hero-inner {{#if properties.backgroundImage.src}}{{#unless properties.image.src}} text-start{{else}} text-center text-lg-start{{/unless}}{{else}} text-center text-lg-start{{/if}}">
+      <div class="container">
+        <div class="row align-items-center gy-4">
+          <div
+            class="{{#if properties.video}}col-12 col-lg-6 pe-lg-5{{else}}{{#if properties.image.src}}col-12 col-lg-6 pe-lg-5{{else}}{{#if properties.links}}col-12 col-lg-6 pe-lg-5{{else}}{{#if properties.backgroundImage.src}}col-8 col-lg-6 pe-lg-5{{else}}col-lg-11{{/if}}{{/if}}{{/if}}{{/if}}">
+            <div class="hero-content">
+              <nav class="hero-breadcrumb" aria-label="breadcrumb">
+                {{#if properties.section}}
+                {{#field "section"}}
+                <ul class="breadcrumb">
+                  <li class="breadcrumb-item active">
+                    {{ properties.section }}
+                  </li>
+                </ul>
+                {{/field}}
+                {{/if}}
+                {{#if properties.breadcrumb}}
+                {{#field "breadcrumb"}}
+                <ul class="breadcrumb">
+                  {{#each properties.breadcrumb}}
+                  <li class="breadcrumb-item {{#if this.active}} active{{/if}}">
+                    {{#if this.link.href}}
+                    <a href="{{this.link.href}}" aria-label="{{ this.link.text }}" aria-current="page">
+                      {{ this.link.text }}
+                    </a>
+                    {{else}}
+                    {{ this.link.text }}
+                    {{/if}}
+                  </li>
+                  {{/each}}
+                </ul>
+                {{/field}}
+                {{/if}}
+              </nav>
+              {{#if properties.badge}}
+              <div class="hero-badge-container">
+              <span class="hero-badge">
+                {{#field "badge"}}{{properties.badge}}{{/field}}
+              </span></div>
+              {{/if}}
+              <h1 class="hero-title h2" style="margin-left: -3px">
+                {{#if properties.title_prefix }}{{#field "title_prefix"}}{{properties.title_prefix}}{{/field}}
+                <br>{{/if}}
+                {{#if properties.title }}
+                <span class="hero-highlight">
+                  {{#field "title"}}{{properties.title}}{{/field}}
+                </span>
+                {{/if}}
+              </h1>
+              <p class="hero-lead">{{#field "paragraph"}}{{properties.paragraph}}{{/field}}</p>
+
+              <div class="hero-cta mt-lg-2">
+                {{#if properties.primary}}
+                <div>
+                  {{#field "primary"}}
+                  <a href="{{ properties.primary.url }}" target="_self" class="btn btn-primary"
+                    aria-label="{{ properties.primary.label }}">
+                    <span class="link-icon link-icon-arrow">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" role="img" aria-label="{{properties.primary.label}}">
+                        <title>{{properties.primary.label}}</title>
+                        <path fill="#0D1116"
+                          d="M.285 12.877a.4.4 0 0 1-.001-.567L10.593 1.994h-8.49a.4.4 0 0 1-.4-.4V.4c0-.22.18-.4.4-.4H14v11.899a.4.4 0 0 1-.396.4l-1.193.012a.4.4 0 0 1-.404-.4V3.4L1.697 13.717a.4.4 0 0 1-.565 0l-.847-.841Z" />
+                      </svg>
+                    </span>
+                    {{ properties.primary.label }}
+                  </a>
+                  {{/field}}
+                </div>
+                {{/if}}
+                {{#if properties.secondary}}
+                <div>
+                  <a href="{{ properties.secondary.url }}" target="_blank" class="btn btn-outline"
+                    aria-label="{{ properties.secondary.label }}">
+                    <span class="link-icon link-icon-arrow">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" role="img" aria-label="{{properties.secondary.label}}">
+                        <title>{{properties.secondary.label}}</title>
+                        <path fill="#0D1116"
+                          d="M.285 12.877a.4.4 0 0 1-.001-.567L10.593 1.994h-8.49a.4.4 0 0 1-.4-.4V.4c0-.22.18-.4.4-.4H14v11.899a.4.4 0 0 1-.396.4l-1.193.012a.4.4 0 0 1-.404-.4V3.4L1.697 13.717a.4.4 0 0 1-.565 0l-.847-.841Z" />
+                      </svg>
+                    </span>
+                    {{#field "secondary"}}{{ properties.secondary.label }}{{/field}}
+                  </a>
+                </div>
+                {{/if}}
+              </div>
+            </div>
+          </div>
+          {{#if properties.image.src}}
+          <div class="col-12 col-lg-6 ps-lg-5">
+            <div class="hero-media">
+              {{#field "image"}}
+              <img width="670"
+                class="mxw-lg-none {{#if properties.image_stretch}}hero-media-stretch d-none d-lg-block{{/if}}"
+                src="{{ properties.image.src }}" alt="{{ properties.image.alt }}" {{#if properties.image_stretch}}
+                style="background-image: url('{{properties.image.src}}');" {{/if}} />
+              {{/field}}
+            </div>
+          </div>
+          {{/if}}
+          {{#if properties.video}}
+          <div class="col-12 col-lg-6 ps-lg-5">
+            <div class='video-player video-player-youtube'>
+                <div class='video-player-embed'>
+                  <div class='ratio ratio-16x9'>
+                    <iframe frameborder='0' title="{{properties.video.title}}"
+                      allow='accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture'
+                      allowfullscreen width='640' height='360' src='{{properties.video.url}}'></iframe>
+                  </div>
+                </div>
+              </div>
+            </div>
+          {{/if}}
+          {{#if properties.links}}
+          <div class="col-12 col-lg-6 ps-lg-5">
+            {{#if properties.linksItems}}
+            <div class="row row-cols-1 gy-3">
+              {{#each properties.linksItems}}
+              <div class="col">
+                <div class="card h-100" data-bs-theme="light">
+                  <div class="card-body d-flex flex-column p-2 gap-1">
+                    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-center gap-1">
+                      <h6 class="mb-0 text-primary">{{#field "linksItems.title"}}{{this.title}}{{/field}}</h6>
+                      {{#field "linksItems.cardLink"}}
+                      <a class="flex-shrink-0 fs-sm fw-semibold link-muted link-opacity-50-hover stretched-link" href="{{this.cardLink.href}}" {{#if this.cardLink.target}}target="{{this.cardLink.target}}"{{/if}} aria-label="{{this.cardLink.text}}">
+                        <span class="link-icon link-icon-arrow me-1">
+                          <svg width="10" height="10" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M.285 9.278a.4.4 0 0 1-.001-.566l7.282-7.287h-5.95a.4.4 0 0 1-.4-.4V.4c0-.22.18-.4.4-.4H10v8.386a.4.4 0 0 1-.396.4l-.623.006a.4.4 0 0 1-.404-.4V2.43L1.293 9.718a.4.4 0 0 1-.565 0l-.443-.44Z" fill="#F5B407"></path>
+                          </svg>
+                        </span>
+                        {{this.cardLink.text}}
+                      </a>
+
+                      {{/field}}
+                      </div>
+                    {{#if this.paragraph}}
+                      <p class="mb-0">{{#field "linksItems.paragraph"}}{{this.paragraph}}{{/field}}</p>
+                    {{/if}}
+
+                  </div>
+                </div>
+              </div>
+              {{/each}}
+            </div>
+            {{/if}}
+          </div>
+          {{/if}}
+        </div>
+      </div>
+    </div>
+  </section>
+</body>
