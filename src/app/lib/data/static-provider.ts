@@ -6,9 +6,18 @@ import path from 'path';
 import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getTokens, staticBuildMenu } from '../../components/util';
 import type { DataProvider, DocPageContent } from './types';
 import type { SectionLink } from '../../components/util';
+import { getMaterializedAppRoot } from '../server/handoff-app-paths';
 
-/** Built JSON from `build:components` / pipeline lives under `<HANDOFF_WORKING_PATH>/public/api`. */
+/**
+ * Built JSON from `build:components` / pipeline: mirrored into `<HANDOFF_APP_ROOT>/public/api`
+ * during materialization. Prefer that path in the Next runtime (Vercel serverless includes the
+ * app tree, not always the repo working tree). Fall back to `<HANDOFF_WORKING_PATH>/public/api`.
+ */
 export function getPublicApiDir(): string {
+  const appRoot = process.env.HANDOFF_APP_ROOT?.trim();
+  if (appRoot && !appRoot.startsWith('%HANDOFF_')) {
+    return path.resolve(appRoot, 'public', 'api');
+  }
   const working = process.env.HANDOFF_WORKING_PATH?.trim();
   if (working && !working.startsWith('%HANDOFF_')) {
     return path.resolve(working, 'public', 'api');
@@ -19,7 +28,7 @@ export function getPublicApiDir(): string {
     const legacy = path.resolve(mod, '.handoff', id, 'public', 'api');
     if (fs.existsSync(legacy)) return legacy;
   }
-  return path.resolve(process.cwd(), 'public', 'api');
+  return path.resolve(getMaterializedAppRoot(), 'public', 'api');
 }
 
 export class StaticDataProvider implements DataProvider {

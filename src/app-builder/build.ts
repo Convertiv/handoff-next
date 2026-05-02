@@ -230,6 +230,15 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   }
 
   await syncPublicFiles(handoff, appPath);
+
+  // Ship default nav + catch-all markdown inside the materialized tree so Vercel/serverless
+  // can read it (avoids relying on `node_modules/handoff-app/config/docs` in the trace graph).
+  const bundledDocsSrc = path.join(handoff.modulePath, 'config', 'docs');
+  const bundledDocsDest = path.join(appPath, 'config', 'docs');
+  if (await fs.pathExists(bundledDocsSrc)) {
+    await fs.copy(bundledDocsSrc, bundledDocsDest, { overwrite: true });
+  }
+
   await materializeMiddlewareHookModule(handoff, appPath);
 
   const hostNodeModules = resolveHostNodeModulesDir(handoff.modulePath);

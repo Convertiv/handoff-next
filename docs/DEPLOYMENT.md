@@ -67,6 +67,12 @@ Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-run
    - **Output Directory**: `.handoff/runtime/.next`
    - **Framework**: Next.js
 
+**What the runtime includes:** `prepare-runtime` copies the default Handoff markdown (`system`, `foundations`, `design`, …) into `.handoff/runtime/config/docs` and mirrors `public/api` (component/pattern JSON) into `.handoff/runtime/public/api`. The running Next app reads those paths under `HANDOFF_APP_ROOT`, so navigation and disk-backed APIs work on Vercel without relying on `node_modules/handoff-app` being fully present in every serverless trace.
+
+**Components on disk:** Run `handoff-app build:components` (or use `prepare-runtime` without `--skip-components`) before `next build` so `public/api/components.json` and per-component files exist and get synced into the runtime.
+
+**`/admin/*` and login:** When `DATABASE_URL` is set, middleware requires a signed-in admin JWT for `/admin` routes. That is expected; use `/login` with an admin account, or use local SQLite-only mode without `DATABASE_URL` for open `/admin` during development.
+
 ### Option B: Deploy from repo root (layout `root`)
 
 1. Set `app.materialization_layout` to `root` in `handoff.config` (or set the env var in Vercel).

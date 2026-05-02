@@ -11,7 +11,7 @@ import { ParsedUrlQuery } from 'querystring';
 import { getDb } from '../../lib/db';
 import { getPublicApiDir } from '../../lib/data/static-provider';
 import { handoffTokensSnapshots } from '../../lib/db/schema';
-import { getMaterializedAppRoot } from '../../lib/server/handoff-app-paths';
+import { getDefaultDocsDir, getMaterializedAppRoot } from '../../lib/server/handoff-app-paths';
 // Get the parsed url string type
 export interface IParams extends ParsedUrlQuery {
   slug: string | string[];
@@ -172,10 +172,10 @@ const collectMarkdownPaths = (rootDir: string, relativeParts: string[] = []): st
  * Excludes paths in knownPaths (those have dedicated route files).
  */
 export const buildCatchAllStaticPaths = () => {
-  const docRoot = path.resolve(process.env.HANDOFF_MODULE_PATH ?? '', 'config/docs');
+  const docRoot = getDefaultDocsDir();
   const pageRoot = path.resolve(process.env.HANDOFF_WORKING_PATH ?? '', 'pages');
 
-  const docPaths = collectMarkdownPaths(docRoot);
+  const docPaths = docRoot ? collectMarkdownPaths(docRoot) : [];
   const pagePaths = collectMarkdownPaths(pageRoot);
 
   const seen = new Set<string>();
@@ -238,8 +238,8 @@ const buildMenuFromDirectory = (dirPath: string, urlPrefix: string): any[] => {
  * @returns SectionLink[]
  */
 export const staticBuildMenu = () => {
-  const docRoot = path.join(process.env.HANDOFF_MODULE_PATH ?? '', 'config/docs');
-  if (!fs.existsSync(docRoot)) {
+  const docRoot = getDefaultDocsDir();
+  if (!docRoot || !fs.existsSync(docRoot)) {
     return [];
   }
   const files = fs.readdirSync(docRoot);
@@ -843,10 +843,13 @@ export const fetchDocPageMetadataAndContent = (localPath: string, slug: string |
   let options = {} as ComponentDocumentationOptions;
 
   const contentModuleFilePath = path.resolve(handoffModulePath, 'config', `${localPath}${slug}.md`);
+  const contentBundledFilePath = path.resolve(getMaterializedAppRoot(), 'config', `${localPath}${slug}.md`);
   const contentWorkingFilePath = path.resolve(handoffWorkingPath, `${pagePath}${slug}.md`);
 
   if (fs.existsSync(contentWorkingFilePath)) {
     currentContents = fs.readFileSync(contentWorkingFilePath, 'utf-8');
+  } else if (fs.existsSync(contentBundledFilePath)) {
+    currentContents = fs.readFileSync(contentBundledFilePath, 'utf-8');
   } else if (!fs.existsSync(contentModuleFilePath)) {
     return { metadata: {}, content: currentContents, options: {} };
   } else {
