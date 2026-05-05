@@ -17,62 +17,70 @@ const trimSlashes = (input: string): string => {
 
 const showSavedDesignsNav = true;
 
+const CORE_DOC_LINKS = [
+  { title: 'Foundations', path: '/foundations' },
+  { title: 'Design System', path: '/system' },
+
+];
+
 const APP_TOOL_LINKS = [
   { title: 'Patterns', path: '/patterns' },
   { title: 'Playground', path: '/playground' },
-  ...(showSavedDesignsNav ? [{ title: 'Saved designs', path: '/designs' }] : []),
+  { title: 'Design', path: '/design' },
+  ...(showSavedDesignsNav ? [{ title: 'Library', path: '/design/library' }] : []),
 ];
 
 export function MainNav() {
   const context = useConfigContext();
   const pathname = usePathname();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
-  const existingPaths = new Set((context.menu ?? []).map((s) => trimSlashes(s.path)));
-  const extraNav = APP_TOOL_LINKS.filter((l) => !existingPaths.has(trimSlashes(l.path)));
+  const menuSections = (context.menu ?? []).filter((section) => Boolean(section?.path));
+  const existingPaths = new Set(menuSections.map((s) => trimSlashes(s.path)));
+  const fallbackLinks = [...CORE_DOC_LINKS, ...APP_TOOL_LINKS].filter((l) => !existingPaths.has(trimSlashes(l.path)));
 
   return (
     <NavigationMenu>
       <NavigationMenuList>
-        {context.menu &&
-          context.menu.map((section) => {
-            const isActive = trimSlashes(pathname).startsWith(trimSlashes(section.path));
-            return (
-              <NavigationMenuItem key={section.title}>
-                {section.subSections && section.subSections.length > 0 ? (
-                  <>
-                    <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
-                      <Link
-                        href={section.path}
-                        className={cn(
-                          'block select-none space-y-1 rounded-sm p-3 leading-none no-underline outline-hidden transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground'
-                        )}
-                        {...(isActive ? { 'data-active': 'true' } : {})}
-                      >
-                        {section.title}
-                      </Link>
-                    </NavigationMenuLink>
-                  </>
-                ) : section.external ? (
-                  <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
-                    <Link href={section.external as string} target="_blank" rel="noopener noreferrer">
-                      {section.title}
-                    </Link>
-                  </NavigationMenuLink>
-                ) : (
+        {menuSections.map((section) => {
+          const isActive = trimSlashes(pathname).startsWith(trimSlashes(section.path));
+          const sectionTitle = section.title || section.path;
+          return (
+            <NavigationMenuItem key={`${section.path}-${sectionTitle}`}>
+              {section.subSections && section.subSections.length > 0 ? (
+                <>
                   <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
                     <Link
                       href={section.path}
-                      className="block select-none space-y-1 rounded-sm p-3 leading-none no-underline outline-hidden transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                      className={cn(
+                        'block select-none space-y-1 rounded-sm p-3 leading-none no-underline outline-hidden transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground'
+                      )}
                       {...(isActive ? { 'data-active': 'true' } : {})}
                     >
-                      <span className="text-sm leading-none">{section.title}</span>
+                      {sectionTitle}
                     </Link>
                   </NavigationMenuLink>
-                )}
-              </NavigationMenuItem>
-            );
-          })}
-        {extraNav.map((section) => {
+                </>
+              ) : section.external ? (
+                <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
+                  <Link href={section.external as string} target="_blank" rel="noopener noreferrer">
+                    {sectionTitle}
+                  </Link>
+                </NavigationMenuLink>
+              ) : (
+                <NavigationMenuLink className={navigationMenuTriggerStyle()} asChild>
+                  <Link
+                    href={section.path}
+                    className="block select-none space-y-1 rounded-sm p-3 leading-none no-underline outline-hidden transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                    {...(isActive ? { 'data-active': 'true' } : {})}
+                  >
+                    <span className="text-sm leading-none">{sectionTitle}</span>
+                  </Link>
+                </NavigationMenuLink>
+              )}
+            </NavigationMenuItem>
+          );
+        })}
+        {fallbackLinks.map((section) => {
           const href = `${basePath}${section.path}`;
           const isActive = trimSlashes(pathname).startsWith(trimSlashes(section.path));
           return (

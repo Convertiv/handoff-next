@@ -1,6 +1,20 @@
 'use client';
 
-import { Eye, ImageIcon, Loader2Icon, PaperclipIcon, RotateCcwIcon, Trash2Icon, Upload, ZoomInIcon, ZoomOutIcon } from 'lucide-react';
+import {
+  DownloadIcon,
+  Eye,
+  ImageIcon,
+  LayoutTemplate,
+  Loader2Icon,
+  PaperclipIcon,
+  RotateCcwIcon,
+  SquareDashedMousePointer,
+  Trash2Icon,
+  Upload,
+  XIcon,
+  ZoomInIcon,
+  ZoomOutIcon,
+} from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -13,6 +27,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../compo
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
 import type { DocumentationProps } from '../../components/util';
 import type {
@@ -24,17 +39,41 @@ import type {
 
 type GeneratedImage = {
   id: string;
-  src: string;
+  src?: string;
   prompt: string;
+  status: 'pending' | 'completed' | 'error';
+  error?: string;
+};
+
+type AnnotationRect = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type DraftAnnotation = {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
 };
 
 type DesignClientProps = DocumentationProps & {
   serverAiAvailable: boolean;
   components: DesignWorkbenchComponentRow[];
   foundations: DesignWorkbenchFoundationContext;
-  /** When set (e.g. from `/design?loadArtifact=`), hydrate workbench from saved artifact once. */
   loadArtifactId?: string;
 };
+
+const DESIGN_CLIENTS = ['ssc', '8x8'] as const;
+type DesignLibraryClient = (typeof DESIGN_CLIENTS)[number];
+const DESIGN_ASSETS = [{ name: 'carousel.png' }, { name: 'container.png' }, { name: 'hero.png' }];
+const CANVAS_SIZE = 1024;
+const MIN_ANNOTATION_SIZE = 8;
+
+const getDesignAssetSrc = (client: DesignLibraryClient, name: string) => `/assets/design/${client}/${name}`;
 
 function safeFoundationContext(raw: unknown): DesignWorkbenchFoundationContext {
   if (!raw || typeof raw !== 'object') {
@@ -83,16 +122,25 @@ const DesignWorkbenchPage = ({
   const router = useRouter();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const benchInputRef = useRef<HTMLInputElement>(null);
+  const layoutReferenceInputRef = useRef<HTMLInputElement>(null);
   const promptImageInputRef = useRef<HTMLInputElement>(null);
   const componentsRef = useRef(components);
   componentsRef.current = components;
+
+  const [selectedClient, setSelectedClient] = useState<DesignLibraryClient>('ssc');
+  const [selectedAssetName, setSelectedAssetName] = useState<string | null>(null);
+  const [selectedGeneratedImageId, setSelectedGeneratedImageId] = useState<string | null>(null);
   const [benchFiles, setBenchFiles] = useState<File[]>([]);
+  const [layoutReferenceImages, setLayoutReferenceImages] = useState<File[]>([]);
   const [promptImage, setPromptImage] = useState<File | null>(null);
   const [promptImagePreviewUrl, setPromptImagePreviewUrl] = useState<string | null>(null);
   const [componentQuery, setComponentQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [isAnnotating, setIsAnnotating] = useState(false);
+  const [annotations, setAnnotations] = useState<AnnotationRect[]>([]);
+  const [draftAnnotation, setDraftAnnotation] = useState<DraftAnnotation | null>(null);
   const [conversationHistory, setConversationHistory] = useState<DesignConversationTurn[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -136,9 +184,7 @@ const DesignWorkbenchPage = ({
         if (!a?.imageUrl) throw new Error('Saved design has no image to continue from.');
         if (cancelled) return;
         setImageSrc(a.imageUrl);
-        if (Array.isArray(a.conversationHistory)) {
-          setConversationHistory(a.conversationHistory);
-        }
+        if (Array.isArray(a.conversationHistory)) setConversationHistory(a.conversationHistory);
         const guideIds = (Array.isArray(a.componentGuides) ? a.componentGuides : [])
           .map((g) => (g && typeof g.id === 'string' ? g.id : ''))
           .filter(Boolean);
@@ -233,8 +279,181 @@ const DesignWorkbenchPage = ({
     if (benchInputRef.current) benchInputRef.current.value = '';
   }, []);
 
+  const addLayoutReferenceFiles = useCallback((files: FileList | null) => {
+    if (!files?.length) return;
+    const next = Array.from(files).filter((f) => ['image/png', 'image/jpeg', 'image/webp'].includes(f.type));
+    if (!next.length) return;
+    setLayoutReferenceImages((cur) => [...cur, ...next]);
+    if (layoutReferenceInputRef.current) layoutReferenceInputRef.current.value = '';
+  }, []);
+
   const removeBenchFile = (index: number) => {
     setBenchFiles((cur) => cur.filter((_, i) => i !== index));
+  };
+
+  const removeLayoutReference = (index: number) => {
+    setLayoutReferenceImages((cur) => cur.filter((_, i) => i !== index));
+  };
+
+  const handleSelectAsset = async (assetName: string) => {
+    const assetSrc = getDesignAssetSrc(selectedClient, assetName);
+    try {
+      const response = await fetch(assetSrc);
+      if (!response.ok) {
+        throw new Error(`Could not load ${assetName}. Add it under public/assets/design/${selectedClient}/.`);
+      }
+      setImageSrc(assetSrc);
+      setSelectedAssetName(assetName);
+      setSelectedGeneratedImageId(null);
+      setAnnotations([]);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to select asset.');
+    }
+  };
+
+  const handleDeleteGeneratedImage = (imageId: string) => {
+    setGeneratedImages((current) => current.filter((image) => image.id !== imageId));
+    if (selectedGeneratedImageId === imageId) {
+      setSelectedGeneratedImageId(null);
+      setImageSrc(null);
+      setAnnotations([]);
+    }
+  };
+
+  const getCanvasPoint = (event: React.MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(((event.clientX - rect.left) / rect.width) * CANVAS_SIZE, 0), CANVAS_SIZE),
+      y: Math.min(Math.max(((event.clientY - rect.top) / rect.height) * CANVAS_SIZE, 0), CANVAS_SIZE),
+    };
+  };
+
+  const getAnnotationRect = (annotation: DraftAnnotation): Omit<AnnotationRect, 'id'> => {
+    const x = Math.min(annotation.startX, annotation.currentX);
+    const y = Math.min(annotation.startY, annotation.currentY);
+    return {
+      x,
+      y,
+      width: Math.abs(annotation.currentX - annotation.startX),
+      height: Math.abs(annotation.currentY - annotation.startY),
+    };
+  };
+
+  const handleAnnotationStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isAnnotating || !imageSrc) return;
+    event.preventDefault();
+    const point = getCanvasPoint(event);
+    setAnnotations([]);
+    setDraftAnnotation({
+      startX: point.x,
+      startY: point.y,
+      currentX: point.x,
+      currentY: point.y,
+    });
+  };
+
+  const handleAnnotationMove = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!draftAnnotation) return;
+    const point = getCanvasPoint(event);
+    setDraftAnnotation((current) => (current ? { ...current, currentX: point.x, currentY: point.y } : current));
+  };
+
+  const handleAnnotationEnd = () => {
+    if (!draftAnnotation) return;
+    const rect = getAnnotationRect(draftAnnotation);
+    setDraftAnnotation(null);
+    if (rect.width < MIN_ANNOTATION_SIZE || rect.height < MIN_ANNOTATION_SIZE) return;
+    setIsAnnotating(false);
+    setAnnotations((current) => [
+      ...current,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        ...rect,
+      },
+    ]);
+  };
+
+  const loadImageForCanvas = (src: string) =>
+    new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new window.Image();
+      image.crossOrigin = 'anonymous';
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Could not load image for export.'));
+      image.src = src;
+    });
+
+  const createAnnotatedImageBlob = async (src: string, imageAnnotations: AnnotationRect[]) => {
+    const sourceImage = await loadImageForCanvas(src);
+    const imageWidth = sourceImage.naturalWidth || CANVAS_SIZE;
+    const imageHeight = sourceImage.naturalHeight || CANVAS_SIZE;
+    const displayedImageWidth = CANVAS_SIZE;
+    const displayedImageHeight = (imageHeight / imageWidth) * displayedImageWidth;
+    const displayedImageX = (CANVAS_SIZE - displayedImageWidth) / 2;
+    const displayedImageY = (CANVAS_SIZE - displayedImageHeight) / 2;
+    const scaleX = imageWidth / displayedImageWidth;
+    const scaleY = imageHeight / displayedImageHeight;
+    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = imageWidth;
+    canvas.height = imageHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Could not create canvas context.');
+
+    context.drawImage(sourceImage, 0, 0, imageWidth, imageHeight);
+    imageAnnotations.forEach((annotation) => {
+      const x = clamp((annotation.x - displayedImageX) * scaleX, 0, imageWidth);
+      const y = clamp((annotation.y - displayedImageY) * scaleY, 0, imageHeight);
+      const width = clamp(annotation.width * scaleX, 0, imageWidth - x);
+      const height = clamp(annotation.height * scaleY, 0, imageHeight - y);
+      context.strokeStyle = 'rgb(239, 68, 68)';
+      context.lineWidth = 2;
+      context.strokeRect(x, y, width, height);
+    });
+
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+        reject(new Error('Could not export annotated image.'));
+      }, 'image/png');
+    });
+  };
+
+  const downloadHref = (href: string, filename: string) => {
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = filename;
+    link.click();
+  };
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    downloadHref(url, filename);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  };
+
+  const handleDownloadImage = async (src = imageSrc) => {
+    if (!src) return;
+    try {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error('Could not fetch image.');
+      downloadBlob(await response.blob(), 'design-image.png');
+    } catch {
+      downloadHref(src, 'design-image.png');
+    }
+  };
+
+  const handleDownloadAnnotatedImage = async () => {
+    if (!imageSrc || annotations.length === 0) return;
+    try {
+      downloadBlob(await createAnnotatedImageBlob(imageSrc, annotations), 'design-image-annotated.png');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not export annotated image.');
+    }
   };
 
   const openFoundationRasterPreview = async () => {
@@ -286,7 +505,12 @@ const DesignWorkbenchPage = ({
 
     setIsGenerating(true);
     setError(null);
+    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const submittedPrompt = prompt.trim();
+
+    setSelectedGeneratedImageId(requestId);
+    setSelectedAssetName(null);
+    setGeneratedImages((current) => [{ id: requestId, prompt: submittedPrompt, status: 'pending' }, ...current]);
 
     try {
       const formData = new FormData();
@@ -296,17 +520,19 @@ const DesignWorkbenchPage = ({
       formData.append('conversationHistory', JSON.stringify(conversationHistory));
 
       if (refining && imageSrc) {
-        const baseFile = await dataUrlToFile(imageSrc, 'current-canvas.png');
+        let baseFile: File;
+        if (annotations.length > 0) {
+          const blob = await createAnnotatedImageBlob(imageSrc, annotations);
+          baseFile = new File([blob], 'annotated-current-canvas.png', { type: 'image/png' });
+        } else {
+          baseFile = await dataUrlToFile(imageSrc, 'current-canvas.png');
+        }
         formData.append('iterationBase', baseFile);
       }
 
-      for (const file of benchFiles) {
-        formData.append('image[]', file);
-      }
-
-      if (promptImage) {
-        formData.append('image[]', promptImage);
-      }
+      for (const file of benchFiles) formData.append('image[]', file);
+      for (const file of layoutReferenceImages) formData.append('image[]', file);
+      if (promptImage) formData.append('image[]', promptImage);
 
       const guideImageUrls = selectedGuides
         .filter((g) => g.previewUrl)
@@ -320,7 +546,7 @@ const DesignWorkbenchPage = ({
             formData.append('image[]', blob, `component-${id}${ext}`);
           }
         } catch {
-          // non-critical — skip unreachable component images
+          // skip unreachable component images
         }
       }
 
@@ -331,32 +557,30 @@ const DesignWorkbenchPage = ({
       });
 
       const json = (await response.json().catch(() => ({}))) as { image?: string; error?: string };
-      if (!response.ok) {
-        throw new Error(json.error || `Design API error (${response.status})`);
-      }
-
-      const nextImageSrc = json.image;
-      if (!nextImageSrc) {
-        throw new Error('No image returned.');
-      }
+      if (!response.ok) throw new Error(json.error || `Design API error (${response.status})`);
+      if (!json.image) throw new Error('No image returned.');
 
       const now = new Date().toISOString();
       setConversationHistory((h) => [
         ...h,
         { role: 'user', prompt: submittedPrompt, timestamp: now },
-        { role: 'assistant', prompt: 'Generated image', imageUrl: nextImageSrc, timestamp: now },
+        { role: 'assistant', prompt: 'Generated image', imageUrl: json.image!, timestamp: now },
       ]);
 
-      setImageSrc(nextImageSrc);
-      setGeneratedImages((cur) => [
-        { id: `${Date.now()}`, src: nextImageSrc, prompt: submittedPrompt },
-        ...cur,
-      ]);
+      setImageSrc(json.image);
+      setAnnotations([]);
+      setGeneratedImages((current) =>
+        current.map((image) => (image.id === requestId ? { ...image, src: json.image, status: 'completed' } : image))
+      );
       setPrompt('');
       setPromptImage(null);
       if (promptImageInputRef.current) promptImageInputRef.current.value = '';
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to generate.');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Failed to generate.';
+      setError(message);
+      setGeneratedImages((current) =>
+        current.map((image) => (image.id === requestId ? { ...image, status: 'error', error: message } : image))
+      );
     } finally {
       setIsGenerating(false);
     }
@@ -403,14 +627,96 @@ const DesignWorkbenchPage = ({
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => layoutReferenceInputRef.current?.click()}>
+              <LayoutTemplate className="h-4 w-4" />
+            </Button>
+            <Input
+              ref={layoutReferenceInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              multiple
+              onChange={(event) => addLayoutReferenceFiles(event.target.files)}
+              className="hidden"
+            />
+            <Button
+              variant="ghost"
+              size="sm"
+              className={`h-8 w-8 p-0 ${isAnnotating ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : ''}`}
+              onClick={() => setIsAnnotating((current) => !current)}
+              disabled={!imageSrc}
+            >
+              <SquareDashedMousePointer className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setAnnotations([])} disabled={annotations.length === 0}>
+              <XIcon className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => void handleDownloadImage()} disabled={!imageSrc}>
+              <DownloadIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 w-8 p-0"
+              onClick={() => void handleDownloadAnnotatedImage()}
+              disabled={!imageSrc || annotations.length === 0}
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <Select
+              value={selectedClient}
+              onValueChange={(value) => {
+                setSelectedClient(value as DesignLibraryClient);
+                setSelectedAssetName(null);
+              }}
+            >
+              <SelectTrigger className="h-8 w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                {DESIGN_CLIENTS.map((client) => (
+                  <SelectItem key={client} value={client}>
+                    {client}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         <div className="flex min-h-0 flex-1">
-          {/* Context panel */}
           <aside className="flex w-[min(22rem,100%)] shrink-0 flex-col overflow-hidden border-r bg-background">
             <div className="border-b px-3 py-2">
               <h2 className="text-sm font-semibold">Workbench</h2>
-              <p className="text-xs text-muted-foreground">Images, component guides, and foundations sent with each prompt.</p>
+              <p className="text-xs text-muted-foreground">Images, guides, and foundations are sent with each prompt.</p>
             </div>
             <div className="flex-1 space-y-2 overflow-y-auto p-2">
+              <Collapsible defaultOpen className="rounded-md border px-2 py-1">
+                <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
+                  <span>Reference library</span>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-2 pb-2">
+                  <div className="grid grid-cols-3 gap-2">
+                    {DESIGN_ASSETS.map((asset) => (
+                      <button
+                        key={asset.name}
+                        type="button"
+                        onClick={() => void handleSelectAsset(asset.name)}
+                        data-selected={selectedAssetName === asset.name}
+                        className="group relative rounded-md border bg-muted/20 p-1 data-[selected=true]:border-primary"
+                        title={asset.name}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={getDesignAssetSrc(selectedClient, asset.name)} alt={asset.name} className="aspect-square w-full rounded object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+
               <Collapsible defaultOpen className="rounded-md border px-2 py-1">
                 <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
                   <span className="flex items-center gap-2">
@@ -418,7 +724,6 @@ const DesignWorkbenchPage = ({
                   </span>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="space-y-2 pb-2">
-                  <p className="text-xs text-muted-foreground">PNG, JPEG, or WEBP. First run needs at least one image (or refine from canvas).</p>
                   <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => benchInputRef.current?.click()}>
                     Add images
                   </Button>
@@ -448,6 +753,19 @@ const DesignWorkbenchPage = ({
                       </div>
                     ))}
                   </div>
+                  {layoutReferenceImages.length > 0 ? (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Layout references</p>
+                      {layoutReferenceImages.map((file, i) => (
+                        <div key={`${file.name}-${i}`} className="flex items-center justify-between text-xs">
+                          <span className="truncate">{file.name}</span>
+                          <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => removeLayoutReference(i)}>
+                            <XIcon className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </CollapsibleContent>
               </Collapsible>
 
@@ -481,20 +799,13 @@ const DesignWorkbenchPage = ({
                         >
                           <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded bg-muted/40">
                             {thumbUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element -- dynamic screenshot / arbitrary image URL
+                              // eslint-disable-next-line @next/next/no-img-element
                               <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
                             ) : (
                               <div className="flex h-full items-center justify-center text-muted-foreground/40">
                                 <ImageIcon className="h-4 w-4" />
                               </div>
                             )}
-                            {selected ? (
-                              <div className="absolute right-0 top-0 flex h-3.5 w-3.5 items-center justify-center rounded-bl bg-primary text-primary-foreground">
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5">
-                                  <path fillRule="evenodd" d="M12.416 3.376a.75.75 0 0 1 .208 1.04l-5 7.5a.75.75 0 0 1-1.154.114l-3-3a.75.75 0 0 1 1.06-1.06l2.353 2.353 4.493-6.74a.75.75 0 0 1 1.04-.207Z" clipRule="evenodd" />
-                                </svg>
-                              </div>
-                            ) : null}
                           </div>
                           <div className="min-w-0 flex-1">
                             <span className="block truncate text-xs font-medium">{c.title}</span>
@@ -514,7 +825,7 @@ const DesignWorkbenchPage = ({
                 <CollapsibleContent className="space-y-2 pb-2 text-xs">
                   <div className="flex items-start gap-2">
                     <p className="min-w-0 flex-1 rounded bg-muted/50 px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
-                      A visual reference image of these tokens is automatically generated on the server and sent with each generation request (alongside the text summary).
+                      A visual reference image of these tokens is automatically generated on the server and sent with each request.
                     </p>
                     <Button
                       type="button"
@@ -525,62 +836,30 @@ const DesignWorkbenchPage = ({
                       onClick={() => void openFoundationRasterPreview()}
                       title="Open the same raster image sent to the model"
                     >
-                      {foundationPreviewLoading ? (
-                        <Loader2Icon className="h-3.5 w-3.5 shrink-0 animate-spin" />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5 shrink-0" />
-                      )}
+                      {foundationPreviewLoading ? <Loader2Icon className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Eye className="h-3.5 w-3.5 shrink-0" />}
                       Preview
                     </Button>
                   </div>
                   {foundationPreviewError ? <p className="text-[11px] text-destructive">{foundationPreviewError}</p> : null}
-                  <div>
-                    <p className="mb-1 font-medium text-muted-foreground">Colors</p>
-                    <div className="flex flex-wrap gap-1">
-                      {effectiveFoundations.colors.slice(0, 16).map((c, i) => (
-                        <span key={`${c.name}-${i}`} className="inline-flex items-center gap-1 rounded border px-1 py-0.5" title={`${c.name}: ${c.value}`}>
-                          <span className="h-3 w-3 rounded-sm border" style={{ background: c.value }} />
-                          <span className="max-w-[5rem] truncate">{c.name}</span>
-                        </span>
-                      ))}
-                      {!effectiveFoundations.colors.length ? <span className="text-muted-foreground">No token colors loaded.</span> : null}
-                    </div>
+                  <div className="flex flex-wrap gap-1">
+                    {effectiveFoundations.colors.slice(0, 16).map((c, i) => (
+                      <span key={`${c.name}-${i}`} className="inline-flex items-center gap-1 rounded border px-1 py-0.5" title={`${c.name}: ${c.value}`}>
+                        <span className="h-3 w-3 rounded-sm border" style={{ background: c.value }} />
+                        <span className="max-w-[5rem] truncate">{c.name}</span>
+                      </span>
+                    ))}
                   </div>
-                  <div>
-                    <p className="mb-1 font-medium text-muted-foreground">Typography</p>
-                    <ul className="max-h-24 space-y-0.5 overflow-y-auto text-muted-foreground">
-                      {effectiveFoundations.typography.slice(0, 12).map((t, i) => (
-                        <li key={`${t.name}-${i}`}>
-                          <strong className="text-foreground">{t.name}</strong>: {t.line}
-                        </li>
-                      ))}
-                      {!effectiveFoundations.typography.length ? <li>No typography tokens.</li> : null}
-                    </ul>
-                  </div>
-                  {effectiveFoundations.spacing?.length ? (
-                    <div>
-                      <p className="mb-1 font-medium text-muted-foreground">Spacing</p>
-                      <ul className="max-h-20 space-y-0.5 overflow-y-auto text-muted-foreground">
-                        {effectiveFoundations.spacing.slice(0, 16).map((s, i) => (
-                          <li key={`${s.name}-${i}`}>
-                            <strong className="text-foreground">{s.name}</strong>: {s.value}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
                 </CollapsibleContent>
               </Collapsible>
             </div>
           </aside>
 
-          {/* Center */}
           <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
             {!serverAiAvailable ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
                 Design workbench needs server AI: <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_AI_API_KEY</code> or{' '}
                 <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_URL</code> +{' '}
-                <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code> (team proxy).
+                <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code>.
               </p>
             ) : null}
 
@@ -602,6 +881,7 @@ const DesignWorkbenchPage = ({
                 maxScale={4}
                 centerOnInit
                 limitToBounds={false}
+                panning={{ disabled: isAnnotating }}
                 wheel={{ step: 0.08 }}
                 doubleClick={{ mode: 'reset' }}
               >
@@ -621,7 +901,11 @@ const DesignWorkbenchPage = ({
 
                     <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-fit !w-fit">
                       <div
-                        className="flex h-[1024px] w-[1024px] items-center justify-center p-8"
+                        className={`relative flex h-[1024px] w-[1024px] items-center justify-center p-8 ${isAnnotating ? 'cursor-crosshair' : ''}`}
+                        onMouseDown={handleAnnotationStart}
+                        onMouseMove={handleAnnotationMove}
+                        onMouseUp={handleAnnotationEnd}
+                        onMouseLeave={handleAnnotationEnd}
                         style={{
                           backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
                           backgroundSize: '18px 18px',
@@ -642,6 +926,24 @@ const DesignWorkbenchPage = ({
                             <p>Add images, select components, or rely on foundations — then write a prompt and generate.</p>
                           </div>
                         )}
+                        {annotations.map((annotation) => (
+                          <div
+                            key={annotation.id}
+                            className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
+                            style={{ left: annotation.x, top: annotation.y, width: annotation.width, height: annotation.height }}
+                          />
+                        ))}
+                        {draftAnnotation ? (
+                          <div
+                            className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
+                            style={{
+                              left: getAnnotationRect(draftAnnotation).x,
+                              top: getAnnotationRect(draftAnnotation).y,
+                              width: getAnnotationRect(draftAnnotation).width,
+                              height: getAnnotationRect(draftAnnotation).height,
+                            }}
+                          />
+                        ) : null}
                       </div>
                     </TransformComponent>
                   </>
@@ -662,9 +964,7 @@ const DesignWorkbenchPage = ({
                     className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
-                      if (f && ['image/png', 'image/jpeg', 'image/webp'].includes(f.type)) {
-                        setPromptImage(f);
-                      }
+                      if (f && ['image/png', 'image/jpeg', 'image/webp'].includes(f.type)) setPromptImage(f);
                     }}
                   />
                   <Button
@@ -674,7 +974,6 @@ const DesignWorkbenchPage = ({
                     className="h-9 w-9 shrink-0"
                     onClick={() => promptImageInputRef.current?.click()}
                     aria-label="Attach image to this prompt"
-                    title="Attach image to this prompt"
                   >
                     <PaperclipIcon className="h-4 w-4" />
                   </Button>
@@ -700,8 +999,8 @@ const DesignWorkbenchPage = ({
                     className="min-w-0 flex-1"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
-                    placeholder={imageSrc ? 'Describe changes to the current design…' : 'Describe the section to design…'}
+                    onKeyDown={(e) => e.key === 'Enter' && void handleGenerate()}
+                    placeholder={imageSrc ? 'Describe changes to the selected area/current design…' : 'Describe the section to design…'}
                   />
                 </div>
               </div>
@@ -712,7 +1011,6 @@ const DesignWorkbenchPage = ({
             </div>
           </div>
 
-          {/* History + save */}
           <aside className="flex w-44 shrink-0 flex-col border-l bg-background">
             <div className="border-b px-3 py-3">
               <h2 className="text-sm font-semibold">Session</h2>
@@ -721,23 +1019,49 @@ const DesignWorkbenchPage = ({
             <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
               {generatedImages.length > 0 ? (
                 generatedImages.map((img) => (
-                  <button
-                    key={img.id}
-                    type="button"
-                    onClick={() => setImageSrc(img.src)}
-                    className="block w-full rounded-md border bg-muted/20 p-1 text-left text-xs transition hover:border-primary"
-                    title={img.prompt}
-                  >
-                    <Image
-                      src={img.src}
-                      alt={img.prompt}
-                      width={128}
-                      height={128}
-                      unoptimized
-                      className="aspect-square w-full rounded object-cover"
-                    />
-                    <span className="mt-1 line-clamp-2 block px-0.5 text-[10px] text-muted-foreground">{img.prompt}</span>
-                  </button>
+                  <div key={img.id} className="group relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (img.src) {
+                          setSelectedGeneratedImageId(img.id);
+                          setSelectedAssetName(null);
+                          setImageSrc(img.src);
+                          setAnnotations([]);
+                        }
+                      }}
+                      className="block w-full rounded-md border bg-muted/20 p-1 text-left text-xs transition hover:border-primary data-[selected=true]:border-primary disabled:cursor-default"
+                      title={img.error || img.prompt}
+                      disabled={!img.src}
+                      data-selected={selectedGeneratedImageId === img.id}
+                    >
+                      {img.status === 'completed' && img.src ? (
+                        <Image src={img.src} alt={img.prompt} width={128} height={128} unoptimized className="aspect-square w-full rounded object-cover" />
+                      ) : (
+                        <div className={`aspect-square w-full rounded ${img.status === 'error' ? 'bg-destructive/10' : 'animate-pulse bg-muted'}`} />
+                      )}
+                    </button>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="absolute right-1.5 top-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                      onClick={() => handleDeleteGeneratedImage(img.id)}
+                      aria-label="Delete generated image"
+                    >
+                      <Trash2Icon className="h-3.5 w-3.5" />
+                    </Button>
+                    {img.src ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="absolute bottom-1.5 right-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                        onClick={() => void handleDownloadImage(img.src)}
+                        aria-label="Save generated image"
+                      >
+                        <DownloadIcon className="h-3.5 w-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
                 ))
               ) : (
                 <p className="text-xs text-muted-foreground">Versions appear here.</p>
@@ -748,7 +1072,7 @@ const DesignWorkbenchPage = ({
                     Save for review
                   </Button>
                   <Button variant="ghost" size="sm" className="h-auto w-full py-1 text-[11px] text-muted-foreground" asChild>
-                    <Link href={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/designs/`}>View saved designs</Link>
+                    <Link href={`${basePath}/designs/`}>View saved designs</Link>
                   </Button>
                 </div>
               ) : null}
@@ -767,9 +1091,7 @@ const DesignWorkbenchPage = ({
         <DialogContent className="max-h-[90vh] w-[min(56rem,calc(100vw-2rem))] max-w-[min(56rem,calc(100vw-2rem))] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Foundation reference image</DialogTitle>
-            <DialogDescription>
-              Same raster PNG the server prepends to image generation requests (before uploads and iteration base).
-            </DialogDescription>
+            <DialogDescription>Same raster PNG prepended to generation requests.</DialogDescription>
           </DialogHeader>
           <div className="max-h-[calc(90vh-10rem)] overflow-auto rounded-md border bg-muted/30 p-2">
             {foundationPreviewUrl ? (
