@@ -1072,7 +1072,7 @@ const DesignWorkbenchPage = ({
                     Save for review
                   </Button>
                   <Button variant="ghost" size="sm" className="h-auto w-full py-1 text-[11px] text-muted-foreground" asChild>
-                    <Link href={`${basePath}/designs/`}>View saved designs</Link>
+                    <Link href={`${basePath}/design/library/`}>View saved designs</Link>
                   </Button>
                 </div>
               ) : null}

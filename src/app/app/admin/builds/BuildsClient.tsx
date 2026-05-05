@@ -245,7 +245,7 @@ export default function BuildsClient({
                             {row.componentId}
                           </Link>
                           <Link
-                            href={`${basePath}/designs/${encodeURIComponent(row.artifactId)}/`}
+                            href={`${basePath}/design/library/${encodeURIComponent(row.artifactId)}/`}
                             className="text-xs text-muted-foreground hover:underline"
                           >
                             from design…
@@ -279,7 +279,7 @@ export default function BuildsClient({
                     <TableCell className="font-mono text-xs text-muted-foreground">{row.artifactId.slice(0, 8)}…</TableCell>
                     <TableCell>
                       <Link
-                        href={`${basePath}/designs/${encodeURIComponent(row.artifactId)}/`}
+                        href={`${basePath}/design/library/${encodeURIComponent(row.artifactId)}/`}
                         className="text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-400"
                       >
                         {row.title || 'Untitled'}

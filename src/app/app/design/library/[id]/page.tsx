@@ -29,11 +29,11 @@ export default async function SavedDesignDetailPage({ params }: PageProps) {
 
   const session = await auth();
   if (!session?.user) {
-    redirect(`/login?callbackUrl=/designs/${encodeURIComponent(artifactId)}`);
+    redirect(`/login?callbackUrl=/design/library/${encodeURIComponent(artifactId)}`);
   }
 
   if (!artifactId) {
-    redirect('/designs');
+    redirect('/design/library');
   }
 
   return <SavedDesignDetailClient config={config} menu={menu} metadata={baseMeta} artifactId={artifactId} />;

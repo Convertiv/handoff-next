@@ -161,7 +161,7 @@ export default function SavedDesignsClient({ menu, metadata, config, message }: 
               {filtered.map((a) => (
                 <Link
                   key={a.id}
-                  href={`${basePath}/designs/${a.id}/`}
+                  href={`${basePath}/design/library/${a.id}/`}
                   className={cn(
                     'group flex overflow-hidden rounded-xl border bg-card text-card-foreground shadow-sm transition hover:border-primary/40 hover:shadow-md',
                     layout === 'single' ? 'flex-row gap-4 p-3' : 'flex-col'

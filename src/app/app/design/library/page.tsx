@@ -25,7 +25,7 @@ export default async function DesignsPage() {
 
   const session = await auth();
   if (!session?.user) {
-    redirect('/login?callbackUrl=/designs');
+    redirect('/login?callbackUrl=/design/library');
   }
 
   return <SavedDesignsClient config={config} menu={menu} metadata={PAGE_METADATA} />;

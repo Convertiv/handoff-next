@@ -297,7 +297,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
 
   const shareUrl = useMemo(() => {
     if (typeof window === 'undefined' || !artifactId) return '';
-    return `${window.location.origin}${basePath}/designs/${encodeURIComponent(artifactId)}/share`;
+    return `${window.location.origin}${basePath}/design/library/${encodeURIComponent(artifactId)}/share`;
   }, [artifactId, basePath]);
 
   const handleShare = async () => {
@@ -316,7 +316,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
         if (!res.ok) throw new Error(json.error || 'Could not enable sharing.');
         setArtifact((prev) => (prev ? { ...prev, publicAccess: true } : prev));
       }
-      const url = shareUrl || `${window.location.origin}${basePath}/designs/${encodeURIComponent(artifactId)}/share`;
+      const url = shareUrl || `${window.location.origin}${basePath}/design/library/${encodeURIComponent(artifactId)}/share`;
       await navigator.clipboard.writeText(url);
       setNotice('Share link copied to clipboard.');
     } catch (e) {
@@ -400,7 +400,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
         <div className="mx-auto max-w-4xl space-y-6 pb-12">
           <div className="flex flex-wrap items-center gap-3">
             <Button variant="outline" size="sm" asChild>
-              <Link href={`${basePath}/designs/`}>
+              <Link href={`${basePath}/design/library/`}>
                 <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
                 All saved designs
               </Link>
