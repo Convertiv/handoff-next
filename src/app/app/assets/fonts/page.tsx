@@ -6,11 +6,12 @@ import * as React from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import Footer from '../../../components/Footer';
-import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
-import Header from '../../../components/old/Header';
-import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '../../../components/util';
-import { getMaterializedAppRoot } from '../../../lib/server/handoff-app-paths';
+import { ConfigContextProvider } from '@/components/context/ConfigContext';
+import Footer from '@/components/Footer';
+import { Header } from '@/components/Layout/Header';
+import { MarkdownComponents, remarkCodeMeta } from '@/components/Markdown/MarkdownComponents';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '@/components/util';
+import { getMaterializedAppRoot } from '@/lib/server/handoff-app-paths';
 
 export async function generateMetadata() {
   const { props } = await fetchDocPageMarkdownAsync('docs/assets/', 'fonts', '/assets');
@@ -38,40 +39,46 @@ export default async function FontsPage() {
   });
 
   return (
-    <div className="c-page">
-      <Header menu={menu} config={config} />
-      <section className="c-content">
-        <div className="o-container-fluid">
-          <div className="c-hero">
-            <div>
-              <h1>{metadata.title}</h1>
-              <p>{metadata.description}</p>
+    <ConfigContextProvider defaultConfig={config} defaultMenu={menu}>
+      <div className="c-page">
+        <Header />
+        <section className="c-content">
+          <div className="o-container-fluid">
+            <div className="c-hero">
+              <div>
+                <h1>{metadata.title}</h1>
+                <p>{metadata.description}</p>
+              </div>
             </div>
-          </div>
-          {fontFamilies.map((fontFamily, i) => (
-            <React.Fragment key={fontFamily}>
-              <div className="o-row u-justify-between">
-                <div className="o-col-5@md"><h4>{fontFamily}</h4></div>
-                <div className="o-col-6@md">
-                  <div className="c-card">
-                    <FileArchive />
+            {fontFamilies.map((fontFamily, i) => (
+              <React.Fragment key={fontFamily}>
+                <div className="o-row u-justify-between">
+                  <div className="o-col-5@md">
                     <h4>{fontFamily}</h4>
-                    <p>Font files for installing on a local machine.</p>
-                    <p><a href={fontLinks[i]}>Download Font</a></p>
+                  </div>
+                  <div className="o-col-6@md">
+                    <div className="c-card">
+                      <FileArchive />
+                      <h4>{fontFamily}</h4>
+                      <p>Font files for installing on a local machine.</p>
+                      <p>
+                        <a href={fontLinks[i]}>Download Font</a>
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
-              <hr />
-            </React.Fragment>
-          ))}
-          <div className="prose">
-            <ReactMarkdown components={MarkdownComponents} remarkPlugins={[remarkGfm, remarkCodeMeta]} rehypePlugins={[rehypeRaw]}>
-              {content}
-            </ReactMarkdown>
+                <hr />
+              </React.Fragment>
+            ))}
+            <div className="prose">
+              <ReactMarkdown components={MarkdownComponents} remarkPlugins={[remarkGfm, remarkCodeMeta]} rehypePlugins={[rehypeRaw]}>
+                {content}
+              </ReactMarkdown>
+            </div>
           </div>
-        </div>
-      </section>
-      <Footer config={config} />
-    </div>
+        </section>
+        <Footer config={config} />
+      </div>
+    </ConfigContextProvider>
   );
 }

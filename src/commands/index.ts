@@ -10,6 +10,7 @@ import makeComponentCommand from './make/component.js';
 import makePageCommand from './make/page.js';
 import makeTemplateCommand from './make/template.js';
 import prepareRuntimeCommand from './prepare-runtime.js';
+import vercelBuildCommand from './vercel-build.js';
 import pullCommand from './pull.js';
 import pushCommand from './push.js';
 import scaffoldCommand from './scaffold/index.js';
@@ -21,6 +22,7 @@ export const commands = [
   buildAppCommand,
   buildComponentsCommand,
   prepareRuntimeCommand,
+  vercelBuildCommand,
   devCommand,
   ejectConfigCommand,
   ejectPagesCommand,

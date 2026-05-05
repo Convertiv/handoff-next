@@ -4,14 +4,14 @@ import type { ClientConfig } from '@handoff/types/config';
 import { ArrowLeft, ImageIcon, LayoutGrid, Loader2Icon, Rows, Search } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Layout from '../../components/Layout/Main';
-import { handoffApiUrl } from '../../lib/api-path';
-import type { Metadata, SectionLink } from '../../components/util';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group';
-import { cn } from '../../lib/utils';
+import Layout from '@/components/Layout/Main';
+import { handoffApiUrl } from '@/lib/api-path';
+import type { Metadata, SectionLink } from '@/components/util';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { cn } from '@/lib/utils';
 
 export type SavedDesignListRow = {
   id: string;

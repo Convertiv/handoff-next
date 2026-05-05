@@ -2,7 +2,7 @@
 
 import { Loader2Icon } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { handoffApiUrl } from '../../../../lib/api-path';
+import { handoffApiUrl } from '@/lib/api-path';
 
 type PublicArtifact = {
   id: string;

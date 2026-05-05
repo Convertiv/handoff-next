@@ -76,6 +76,32 @@ function resolveNextBinFromHandoffPackage(handoffModulePath: string): string {
   }
 }
 
+/**
+ * Run `next build` with cwd `appPath` (e.g. `.handoff/runtime`), resolving `next` from `handoff.modulePath`.
+ */
+export const runNextProductionBuild = (handoff: Handoff, appPath: string): void => {
+  const nextBin = resolveNextBinFromHandoffPackage(handoff.modulePath);
+  const buildResult = spawn.sync(process.execPath, [nextBin, 'build'], {
+    cwd: appPath,
+    stdio: ['inherit', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+    },
+  });
+
+  Logger.childProcessBuffer(buildResult.stdout);
+  Logger.childProcessBuffer(buildResult.stderr);
+
+  if (buildResult.status !== 0) {
+    let errorMsg = `Next.js build failed with exit code ${buildResult.status}`;
+    if (buildResult.error) {
+      errorMsg += `\nSpawn error: ${buildResult.error.message}`;
+    }
+    throw new Error(errorMsg);
+  }
+};
+
 const writeVercelRuntimePackage = async (handoff: Handoff, appPath: string): Promise<void> => {
   // No `next` / `react` here: `initializeProjectApp` symlinks `node_modules` to the host
   // install (repo root). Running `npm install` inside this folder would duplicate `next`
@@ -392,26 +418,7 @@ const buildApp = async (handoff: Handoff, skipComponents?: boolean, mode: BuildM
     return;
   }
 
-  const nextBin = resolveNextBinFromHandoffPackage(handoff.modulePath);
-  const buildResult = spawn.sync(process.execPath, [nextBin, 'build'], {
-    cwd: appPath,
-    stdio: ['inherit', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      NODE_ENV: 'production',
-    },
-  });
-
-  Logger.childProcessBuffer(buildResult.stdout);
-  Logger.childProcessBuffer(buildResult.stderr);
-
-  if (buildResult.status !== 0) {
-    let errorMsg = `Next.js build failed with exit code ${buildResult.status}`;
-    if (buildResult.error) {
-      errorMsg += `\nSpawn error: ${buildResult.error.message}`;
-    }
-    throw new Error(errorMsg);
-  }
+  runNextProductionBuild(handoff, appPath);
 
   // Ensure output root directory exists
   const outputRoot = path.resolve(handoff.workingPath, handoff.sitesDirectory);

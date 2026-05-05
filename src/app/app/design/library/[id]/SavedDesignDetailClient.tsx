@@ -4,12 +4,12 @@ import type { ClientConfig } from '@handoff/types/config';
 import { ArrowLeft, ExternalLink, Link2Icon, Loader2Icon, RefreshCwIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Layout from '../../../components/Layout/Main';
-import { handoffApiUrl } from '../../../lib/api-path';
-import type { Metadata, SectionLink } from '../../../components/util';
-import { Button } from '../../../components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../../components/ui/collapsible';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../../components/ui/tooltip';
+import Layout from '@/components/Layout/Main';
+import { handoffApiUrl } from '@/lib/api-path';
+import type { Metadata, SectionLink } from '@/components/util';
+import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { GenerateComponentModal } from './GenerateComponentModal';
 
 export type SavedDesignArtifactDetail = {

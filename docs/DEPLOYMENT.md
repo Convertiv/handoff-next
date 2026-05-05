@@ -11,6 +11,7 @@ Handoff materializes a Next.js app from its templates and your design tokens. Th
 | `handoff-app build:app` | Materializes the app and runs `next build` (static export). |
 | `handoff-app build:app --mode vercel` | Materializes to `.handoff/runtime` for CI/Vercel (does **not** run `next build`). |
 | `handoff-app prepare-runtime` | Alias for `build:app --mode vercel`. |
+| `handoff-app vercel-build` | Same pipeline as `build:app --mode vercel`, then runs `next build` in `.handoff/runtime` (recommended Vercel **Build Command**). |
 
 ## Path contract
 
@@ -56,10 +57,12 @@ Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-run
   "scripts": {
     "start": "handoff-app start",
     "dev": "handoff-app dev",
-    "build:vercel": "handoff-app prepare-runtime && cd .handoff/runtime && next build"
+    "build:vercel": "handoff-app vercel-build"
   }
 }
 ```
+
+Equivalent manual chain (same behavior as `vercel-build`): `handoff-app build:app --mode vercel && cd .handoff/runtime && next build`. Prefer `vercel-build` so the full Handoff pipeline always runs before Next.
 
 4. Vercel settings:
    - **Root Directory**: repository root
@@ -72,6 +75,8 @@ Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-run
 **Components on disk:** Run `handoff-app build:components` (or use `prepare-runtime` without `--skip-components`) before `next build` so `public/api/components.json` and per-component files exist and get synced into the runtime.
 
 **`/admin/*` and login:** When `DATABASE_URL` is set, middleware requires a signed-in admin JWT for `/admin` routes. That is expected; use `/login` with an admin account, or use local SQLite-only mode without `DATABASE_URL` for open `/admin` during development.
+
+**Troubleshooting — Vercel reports missing `.handoff/runtime/.next`:** That path exists only after a successful `next build` inside `.handoff/runtime`. If the build command stops after `prepare-runtime` / `build:app --mode vercel` only, add `vercel-build` (or the manual `cd .handoff/runtime && next build` step). If `next build` fails earlier in the log, fix those compile errors first; the output-directory message is usually a follow-on symptom.
 
 ### Option B: Deploy from repo root (layout `root`)
 

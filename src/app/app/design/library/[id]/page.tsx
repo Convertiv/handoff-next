@@ -1,8 +1,8 @@
 import type { Metadata as NextMetadata } from 'next';
 import { redirect } from 'next/navigation';
-import { getClientRuntimeConfig, type Metadata } from '../../../components/util';
-import { getDataProvider } from '../../../lib/data';
-import { auth } from '../../../lib/auth';
+import { getClientRuntimeConfig, type Metadata } from '@/components/util';
+import { getDataProvider } from '@/lib/data';
+import { auth } from '@/lib/auth';
 import SavedDesignDetailClient from './SavedDesignDetailClient';
 
 type PageProps = { params: Promise<{ id: string }> };

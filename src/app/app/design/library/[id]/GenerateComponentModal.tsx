@@ -2,14 +2,14 @@
 
 import { Pencil, Check, X, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isValidComponentId } from '../../../lib/component-id';
-import { handoffApiUrl } from '../../../lib/api-path';
-import { Button } from '../../../components/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../../components/ui/dialog';
-import { Input } from '../../../components/ui/input';
-import { Label } from '../../../components/ui/label';
-import { Switch } from '../../../components/ui/switch';
-import { Textarea } from '../../../components/ui/textarea';
+import { isValidComponentId } from '@/lib/component-id';
+import { handoffApiUrl } from '@/lib/api-path';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
 
 function toSlug(text: string): string {
   return text

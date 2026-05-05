@@ -9,7 +9,8 @@ export interface PrepareRuntimeArgs extends SharedArgs {
 
 const command: CommandModule<{}, PrepareRuntimeArgs> = {
   command: 'prepare-runtime',
-  describe: 'Materialize the Next.js Handoff app to .handoff/runtime (for CI/Vercel; does not run next build)',
+  describe:
+    'Materialize the Next.js Handoff app to .handoff/runtime (for CI/Vercel; does not run next build — use vercel-build for a full Vercel build)',
   builder: (yargs): Argv<PrepareRuntimeArgs> =>
     getSharedOptions(yargs).option('skip-components', {
       describe: 'Skip building components before preparing the runtime',
