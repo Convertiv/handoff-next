@@ -49,7 +49,7 @@ export default function WizardDialog({ open, onOpenChange }: WizardDialogProps) 
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(handoffApiUrl('/api/handoff/ai/status'));
+        const res = await fetch(handoffApiUrl('/api/handoff/ai/status'), { credentials: 'include' });
         const json = (await res.json()) as AiStatus;
         if (!cancelled) setServerAi(json);
       } catch {

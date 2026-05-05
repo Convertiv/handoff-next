@@ -13,7 +13,7 @@ type Body = {
  * HANDOFF_AI_API_KEY is set, and by local instances via proxy (bearer auth).
  */
 export async function POST(request: NextRequest) {
-  const ctx = await authOrCloudToken(request);
+  const ctx = await authOrCloudToken(request, { allowServiceBearer: true });
   if (ctx instanceof NextResponse) return ctx;
 
   if (!process.env.HANDOFF_AI_API_KEY?.trim()) {

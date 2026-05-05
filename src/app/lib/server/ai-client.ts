@@ -25,7 +25,6 @@ export function shouldProxyAi(): boolean {
 
 export function isServerAiConfigured(): boolean {
   const key = process.env.HANDOFF_AI_API_KEY?.trim();
-  console.log('env', process.env);
   return Boolean(key && key.length > 0) || shouldProxyAi();
 }
 

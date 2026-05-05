@@ -1,9 +1,14 @@
 import { NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { getServerAiModel, isServerAiConfigured } from '@/lib/server/ai-client';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
   return NextResponse.json({
     available: isServerAiConfigured(),
     model: getServerAiModel(),

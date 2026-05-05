@@ -46,5 +46,6 @@ yarn-error.log*
 /src/app/.next
 /exported
 handoff.config.js
+handoff.config.cjs
 
 projects/

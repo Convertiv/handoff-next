@@ -23,17 +23,40 @@ export type AuthOrCloudUser = {
   role: string;
 };
 
+export type AuthOrCloudTokenOptions = {
+  /**
+   * Accept `HANDOFF_SYNC_SECRET` bearer without `X-Handoff-Proxy-Acting-User`.
+   * Use only for trusted server-to-server calls (e.g. cloud `design-artifact-extract`).
+   */
+  allowServiceBearer?: boolean;
+};
+
 /**
- * NextAuth session, or `Authorization: Bearer` matching HANDOFF_SYNC_SECRET
- * (local Handoff instances proxying AI to this server).
+ * NextAuth session, or sync bearer used for cloud AI proxy.
+ *
+ * Bearer-only access is **not** enough for user-facing AI routes: callers must either
+ * have a browser session or send `X-Handoff-Proxy-Acting-User` (set by {@link proxyAiToCloud})
+ * so proxied requests are tied to a signed-in user on the origin instance.
  */
-export async function authOrCloudToken(request: Request): Promise<AuthOrCloudUser | NextResponse> {
+export async function authOrCloudToken(
+  request: Request,
+  opts: AuthOrCloudTokenOptions = {}
+): Promise<AuthOrCloudUser | NextResponse> {
   const session = await auth();
   if (session?.user?.id) {
     return { userId: session.user.id, role: session.user.role ?? 'viewer' };
   }
   const bearerErr = verifySyncBearer(request);
   if (bearerErr) return bearerErr;
+  if (!opts.allowServiceBearer) {
+    const acting = proxyActingUserId(request);
+    if (!acting?.trim()) {
+      return NextResponse.json(
+        { error: 'Unauthorized — sign in to use AI, or use a configured cloud proxy with acting-user headers.' },
+        { status: 401 }
+      );
+    }
+  }
   return { userId: 'cloud-proxy', role: 'admin' };
 }
 
