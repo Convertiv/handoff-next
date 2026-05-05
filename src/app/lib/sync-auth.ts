@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { LOGIN_TO_USE_TOOL_MESSAGE } from '@/lib/login-required-messages';
+
+export { LOGIN_TO_USE_TOOL_MESSAGE };
 
 /**
  * Shared secret for CLI / automation (`Authorization: Bearer <HANDOFF_SYNC_SECRET>`).
@@ -46,6 +49,13 @@ export async function authOrCloudToken(
   if (session?.user?.id) {
     return { userId: session.user.id, role: session.user.role ?? 'viewer' };
   }
+
+  const header = request.headers.get('authorization') ?? '';
+  const bearerToken = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (!bearerToken) {
+    return NextResponse.json({ error: LOGIN_TO_USE_TOOL_MESSAGE }, { status: 401 });
+  }
+
   const bearerErr = verifySyncBearer(request);
   if (bearerErr) return bearerErr;
   if (!opts.allowServiceBearer) {

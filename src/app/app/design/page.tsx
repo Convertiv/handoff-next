@@ -1,5 +1,6 @@
 import type { ComponentListObject } from '@handoff/transformers/preview/types';
 import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../components/util';
+import { auth } from '@/lib/auth';
 import { getDataProvider } from '../../lib/data';
 import { isServerAiConfigured } from '../../lib/server/ai-client';
 import { serializeFoundationsFromTokens } from '../../lib/server/design-prompt-builder';
@@ -60,6 +61,9 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
   const raw = sp.loadArtifact;
   const loadArtifactId = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? '').trim() : '';
 
+  const session = await auth();
+  const isLoggedIn = Boolean(session?.user);
+
   const { props } = await fetchDocPageMarkdownAsync('docs/', 'design', '/design');
   const config = getClientRuntimeConfig();
   const serverAiAvailable = isServerAiConfigured();
@@ -83,6 +87,7 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
       metadata={props.metadata as DocMetadata}
       current={props.current}
       config={config}
+      isLoggedIn={isLoggedIn}
       serverAiAvailable={serverAiAvailable}
       components={components}
       foundations={foundations}

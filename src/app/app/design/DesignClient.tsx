@@ -30,6 +30,7 @@ import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Textarea } from '../../components/ui/textarea';
 import type { DocumentationProps } from '../../components/util';
+import { LOGIN_TO_USE_TOOL_MESSAGE } from '@/lib/login-required-messages';
 import type {
   DesignConversationTurn,
   DesignWorkbenchComponentGuide,
@@ -61,6 +62,7 @@ type DraftAnnotation = {
 };
 
 type DesignClientProps = DocumentationProps & {
+  isLoggedIn: boolean;
   serverAiAvailable: boolean;
   components: DesignWorkbenchComponentRow[];
   foundations: DesignWorkbenchFoundationContext;
@@ -114,6 +116,7 @@ const DesignWorkbenchPage = ({
   metadata,
   current,
   config,
+  isLoggedIn,
   serverAiAvailable,
   components,
   foundations,
@@ -486,6 +489,10 @@ const DesignWorkbenchPage = ({
 
   const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
+    if (!isLoggedIn) {
+      setError(LOGIN_TO_USE_TOOL_MESSAGE);
+      return;
+    }
     if (!serverAiAvailable) {
       setError(
         'Design generation needs server AI: set HANDOFF_AI_API_KEY, or HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN to use your team cloud. Configure in Integrations / .env.'
@@ -1004,7 +1011,17 @@ const DesignWorkbenchPage = ({
                   />
                 </div>
               </div>
-              <Button onClick={() => void handleGenerate()} disabled={!prompt.trim() || isGenerating || !serverAiAvailable}>
+              <Button
+                onClick={() => void handleGenerate()}
+                disabled={!prompt.trim() || isGenerating || !serverAiAvailable || !isLoggedIn}
+                title={
+                  !isLoggedIn
+                    ? LOGIN_TO_USE_TOOL_MESSAGE
+                    : !serverAiAvailable
+                      ? 'Configure server AI in Integrations or .env'
+                      : undefined
+                }
+              >
                 {isGenerating ? <Loader2Icon className="mr-2 h-4 w-4 animate-spin" /> : null}
                 {imageSrc ? 'Refine' : 'Generate'}
               </Button>
