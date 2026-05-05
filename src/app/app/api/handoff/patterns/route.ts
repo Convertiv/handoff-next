@@ -3,8 +3,6 @@ import { auth } from '@/lib/auth';
 import { getDbPatternsFiltered } from '@/lib/db/queries';
 import { patternRowToListEntry } from '@/lib/server/pattern-api-map';
 
-export const dynamic = 'force-dynamic';
-
 export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user) {

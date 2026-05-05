@@ -10,9 +10,7 @@ export type DocPageContent = {
   options: ComponentDocumentationOptions;
 };
 
-/**
- * Unified data access for static export vs dynamic (DB-backed) deployment.
- */
+/** Unified data access for the Handoff app (filesystem and/or DB-backed sources at runtime). */
 export interface DataProvider {
   getComponents(): Promise<ComponentListObject[]>;
   getComponent(id: string): Promise<ComponentObject | null>;

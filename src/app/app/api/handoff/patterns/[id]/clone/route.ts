@@ -5,7 +5,6 @@ import { getDb } from '@/lib/db';
 import { getDbPatternById } from '@/lib/db/queries';
 import { editHistory, handoffPatterns } from '@/lib/db/schema';
 import { insertSyncEvent } from '@/lib/db/sync-queries';
-export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ id: string }> };
 

@@ -6,9 +6,6 @@ import {
   resolveComponentEntryDirsAt,
 } from '@/lib/server/handoff-config-project';
 
-/** Skip build-time route collection (avoids SQLite auth + parallel worker locks). */
-export const dynamic = 'force-dynamic';
-
 /**
  * Component entry directories from `handoff.config` `entries.components`,
  * resolved against `HANDOFF_WORKING_PATH` (when set) or the handoff-app repo root.

@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { SyncEntityType, SyncUploadBody } from '@handoff/types/handoff-sync';
 
-export const dynamic = 'force-static';
-
 export async function POST(request: Request) {
   const { applyUploadedChange } = await import('@/lib/db/sync-queries');
   const { verifySyncBearer } = await import('@/lib/sync-auth');

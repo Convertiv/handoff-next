@@ -2,8 +2,6 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { authOrCloudToken } from '@/lib/sync-auth';
 import { extractDesignAssetsFromCompositeImage } from '@/lib/server/design-asset-extractor';
 
-export const dynamic = 'force-dynamic';
-
 type Body = {
   imageUrl?: string;
 };

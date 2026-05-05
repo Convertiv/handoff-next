@@ -3,8 +3,6 @@ import { auth } from '@/lib/auth';
 import { getDbPatternById } from '@/lib/db/queries';
 import { patternRowToDetailResponse } from '@/lib/server/pattern-api-map';
 
-export const dynamic = 'force-dynamic';
-
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_request: Request, context: RouteContext) {

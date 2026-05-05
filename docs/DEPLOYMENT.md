@@ -2,13 +2,15 @@
 
 Handoff materializes a Next.js app from its templates and your design tokens. The generated app is **not source code** — extend it via `handoff.config` hooks, `pages/`, `public/`, and documented overrides.
 
+Do not set Next.js `output: 'export'` on this app: NextAuth and App Route APIs require a Node (or compatible) server runtime.
+
 ## CLI commands (quick reference)
 
 | Command | What it does |
 |---------|-------------|
 | `handoff-app start` | Materializes the app, starts the dev server, and watches for changes. **Use for local development.** |
 | `handoff-app dev` | Bare `next dev` inside an already-materialized app directory. |
-| `handoff-app build:app` | Materializes the app and runs `next build` (static export). |
+| `handoff-app build:app` | Materializes the app and runs `next build` (writes `.next` for `next start` / Node hosting, not a static `out/` export). |
 | `handoff-app build:app --mode vercel` | Materializes to `.handoff/runtime` for CI/Vercel (does **not** run `next build`). |
 | `handoff-app prepare-runtime` | Alias for `build:app --mode vercel`. |
 | `handoff-app vercel-build` | Same pipeline as `build:app --mode vercel`, then runs `next build` in `.handoff/runtime` (recommended Vercel **Build Command**). |

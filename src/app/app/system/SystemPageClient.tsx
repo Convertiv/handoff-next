@@ -39,7 +39,6 @@ export default function SystemPageClient({ content, menu, metadata, current, con
       <Layout config={config} menu={menu} current={current} metadata={metadata}>
         <div className="flex items-center justify-center flex-col gap-2 lg:pr-8">
           <div className="mb-2 flex w-full flex-wrap items-center justify-center gap-2">
-            <FigmaFetchControls />
             {canSync ? (
               <>
                 <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setSyncOpen(true)}>
