@@ -32,15 +32,21 @@ export default function SystemPageClient({ content, menu, metadata, current, con
     setComponents(data as PreviewObject[]);
   };
   useEffect(() => { fetchComponents(); }, []);
-  if (!components) return <p>Loading...</p>;
+  if (!components) {
+    return (
+      <Layout config={config} menu={menu} current={current} metadata={metadata}>
+        <p className="text-muted-foreground">Loading…</p>
+      </Layout>
+    );
+  }
 
   if ((components ?? []).length === 0) {
     return (
       <Layout config={config} menu={menu} current={current} metadata={metadata}>
         <div className="flex items-center justify-center flex-col gap-2 lg:pr-8">
-          <div className="mb-2 flex w-full flex-wrap items-center justify-center gap-2">
+          <div className="mb-2 flex w-full flex-wrap items-center justify-center gap-2"> 
             {canSync ? (
-              <>
+              <>  
                 <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setSyncOpen(true)}>
                   <Upload className="h-3.5 w-3.5" />
                   Import from code
@@ -75,18 +81,6 @@ export default function SystemPageClient({ content, menu, metadata, current, con
         <div className="mt-3 flex flex-row flex-wrap items-start justify-between gap-3">
           <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{metadata.description}</p>
           <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
-            <FigmaFetchControls />
-            {canSync ? (
-              <>
-                <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setSyncOpen(true)}>
-                  <Upload className="h-3.5 w-3.5" />
-                  Import from code
-                </Button>
-                <ComponentExportButton onDone={() => void fetchComponents()} />
-                <ComponentSyncDialog open={syncOpen} onOpenChange={setSyncOpen} onImported={() => void fetchComponents()} />
-              </>
-            ) : null}
-            <NewComponentForm />
           <Drawer direction="right">
             <TooltipProvider>
               <Tooltip>

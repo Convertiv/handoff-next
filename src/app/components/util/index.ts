@@ -12,6 +12,7 @@ import { getDb } from '../../lib/db';
 import { getPublicApiDir } from '../../lib/data/static-provider';
 import { handoffTokensSnapshots } from '../../lib/db/schema';
 import { getDefaultDocsDir, getMaterializedAppRoot } from '../../lib/server/handoff-app-paths';
+import { trimSlashes } from '../../lib/utils';
 // Get the parsed url string type
 export interface IParams extends ParsedUrlQuery {
   slug: string | string[];
@@ -554,8 +555,10 @@ const staticBuildPatternMenu = () => {
  * @param path
  * @returns SectionLink | null
  */
-export const getCurrentSection = (menu: SectionLink[], path: string): SectionLink | null =>
-  menu.filter((section) => section.path === path)[0];
+export const getCurrentSection = (menu: SectionLink[], path: string): SectionLink | null => {
+  const target = trimSlashes(path);
+  return menu.find((section) => trimSlashes(section.path ?? '') === target) ?? null;
+};
 
 /**
  * Build a static object for rending markdown pages
