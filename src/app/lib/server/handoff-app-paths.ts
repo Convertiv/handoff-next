@@ -3,22 +3,33 @@ import path from 'path';
 
 const isUnset = (v: string | undefined): boolean => !v || v.startsWith('%HANDOFF_');
 
-function docsDirHasMarkdownFiles(dir: string): boolean {
-  try {
-    if (!fs.existsSync(dir)) return false;
-    for (const name of fs.readdirSync(dir)) {
-      if (name.endsWith('.md')) return true;
-      const sub = path.join(dir, name);
-      try {
-        if (fs.statSync(sub).isDirectory() && fs.readdirSync(sub).some((f) => f.endsWith('.md'))) return true;
-      } catch {
-        /* skip */
-      }
-    }
-    return false;
-  } catch {
-    return false;
+/**
+ * Read a Next.js env-inlined variable.
+ *
+ * `next.config.mjs` `env:` replaces **literal** `process.env.HANDOFF_*` at
+ * compile time. Accessing the same key through a parameter alias
+ * (`env.HANDOFF_APP_ROOT`) bypasses inlining, so the actual `process.env`
+ * (which may not have the key) is used instead.
+ *
+ * This helper falls back to the inlined constants when a caller-supplied
+ * `env` object does not carry the key.
+ */
+function readEnv(key: string, env?: NodeJS.ProcessEnv): string | undefined {
+  const fromArg = env?.[key];
+  if (fromArg !== undefined) return fromArg;
+
+  /* eslint-disable @typescript-eslint/no-unnecessary-condition -- direct access ensures Next.js inlines the value */
+  switch (key) {
+    case 'HANDOFF_APP_ROOT':
+      return process.env.HANDOFF_APP_ROOT;
+    case 'HANDOFF_WORKING_PATH':
+      return process.env.HANDOFF_WORKING_PATH;
+    case 'HANDOFF_MODULE_PATH':
+      return process.env.HANDOFF_MODULE_PATH;
+    default:
+      return undefined;
   }
+  /* eslint-enable */
 }
 
 /**
@@ -26,11 +37,11 @@ function docsDirHasMarkdownFiles(dir: string): boolean {
  * Prefer `HANDOFF_APP_ROOT` (set by `next.config.mjs`); else legacy `.handoff/app` under `HANDOFF_WORKING_PATH`.
  */
 export function getMaterializedAppRoot(env: NodeJS.ProcessEnv = process.env): string {
-  const appRoot = env.HANDOFF_APP_ROOT?.trim();
+  const appRoot = readEnv('HANDOFF_APP_ROOT', env)?.trim();
   if (!isUnset(appRoot)) {
     return path.resolve(appRoot!);
   }
-  const w = env.HANDOFF_WORKING_PATH?.trim();
+  const w = readEnv('HANDOFF_WORKING_PATH', env)?.trim();
   if (!isUnset(w)) {
     return path.resolve(w!, '.handoff', 'app');
   }
@@ -43,17 +54,10 @@ export function getMaterializedAppRoot(env: NodeJS.ProcessEnv = process.env): st
  */
 export function getDefaultDocsDir(env: NodeJS.ProcessEnv = process.env): string | null {
   const materialized = path.join(getMaterializedAppRoot(env), 'config', 'docs');
-  const mp = env.HANDOFF_MODULE_PATH?.trim();
+  const mp = readEnv('HANDOFF_MODULE_PATH', env)?.trim();
   const moduleDocs =
     mp && !mp.startsWith('%HANDOFF_') ? path.join(path.resolve(mp), 'config', 'docs') : null;
 
-  const materializedOk = docsDirHasMarkdownFiles(materialized);
-  const moduleOk = moduleDocs ? docsDirHasMarkdownFiles(moduleDocs) : false;
-
-  // Prefer a directory that actually contains shipped markdown so an empty
-  // `config/docs` under the materialized app does not shadow `handoff-app/config/docs`.
-  if (materializedOk) return materialized;
-  if (moduleOk) return moduleDocs;
   if (fs.existsSync(materialized)) return materialized;
   if (moduleDocs && fs.existsSync(moduleDocs)) return moduleDocs;
   return null;
