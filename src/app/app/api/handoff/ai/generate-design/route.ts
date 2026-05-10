@@ -7,7 +7,7 @@ import {
   type DesignWorkbenchFoundationContext,
 } from '@/lib/server/design-prompt-builder';
 import { renderFoundationsImage } from '@/lib/server/foundation-image';
-import { openAiImageEdit, shouldProxyAi, type ImageEditInput } from '@/lib/server/ai-client';
+import { openAiImageEdit, shouldProxyAi, type ImageEditInput, type ImageEditQuality } from '@/lib/server/ai-client';
 import { proxyAiToCloud } from '@/lib/server/ai-proxy';
 
 const MAX_PER_USER_PER_MINUTE = 10;
@@ -32,6 +32,13 @@ function toAllowedImageType(type: string): ImageEditInput['contentType'] | null 
     return type;
   }
   return null;
+}
+
+function toAllowedImageQuality(value: string): ImageEditQuality {
+  if (value === 'low' || value === 'medium' || value === 'high' || value === 'auto') {
+    return value;
+  }
+  return 'auto';
 }
 
 function safeJson<T>(raw: string | null, fallback: T): T {
@@ -64,14 +71,18 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const prompt = String(formData.get('prompt') ?? '').trim();
+    const quality = toAllowedImageQuality(String(formData.get('quality') ?? 'auto'));
+    const designGuidelines = String(formData.get('designGuidelines') ?? '').trim();
     if (!prompt) {
       return NextResponse.json({ error: 'prompt is required' }, { status: 400 });
     }
 
-    const foundationContext = safeJson<DesignWorkbenchFoundationContext>(
-      String(formData.get('foundationContext') ?? ''),
-      { colors: [], typography: [], effects: [], spacing: [] }
-    );
+    const foundationContext = safeJson<DesignWorkbenchFoundationContext>(String(formData.get('foundationContext') ?? ''), {
+      colors: [],
+      typography: [],
+      effects: [],
+      spacing: [],
+    });
     const componentGuides = safeJson<DesignWorkbenchComponentGuide[]>(String(formData.get('componentGuides') ?? ''), []);
     const conversationHistory = safeJson<DesignConversationTurn[]>(String(formData.get('conversationHistory') ?? ''), []);
 
@@ -80,6 +91,7 @@ export async function POST(request: NextRequest) {
       foundationContext,
       componentGuides: Array.isArray(componentGuides) ? componentGuides : [],
       conversationHistory: Array.isArray(conversationHistory) ? conversationHistory : [],
+      designGuidelines,
     });
 
     const images: ImageEditInput[] = [];
@@ -147,6 +159,7 @@ export async function POST(request: NextRequest) {
       images,
       model: 'gpt-image-2',
       size: '1024x1024',
+      quality,
       actorUserId: userId,
       route: '/api/handoff/ai/generate-design',
       eventType: 'ai.generate_design',

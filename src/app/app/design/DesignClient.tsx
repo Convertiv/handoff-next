@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ArrowUpIcon,
   DownloadIcon,
   Eye,
   ImageIcon,
@@ -8,6 +9,7 @@ import {
   Loader2Icon,
   PaperclipIcon,
   RotateCcwIcon,
+  SettingsIcon,
   SquareDashedMousePointer,
   Trash2Icon,
   Upload,
@@ -37,6 +39,7 @@ import type {
   DesignWorkbenchComponentRow,
   DesignWorkbenchFoundationContext,
 } from './workbench-types';
+import { COMPONENT_REFERENCE_SETTINGS, DESIGN_MD_SETTING_KEY, INCLUDE_FOUNDATIONS_SETTING_KEY } from './settings/settings-constants';
 
 type GeneratedImage = {
   id: string;
@@ -72,6 +75,9 @@ type DesignClientProps = DocumentationProps & {
 const DESIGN_CLIENTS = ['ssc', '8x8'] as const;
 type DesignLibraryClient = (typeof DESIGN_CLIENTS)[number];
 const DESIGN_ASSETS = [{ name: 'carousel.png' }, { name: 'container.png' }, { name: 'hero.png' }];
+const IMAGE_QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
+type ImageQuality = (typeof IMAGE_QUALITY_OPTIONS)[number];
+const EMPTY_FOUNDATIONS: DesignWorkbenchFoundationContext = { colors: [], typography: [], effects: [], spacing: [] };
 const CANVAS_SIZE = 1024;
 const MIN_ANNOTATION_SIZE = 8;
 
@@ -135,11 +141,12 @@ const DesignWorkbenchPage = ({
   const [selectedGeneratedImageId, setSelectedGeneratedImageId] = useState<string | null>(null);
   const [benchFiles, setBenchFiles] = useState<File[]>([]);
   const [layoutReferenceImages, setLayoutReferenceImages] = useState<File[]>([]);
-  const [promptImage, setPromptImage] = useState<File | null>(null);
-  const [promptImagePreviewUrl, setPromptImagePreviewUrl] = useState<string | null>(null);
+  const [promptImages, setPromptImages] = useState<File[]>([]);
+  const [promptImagePreviewUrls, setPromptImagePreviewUrls] = useState<string[]>([]);
   const [componentQuery, setComponentQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [prompt, setPrompt] = useState('');
+  const [imageQuality, setImageQuality] = useState<ImageQuality>('auto');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [isAnnotating, setIsAnnotating] = useState(false);
   const [annotations, setAnnotations] = useState<AnnotationRect[]>([]);
@@ -153,15 +160,39 @@ const DesignWorkbenchPage = ({
   const [saveDescription, setSaveDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [benchPreviewUrls, setBenchPreviewUrls] = useState<string[]>([]);
-  const [foundationPreviewOpen, setFoundationPreviewOpen] = useState(false);
-  const [foundationPreviewUrl, setFoundationPreviewUrl] = useState<string | null>(null);
-  const [foundationPreviewLoading, setFoundationPreviewLoading] = useState(false);
-  const [foundationPreviewError, setFoundationPreviewError] = useState<string | null>(null);
+  const [includeFoundations, setIncludeFoundations] = useState(true);
+  const [componentReferenceDataUrls, setComponentReferenceDataUrls] = useState<Record<string, string>>({});
+  const [designMd, setDesignMd] = useState('');
   const [effectiveFoundations, setEffectiveFoundations] = useState<DesignWorkbenchFoundationContext>(foundations);
 
   useEffect(() => {
     setEffectiveFoundations(foundations);
   }, [foundations]);
+
+  useEffect(() => {
+    const readSetting = () => {
+      try {
+        setIncludeFoundations(window.localStorage.getItem(INCLUDE_FOUNDATIONS_SETTING_KEY) !== 'false');
+        setComponentReferenceDataUrls(
+          Object.fromEntries(
+            COMPONENT_REFERENCE_SETTINGS.map((setting) => [setting.id, window.localStorage.getItem(setting.storageKey) || ''])
+          )
+        );
+        setDesignMd(window.localStorage.getItem(DESIGN_MD_SETTING_KEY) || '');
+      } catch {
+        setIncludeFoundations(true);
+        setComponentReferenceDataUrls({});
+        setDesignMd('');
+      }
+    };
+    readSetting();
+    window.addEventListener('storage', readSetting);
+    window.addEventListener('focus', readSetting);
+    return () => {
+      window.removeEventListener('storage', readSetting);
+      window.removeEventListener('focus', readSetting);
+    };
+  }, []);
 
   useEffect(() => {
     if (!loadArtifactId?.trim()) return;
@@ -213,28 +244,22 @@ const DesignWorkbenchPage = ({
   }, [benchFiles]);
 
   useEffect(() => {
-    if (!promptImage) {
-      setPromptImagePreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(promptImage);
-    setPromptImagePreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [promptImage]);
-
-  useEffect(() => {
+    const urls = promptImages.map((f) => URL.createObjectURL(f));
+    setPromptImagePreviewUrls(urls);
     return () => {
-      if (foundationPreviewUrl) URL.revokeObjectURL(foundationPreviewUrl);
+      urls.forEach((u) => URL.revokeObjectURL(u));
     };
-  }, [foundationPreviewUrl]);
+  }, [promptImages]);
+
+  const promptedFoundations = includeFoundations ? effectiveFoundations : EMPTY_FOUNDATIONS;
 
   const hasFoundationsForRaster = useMemo(
     () =>
-      effectiveFoundations.colors.length > 0 ||
-      effectiveFoundations.typography.length > 0 ||
-      (effectiveFoundations.spacing?.length ?? 0) > 0 ||
-      (effectiveFoundations.effects?.length ?? 0) > 0,
-    [effectiveFoundations]
+      promptedFoundations.colors.length > 0 ||
+      promptedFoundations.typography.length > 0 ||
+      (promptedFoundations.spacing?.length ?? 0) > 0 ||
+      (promptedFoundations.effects?.length ?? 0) > 0,
+    [promptedFoundations]
   );
 
   const filteredComponents = useMemo(() => {
@@ -459,34 +484,6 @@ const DesignWorkbenchPage = ({
     }
   };
 
-  const openFoundationRasterPreview = async () => {
-    if (!hasFoundationsForRaster) return;
-    setFoundationPreviewLoading(true);
-    setFoundationPreviewError(null);
-    try {
-      const res = await fetch(handoffApiUrl('/api/handoff/ai/foundation-preview'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ foundationContext: effectiveFoundations }),
-      });
-      if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(json.error || `Preview failed (${res.status})`);
-      }
-      const blob = await res.blob();
-      setFoundationPreviewUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return URL.createObjectURL(blob);
-      });
-      setFoundationPreviewOpen(true);
-    } catch (e: unknown) {
-      setFoundationPreviewError(e instanceof Error ? e.message : 'Could not load preview.');
-    } finally {
-      setFoundationPreviewLoading(false);
-    }
-  };
-
   const handleGenerate = async () => {
     if (!prompt.trim() || isGenerating) return;
     if (!isLoggedIn) {
@@ -502,10 +499,11 @@ const DesignWorkbenchPage = ({
 
     const refining = Boolean(imageSrc);
     const hasComponentImages = selectedGuides.some((g) => g.previewUrl);
-    const hasPromptImage = Boolean(promptImage);
-    if (!refining && benchFiles.length === 0 && !hasComponentImages && !hasPromptImage && !hasFoundationsForRaster) {
+    const hasPromptImage = promptImages.length > 0;
+    const hasSavedComponentReferences = Object.values(componentReferenceDataUrls).some(Boolean);
+    if (!refining && benchFiles.length === 0 && !hasComponentImages && !hasPromptImage && !hasFoundationsForRaster && !hasSavedComponentReferences) {
       setError(
-        'Add at least one image, attach a prompt image, select a component with a preview, use foundations loaded in the sidebar, or generate again from the current canvas after a first result.'
+        'Add at least one image, attach a prompt image, select a component with a preview, save component references in settings, use foundations in settings, or generate again from the current canvas after a first result.'
       );
       return;
     }
@@ -522,9 +520,11 @@ const DesignWorkbenchPage = ({
     try {
       const formData = new FormData();
       formData.append('prompt', submittedPrompt);
-      formData.append('foundationContext', JSON.stringify(effectiveFoundations));
+      formData.append('foundationContext', JSON.stringify(promptedFoundations));
       formData.append('componentGuides', JSON.stringify(selectedGuides));
       formData.append('conversationHistory', JSON.stringify(conversationHistory));
+      formData.append('designGuidelines', designMd);
+      formData.append('quality', imageQuality);
 
       if (refining && imageSrc) {
         let baseFile: File;
@@ -539,7 +539,11 @@ const DesignWorkbenchPage = ({
 
       for (const file of benchFiles) formData.append('image[]', file);
       for (const file of layoutReferenceImages) formData.append('image[]', file);
-      if (promptImage) formData.append('image[]', promptImage);
+      for (const setting of COMPONENT_REFERENCE_SETTINGS) {
+        const dataUrl = componentReferenceDataUrls[setting.id];
+        if (dataUrl) formData.append('image[]', await dataUrlToFile(dataUrl, setting.filename));
+      }
+      for (const file of promptImages) formData.append('image[]', file);
 
       const guideImageUrls = selectedGuides
         .filter((g) => g.previewUrl)
@@ -580,7 +584,7 @@ const DesignWorkbenchPage = ({
         current.map((image) => (image.id === requestId ? { ...image, src: json.image, status: 'completed' } : image))
       );
       setPrompt('');
-      setPromptImage(null);
+      setPromptImages([]);
       if (promptImageInputRef.current) promptImageInputRef.current.value = '';
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to generate.';
@@ -615,7 +619,7 @@ const DesignWorkbenchPage = ({
           imageUrl: imageSrc,
           sourceImages,
           componentGuides: selectedGuides,
-          foundationContext: effectiveFoundations,
+          foundationContext: promptedFoundations,
           conversationHistory,
         }),
       });
@@ -633,6 +637,7 @@ const DesignWorkbenchPage = ({
 
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
+      <>
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
           <div className="flex items-center gap-1">
@@ -691,15 +696,16 @@ const DesignWorkbenchPage = ({
                 ))}
               </SelectContent>
             </Select>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
+              <Link href={`${basePath}/design/settings/`} aria-label="Design settings">
+                <SettingsIcon className="h-4 w-4" />
+              </Link>
+            </Button>
           </div>
         </div>
 
         <div className="flex min-h-0 flex-1">
           <aside className="flex w-[min(22rem,100%)] shrink-0 flex-col overflow-hidden border-r bg-background">
-            <div className="border-b px-3 py-2">
-              <h2 className="text-sm font-semibold">Workbench</h2>
-              <p className="text-xs text-muted-foreground">Images, guides, and foundations are sent with each prompt.</p>
-            </div>
             <div className="flex-1 space-y-2 overflow-y-auto p-2">
               <Collapsible defaultOpen className="rounded-md border px-2 py-1">
                 <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
@@ -824,40 +830,6 @@ const DesignWorkbenchPage = ({
                   </div>
                 </CollapsibleContent>
               </Collapsible>
-
-              <Collapsible className="rounded-md border px-2 py-1">
-                <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
-                  <span>Foundations (read-only)</span>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-2 pb-2 text-xs">
-                  <div className="flex items-start gap-2">
-                    <p className="min-w-0 flex-1 rounded bg-muted/50 px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
-                      A visual reference image of these tokens is automatically generated on the server and sent with each request.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-auto shrink-0 gap-1 px-2 py-1 text-[11px]"
-                      disabled={!hasFoundationsForRaster || foundationPreviewLoading}
-                      onClick={() => void openFoundationRasterPreview()}
-                      title="Open the same raster image sent to the model"
-                    >
-                      {foundationPreviewLoading ? <Loader2Icon className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <Eye className="h-3.5 w-3.5 shrink-0" />}
-                      Preview
-                    </Button>
-                  </div>
-                  {foundationPreviewError ? <p className="text-[11px] text-destructive">{foundationPreviewError}</p> : null}
-                  <div className="flex flex-wrap gap-1">
-                    {effectiveFoundations.colors.slice(0, 16).map((c, i) => (
-                      <span key={`${c.name}-${i}`} className="inline-flex items-center gap-1 rounded border px-1 py-0.5" title={`${c.name}: ${c.value}`}>
-                        <span className="h-3 w-3 rounded-sm border" style={{ background: c.value }} />
-                        <span className="max-w-[5rem] truncate">{c.name}</span>
-                      </span>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
             </div>
           </aside>
 
@@ -871,7 +843,7 @@ const DesignWorkbenchPage = ({
             ) : null}
 
             {conversationHistory.length > 0 ? (
-              <div className="flex max-h-24 flex-wrap gap-2 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs">
+              <div className="hidden max-h-24 flex-wrap gap-2 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs">
                 {conversationHistory.map((turn, idx) => (
                   <span key={idx} className="rounded bg-background px-2 py-1 shadow-sm">
                     <strong>{turn.role}:</strong> {turn.prompt.slice(0, 80)}
@@ -960,71 +932,100 @@ const DesignWorkbenchPage = ({
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="min-w-0 flex-1 space-y-1">
-                <Label htmlFor="design-prompt">{imageSrc ? 'Refine' : 'Prompt'}</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    ref={promptImageInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f && ['image/png', 'image/jpeg', 'image/webp'].includes(f.type)) setPromptImage(f);
-                    }}
-                  />
-                  <Button
+            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+              <Label htmlFor="design-prompt" className="sr-only">
+                {imageSrc ? 'Refine' : 'Prompt'}
+              </Label>
+              <input
+                ref={promptImageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []).filter((f) => ['image/png', 'image/jpeg', 'image/webp'].includes(f.type));
+                  if (files.length) setPromptImages((current) => [...current, ...files]);
+                  e.currentTarget.value = '';
+                }}
+              />
+              <div className="px-5 pt-4">
+                <input
+                  id="design-prompt"
+                  className="h-8 w-full border-0 bg-transparent p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void handleGenerate()}
+                  placeholder="Reply..."
+                />
+              </div>
+              <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
+                <Select value={imageQuality} onValueChange={(value) => setImageQuality(value as ImageQuality)}>
+                  <SelectTrigger
+                    className="h-9 w-auto gap-2 border-0 px-2 text-sm font-medium text-gray-600 shadow-none hover:bg-gray-100 hover:text-gray-900 focus:ring-0"
+                    aria-label="Image quality"
+                  >
+                    <span>Quality</span>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="start">
+                    {IMAGE_QUALITY_OPTIONS.map((quality) => (
+                      <SelectItem key={quality} value={quality}>
+                        {quality[0].toUpperCase()}
+                        {quality.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="flex min-w-0 items-center gap-2">
+                  {promptImages.length > 0 ? (
+                    <div className="flex max-w-xs min-w-0 gap-2 overflow-x-auto">
+                      {promptImages.map((file, i) =>
+                        promptImagePreviewUrls[i] ? (
+                          <div key={`${file.name}-${file.lastModified}-${i}`} className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={promptImagePreviewUrls[i]} alt="" className="h-full w-full object-cover" />
+                            <button
+                              type="button"
+                              className="absolute inset-0 flex items-center justify-center bg-white/80 text-gray-700 opacity-0 transition hover:opacity-100"
+                              onClick={() => {
+                                setPromptImages((current) => current.filter((_, idx) => idx !== i));
+                                if (promptImageInputRef.current) promptImageInputRef.current.value = '';
+                              }}
+                              aria-label={`Remove ${file.name}`}
+                            >
+                              <Trash2Icon className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : null
+                      )}
+                    </div>
+                  ) : null}
+                  <button
                     type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-9 w-9 shrink-0"
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
                     onClick={() => promptImageInputRef.current?.click()}
                     aria-label="Attach image to this prompt"
                   >
-                    <PaperclipIcon className="h-4 w-4" />
-                  </Button>
-                  {promptImage && promptImagePreviewUrl ? (
-                    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded border">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={promptImagePreviewUrl} alt="" className="h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        className="absolute inset-0 flex items-center justify-center bg-background/80 opacity-0 transition hover:opacity-100"
-                        onClick={() => {
-                          setPromptImage(null);
-                          if (promptImageInputRef.current) promptImageInputRef.current.value = '';
-                        }}
-                        aria-label="Remove prompt image"
-                      >
-                        <Trash2Icon className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : null}
-                  <Input
-                    id="design-prompt"
-                    className="min-w-0 flex-1"
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && void handleGenerate()}
-                    placeholder={imageSrc ? 'Describe changes to the selected area/current design…' : 'Describe the section to design…'}
-                  />
+                    <PaperclipIcon className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleGenerate()}
+                    disabled={!prompt.trim() || isGenerating || !serverAiAvailable || !isLoggedIn}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    title={
+                      !isLoggedIn
+                        ? LOGIN_TO_USE_TOOL_MESSAGE
+                        : !serverAiAvailable
+                          ? 'Configure server AI in Integrations or .env'
+                          : undefined
+                    }
+                    aria-label={imageSrc ? 'Refine design' : 'Generate design'}
+                  >
+                    {isGenerating ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <ArrowUpIcon className="h-5 w-5" />}
+                  </button>
                 </div>
               </div>
-              <Button
-                onClick={() => void handleGenerate()}
-                disabled={!prompt.trim() || isGenerating || !serverAiAvailable || !isLoggedIn}
-                title={
-                  !isLoggedIn
-                    ? LOGIN_TO_USE_TOOL_MESSAGE
-                    : !serverAiAvailable
-                      ? 'Configure server AI in Integrations or .env'
-                      : undefined
-                }
-              >
-                {isGenerating ? <Loader2Icon className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {imageSrc ? 'Refine' : 'Generate'}
-              </Button>
             </div>
           </div>
 
@@ -1098,32 +1099,6 @@ const DesignWorkbenchPage = ({
         </div>
       </div>
 
-      <Dialog
-        open={foundationPreviewOpen}
-        onOpenChange={(open) => {
-          setFoundationPreviewOpen(open);
-          if (!open) setFoundationPreviewUrl(null);
-        }}
-      >
-        <DialogContent className="max-h-[90vh] w-[min(56rem,calc(100vw-2rem))] max-w-[min(56rem,calc(100vw-2rem))] overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>Foundation reference image</DialogTitle>
-            <DialogDescription>Same raster PNG prepended to generation requests.</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[calc(90vh-10rem)] overflow-auto rounded-md border bg-muted/30 p-2">
-            {foundationPreviewUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={foundationPreviewUrl} alt="Foundation raster preview" className="mx-auto h-auto w-full max-w-full" />
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setFoundationPreviewOpen(false)}>
-              Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
@@ -1165,6 +1140,7 @@ const DesignWorkbenchPage = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </>
     </Layout>
   );
 };

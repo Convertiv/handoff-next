@@ -11,6 +11,7 @@ export type MessageContent = string | (TextContent | ImageContent)[];
 
 export type ChatMessage = { role: 'system' | 'user'; content: MessageContent };
 export type ImageEditSize = '1024x1024' | '1536x1024' | '1024x1536' | 'auto';
+export type ImageEditQuality = 'auto' | 'low' | 'medium' | 'high';
 export type ImageEditInput = {
   filename: string;
   contentType: 'image/png' | 'image/jpeg' | 'image/webp';
@@ -57,6 +58,7 @@ export async function openAiImageEdit({
   images,
   model = 'gpt-image-2',
   size = '1024x1024',
+  quality = 'auto',
   actorUserId,
   route,
   eventType = 'ai.image_edit',
@@ -65,6 +67,7 @@ export async function openAiImageEdit({
   images: ImageEditInput[];
   model?: string;
   size?: ImageEditSize;
+  quality?: ImageEditQuality;
   actorUserId?: string | null;
   route?: string | null;
   eventType?: string;
@@ -85,6 +88,7 @@ export async function openAiImageEdit({
   formData.append('model', model);
   formData.append('prompt', prompt);
   formData.append('size', size);
+  formData.append('quality', quality);
   for (const image of images) {
     const blob = new Blob([new Uint8Array(image.data)], { type: image.contentType });
     formData.append('image[]', blob, image.filename);
@@ -110,7 +114,7 @@ export async function openAiImageEdit({
       error: `OpenAI image API error (${response.status}): ${body.slice(0, 500)}`,
       requestPrompt: prompt,
       imageCount: images.length,
-      metadata: { size, statusCode: response.status },
+      metadata: { size, quality, statusCode: response.status },
     });
     if (response.status === 401) {
       throw new Error('Invalid HANDOFF_AI_API_KEY.');
@@ -134,7 +138,7 @@ export async function openAiImageEdit({
       error: 'OpenAI did not return an image.',
       requestPrompt: prompt,
       imageCount: images.length,
-      metadata: { size },
+      metadata: { size, quality },
     });
   } else {
     await logAiEvent({
@@ -146,7 +150,7 @@ export async function openAiImageEdit({
       status: 'success',
       requestPrompt: prompt,
       imageCount: images.length,
-      metadata: { size },
+      metadata: { size, quality },
     });
   }
   if (image?.b64_json) {

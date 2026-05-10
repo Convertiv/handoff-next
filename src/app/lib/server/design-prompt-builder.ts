@@ -140,6 +140,12 @@ function formatConversationBlock(history: DesignConversationTurn[]): string {
   return lines.join('\n');
 }
 
+function formatDesignGuidelinesBlock(markdown: string): string {
+  const trimmed = markdown.trim();
+  if (!trimmed) return '';
+  return ['## Design.MD guidelines (use strictly)', trimmed].join('\n\n');
+}
+
 const CANVAS_RULES = `## Output rules
 - Canvas is 1024×1024. The UI section should only use the vertical height it needs; leave unused canvas area minimal and neutral (do not stretch content to fill the square).
 - Match the design system's colors, typography, spacing, and component semantics described above.
@@ -153,16 +159,19 @@ export function buildDesignGenerationPrompt({
   foundationContext,
   componentGuides,
   conversationHistory,
+  designGuidelines = '',
 }: {
   userPrompt: string;
   foundationContext: DesignWorkbenchFoundationContext;
   componentGuides: DesignWorkbenchComponentGuide[];
   conversationHistory: DesignConversationTurn[];
+  designGuidelines?: string;
 }): string {
   const parts = [
     'You are an expert product designer generating a UI mock as an image edit.',
     formatFoundationsBlock(foundationContext),
     formatComponentGuidesBlock(componentGuides),
+    formatDesignGuidelinesBlock(designGuidelines),
     formatConversationBlock(conversationHistory),
     CANVAS_RULES,
     '## Current user request',
