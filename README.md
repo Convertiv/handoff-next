@@ -336,8 +336,8 @@ On first start, Handoff automatically:
   stored in the database alongside your filesystem sources. DB entries overlay
   filesystem entries when both exist for the same ID.
 - **Team sync** (optional): Push your local declarations to a hosted Postgres
-  instance with `handoff-app sync:push`, or pull team changes with
-  `handoff-app sync:pull`. See [Team / Cloud Setup](#team--cloud-setup-postgres).
+  instance with `handoff-app push`, or pull team changes with
+  `handoff-app pull`. See [Team / Cloud Setup](#team--cloud-setup-postgres).
 
 ### Static export users
 
@@ -385,6 +385,8 @@ HANDOFF_FIGMA_PROJECT_ID=your-figma-project-id
 
 ### Cloud sync
 
+See **[docs/COMPONENT_SYNC_CURRENT_STATE.md](docs/COMPONENT_SYNC_CURRENT_STATE.md)** for how CLI `push` / `pull`, `sync_event`, and `/api/sync/*` routes work end-to-end.
+
 Sync local project declarations to a hosted Handoff instance:
 
 ```bash
@@ -392,11 +394,14 @@ Sync local project declarations to a hosted Handoff instance:
 HANDOFF_CLOUD_URL=https://your-team-handoff.example.com
 HANDOFF_CLOUD_TOKEN=shared-secret
 
-# Push local components/pages/patterns to the team instance
-handoff-app sync:push
+# Push local components/pages/patterns to the team instance (omit flags = everything)
+handoff-app push
+
+# Push only selected ids / page slugs
+handoff-app push --components hero accordion --patterns card-grid --pages index about
 
 # Pull team changes to your local project
-handoff-app sync:pull
+handoff-app pull
 ```
 
 The remote instance must have `HANDOFF_SYNC_SECRET` set to the same value as

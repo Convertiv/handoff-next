@@ -1,9 +1,8 @@
 'use client';
 
 import { PreviewObject } from '@handoff/types/preview';
-import { ArrowRight, Badge, Upload, Webhook } from 'lucide-react';
+import { ArrowRight, Badge, Webhook } from 'lucide-react';
 import Image from 'next/image';
-import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
@@ -11,8 +10,6 @@ import remarkGfm from 'remark-gfm';
 import { APIComponentList } from '../../components/Component/ComponentLists';
 import Layout from '../../components/Layout/Main';
 import { NewComponentForm } from './NewComponentForm';
-import { FigmaFetchControls } from './FigmaFetchControls';
-import { ComponentExportButton, ComponentSyncDialog } from './ComponentSyncDialog';
 import { MarkdownComponents, remarkCodeMeta } from '../../components/Markdown/MarkdownComponents';
 import HeadersType from '../../components/Typography/Headers';
 import { Button } from '../../components/ui/button';
@@ -22,16 +19,13 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../
 
 export default function SystemPageClient({ content, menu, metadata, current, config }) {
   const [components, setComponents] = useState<PreviewObject[]>(undefined);
-  const [syncOpen, setSyncOpen] = useState(false);
-  const { data: session, status } = useSession();
-  const canSync = status === 'authenticated' && Boolean(session?.user) && session?.user?.role === 'admin';
   const fetchComponents = async () => {
     const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
     const url = `${basePath}/api/components`;
     const data = await fetch(url).then((res) => res.json());
     setComponents(data as PreviewObject[]);
   };
-  useEffect(() => { fetchComponents(); }, []);
+  useEffect(() => { void fetchComponents(); }, []);
   if (!components) {
     return (
       <Layout config={config} menu={menu} current={current} metadata={metadata}>
@@ -44,17 +38,7 @@ export default function SystemPageClient({ content, menu, metadata, current, con
     return (
       <Layout config={config} menu={menu} current={current} metadata={metadata}>
         <div className="flex items-center justify-center flex-col gap-2 lg:pr-8">
-          <div className="mb-2 flex w-full flex-wrap items-center justify-center gap-2"> 
-            {canSync ? (
-              <>  
-                <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={() => setSyncOpen(true)}>
-                  <Upload className="h-3.5 w-3.5" />
-                  Import from code
-                </Button>
-                <ComponentExportButton onDone={() => void fetchComponents()} />
-                <ComponentSyncDialog open={syncOpen} onOpenChange={setSyncOpen} onImported={() => void fetchComponents()} />
-              </>
-            ) : null}
+          <div className="mb-2 flex w-full flex-wrap items-center justify-center gap-2">
             <NewComponentForm />
           </div>
           <div className="mb-3 flex items-center justify-center overflow-hidden">

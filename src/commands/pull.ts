@@ -8,7 +8,8 @@ export interface PullArgs extends SharedArgs {}
 
 const command: CommandModule<{}, PullArgs> = {
   command: 'pull',
-  describe: 'Pull remote Handoff edits into local pages and *.handoff.json (requires HANDOFF_SYNC_URL + HANDOFF_SYNC_SECRET)',
+  describe:
+    'Pull remote Handoff edits into local pages and *.handoff.json (requires HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN, or legacy HANDOFF_SYNC_URL + HANDOFF_SYNC_SECRET)',
   builder: (yargs) => getSharedOptions(yargs),
   handler: async (args: PullArgs) => {
     const handoff = new Handoff(args.debug, args.force);

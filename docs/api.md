@@ -12,7 +12,7 @@ These routes are served by the Next.js app under your deployment origin. If `HAN
 
 Use `fetch(..., { credentials: 'include' })` so the NextAuth session cookie is sent.
 
-**CLI sync to a remote Handoff (Postgres) instance:** set `HANDOFF_CLOUD_URL` to the remote app origin and `HANDOFF_CLOUD_TOKEN` to the same secret configured as `HANDOFF_SYNC_SECRET` on the server. Legacy names `HANDOFF_SYNC_URL` / `HANDOFF_SYNC_SECRET` still work. Then run `handoff sync:push` / `handoff sync:pull`.
+**CLI sync to a remote Handoff (Postgres) instance:** set `HANDOFF_CLOUD_URL` to the remote app origin and `HANDOFF_CLOUD_TOKEN` to the same secret configured as `HANDOFF_SYNC_SECRET` on the server. Legacy names `HANDOFF_SYNC_URL` / `HANDOFF_SYNC_SECRET` still work. Then run `handoff-app push` and `handoff-app pull` (optional `--components`, `--patterns`, `--pages` on push). See [`docs/COMPONENT_SYNC_CURRENT_STATE.md`](COMPONENT_SYNC_CURRENT_STATE.md).
 
 ### `GET /api/handoff/components?id={componentId}`
 
@@ -63,47 +63,6 @@ Polls a single build job created by `POST`.
 | **Query** | `jobId` (required) — integer from POST response |
 | **200** | `{ id, componentId, status, error, createdAt, completedAt }` — `status` is one of `queued`, `building`, `complete`, `failed` |
 | **404** | Job not found |
-
-### `GET /api/handoff/components/diff`
-
-Compares on-disk component folders (from `handoff.config.js` → `entries.components`) with `handoff_component` rows.
-
-| | |
-| --- | --- |
-| **Auth** | **Admin** only |
-| **200** | `{ "diffs": [ { "id", "status", "fields" } ] }` — `status` is `new` \| `modified` \| `unchanged` \| `db_only`; each `fields` entry has `field`, `filesystem`, `database` snapshots |
-
-### `POST /api/handoff/components/ingest`
-
-Imports manifests + source files from disk into the database (upsert). If any selected component is **modified** vs the DB and you omit `decisions` / `overwriteAll`, the server responds **409** with a `conflicts` list.
-
-| | |
-| --- | --- |
-| **Auth** | **Admin** only |
-| **Body** | Optional: `componentIds` (subset), `decisions` — map of component id → `filesystem` \| `keep_db` \| `skip`, `overwriteAll` (boolean), `dryRun` (boolean) |
-| **200** | `{ "ingested", "skipped", "kept" }` |
-| **409** | Conflicts — include `overwriteAll: true` or per-id `decisions` |
-| **429** | Too many ingest requests per minute |
-
-### `GET /api/handoff/components/entry-dirs`
-
-Returns configured component roots from `handoff.config` `entries.components`, resolved against `HANDOFF_WORKING_PATH` when set, otherwise the handoff-app repo root. Used by the UI to pick an export destination.
-
-| | |
-| --- | --- |
-| **Auth** | **Admin** only |
-| **200** | `{ "projectRoot": string, "dirs": [{ "relative": string, "absolute": string }] }` |
-
-### `POST /api/handoff/components/export`
-
-Writes DB components to disk under `outputDir/<id>/` (legacy layout: `<id>.js`, `template.hbs`, `style.scss`, `script.js`). Default `outputDir` is `components`, resolved relative to **`HANDOFF_WORKING_PATH`** when set, otherwise the handoff-app repo root. Runs `git add` + `git commit` from that project root when `autoCommit` is not `false`.
-
-| | |
-| --- | --- |
-| **Auth** | **Admin** only |
-| **Body** | Optional: `componentIds`, `outputDir` (must stay under the resolved project root), `autoCommit` |
-| **200** | `{ "exported", "commitSha?", "gitMessage?", "gitWarning?" }` |
-| **429** | Too many export requests per minute |
 
 ### `GET /api/components`
 

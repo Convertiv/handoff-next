@@ -2,18 +2,11 @@ import type { SyncStatusResponse } from '@handoff/types/handoff-sync';
 import type Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
 import { readSyncState } from './sync-state.js';
-
-function requireEnv(name: string): string {
-  const v = process.env[name];
-  if (!v || !String(v).trim()) {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return String(v).trim();
-}
+import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env.js';
 
 export async function runSyncStatus(handoff: Handoff): Promise<void> {
-  const baseUrl = requireEnv('HANDOFF_SYNC_URL').replace(/\/$/, '');
-  const secret = requireEnv('HANDOFF_SYNC_SECRET');
+  const baseUrl = getSyncRemoteUrl();
+  const secret = getSyncRemoteSecret();
 
   const url = `${baseUrl}/api/sync/status`;
   const res = await fetch(url, {

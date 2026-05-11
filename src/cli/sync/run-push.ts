@@ -37,31 +37,71 @@ async function readComponentOrPatternJson(handoff: Handoff, kind: 'component' | 
   return null;
 }
 
+export type RunPushOptions = {
+  /** When set and non-empty, only these component ids are pushed (must exist in config). */
+  componentIds?: string[];
+  /** When set and non-empty, only these pattern ids are pushed (must exist in config). */
+  patternIds?: string[];
+  /** When set and non-empty, only these page slugs are pushed (paths under `pages/` without `.md`, e.g. `about` or `guides/colors`). */
+  pageSlugs?: string[];
+};
+
+function normalizePageSlug(s: string): string {
+  return s.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+}
+
 /**
  * Scan local project and POST declarations + pages to the remote Handoff API.
  */
-export async function runPush(handoff: Handoff): Promise<void> {
+export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<void> {
   const baseUrl = getSyncRemoteUrl();
   const secret = getSyncRemoteSecret();
 
   const changes: SyncUploadBody['changes'] = [];
 
+  const selective =
+    (opts?.componentIds?.length ?? 0) > 0 || (opts?.patternIds?.length ?? 0) > 0 || (opts?.pageSlugs?.length ?? 0) > 0;
+
+  const pageSlugSet = selective && opts?.pageSlugs?.length
+    ? new Set(opts.pageSlugs.map((s) => normalizePageSlug(s)))
+    : null;
+
   const pagesDir = path.join(handoff.workingPath, 'pages');
-  const mdFiles = await collectMarkdownFiles(pagesDir);
-  for (const abs of mdFiles) {
-    const raw = await fs.readFile(abs, 'utf8');
-    const parsed = matter(raw);
-    const slug = path.relative(pagesDir, abs).replace(/\\/g, '/').replace(/\.md$/i, '');
-    changes.push({
-      entityType: 'page',
-      entityId: slug,
-      action: 'update',
-      data: { slug, frontmatter: parsed.data as Record<string, unknown>, markdown: parsed.content },
-    });
+  if (!selective || pageSlugSet) {
+    const mdFiles = await collectMarkdownFiles(pagesDir);
+    for (const abs of mdFiles) {
+      const slug = path.relative(pagesDir, abs).replace(/\\/g, '/').replace(/\.md$/i, '');
+      if (pageSlugSet && !pageSlugSet.has(slug)) continue;
+      const raw = await fs.readFile(abs, 'utf8');
+      const parsed = matter(raw);
+      changes.push({
+        entityType: 'page',
+        entityId: slug,
+        action: 'update',
+        data: { slug, frontmatter: parsed.data as Record<string, unknown>, markdown: parsed.content },
+      });
+    }
+    if (pageSlugSet) {
+      for (const wanted of pageSlugSet) {
+        if (!mdFiles.some((abs) => path.relative(pagesDir, abs).replace(/\\/g, '/').replace(/\.md$/i, '') === wanted)) {
+          Logger.warn(`Page slug "${wanted}" not found under pages/ — skipped.`);
+        }
+      }
+    }
   }
 
-  const compIds = Object.keys(handoff.runtimeConfig?.entries?.components ?? {});
-  for (const id of compIds) {
+  const configuredCompIds = Object.keys(handoff.runtimeConfig?.entries?.components ?? {});
+  const compIdsToScan = selective
+    ? (opts?.componentIds?.length ? opts.componentIds : [])
+    : configuredCompIds;
+  if (selective && opts?.componentIds?.length) {
+    const set = new Set(configuredCompIds);
+    for (const id of opts.componentIds) {
+      if (!set.has(id)) Logger.warn(`Component "${id}" is not in handoff.config entries.components — skipped.`);
+    }
+  }
+  for (const id of compIdsToScan) {
+    if (!configuredCompIds.includes(id)) continue;
     const data = await readComponentOrPatternJson(handoff, 'component', id);
     if (!data) {
       Logger.warn(`Skipping component "${id}" (no ${id}.handoff.json next to declaration — push supports JSON declarations only).`);
@@ -75,8 +115,16 @@ export async function runPush(handoff: Handoff): Promise<void> {
     });
   }
 
-  const patIds = Object.keys(handoff.runtimeConfig?.entries?.patterns ?? {});
-  for (const id of patIds) {
+  const configuredPatIds = Object.keys(handoff.runtimeConfig?.entries?.patterns ?? {});
+  const patIdsToScan = selective ? (opts?.patternIds?.length ? opts.patternIds : []) : configuredPatIds;
+  if (selective && opts?.patternIds?.length) {
+    const set = new Set(configuredPatIds);
+    for (const id of opts.patternIds) {
+      if (!set.has(id)) Logger.warn(`Pattern "${id}" is not in handoff.config entries.patterns — skipped.`);
+    }
+  }
+  for (const id of patIdsToScan) {
+    if (!configuredPatIds.includes(id)) continue;
     const data = await readComponentOrPatternJson(handoff, 'pattern', id);
     if (!data) {
       Logger.warn(`Skipping pattern "${id}" (no ${id}.handoff.json next to declaration — push supports JSON declarations only).`);

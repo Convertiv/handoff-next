@@ -8,7 +8,8 @@ export interface SyncStatusArgs extends SharedArgs {}
 
 const command: CommandModule<{}, SyncStatusArgs> = {
   command: 'sync-status',
-  describe: 'Show remote sync cursor vs local .handoff/sync-state.json (requires HANDOFF_SYNC_URL + HANDOFF_SYNC_SECRET)',
+  describe:
+    'Show remote sync cursor vs local .handoff/sync-state.json (same HANDOFF_CLOUD_* / legacy HANDOFF_SYNC_* env vars as push and pull)',
   builder: (yargs) => getSharedOptions(yargs),
   handler: async (args: SyncStatusArgs) => {
     const handoff = new Handoff(args.debug, args.force);
