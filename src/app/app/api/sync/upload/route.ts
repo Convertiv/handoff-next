@@ -3,10 +3,10 @@ import type { SyncEntityType, SyncUploadBody } from '@handoff/types/handoff-sync
 
 export async function POST(request: Request) {
   const { applyUploadedChange } = await import('@/lib/db/sync-queries');
-  const { verifySyncBearer } = await import('@/lib/sync-auth');
+  const { verifySyncAuth } = await import('@/lib/sync-auth');
 
-  const unauthorized = verifySyncBearer(request);
-  if (unauthorized) return unauthorized;
+  const authz = verifySyncAuth(request, { requireWrite: true });
+  if (authz instanceof NextResponse) return authz;
 
   let body: SyncUploadBody;
   try {
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
         entityId: ch.entityId,
         action: ch.action as 'create' | 'update' | 'delete',
         data: (ch.data as Record<string, unknown>) ?? null,
-        userId: null,
+        userId: authz.userId,
       });
       applied.push(`${ch.entityType}:${ch.entityId}:${ch.action}`);
     }

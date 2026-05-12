@@ -86,7 +86,8 @@ async function writeConflictRemote(workPath: string, entityType: string, entityI
 export async function applySyncChange(
   handoff: Handoff,
   change: SyncChange,
-  fp: Record<string, EntityFingerprint>
+  fp: Record<string, EntityFingerprint>,
+  dryRun = false
 ): Promise<{ ok: true; kind: 'written' | 'deleted' | 'skipped' } | { ok: false; conflict: true }> {
   const workPath = handoff.workingPath;
   const key = entityKey(change.entityType, change.entityId);
@@ -102,27 +103,34 @@ export async function applySyncChange(
       const target = prev ? path.join(workPath, prev.relativePath) : abs;
       if (await fs.pathExists(target)) {
         if (await hasLocalModification(workPath, target, fp, key)) {
-          const content = await fs.readFile(target, 'utf8');
-          await writeConflictRemote(workPath, 'page', slug, content, '.local.md');
+          if (!dryRun) {
+            const content = await fs.readFile(target, 'utf8');
+            await writeConflictRemote(workPath, 'page', slug, content, '.local.md');
+          }
           return { ok: false, conflict: true };
         }
-        await fs.remove(target);
+        if (!dryRun) await fs.remove(target);
       }
       delete fp[key];
       return { ok: true, kind: 'deleted' };
     }
 
     if ((await fs.pathExists(abs)) && (await hasLocalModification(workPath, abs, fp, key))) {
-      const remoteBody = matter.stringify(String(d.markdown ?? ''), (d.frontmatter ?? {}) as Record<string, unknown>);
-      await writeConflictRemote(workPath, 'page', slug, remoteBody, '.remote.md');
+      if (!dryRun) {
+        const remoteBody = matter.stringify(String(d.markdown ?? ''), (d.frontmatter ?? {}) as Record<string, unknown>);
+        await writeConflictRemote(workPath, 'page', slug, remoteBody, '.remote.md');
+      }
       return { ok: false, conflict: true };
     }
 
-    await fs.mkdirp(path.dirname(abs));
     const out = matter.stringify(String(d.markdown ?? ''), (d.frontmatter ?? {}) as Record<string, unknown>);
-    await fs.writeFile(abs, out, 'utf8');
-    const hash = (await sha256File(abs)) ?? sha256String(out);
-    fp[key] = { relativePath: rel, sha256: hash };
+    const hash = sha256String(out);
+    if (!dryRun) {
+      await fs.mkdirp(path.dirname(abs));
+      await fs.writeFile(abs, out, 'utf8');
+    }
+    const contentHash = dryRun ? hash : ((await sha256File(abs)) ?? hash);
+    fp[key] = { relativePath: rel, sha256: contentHash };
     return { ok: true, kind: 'written' };
   }
 
@@ -138,11 +146,13 @@ export async function applySyncChange(
       const target = prev ? path.join(workPath, prev.relativePath) : abs;
       if (await fs.pathExists(target)) {
         if (await hasLocalModification(workPath, target, fp, key)) {
-          const content = await fs.readFile(target, 'utf8');
-          await writeConflictRemote(workPath, change.entityType, change.entityId, content, '.local.json');
+          if (!dryRun) {
+            const content = await fs.readFile(target, 'utf8');
+            await writeConflictRemote(workPath, change.entityType, change.entityId, content, '.local.json');
+          }
           return { ok: false, conflict: true };
         }
-        await fs.remove(target);
+        if (!dryRun) await fs.remove(target);
       }
       delete fp[key];
       return { ok: true, kind: 'deleted' };
@@ -150,31 +160,52 @@ export async function applySyncChange(
 
     const payload = (change.data ?? {}) as Record<string, unknown>;
     const jsonBody = JSON.stringify(payload, null, 2);
+    const jsonWithNl = `${jsonBody}\n`;
+    const hash = sha256String(jsonWithNl);
 
     if ((await fs.pathExists(abs)) && (await hasLocalModification(workPath, abs, fp, key))) {
-      await writeConflictRemote(workPath, change.entityType, change.entityId, jsonBody, '.remote.json');
+      if (!dryRun) {
+        await writeConflictRemote(workPath, change.entityType, change.entityId, jsonBody, '.remote.json');
+      }
       return { ok: false, conflict: true };
     }
 
-    await fs.mkdirp(dir);
-    await fs.writeFile(abs, `${jsonBody}\n`, 'utf8');
-    const hash = (await sha256File(abs)) ?? sha256String(`${jsonBody}\n`);
-    fp[key] = { relativePath: rel, sha256: hash };
+    if (!dryRun) {
+      await fs.mkdirp(dir);
+      await fs.writeFile(abs, jsonWithNl, 'utf8');
+    }
+    const contentHash = dryRun ? hash : ((await sha256File(abs)) ?? hash);
+    fp[key] = { relativePath: rel, sha256: contentHash };
     return { ok: true, kind: 'written' };
   }
 
   return { ok: true, kind: 'skipped' };
 }
 
-export async function applySyncChangeset(handoff: Handoff, changeset: SyncChangeset, state: HandoffSyncStateFile): Promise<PullSummary> {
+export type ApplySyncChangesetOptions = {
+  /** When true, no files or conflict artifacts are written and sync state is not updated. */
+  dryRun?: boolean;
+};
+
+export async function applySyncChangeset(
+  handoff: Handoff,
+  changeset: SyncChangeset,
+  state: HandoffSyncStateFile,
+  opts?: ApplySyncChangesetOptions
+): Promise<PullSummary> {
+  const dryRun = Boolean(opts?.dryRun);
   const summary: PullSummary = { written: [], conflicts: [], deleted: [], skipped: [] };
   const fp = { ...state.fingerprints };
 
   for (const ch of changeset.changes) {
-    const res = await applySyncChange(handoff, ch, fp);
+    const res = await applySyncChange(handoff, ch, fp, dryRun);
     if (!res.ok) {
       summary.conflicts.push(`${ch.entityType}:${ch.entityId}`);
-      Logger.warn(`Conflict: remote change for ${ch.entityType} "${ch.entityId}" was written under .handoff/conflicts/`);
+      Logger.warn(
+        dryRun
+          ? `Conflict (dry run): remote change for ${ch.entityType} "${ch.entityId}" would write under .handoff/conflicts/`
+          : `Conflict: remote change for ${ch.entityType} "${ch.entityId}" was written under .handoff/conflicts/`
+      );
       continue;
     }
     if (res.kind === 'written') summary.written.push(`${ch.entityType}:${ch.entityId}`);
@@ -182,8 +213,10 @@ export async function applySyncChangeset(handoff: Handoff, changeset: SyncChange
     else summary.skipped.push(`${ch.entityType}:${ch.entityId}`);
   }
 
-  state.fingerprints = fp;
-  state.lastSyncVersion = changeset.version;
-  state.lastSyncAt = new Date().toISOString();
+  if (!dryRun) {
+    state.fingerprints = fp;
+    state.lastSyncVersion = changeset.version;
+    state.lastSyncAt = new Date().toISOString();
+  }
   return summary;
 }

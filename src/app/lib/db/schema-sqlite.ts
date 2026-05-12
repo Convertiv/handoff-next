@@ -199,6 +199,20 @@ export const handoffReferenceMaterials = sqliteTable('handoff_reference_material
   metadata: text('metadata', { mode: 'json' }).notNull().$type<Record<string, unknown>>().default({}),
 });
 
+/** RFC 8628 device flow for CLI sync (see schema-pg). */
+export const cliDeviceSessions = sqliteTable('cli_device_session', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  deviceCodeHash: text('device_code_hash').notNull().unique(),
+  userCode: text('user_code').notNull().unique(),
+  status: text('status').notNull().default('pending'),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  scopes: text('scopes').notNull().default('sync:read sync:write'),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' }).default(sql`(unixepoch())`),
+});
+
 export const componentGenerationJobs = sqliteTable('component_generation_job', {
   id: integer('id', { mode: 'number' }).primaryKey({ autoIncrement: true }),
   artifactId: text('artifact_id')

@@ -11,6 +11,8 @@ import makePageCommand from './make/page.js';
 import makeTemplateCommand from './make/template.js';
 import prepareRuntimeCommand from './prepare-runtime.js';
 import vercelBuildCommand from './vercel-build.js';
+import loginCommand from './login.js';
+import logoutCommand from './logout.js';
 import pullCommand from './pull.js';
 import pushCommand from './push.js';
 import scaffoldCommand from './scaffold/index.js';
@@ -32,6 +34,8 @@ export const commands = [
   makePageCommand,
   makeComponentCommand,
   makeTemplateCommand,
+  loginCommand,
+  logoutCommand,
   pullCommand,
   pushCommand,
   scaffoldCommand,

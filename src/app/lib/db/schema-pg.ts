@@ -225,6 +225,23 @@ export const handoffReferenceMaterials = pgTable('handoff_reference_material', {
  * Async design-to-component generation (agentic loop + Vite build).
  * Status: queued | generating | building | validating | iterating | complete | failed
  */
+/**
+ * RFC 8628 device authorization for Handoff CLI (`handoff-app login`).
+ * `device_code` is stored hashed; plaintext is shown once to the CLI.
+ */
+export const cliDeviceSessions = pgTable('cli_device_session', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  deviceCodeHash: text('device_code_hash').notNull().unique(),
+  userCode: text('user_code').notNull().unique(),
+  status: text('status').notNull().default('pending'),
+  userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
+  scopes: text('scopes').notNull().default('sync:read sync:write'),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+});
+
 export const componentGenerationJobs = pgTable('component_generation_job', {
   id: serial('id').primaryKey(),
   artifactId: text('artifact_id')

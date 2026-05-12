@@ -19,5 +19,6 @@ export const componentBuildJobs = S.componentBuildJobs;
 export const figmaFetchJobs = S.figmaFetchJobs;
 export const handoffPages = S.handoffPages;
 export const syncEvents = S.syncEvents;
+export const cliDeviceSessions = S.cliDeviceSessions;
 export const handoffReferenceMaterials = S.handoffReferenceMaterials;
 export const componentGenerationJobs = S.componentGenerationJobs;

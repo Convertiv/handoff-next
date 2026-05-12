@@ -176,6 +176,19 @@ CREATE TABLE IF NOT EXISTS "sync_event" (
   "created_at" integer DEFAULT (unixepoch())
 );
 
+CREATE TABLE IF NOT EXISTS "cli_device_session" (
+  "id" text PRIMARY KEY NOT NULL,
+  "device_code_hash" text NOT NULL UNIQUE,
+  "user_code" text NOT NULL UNIQUE,
+  "status" text NOT NULL DEFAULT 'pending',
+  "user_id" text REFERENCES "user"("id") ON DELETE SET NULL,
+  "scopes" text NOT NULL DEFAULT 'sync:read sync:write',
+  "expires_at" integer NOT NULL,
+  "created_at" integer DEFAULT (unixepoch())
+);
+
+CREATE INDEX IF NOT EXISTS "cli_device_session_expires_at_idx" ON "cli_device_session" ("expires_at");
+
 CREATE TABLE IF NOT EXISTS "handoff_reference_material" (
   "id" text PRIMARY KEY NOT NULL,
   "content" text NOT NULL DEFAULT '',

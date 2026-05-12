@@ -2,15 +2,16 @@ import type { SyncStatusResponse } from '@handoff/types/handoff-sync';
 import type Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
 import { readSyncState } from './sync-state.js';
-import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env.js';
+import { getSyncBearerToken, resolveSyncRemoteUrl } from './sync-remote-env.js';
 
 export async function runSyncStatus(handoff: Handoff): Promise<void> {
-  const baseUrl = getSyncRemoteUrl();
-  const secret = getSyncRemoteSecret();
+  const workPath = handoff.workingPath;
+  const baseUrl = await resolveSyncRemoteUrl(workPath);
+  const bearer = await getSyncBearerToken(workPath);
 
   const url = `${baseUrl}/api/sync/status`;
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${secret}` },
+    headers: { Authorization: `Bearer ${bearer}` },
   });
 
   if (!res.ok) {

@@ -5,7 +5,7 @@ import type { SyncUploadBody } from '@handoff/types/handoff-sync';
 import type Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
 import { getDeclarationAbsPathForEntity } from './resolve-declaration.js';
-import { getSyncRemoteSecret, getSyncRemoteUrl } from './sync-remote-env.js';
+import { getSyncBearerToken, resolveSyncRemoteUrl } from './sync-remote-env.js';
 
 async function collectMarkdownFiles(rootDir: string): Promise<string[]> {
   const out: string[] = [];
@@ -44,6 +44,8 @@ export type RunPushOptions = {
   patternIds?: string[];
   /** When set and non-empty, only these page slugs are pushed (paths under `pages/` without `.md`, e.g. `about` or `guides/colors`). */
   pageSlugs?: string[];
+  /** List changes that would be uploaded without calling the remote API (no HANDOFF_CLOUD_* required). */
+  dryRun?: boolean;
 };
 
 function normalizePageSlug(s: string): string {
@@ -54,8 +56,15 @@ function normalizePageSlug(s: string): string {
  * Scan local project and POST declarations + pages to the remote Handoff API.
  */
 export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<void> {
-  const baseUrl = getSyncRemoteUrl();
-  const secret = getSyncRemoteSecret();
+  const workPath = handoff.workingPath;
+  const dryRun = Boolean(opts?.dryRun);
+
+  let baseUrl = '';
+  let bearer = '';
+  if (!dryRun) {
+    baseUrl = await resolveSyncRemoteUrl(workPath);
+    bearer = await getSyncBearerToken(workPath);
+  }
 
   const changes: SyncUploadBody['changes'] = [];
 
@@ -143,11 +152,29 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
     return;
   }
 
+  if (dryRun) {
+    const pages = changes.filter((c) => c.entityType === 'page');
+    const components = changes.filter((c) => c.entityType === 'component');
+    const patterns = changes.filter((c) => c.entityType === 'pattern');
+    Logger.log('');
+    Logger.info(`Dry run: would push ${changes.length} change(s) (no request sent).`);
+    Logger.log(`  Pages: ${pages.length}`);
+    Logger.log(`  Components: ${components.length}`);
+    Logger.log(`  Patterns: ${patterns.length}`);
+    if (handoff.debug) {
+      for (const c of changes) {
+        Logger.debug(`  - ${c.entityType} ${c.entityId} (${c.action})`);
+      }
+    }
+    Logger.log('');
+    return;
+  }
+
   const url = `${baseUrl}/api/sync/upload`;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${secret}`,
+      Authorization: `Bearer ${bearer}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ changes } as SyncUploadBody),

@@ -3,10 +3,13 @@ import { Menu, Monitor, Moon, Sun, X } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { Button } from '../../components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '../../components/ui/sheet';
 import { cn } from '../../lib/utils';
 import { AuthControlsMobile } from '../Auth/AuthControls';
+import { handoffApiUrl } from '@/lib/api-path';
+import { useAuthUi } from '../context/AuthUiContext';
 import { useConfigContext } from '../context/ConfigContext';
 
 const trimSlashes = (input: string): string => {
@@ -22,6 +25,9 @@ export function MobileNav() {
   const context = useConfigContext();
   const pathname = usePathname();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+  const { authEnabled } = useAuthUi();
+  const { data: session } = useSession();
+  const showDevelopLocally = authEnabled && Boolean(session?.user);
   const existingPaths = new Set((context.menu ?? []).map((s) => trimSlashes(s.path)));
   const extraNav = APP_TOOL_LINKS.filter((l) => !existingPaths.has(trimSlashes(l.path)));
   const { theme, setTheme } = useTheme();
@@ -93,6 +99,19 @@ export function MobileNav() {
               </Link>
             );
           })}
+          {showDevelopLocally ? (
+            <Link
+              href={handoffApiUrl('/dev/local-setup')}
+              className={cn(
+                'rounded-md px-4 py-2 text-sm',
+                trimSlashes(pathname).includes('dev/local-setup')
+                  ? 'bg-accent font-normal text-accent-foreground'
+                  : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
+              )}
+            >
+              Develop locally
+            </Link>
+          ) : null}
           <AuthControlsMobile />
           <div className="mt-4 border-t pt-4">
             <Button variant="ghost" className="w-full justify-start font-normal" onClick={toggleTheme}>

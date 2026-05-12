@@ -8,6 +8,7 @@ export interface PushArgs extends SharedArgs {
   components?: string[];
   patterns?: string[];
   pages?: string[];
+  dryRun?: boolean;
 }
 
 const command: CommandModule<{}, PushArgs> = {
@@ -30,6 +31,11 @@ const command: CommandModule<{}, PushArgs> = {
         type: 'string',
         array: true,
         describe: 'Only push these page slugs (paths under pages/ without .md, e.g. index or guides/colors).',
+      })
+      .option('dry-run', {
+        type: 'boolean',
+        default: false,
+        describe: 'List what would be pushed without calling the remote API (no cloud URL/token required).',
       }),
   handler: async (args: PushArgs) => {
     const handoff = new Handoff(args.debug, args.force);
@@ -41,6 +47,7 @@ const command: CommandModule<{}, PushArgs> = {
       componentIds: componentIds?.length ? componentIds : undefined,
       patternIds: patternIds?.length ? patternIds : undefined,
       pageSlugs: pageSlugs?.length ? pageSlugs : undefined,
+      dryRun: Boolean(args.dryRun),
     });
   },
 };

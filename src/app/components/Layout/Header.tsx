@@ -1,17 +1,37 @@
 'use client';
 
+import { handoffApiUrl } from '@/lib/api-path';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { AuthControls } from '../Auth/AuthControls';
 import { ModeToggle } from '../../components/ModeSwitcher';
 import { MainNav } from '../../components/Navigation/MainNav';
 import { MobileNav } from '../../components/Navigation/MobileNav';
+import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
+import { useAuthUi } from '../context/AuthUiContext';
 import { useConfigContext } from '../context/ConfigContext';
+
+function CliIcon(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M4 5.75A1.75 1.75 0 0 1 5.75 4h12.5A1.75 1.75 0 0 1 20 5.75v12.5A1.75 1.75 0 0 1 18.25 20H5.75A1.75 1.75 0 0 1 4 18.25z" />
+      <path d="m8 9 3 3-3 3" />
+      <path d="M13.5 15.25H16" />
+    </svg>
+  );
+}
 
 export function Header() {
   const context = useConfigContext();
+  const pathname = usePathname();
+  const { authEnabled } = useAuthUi();
+  const { data: session } = useSession();
   const [isScrolled, setIsScrolled] = useState(false);
+  const showDevelopLocally = authEnabled && Boolean(session?.user);
+  const developLocallyActive = pathname.includes('dev/local-setup');
 
   useEffect(() => {
     const handleScroll = () => {
@@ -38,6 +58,19 @@ export function Header() {
             <MainNav />
             <AuthControls />
             <ModeToggle />
+            {showDevelopLocally ? (
+              <Button
+                variant="ghost"
+                size="icon"
+                asChild
+                className={cn(developLocallyActive && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
+              >
+                <Link href={handoffApiUrl('/dev/local-setup')} aria-label="Develop locally" title="Develop locally">
+                  <CliIcon className="h-[1.1rem] w-[1.1rem]" />
+                  <span className="sr-only">Develop locally</span>
+                </Link>
+              </Button>
+            ) : null}
           </div>
           <div className="flex items-center gap-4 @2xl:hidden">
             <MobileNav />

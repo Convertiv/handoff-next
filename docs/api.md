@@ -12,7 +12,7 @@ These routes are served by the Next.js app under your deployment origin. If `HAN
 
 Use `fetch(..., { credentials: 'include' })` so the NextAuth session cookie is sent.
 
-**CLI sync to a remote Handoff (Postgres) instance:** set `HANDOFF_CLOUD_URL` to the remote app origin and `HANDOFF_CLOUD_TOKEN` to the same secret configured as `HANDOFF_SYNC_SECRET` on the server. Legacy names `HANDOFF_SYNC_URL` / `HANDOFF_SYNC_SECRET` still work. Then run `handoff-app push` and `handoff-app pull` (optional `--components`, `--patterns`, `--pages` on push). See [`docs/COMPONENT_SYNC_CURRENT_STATE.md`](COMPONENT_SYNC_CURRENT_STATE.md).
+**CLI sync to a remote Handoff (Postgres) instance:** prefer `handoff-app login` (OAuth device flow: `POST /api/oauth/device`, browser approval at `/cli/device`, `POST /api/oauth/token`) so the CLI stores a JWT bearer for `GET/POST /api/sync/*`. For CI, set `HANDOFF_CLOUD_URL` and `HANDOFF_CLOUD_TOKEN` to the same value as server `HANDOFF_SYNC_SECRET` (legacy `HANDOFF_SYNC_URL` / `HANDOFF_SYNC_SECRET` still work on the client). Then run `handoff-app push` and `handoff-app pull` (optional `--components`, `--patterns`, `--pages` on push). See [`docs/COMPONENT_SYNC_CURRENT_STATE.md`](COMPONENT_SYNC_CURRENT_STATE.md).
 
 ### `GET /api/handoff/components?id={componentId}`
 

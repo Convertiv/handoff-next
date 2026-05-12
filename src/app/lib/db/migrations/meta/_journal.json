@@ -92,6 +92,13 @@
       "when": 1778300000000,
       "tag": "0012_component_generation_and_reference",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1778471883570,
+      "tag": "0013_cli_device_session",
+      "breakpoints": true
     }
   ]
 }
