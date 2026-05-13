@@ -24,8 +24,9 @@ export async function POST(request: Request) {
 
   const role = session.user.role ?? 'member';
   const result = await approveCliDeviceSession(userCode, session.user.id, role);
-  if (!result.ok) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+  if (result.ok) {
+    return NextResponse.json({ ok: true });
   }
-  return NextResponse.json({ ok: true });
+  const failure = result as { ok: false; error: string };
+  return NextResponse.json({ error: failure.error }, { status: 400 });
 }

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { countQueuedOrRunningFigmaFetchJobs, getFigmaFetchJob, insertFigmaFetchJob } from '@/lib/db/queries';
 import { hasFigmaConnection } from '@/lib/server/figma-auth';
 import { spawnFigmaFetchWorker } from '@/lib/server/figma-fetch';
+import { getLinkedFigmaFileInfo } from '@/lib/server/figma-sync-service';
 import { logEvent } from '@/lib/server/event-log';
 
 const MAX_FETCHES_PER_USER_PER_MINUTE = 3;
@@ -94,6 +95,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       connected,
       oauthConfigured: Boolean(process.env.AUTH_FIGMA_ID && process.env.AUTH_FIGMA_SECRET),
+      linkedFile: await getLinkedFigmaFileInfo(session.user.id),
     });
   }
 

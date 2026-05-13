@@ -10,6 +10,7 @@ export { defineConfig } from './helpers.js';
 
 // Runtime config resolution
 export { initRuntimeConfig } from './runtime.js';
+export { evaluateTypeScriptDeclaration } from './declaration-module-load.js';
 
 // Config validation
 export { validateConfig } from './validator.js';

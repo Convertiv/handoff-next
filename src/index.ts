@@ -339,7 +339,9 @@ class Handoff {
 
 export { defineConfig } from './config/index.js';
 export { defineComponent, defineCsfComponent, defineHandlebarsComponent, definePattern, defineReactComponent } from './declarations/index.js';
+export { SlotType } from './transformers/preview/component.js';
 export type {
+  ComponentDeclarationFigmaBlock,
   CsfDeclarationConfig,
   DeclarationPreview,
   GenericDeclarationConfig,

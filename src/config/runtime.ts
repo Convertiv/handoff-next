@@ -1,4 +1,3 @@
-import esbuild from 'esbuild';
 import fs from 'fs-extra';
 import { createRequire } from 'node:module';
 import path from 'path';
@@ -8,6 +7,7 @@ import { buildAndEvaluateModuleSync } from '@handoff/transformers/utils/module';
 import { Config, ConfigFileEntry, RuntimeConfig } from '@handoff/types/config';
 import { Logger } from '@handoff/utils/logger';
 import { normalizePathForCompare } from '@handoff/utils/path';
+import { evaluateTypeScriptDeclaration } from './declaration-module-load.js';
 import { normalizeComponentDeclaration } from './normalizers/declaration.js';
 import { normalizePatternDeclaration } from './normalizers/pattern.js';
 
@@ -75,39 +75,6 @@ const resolveComponentDeclaration = (componentDir: string, componentBaseName: st
   }
 
   return null;
-};
-
-const evaluateTypeScriptDeclaration = (filePath: string, handoffModulePath: string): any => {
-  const buildResult = esbuild.buildSync({
-    entryPoints: [filePath],
-    bundle: true,
-    write: false,
-    platform: 'node',
-    format: 'cjs',
-    target: 'node16',
-    logLevel: 'silent',
-    jsx: 'automatic',
-    external: ['react', 'react-dom', 'handoff-app'],
-  });
-
-  const code = buildResult.outputFiles?.[0]?.text;
-  if (!code) {
-    throw new Error(`Unable to compile declaration file "${filePath}"`);
-  }
-
-  const mod: any = { exports: {} };
-  const localRequire = createRequire(filePath);
-  const handoffRequire = createRequire(path.resolve(handoffModulePath, 'package.json'));
-  const runtimeRequire = (id: string) => {
-    try {
-      return localRequire(id);
-    } catch {
-      return handoffRequire(id);
-    }
-  };
-  const evaluator = new Function('require', 'module', 'exports', '__filename', '__dirname', code);
-  evaluator(runtimeRequire, mod, mod.exports, filePath, path.dirname(filePath));
-  return mod.exports;
 };
 
 const loadDeclarationFile = (filePath: string, handoffModulePath: string): any => {

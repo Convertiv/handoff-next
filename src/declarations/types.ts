@@ -1,7 +1,13 @@
 import type React from 'react';
+import type { FigmaComponentLinkData } from '@handoff/figma/component-linking';
 import type { ComponentObject } from '@handoff/transformers/preview/types';
 
 export type RendererKind = 'react' | 'handlebars' | 'csf';
+
+/** Nested `figma` block in `.handoff.ts` / JSON (`url` = canvas link; other keys mirror {@link FigmaComponentLinkData}). */
+export type ComponentDeclarationFigmaBlock = Partial<Omit<FigmaComponentLinkData, 'figma'>> & {
+  url?: string;
+};
 
 export type DeclarationPreview<TArgs = Record<string, any>> = {
   title: string;
@@ -34,16 +40,18 @@ export type ReactDeclarationConfig<TProps> = Omit<BaseDeclarationConfig, 'render
   previews: Record<string, DeclarationPreview<Partial<TProps>>>;
 };
 
-export type HandlebarsDeclarationConfig = Omit<BaseDeclarationConfig, 'renderer' | 'entries'> & {
+export type HandlebarsDeclarationConfig = Omit<BaseDeclarationConfig, 'renderer' | 'entries' | 'figma'> & {
   entries: BaseDeclarationEntries & { template: string };
+  figma?: string | ComponentDeclarationFigmaBlock;
 };
 
 export type CsfDeclarationConfig = Omit<BaseDeclarationConfig, 'renderer' | 'entries'> & {
   entries: BaseDeclarationEntries & { story: string };
 };
 
-export type GenericDeclarationConfig = Omit<BaseDeclarationConfig, 'renderer'> & {
+export type GenericDeclarationConfig = Omit<BaseDeclarationConfig, 'renderer' | 'figma'> & {
   renderer: RendererKind;
+  figma?: string | ComponentDeclarationFigmaBlock;
 };
 
 export type ReactComponentType<TProps = any> = React.ComponentType<TProps>;

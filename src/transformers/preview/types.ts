@@ -1,6 +1,7 @@
 import type { GeneratedDocs } from 'handoff-docgen';
 import { Card } from '@handoff/app/components/Component/Cards';
 import type { RendererKind } from '@handoff/declarations/types';
+import type { FigmaComponentLinkData, FigmaImageAsset, FigmaMatchedBy, FigmaMatchStatus, FigmaVariantSchemaProperty } from '@handoff/figma/component-linking';
 import { ValidationResult } from '@handoff/types/preview';
 import { Filter } from '@handoff/utils/filter';
 import { SlotMetadata } from './component.js';
@@ -87,6 +88,8 @@ export type ComponentOptions = {
   };
 };
 
+export type { FigmaComponentLinkData, FigmaImageAsset, FigmaMatchedBy, FigmaMatchStatus, FigmaVariantSchemaProperty };
+
 /**
  * Represents a full component definition with metadata, property schema, preview definitions, and other optional configuration.
  */
@@ -138,6 +141,8 @@ export type ComponentObject = {
   figma?: string;
   /** Optional canonical Figma component name or ID (used for matching back to design tokens) */
   figmaComponentId?: string;
+  /** Structured Figma provenance and audit metadata */
+} & FigmaComponentLinkData & {
   /** Optional page definition containing slices for the documentation site */
   page?: ComponentPageDefinition;
   /** Optional additional options for preview and transformer behaviors */
@@ -185,6 +190,7 @@ export type TransformComponentTokensResult = {
     templates?: string;
   };
   renderer?: RendererKind;
+} & FigmaComponentLinkData & {
   options?: {
     preview?: {
       groupBy?: string;

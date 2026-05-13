@@ -6,7 +6,8 @@ import { eq } from 'drizzle-orm';
 import fs from 'fs-extra';
 import path from 'path';
 import { pathToFileURL } from 'url';
-import { buildHandoffDeclarationCjs, type DeclarationPreviewEntry } from './component-scaffold';
+import { nestFigmaLinkDataForDeclarationFile } from '@handoff/figma/component-linking';
+import { buildHandoffDeclarationObject, buildHandoffDeclarationTsHandlebars, type DeclarationPreviewEntry } from './component-scaffold';
 import { resolveHandoffRepoRoot } from './component-builder';
 import { getDb } from '../db';
 import { componentBuildJobs, handoffComponents } from '../db/schema';
@@ -109,7 +110,7 @@ async function main() {
     await writeFile(`${componentId}.scss`, entrySources.scss || '/* */\n');
     await writeFile(`${componentId}.client.js`, entrySources.js || '//\n');
 
-    const decl = buildHandoffDeclarationCjs({
+    const declObj = buildHandoffDeclarationObject({
       id: componentId,
       title: row.title || componentId,
       description: row.description ?? '',
@@ -118,7 +119,8 @@ async function main() {
       renderer,
       previews: declPreviewsFromData(data),
     });
-    await writeFile(`${componentId}.handoff.cjs`, decl);
+    const decl = buildHandoffDeclarationTsHandlebars(nestFigmaLinkDataForDeclarationFile(declObj as Record<string, unknown>));
+    await writeFile(`${componentId}.handoff.ts`, decl);
 
     // chdir to the project's working directory so the Handoff constructor
     // picks up the correct handoff.config.js (with cssBuildConfig hooks,

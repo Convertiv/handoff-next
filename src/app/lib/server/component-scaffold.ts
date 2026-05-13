@@ -61,6 +61,21 @@ function previewsToCjsBlock(previews: Record<string, DeclarationPreviewEntry> | 
   return `{\n${lines.join('\n')}\n  }`;
 }
 
+function previewsToDeclarationArgsRecord(
+  previews: Record<string, DeclarationPreviewEntry> | undefined
+): Record<string, { title: string; args: Record<string, unknown> }> {
+  const map =
+    previews && Object.keys(previews).length > 0
+      ? previews
+      : { default: { title: 'Default', values: {} as Record<string, unknown> } };
+  return Object.fromEntries(
+    Object.entries(map).map(([key, p]) => {
+      const vals = p.values && typeof p.values === 'object' ? p.values : {};
+      return [key, { title: p.title || key, args: vals as Record<string, unknown> }];
+    })
+  );
+}
+
 export function handoffJsHandlebars(
   id: string,
   title: string,
@@ -184,6 +199,63 @@ export function scaffoldNewComponentPayload(opts: {
     properties: {},
     entrySources,
   } as unknown as ComponentListObject;
+}
+
+export function buildHandoffDeclarationObject(data: {
+  id: string;
+  title: string;
+  description: string;
+  group: string;
+  type: string;
+  renderer?: string;
+  previews?: Record<string, DeclarationPreviewEntry>;
+}): Record<string, unknown> {
+  const { id, title, description, group, type, previews } = data;
+  const renderer = data.renderer ?? 'handlebars';
+  const previewRecord = previewsToDeclarationArgsRecord(previews);
+
+  if (renderer === 'react') {
+    return {
+      id,
+      name: title,
+      description,
+      group,
+      type,
+      renderer: 'react',
+      entries: { component: `./${id}.tsx`, scss: `./${id}.scss`, js: `./${id}.client.js` },
+      previews: previewRecord,
+    };
+  }
+  if (renderer === 'csf') {
+    return {
+      id,
+      name: title,
+      description,
+      group,
+      type,
+      renderer: 'csf',
+      entries: { story: `./${id}.stories.tsx`, scss: `./${id}.scss`, js: `./${id}.client.js` },
+      previews: previewRecord,
+    };
+  }
+  return {
+    id,
+    name: title,
+    description,
+    group,
+    type,
+    renderer: 'handlebars',
+    entries: { template: `./${id}.hbs`, scss: `./${id}.scss`, js: `./${id}.client.js` },
+    previews: previewRecord,
+  };
+}
+
+export function buildHandoffDeclarationTsHandlebars(nestedConfig: Record<string, unknown>): string {
+  const body = JSON.stringify(nestedConfig, null, 2);
+  return `import { defineHandlebarsComponent } from 'handoff-app';
+
+export default defineHandlebarsComponent(${body});
+`;
 }
 
 export function buildHandoffDeclarationCjs(data: {

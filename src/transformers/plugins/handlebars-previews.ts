@@ -8,7 +8,6 @@ import { Logger } from '@handoff/utils/logger';
 import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 import { createHandlebarsContext, registerHandlebarsHelpers } from '@handoff/transformers/utils/handlebars';
 import { formatHtmlWithWrapper, trimPreview } from '@handoff/transformers/utils/html';
-import { slugify } from '@handoff/transformers/utils/string';
 import { createViteLogger } from '@handoff/transformers/utils/vite-logger';
 
 /**
@@ -29,33 +28,6 @@ const PLUGIN_CONSTANTS = {
   INSPECT_SUFFIX: '-inspect',
   OUTPUT_FORMAT: 'handlebars',
 } as const;
-
-/**
- * Processes component instances from documentation and creates preview data
- * @param componentData - Component transformation data
- * @param documentationComponents - Documentation components
- */
-function processComponentInstances(
-  componentData: TransformComponentTokensResult,
-  documentationComponents: CoreTypes.IDocumentationObject['components']
-): void {
-  // Use figmaComponentId if provided, otherwise skip implicit matching
-  if (componentData.figmaComponentId) {
-    const figmaComponentKey = slugify(componentData.figmaComponentId);
-    if (documentationComponents[figmaComponentKey]) {
-      for (const instance of documentationComponents[figmaComponentKey].instances) {
-        const variationId = instance.id;
-        const instanceValues = Object.fromEntries(instance.variantProperties);
-
-        componentData.previews[variationId] = {
-          title: variationId,
-          url: '',
-          values: instanceValues,
-        };
-      }
-    }
-  }
-}
 
 /**
  * Renders a Handlebars template with the given preview data
@@ -156,9 +128,6 @@ export function handlebarsPreviewsPlugin(
       if (!documentationComponents) {
         documentationComponents = {};
       }
-
-      // Process component instances from documentation
-      processComponentInstances(componentData, documentationComponents);
 
       if (!componentData.previews || Object.keys(componentData.previews).length === 0) {
         Logger.warn(`No previews defined for ${componentId}; using default preview values.`);

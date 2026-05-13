@@ -12,6 +12,8 @@ menu:
     menu:
       - path: system
         title: Overview
+      - path: system/figma-sync
+        title: Figma Sync
   - title: Tokens
     tokens: true
   - title: Components

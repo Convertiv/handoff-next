@@ -51,6 +51,8 @@ Usage: handoff-app <cmd> <opts>
 Commands:
   fetch [opts] - Fetches the design tokens from the design system
 
+  audit:figma-components [opts] - Compares fetched/published Figma components against locally registered Handoff components. Reports Figma-only components, missing/broken `figmaComponentId` links, and structured Figma metadata gaps. Use `--json` for machine-readable output and `--fail-on-drift` to exit non-zero when drift is detected.
+
   login [opts] - Signs in to a hosted Handoff deployment using the OAuth 2.0 device authorization grant (RFC 8628). Run this once per machine (or per project) so `pull` / `push` / `sync-status` can use a stored access token instead of pasting the server sync secret. By default the CLI tries to open the verification URL in your system browser (`--no-browser` to skip; also skipped when `CI=1` or `HANDOFF_LOGIN_NO_BROWSER=1`). Optional: `--url <origin>` if the CLI cannot infer the deployment (defaults follow `HANDOFF_CLOUD_URL` / `HANDOFF_SYNC_URL` resolution). Tokens are written to `.handoff/cli-auth.json` (ignored when `.handoff` is gitignored).
 
   logout [opts] - Removes stored CLI credentials for the resolved deployment (same URL resolution as other sync commands).

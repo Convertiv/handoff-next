@@ -2,6 +2,7 @@ import * as p from '@clack/prompts';
 import chalk from 'chalk';
 import fs from 'fs-extra';
 import path from 'path';
+import { createFigmaAuditReport, loadFigmaComponentCatalog } from '@handoff/figma/component-linking';
 import Handoff from '@handoff/index';
 
 // Constants
@@ -155,15 +156,11 @@ const extractVariantProps = (instances: Array<{ variantProperties?: Array<[strin
  * Get list of Figma components from the documentation object
  */
 const getFigmaComponents = async (handoff: Handoff): Promise<FigmaComponent[]> => {
-  const documentationObject = await handoff.getDocumentationObject();
-  if (!documentationObject?.components) {
-    return [];
-  }
-
-  return Object.entries(documentationObject.components).map(([name, data]) => ({
-    name,
-    instanceCount: data.instances?.length || 0,
-    variantProps: extractVariantProps(data.instances || []),
+  const catalog = await loadFigmaComponentCatalog(handoff);
+  return catalog.entries.map((entry) => ({
+    name: entry.slug,
+    instanceCount: entry.figmaInstanceCount ?? 0,
+    variantProps: entry.figmaVariantSchema?.map((variant) => variant.name) || [],
   }));
 };
 
@@ -451,10 +448,13 @@ export const runScaffold = async (handoff: Handoff): Promise<void> => {
   const spinner = p.spinner();
   spinner.start('Analyzing Figma components...');
 
+  const figmaCatalog = await loadFigmaComponentCatalog(handoff);
   const figmaComponents = await getFigmaComponents(handoff);
-  const registeredIds = getRegisteredComponentIds(handoff);
-  const unregisteredComponents = findUnregisteredComponents(figmaComponents, registeredIds);
-  const matchingCount = countMatchingRegisteredComponents(figmaComponents, registeredIds);
+  const runtimeComponents = Object.values(handoff.runtimeConfig?.entries?.components || {});
+  const auditReport = createFigmaAuditReport(runtimeComponents, figmaCatalog);
+  const unregisteredComponentNames = new Set(auditReport.figmaOnly.map((entry) => entry.slug));
+  const unregisteredComponents = figmaComponents.filter((component) => unregisteredComponentNames.has(component.name));
+  const matchingCount = auditReport.summary.matched + auditReport.summary.unlinked;
 
   spinner.stop('Analysis complete');
 

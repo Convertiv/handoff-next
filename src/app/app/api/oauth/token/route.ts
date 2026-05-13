@@ -42,16 +42,20 @@ export async function POST(request: Request) {
   const issuer = issuerForCliSync(request);
   const result = await exchangeCliDeviceCode(deviceCode.trim(), issuer);
 
-  if (!result.ok) {
-    return NextResponse.json(
-      { error: result.error, error_description: result.errorDescription },
-      { status: result.httpStatus }
-    );
+  if (result.ok) {
+    return NextResponse.json({
+      access_token: result.accessToken,
+      token_type: result.tokenType,
+      expires_in: result.expiresIn,
+    });
   }
 
-  return NextResponse.json({
-    access_token: result.accessToken,
-    token_type: result.tokenType,
-    expires_in: result.expiresIn,
-  });
+  const failure = result as Extract<typeof result, { ok: false }>;
+  return NextResponse.json(
+    {
+      error: failure.error,
+      error_description: failure.errorDescription,
+    },
+    { status: failure.httpStatus }
+  );
 }

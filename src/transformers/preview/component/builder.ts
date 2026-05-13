@@ -13,6 +13,12 @@ import {
   saveBuildCache,
   updateComponentCacheEntry,
 } from '@handoff/cache/index';
+import {
+  enrichComponentWithFigmaData,
+  loadFigmaComponentCatalog,
+  matchHandoffComponentToFigma,
+  mergeFigmaPreviewsIntoComponent,
+} from '@handoff/figma/component-linking';
 import Handoff from '@handoff/index';
 import { formatDurationMs } from '@handoff/utils/duration';
 import { Logger } from '@handoff/utils/logger';
@@ -47,6 +53,48 @@ const defaultComponent: TransformComponentTokensResult = {
   js: null,
   css: null,
   sass: null,
+};
+
+const FIGMA_METADATA_KEYS = [
+  'figma',
+  'figmaComponentId',
+  'figmaComponentKey',
+  'figmaPublishedComponentKeys',
+  'figmaFileKey',
+  'figmaNodeId',
+  'figmaComponentSetId',
+  'figmaComponentSetName',
+  'figmaComponentName',
+  'figmaDescription',
+  'figmaThumbnailUrl',
+  'figmaUpdatedAt',
+  'figmaVariantSchema',
+  'figmaVariantLabel',
+  'figmaVariantValues',
+  'figmaInstanceCount',
+  'figmaImages',
+  'figmaMatchStatus',
+  'figmaMatchedBy',
+  'figmaMissingMetadata',
+] as const;
+
+const preserveExistingFigmaMetadata = (
+  data: TransformComponentTokensResult,
+  existingData?: TransformComponentTokensResult | null
+): TransformComponentTokensResult => {
+  if (!existingData) return data;
+  const next = { ...data } as Record<string, unknown>;
+  const existing = existingData as Record<string, unknown>;
+  for (const key of FIGMA_METADATA_KEYS) {
+    const currentValue = next[key];
+    const existingValue = existing[key];
+    const currentMissing =
+      currentValue === undefined || currentValue === null || (typeof currentValue === 'string' && currentValue.trim().length === 0);
+    if (currentMissing && existingValue !== undefined) {
+      next[key] = existingValue;
+    }
+  }
+  return next as TransformComponentTokensResult;
 };
 
 /**
@@ -178,6 +226,7 @@ export async function processComponents(
 
   const documentationObject = await handoff.getDocumentationObject();
   const components = documentationObject?.components ?? ({} as CoreTypes.IDocumentationObject['components']);
+  const figmaCatalog = await loadFigmaComponentCatalog(handoff);
   const runtimeComponents = handoff.runtimeConfig?.entries?.components ?? {};
   const allComponentIds = Object.keys(runtimeComponents);
 
@@ -344,12 +393,17 @@ export async function processComponents(
        */
       if (!buildPlan.validationMode) {
         data.validations = existingData.validations;
-      }else{
+      } else {
         // in validation mode, we want to keep the properties from the previous build
         // so that we can see the changes to the properties in the validation results
         data.properties = existingData.properties;
       }
     }
+
+    data = preserveExistingFigmaMetadata(data, existingData);
+    const figmaMatch = matchHandoffComponentToFigma(data, figmaCatalog);
+    data = mergeFigmaPreviewsIntoComponent(data, figmaMatch);
+    data = enrichComponentWithFigmaData(data, figmaMatch);
 
     // Components should always have at least one preview variation.
     ensureDefaultPreview(data);
@@ -454,6 +508,25 @@ const buildComponentSummary = (id: string, data: TransformComponentTokensResult)
     group: data.group,
     image: data.image ? data.image : '',
     figma: data.figma ? data.figma : '',
+    figmaComponentId: data.figmaComponentId,
+    figmaComponentKey: data.figmaComponentKey,
+    figmaPublishedComponentKeys: data.figmaPublishedComponentKeys,
+    figmaFileKey: data.figmaFileKey,
+    figmaNodeId: data.figmaNodeId,
+    figmaComponentSetId: data.figmaComponentSetId,
+    figmaComponentSetName: data.figmaComponentSetName,
+    figmaComponentName: data.figmaComponentName,
+    figmaDescription: data.figmaDescription,
+    figmaThumbnailUrl: data.figmaThumbnailUrl,
+    figmaUpdatedAt: data.figmaUpdatedAt,
+    figmaVariantSchema: data.figmaVariantSchema,
+    figmaVariantLabel: data.figmaVariantLabel,
+    figmaVariantValues: data.figmaVariantValues,
+    figmaInstanceCount: data.figmaInstanceCount,
+    figmaImages: data.figmaImages,
+    figmaMatchStatus: data.figmaMatchStatus,
+    figmaMatchedBy: data.figmaMatchedBy,
+    figmaMissingMetadata: data.figmaMissingMetadata,
     categories: data.categories ? data.categories : [],
     tags: data.tags ? data.tags : [],
     properties: data.properties,

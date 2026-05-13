@@ -1,3 +1,4 @@
+import auditFigmaComponentsCommand from './audit/figma-components.js';
 import buildAppCommand from './build/app.js';
 import buildComponentsCommand from './build/components.js';
 import devCommand from './dev/index.js';
@@ -21,6 +22,7 @@ import syncStatusCommand from './sync-status.js';
 import validateComponentsCommand from './validate/components.js';
 
 export const commands = [
+  auditFigmaComponentsCommand,
   buildAppCommand,
   buildComponentsCommand,
   prepareRuntimeCommand,

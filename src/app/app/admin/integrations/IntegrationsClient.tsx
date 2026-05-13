@@ -7,6 +7,7 @@ import Layout from '../../../components/Layout/Main';
 import { Badge } from '../../../components/ui/badge';
 import { Button } from '../../../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
+import type { LinkedFigmaFileInfo } from '../../../lib/figma-sync-types';
 import { handoffApiUrl } from '../../../lib/api-path';
 
 type FetchJob = {
@@ -18,6 +19,7 @@ type FetchJob = {
 type StatusPayload = {
   connected: boolean;
   oauthConfigured: boolean;
+  linkedFile: LinkedFigmaFileInfo | null;
 };
 
 type AiStatusPayload = {
@@ -44,6 +46,7 @@ export default function IntegrationsClient({
   const [triggerBusy, setTriggerBusy] = useState(false);
   const [job, setJob] = useState<FetchJob | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [linkedFile, setLinkedFile] = useState<LinkedFigmaFileInfo | null>(null);
   const [aiStatus, setAiStatus] = useState<AiStatusPayload | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -61,6 +64,7 @@ export default function IntegrationsClient({
       const data = (await res.json()) as StatusPayload;
       setConnected(Boolean(data.connected));
       setOauthConfigured(Boolean(data.oauthConfigured));
+      setLinkedFile(data.linkedFile ?? null);
     } finally {
       setLoadingStatus(false);
     }
@@ -231,6 +235,24 @@ export default function IntegrationsClient({
                     <p className={`text-sm ${job?.status === 'failed' ? 'text-red-600' : 'text-muted-foreground'}`}>
                       {statusMessage}
                     </p>
+                  ) : null}
+
+                  {linkedFile ? (
+                    <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                      <div className="font-medium text-foreground">Linked Figma file</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-muted-foreground">
+                        <span>{linkedFile.title}</span>
+                        <Badge variant="outline" className="font-mono text-[11px]">{linkedFile.fileKey}</Badge>
+                        <a
+                          href={linkedFile.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-sm text-foreground underline underline-offset-2"
+                        >
+                          Open in Figma <ExternalLink className="h-3 w-3" />
+                        </a>
+                      </div>
+                    </div>
                   ) : null}
 
                   {!connected && oauthConfigured && !loadingStatus ? (

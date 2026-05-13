@@ -20,7 +20,6 @@ import { DEFAULT_CLIENT_BUILD_CONFIG, createReactResolvePlugin } from '@handoff/
 import { formatHtml, trimPreview } from '@handoff/transformers/utils/html';
 import { buildAndEvaluateModule } from '@handoff/transformers/utils/module';
 import { loadSchemaFromComponent, loadSchemaFromFile } from '@handoff/transformers/utils/schema-loader';
-import { slugify } from '@handoff/transformers/utils/string';
 import { extractComponentName, generateUsageSnippet } from '@handoff/transformers/utils/usage';
 import { createViteLogger } from '@handoff/transformers/utils/vite-logger';
 
@@ -205,25 +204,6 @@ export function ssrRenderPlugin(
       // Ensure components object exists
       if (!documentationComponents) {
         documentationComponents = {};
-      }
-
-      // Process component instances from documentation
-      // Use figmaComponentId if provided, otherwise skip implicit matching
-      if (componentData.figmaComponentId) {
-        const figmaComponentKey = slugify(componentData.figmaComponentId);
-        if (documentationComponents[figmaComponentKey]) {
-          for (const instance of documentationComponents[figmaComponentKey].instances) {
-            const variationId = instance.id;
-            const instanceValues = Object.fromEntries(instance.variantProperties);
-
-            componentData.previews[variationId] = {
-              title: variationId,
-              url: '',
-              values: instanceValues,
-              usage: '',
-            };
-          }
-        }
       }
 
       let finalHtml = '';

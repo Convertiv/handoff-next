@@ -7,6 +7,7 @@ export {
 } from './helpers.js';
 
 export type {
+  ComponentDeclarationFigmaBlock,
   CsfDeclarationConfig,
   DeclarationPreview,
   GenericDeclarationConfig,

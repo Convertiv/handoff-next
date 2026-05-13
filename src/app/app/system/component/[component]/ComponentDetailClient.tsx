@@ -11,13 +11,14 @@ import { MarkdownComponents, remarkCodeMeta } from '@handoff/app/components/Mark
 import AnchorNav from '@handoff/app/components/Navigation/AnchorNav';
 import PrevNextNav from '@handoff/app/components/Navigation/PrevNextNav';
 import HeadersType from '@handoff/app/components/Typography/Headers';
+import { Badge } from '@handoff/app/components/ui/badge';
 import { Button } from '@handoff/app/components/ui/button';
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from '@handoff/app/components/ui/drawer';
 import { JsonTreeView } from '@handoff/app/components/ui/json-tree-view';
 import { OptionalPreviewRender } from '@handoff/transformers/preview/types';
 import { PreviewObject } from '@handoff/types/preview';
 import { evaluateFilter, type Filter } from '@handoff/utils/filter';
-import { Pencil, X } from 'lucide-react';
+import { Loader2, Pencil, Wrench, X } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -46,6 +47,11 @@ const groupPreviewsByVariantProperty = (items: Record<string, OptionalPreviewRen
 const toTitleCase = (str: string): string =>
   str.toLowerCase().split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
+const toFigmaUrl = (fileKey?: string, nodeId?: string): string | null => {
+  if (!fileKey || !nodeId) return null;
+  return `https://www.figma.com/file/${fileKey}/?node-id=${encodeURIComponent(nodeId.replace(/:/g, '-'))}`;
+};
+
 function filterPreviews(previews: Record<string, OptionalPreviewRender>, filter: Filter): Record<string, OptionalPreviewRender> {
   return Object.fromEntries(Object.entries(previews).filter(([, preview]) => evaluateFilter(preview.values, filter)));
 }
@@ -56,6 +62,9 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
   const [componentPreviews, setComponentPreviews] = useState<PreviewObject | [string, PreviewObject][]>();
   const [hotKey, setHotKey] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const { data: session, status } = useSession();
   const canEditDynamic = useMemo(
@@ -89,6 +98,28 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
   const previousLink = previousComponent ? { href: componentRoute(previousComponent.id), title: previousComponent.name } : null;
   const nextLink = nextComponent ? { href: componentRoute(nextComponent.id), title: nextComponent.name } : null;
 
+  const syncFigmaMetadata = useCallback(async () => {
+    setSyncBusy(true);
+    setSyncError(null);
+    setSyncMessage(null);
+    try {
+      const res = await fetch(`${normalizedBasePath}/api/handoff/figma/components/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'sync_metadata', componentId: id, figmaComponentKey: component?.figmaComponentKey }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (!res.ok) throw new Error(json.error || 'Figma sync failed');
+      setSyncMessage(json.message ?? 'Figma metadata synced.');
+      await fetchComponentData();
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : 'Figma sync failed');
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [component?.figmaComponentKey, fetchComponentData, id, normalizedBasePath]);
+
   useEffect(() => {
     setComponent(undefined);
     void fetchComponentData();
@@ -118,6 +149,9 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
 
   const displayTitle = component.title || metadata.title;
   const displayDescription = component.description ?? metadata.description ?? '';
+  const figmaHref = component.figma || toFigmaUrl(component.figmaFileKey, component.figmaNodeId);
+  const figmaStatusLabel = component.figmaMatchStatus ? component.figmaMatchStatus.replace(/_/g, ' ') : null;
+  const hasFigmaImages = Boolean(component.figmaImages?.length);
 
   const isEditing = canEditDynamic && editing;
   const bestPracticesForSlice = (cpi: number) => !isEditing && cpi === 0;
@@ -145,14 +179,28 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
                 {editing ? <><X strokeWidth={2} /> Done editing</> : <><Pencil strokeWidth={2} /> Edit</>}
               </Button>
             )}
-            {component.figma && (
+            {figmaHref && (
               <Button asChild variant="outline" size="sm" className="font-normal [&_svg]:size-3!">
-                <a href={component.figma} target="_blank">Figma Reference</a>
+                <a href={figmaHref} target="_blank" rel="noreferrer">Figma Reference</a>
               </Button>
             )}
+            {canEditDynamic && component.figmaMatchStatus !== 'missing_in_figma' ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 font-normal [&_svg]:size-3!"
+                onClick={() => void syncFigmaMetadata()}
+                disabled={syncBusy}
+              >
+                {syncBusy ? <Loader2 className="animate-spin" strokeWidth={2} /> : <Wrench strokeWidth={2} />}
+                {syncBusy ? 'Syncing…' : 'Sync metadata'}
+              </Button>
+            ) : null}
             <Drawer direction="right">
-              <DrawerTrigger>
-                <Button variant="outline" size="sm" className="font-normal [&_svg]:size-3!">API Reference</Button>
+              <DrawerTrigger asChild>
+                <Button variant="outline" size="sm" className="font-normal [&_svg]:size-3!">
+                  API Reference
+                </Button>
               </DrawerTrigger>
               <DrawerContent>
                 <div className="mx-5 w-full max-w-lg">
@@ -168,6 +216,50 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
             </Drawer>
           </div>
         </div>
+        {component.figmaMatchStatus || component.figmaComponentName || component.figmaMissingMetadata?.length ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500 dark:text-gray-300">
+            {figmaStatusLabel ? <Badge variant={component.figmaMatchStatus === 'matched' ? 'secondary' : 'outline'}>Figma {figmaStatusLabel}</Badge> : null}
+            {component.figmaMatchedBy ? <Badge variant="outline">Matched by {component.figmaMatchedBy.replace(/_/g, ' ')}</Badge> : null}
+            {component.figmaComponentName ? <span>Component: {component.figmaComponentName}</span> : null}
+            {component.figmaComponentKey ? <span>Key: <code>{component.figmaComponentKey}</code></span> : null}
+            {component.figmaVariantLabel ? <span>Variant: {component.figmaVariantLabel}</span> : null}
+            {component.figmaComponentSetName ? <span>Set: {component.figmaComponentSetName}</span> : null}
+            {component.figmaComponentSetId ? <span>Set node: <code>{component.figmaComponentSetId}</code></span> : null}
+            {component.figmaFileKey ? <span>File: <code>{component.figmaFileKey}</code></span> : null}
+            {component.figmaNodeId ? <span>Node: <code>{component.figmaNodeId}</code></span> : null}
+            {component.figmaInstanceCount !== undefined ? <span>Variants: {component.figmaInstanceCount}</span> : null}
+            {component.figmaMissingMetadata?.length ? (
+              <span>Missing metadata: {component.figmaMissingMetadata.join(', ')}</span>
+            ) : null}
+          </div>
+        ) : null}
+        {syncMessage ? <p className="text-sm text-emerald-700 dark:text-emerald-400">{syncMessage}</p> : null}
+        {syncError ? <p className="text-sm text-red-600">{syncError}</p> : null}
+        {hasFigmaImages ? (
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-medium">Figma Images</h2>
+              <Badge variant="outline">{component.figmaImages.length}</Badge>
+            </div>
+            <div className="space-y-3">
+              {component.figmaImages.map((image, index) => (
+                <div key={`${image.name}-${image.part}-${index}`} className="rounded-md border border-border/80 bg-background p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">{image.name}</span>
+                    {image.role ? <Badge variant="outline">{image.role}</Badge> : null}
+                    {image.part ? <Badge variant="outline">{image.part}</Badge> : null}
+                    {image.width && image.height ? <Badge variant="outline">{image.width}x{image.height}</Badge> : null}
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    {image.nodeId ? <span>Node: <code>{image.nodeId}</code></span> : null}
+                    {image.imageRef ? <span>Ref: <code>{image.imageRef}</code></span> : null}
+                    {image.url ? <span className="truncate">URL available</span> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {isEditing ? (
           <>
             <InlineComponentEditor

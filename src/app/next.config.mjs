@@ -40,7 +40,15 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
   trailingSlash: true,
-  serverExternalPackages: ['@resvg/resvg-js', 'playwright-core', 'better-sqlite3', 'drizzle-orm/better-sqlite3', 'drizzle-orm/better-sqlite3/migrator'],
+  serverExternalPackages: [
+    '@resvg/resvg-js',
+    'playwright-core',
+    'better-sqlite3',
+    'drizzle-orm/better-sqlite3',
+    'drizzle-orm/better-sqlite3/migrator',
+    // Native CLI tool; Turbopack must not parse optional @esbuild/* binaries or README assets.
+    'esbuild',
+  ],
   experimental: {
     externalDir: true,
   },

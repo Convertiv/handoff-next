@@ -200,16 +200,17 @@ After fetching tokens, use the interactive scaffold to create stubs for Figma
 components that don't have local implementations yet:
 
 ```bash
+handoff-app audit:figma-components
 handoff-app scaffold
 ```
 
-This command:
-1. Reads your `tokens.json` to discover all Figma components
-2. Compares them against locally registered components
-3. Lets you select which components to scaffold
-4. For each, prompts for title, group, template type (React TSX or Handlebars),
+These commands:
+1. Audit fetched/published Figma components against locally registered components
+2. Show Figma-only components, broken/missing links, and missing structured Figma metadata
+3. Let you scaffold any Figma components that still need local implementations
+4. For each scaffolded component, prompt for title, group, template type (React TSX or Handlebars),
    and whether to include SCSS
-5. Creates the files and optionally updates `handoff.config.js`
+5. Create the files and optionally update `handoff.config.js`
 
 #### Option B: Quick create
 

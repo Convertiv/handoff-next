@@ -1,5 +1,6 @@
 import path from 'path';
 import { RendererKind } from '@handoff/declarations/types';
+import { flattenNestedFigmaInRawDeclaration } from '@handoff/figma/component-linking';
 import { ComponentListObject } from '@handoff/transformers/preview/types';
 
 type RawDeclaration = Record<string, any>;
@@ -117,8 +118,9 @@ const normalizeBestPracticeFields = (
 };
 
 export const normalizeComponentDeclaration = (raw: RawDeclaration, options: NormalizeOptions): ComponentListObject => {
+  const withFigma = flattenNestedFigmaInRawDeclaration({ ...raw } as Record<string, unknown>) as RawDeclaration;
   const normalizedRaw = normalizeBestPracticeFields(
-    { ...raw },
+    { ...withFigma },
     options.declarationPath,
     options.warn
   );
