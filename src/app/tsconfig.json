@@ -31,6 +31,10 @@
       ],
       "@/*": [
         "./*"
+      ],
+      "handoff-figma-plugin/contract": [
+        "./../../node_modules/handoff-figma-plugin/src/contract/index.ts",
+        "./../../../node_modules/handoff-figma-plugin/src/contract/index.ts"
       ]
     }
   },

@@ -33,6 +33,27 @@ import { createWebSocketServer } from './websocket.js';
 
 const escapeForSingleQuotedJsString = (value: string): string => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
+/** Absolute path to `handoff-figma-plugin` contract types (source `.ts`), or null if the package is not installed. */
+const resolveHandoffFigmaPluginContractTs = (handoffModulePath: string): string | null => {
+  const moduleRoot = path.resolve(handoffModulePath);
+  try {
+    const req = createRequire(path.join(moduleRoot, 'package.json'));
+    const pkgJson = req.resolve('handoff-figma-plugin/package.json') as string;
+    const candidate = path.join(path.dirname(pkgJson), 'src', 'contract', 'index.ts');
+    if (fs.existsSync(candidate)) return candidate;
+  } catch {
+    /* package missing from install */
+  }
+  const nested = path.join(moduleRoot, 'node_modules', 'handoff-figma-plugin', 'src', 'contract', 'index.ts');
+  return fs.existsSync(nested) ? nested : null;
+};
+
+const toTsconfigPathEntry = (fromDir: string, absoluteTarget: string): string => {
+  const rel = path.relative(fromDir, absoluteTarget);
+  const posixRel = rel.split(path.sep).join('/');
+  return `${posixRel.startsWith('.') ? '' : './'}${posixRel}`;
+};
+
 /**
  * Directory to use as `.handoff/app/node_modules` target.
  * Tarball / hoisted installs often have no `node_modules` inside `handoff-app`;
@@ -372,8 +393,22 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   const posixRel = relToModuleSrc.split(path.sep).join('/');
   const handoffPathGlob = `${posixRel.startsWith('.') ? '' : './'}${posixRel}/*`;
   const prevHandoffGlob = tsconfig.compilerOptions.paths['@handoff/*']?.[0];
+
+  const figmaContractAbs = resolveHandoffFigmaPluginContractTs(handoffModulePath);
+  const figmaContractRel = figmaContractAbs ? toTsconfigPathEntry(appPath, figmaContractAbs) : null;
+  const prevFigmaContract0 = tsconfig.compilerOptions.paths['handoff-figma-plugin/contract']?.[0];
+
+  let tsconfigDirty = false;
   if (prevHandoffGlob !== handoffPathGlob) {
     tsconfig.compilerOptions.paths['@handoff/*'] = [handoffPathGlob];
+    tsconfigDirty = true;
+  }
+  if (figmaContractRel && prevFigmaContract0 !== figmaContractRel) {
+    tsconfig.compilerOptions.paths['handoff-figma-plugin/contract'] = [figmaContractRel];
+    tsconfigDirty = true;
+  }
+
+  if (tsconfigDirty) {
     await fs.writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2) + '\n');
   }
 
