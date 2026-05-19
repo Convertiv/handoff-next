@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     const missingTable =
       cause?.code === '42P01' || msg.includes('handoff_design_artifact') || cause?.message?.includes('handoff_design_artifact');
     const hint = missingTable
-      ? ' Run `npm run db:migrate` (migrations 0010_design_artifact_if_missing / 0011_design_artifact_assets_and_sharing).'
+      ? ' Run `npm run db:migrate`.'
       : msg.includes('value too long') || msg.includes('22001')
         ? ' Payload too long for a column; try saving with fewer bench images or a shorter iteration history.'
         : '';

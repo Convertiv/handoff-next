@@ -70,7 +70,7 @@ export async function logEvent(input: EventLogInsertInput): Promise<void> {
     // Logging must never break user flows.
     if (isMissingRelationError(e)) {
       console.warn(
-        '[event-log] table handoff_event_log is missing. Run `npm run db:migrate` against this DATABASE_URL (migration 0009_event_log_if_missing creates it if needed).'
+        '[event-log] table handoff_event_log is missing. Run `npm run db:migrate` against this DATABASE_URL.'
       );
       return;
     }

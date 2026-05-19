@@ -115,7 +115,6 @@
     "handlebars": "^4.7.8",
     "handoff-core": "^0.2.0",
     "handoff-docgen": "^0.1.0",
-    "handoff-figma-plugin": "file:../handoff-figma-plugin",
     "html-react-parser": "^5.2.5",
     "lodash": "^4.17.21",
     "lucide-react": "^0.518.0",

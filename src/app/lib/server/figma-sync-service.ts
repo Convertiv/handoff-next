@@ -22,7 +22,7 @@ import {
 import { slugify } from '@handoff/transformers/utils/string';
 import type { ComponentListObject, ComponentObject, OptionalPreviewRender, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 import type { SlotMetadata } from '@handoff/transformers/preview/component';
-import type { IDetectedImage, IDetectedProperty, PushComponentPropertiesRequest, PushComponentPropertiesResponse } from 'handoff-figma-plugin/contract';
+import type { IDetectedImage, IDetectedProperty, PushComponentPropertiesRequest, PushComponentPropertiesResponse } from '@/lib/figma-plugin-contract';
 import { getValidFigmaAccessTokenForUser, hasFigmaConnection } from '@/lib/server/figma-auth';
 import type { FigmaAuditApiComponent, FigmaAuditApiResponse, FigmaAuditApiRow, FigmaSyncApiResponse, LinkedFigmaFileInfo } from '@/lib/figma-sync-types';
 import { getDataProvider } from '@/lib/data';

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import type { PushComponentPropertiesRequest } from 'handoff-figma-plugin/contract';
+import type { PushComponentPropertiesRequest } from '@/lib/figma-plugin-contract';
 import { authOrCloudToken } from '@/lib/sync-auth';
 import { pushPluginComponentProperties } from '@/lib/server/figma-sync-service';
 
