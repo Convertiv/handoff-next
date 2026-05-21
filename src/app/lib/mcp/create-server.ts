@@ -9,7 +9,7 @@ import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queri
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
 import { getDataProvider } from '@/lib/data';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
-import type { SyncUploadBody } from '@/types/handoff-sync';
+import type { SyncUploadBody } from '@handoff/types/handoff-sync';
 import { applyUploadedChange } from '@/lib/db/sync-queries';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
