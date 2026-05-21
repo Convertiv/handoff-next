@@ -5,14 +5,12 @@ import {
   DownloadIcon,
   Eye,
   ImageIcon,
-  LayoutTemplate,
   Loader2Icon,
   PaperclipIcon,
   RotateCcwIcon,
   SettingsIcon,
   SquareDashedMousePointer,
   Trash2Icon,
-  Upload,
   XIcon,
   ZoomInIcon,
   ZoomOutIcon,
@@ -39,7 +37,14 @@ import type {
   DesignWorkbenchComponentRow,
   DesignWorkbenchFoundationContext,
 } from './workbench-types';
-import { COMPONENT_REFERENCE_SETTINGS, DESIGN_MD_SETTING_KEY, INCLUDE_FOUNDATIONS_SETTING_KEY } from './settings/settings-constants';
+import {
+  BRAND_VOICE_SETTINGS,
+  COMPONENT_REFERENCE_SETTINGS,
+  CUSTOM_FOUNDATION_IMAGE_FILENAME,
+  CUSTOM_FOUNDATION_IMAGE_SETTING_KEY,
+  DESIGN_MD_SETTING_KEY,
+  INCLUDE_FOUNDATIONS_SETTING_KEY,
+} from './settings/settings-constants';
 
 type GeneratedImage = {
   id: string;
@@ -78,6 +83,7 @@ const DESIGN_ASSETS = [{ name: 'carousel.png' }, { name: 'container.png' }, { na
 const IMAGE_QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
 type ImageQuality = (typeof IMAGE_QUALITY_OPTIONS)[number];
 const EMPTY_FOUNDATIONS: DesignWorkbenchFoundationContext = { colors: [], typography: [], effects: [], spacing: [] };
+const PROMPT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const CANVAS_SIZE = 1024;
 const MIN_ANNOTATION_SIZE = 8;
 
@@ -96,19 +102,19 @@ function safeFoundationContext(raw: unknown): DesignWorkbenchFoundationContext {
   };
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error('read failed'));
-    reader.readAsDataURL(file);
-  });
-}
-
 async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
   const res = await fetch(dataUrl);
   const blob = await res.blob();
   return new File([blob], name, { type: blob.type || 'image/png' });
+}
+
+function formatBrandVoiceGuidelines(values: Record<string, string>): string {
+  const lines: string[] = [];
+  for (const setting of BRAND_VOICE_SETTINGS) {
+    const value = values[setting.id]?.trim();
+    if (value) lines.push(`### ${setting.label}\n${value}`);
+  }
+  return lines.join('\n\n');
 }
 
 /** Full URL to the authenticated screenshot API for a preview HTML app path (includes basePath). */
@@ -130,8 +136,6 @@ const DesignWorkbenchPage = ({
 }: DesignClientProps) => {
   const router = useRouter();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
-  const benchInputRef = useRef<HTMLInputElement>(null);
-  const layoutReferenceInputRef = useRef<HTMLInputElement>(null);
   const promptImageInputRef = useRef<HTMLInputElement>(null);
   const componentsRef = useRef(components);
   componentsRef.current = components;
@@ -139,8 +143,6 @@ const DesignWorkbenchPage = ({
   const [selectedClient, setSelectedClient] = useState<DesignLibraryClient>('ssc');
   const [selectedAssetName, setSelectedAssetName] = useState<string | null>(null);
   const [selectedGeneratedImageId, setSelectedGeneratedImageId] = useState<string | null>(null);
-  const [benchFiles, setBenchFiles] = useState<File[]>([]);
-  const [layoutReferenceImages, setLayoutReferenceImages] = useState<File[]>([]);
   const [promptImages, setPromptImages] = useState<File[]>([]);
   const [promptImagePreviewUrls, setPromptImagePreviewUrls] = useState<string[]>([]);
   const [componentQuery, setComponentQuery] = useState('');
@@ -154,16 +156,22 @@ const DesignWorkbenchPage = ({
   const [conversationHistory, setConversationHistory] = useState<DesignConversationTurn[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveTitle, setSaveTitle] = useState('');
   const [saveDescription, setSaveDescription] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [benchPreviewUrls, setBenchPreviewUrls] = useState<string[]>([]);
   const [includeFoundations, setIncludeFoundations] = useState(true);
+  const [customFoundationImageDataUrl, setCustomFoundationImageDataUrl] = useState('');
   const [componentReferenceDataUrls, setComponentReferenceDataUrls] = useState<Record<string, string>>({});
   const [designMd, setDesignMd] = useState('');
+  const [brandVoice, setBrandVoice] = useState<Record<string, string>>({});
   const [effectiveFoundations, setEffectiveFoundations] = useState<DesignWorkbenchFoundationContext>(foundations);
+
+  const selectedGeneratedImageIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedGeneratedImageIdRef.current = selectedGeneratedImageId;
+  }, [selectedGeneratedImageId]);
 
   useEffect(() => {
     setEffectiveFoundations(foundations);
@@ -173,16 +181,22 @@ const DesignWorkbenchPage = ({
     const readSetting = () => {
       try {
         setIncludeFoundations(window.localStorage.getItem(INCLUDE_FOUNDATIONS_SETTING_KEY) !== 'false');
+        setCustomFoundationImageDataUrl(window.localStorage.getItem(CUSTOM_FOUNDATION_IMAGE_SETTING_KEY) || '');
         setComponentReferenceDataUrls(
           Object.fromEntries(
             COMPONENT_REFERENCE_SETTINGS.map((setting) => [setting.id, window.localStorage.getItem(setting.storageKey) || ''])
           )
         );
         setDesignMd(window.localStorage.getItem(DESIGN_MD_SETTING_KEY) || '');
+        setBrandVoice(
+          Object.fromEntries(BRAND_VOICE_SETTINGS.map((setting) => [setting.id, window.localStorage.getItem(setting.storageKey) || '']))
+        );
       } catch {
         setIncludeFoundations(true);
+        setCustomFoundationImageDataUrl('');
         setComponentReferenceDataUrls({});
         setDesignMd('');
+        setBrandVoice({});
       }
     };
     readSetting();
@@ -236,14 +250,6 @@ const DesignWorkbenchPage = ({
   }, [loadArtifactId, router, basePath]);
 
   useEffect(() => {
-    const urls = benchFiles.map((f) => URL.createObjectURL(f));
-    setBenchPreviewUrls(urls);
-    return () => {
-      urls.forEach((u) => URL.revokeObjectURL(u));
-    };
-  }, [benchFiles]);
-
-  useEffect(() => {
     const urls = promptImages.map((f) => URL.createObjectURL(f));
     setPromptImagePreviewUrls(urls);
     return () => {
@@ -252,6 +258,8 @@ const DesignWorkbenchPage = ({
   }, [promptImages]);
 
   const promptedFoundations = includeFoundations ? effectiveFoundations : EMPTY_FOUNDATIONS;
+  const customFoundationImage = !includeFoundations ? customFoundationImageDataUrl : '';
+  const brandVoiceGuidelines = useMemo(() => formatBrandVoiceGuidelines(brandVoice), [brandVoice]);
 
   const hasFoundationsForRaster = useMemo(
     () =>
@@ -299,29 +307,31 @@ const DesignWorkbenchPage = ({
     setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   };
 
-  const addBenchFiles = useCallback((files: FileList | null) => {
-    if (!files?.length) return;
-    const next = Array.from(files).filter((f) => ['image/png', 'image/jpeg', 'image/webp'].includes(f.type));
+  const addPromptImageFiles = useCallback((files: ArrayLike<File> | Iterable<File> | null) => {
+    if (!files) return;
+    const next = Array.from(files).filter((f) => PROMPT_IMAGE_TYPES.includes(f.type));
     if (!next.length) return;
-    setBenchFiles((cur) => [...cur, ...next]);
-    if (benchInputRef.current) benchInputRef.current.value = '';
+    setPromptImages((current) => [...current, ...next]);
+    if (promptImageInputRef.current) promptImageInputRef.current.value = '';
   }, []);
 
-  const addLayoutReferenceFiles = useCallback((files: FileList | null) => {
-    if (!files?.length) return;
-    const next = Array.from(files).filter((f) => ['image/png', 'image/jpeg', 'image/webp'].includes(f.type));
-    if (!next.length) return;
-    setLayoutReferenceImages((cur) => [...cur, ...next]);
-    if (layoutReferenceInputRef.current) layoutReferenceInputRef.current.value = '';
-  }, []);
+  const handlePromptPaste = useCallback(
+    (event: React.ClipboardEvent<HTMLInputElement>) => {
+      const clipboardFiles = Array.from(event.clipboardData.files);
+      const itemFiles = Array.from(event.clipboardData.items)
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .filter((file): file is File => Boolean(file));
+      const pastedFiles = clipboardFiles.length > 0 ? clipboardFiles : itemFiles;
+      const pastedImages = pastedFiles.filter((file) => PROMPT_IMAGE_TYPES.includes(file.type));
 
-  const removeBenchFile = (index: number) => {
-    setBenchFiles((cur) => cur.filter((_, i) => i !== index));
-  };
+      if (!pastedImages.length) return;
 
-  const removeLayoutReference = (index: number) => {
-    setLayoutReferenceImages((cur) => cur.filter((_, i) => i !== index));
-  };
+      event.preventDefault();
+      addPromptImageFiles(pastedImages);
+    },
+    [addPromptImageFiles]
+  );
 
   const handleSelectAsset = async (assetName: string) => {
     const assetSrc = getDesignAssetSrc(selectedClient, assetName);
@@ -332,6 +342,7 @@ const DesignWorkbenchPage = ({
       }
       setImageSrc(assetSrc);
       setSelectedAssetName(assetName);
+      selectedGeneratedImageIdRef.current = null;
       setSelectedGeneratedImageId(null);
       setAnnotations([]);
       setError(null);
@@ -343,6 +354,7 @@ const DesignWorkbenchPage = ({
   const handleDeleteGeneratedImage = (imageId: string) => {
     setGeneratedImages((current) => current.filter((image) => image.id !== imageId));
     if (selectedGeneratedImageId === imageId) {
+      selectedGeneratedImageIdRef.current = null;
       setSelectedGeneratedImageId(null);
       setImageSrc(null);
       setAnnotations([]);
@@ -485,7 +497,7 @@ const DesignWorkbenchPage = ({
   };
 
   const handleGenerate = async () => {
-    if (!prompt.trim() || isGenerating) return;
+    if (!prompt.trim()) return;
     if (!isLoggedIn) {
       setError(LOGIN_TO_USE_TOOL_MESSAGE);
       return;
@@ -498,69 +510,70 @@ const DesignWorkbenchPage = ({
     }
 
     const refining = Boolean(imageSrc);
-    const hasComponentImages = selectedGuides.some((g) => g.previewUrl);
     const hasPromptImage = promptImages.length > 0;
+    const hasCustomFoundationImage = Boolean(customFoundationImage);
     const hasSavedComponentReferences = Object.values(componentReferenceDataUrls).some(Boolean);
-    if (!refining && benchFiles.length === 0 && !hasComponentImages && !hasPromptImage && !hasFoundationsForRaster && !hasSavedComponentReferences) {
+    if (!refining && !hasPromptImage && !hasFoundationsForRaster && !hasCustomFoundationImage && !hasSavedComponentReferences) {
       setError(
-        'Add at least one image, attach a prompt image, select a component with a preview, save component references in settings, use foundations in settings, or generate again from the current canvas after a first result.'
+        'Select an image on the canvas, attach a prompt image, save component references in settings, use foundations, or add a custom foundation image in settings.'
       );
       return;
     }
 
-    setIsGenerating(true);
     setError(null);
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const submittedPrompt = prompt.trim();
+    const submittedPromptImages = promptImages;
 
+    selectedGeneratedImageIdRef.current = requestId;
     setSelectedGeneratedImageId(requestId);
     setSelectedAssetName(null);
+    setImageSrc(null);
+    setAnnotations([]);
     setGeneratedImages((current) => [{ id: requestId, prompt: submittedPrompt, status: 'pending' }, ...current]);
+    setPrompt('');
+    setPromptImages([]);
+    if (promptImageInputRef.current) promptImageInputRef.current.value = '';
 
     try {
       const formData = new FormData();
+      const attachedImageLabels: string[] = [];
       formData.append('prompt', submittedPrompt);
       formData.append('foundationContext', JSON.stringify(promptedFoundations));
-      formData.append('componentGuides', JSON.stringify(selectedGuides));
+      formData.append('componentGuides', JSON.stringify(selectedGuides.map((guide) => ({ ...guide, previewUrl: null }))));
       formData.append('conversationHistory', JSON.stringify(conversationHistory));
       formData.append('designGuidelines', designMd);
+      formData.append('brandVoiceGuidelines', brandVoiceGuidelines);
       formData.append('quality', imageQuality);
+      formData.append('promptImageCount', String(submittedPromptImages.length));
 
       if (refining && imageSrc) {
-        let baseFile: File;
+        let canvasFile: File;
         if (annotations.length > 0) {
           const blob = await createAnnotatedImageBlob(imageSrc, annotations);
-          baseFile = new File([blob], 'annotated-current-canvas.png', { type: 'image/png' });
+          canvasFile = new File([blob], 'annotated-current-canvas.png', { type: 'image/png' });
         } else {
-          baseFile = await dataUrlToFile(imageSrc, 'current-canvas.png');
+          canvasFile = await dataUrlToFile(imageSrc, 'current-canvas.png');
         }
-        formData.append('iterationBase', baseFile);
+        formData.append('image[]', canvasFile);
+        attachedImageLabels.push('Main canvas image the user is referring to for this request.');
       }
 
-      for (const file of benchFiles) formData.append('image[]', file);
-      for (const file of layoutReferenceImages) formData.append('image[]', file);
+      if (customFoundationImage) {
+        formData.append('customFoundationImage', await dataUrlToFile(customFoundationImage, CUSTOM_FOUNDATION_IMAGE_FILENAME));
+      }
       for (const setting of COMPONENT_REFERENCE_SETTINGS) {
         const dataUrl = componentReferenceDataUrls[setting.id];
-        if (dataUrl) formData.append('image[]', await dataUrlToFile(dataUrl, setting.filename));
-      }
-      for (const file of promptImages) formData.append('image[]', file);
-
-      const guideImageUrls = selectedGuides
-        .filter((g) => g.previewUrl)
-        .map((g) => ({ id: g.id, url: g.previewUrl! }));
-      for (const { id, url } of guideImageUrls) {
-        try {
-          const res = await fetch(url, { credentials: 'include' });
-          if (res.ok) {
-            const blob = await res.blob();
-            const ext = blob.type === 'image/jpeg' ? '.jpg' : blob.type === 'image/webp' ? '.webp' : '.png';
-            formData.append('image[]', blob, `component-${id}${ext}`);
-          }
-        } catch {
-          // skip unreachable component images
+        if (dataUrl) {
+          formData.append('image[]', await dataUrlToFile(dataUrl, setting.filename));
+          attachedImageLabels.push(`${setting.filename}: saved ${setting.label.toLowerCase()} style reference from settings.`);
         }
       }
-
+      submittedPromptImages.forEach((file, index) => {
+        formData.append('image[]', file);
+        attachedImageLabels.push(`User-attached prompt image ${index + 1}${file.name ? ` (${file.name})` : ''}: request-specific visual reference.`);
+      });
+      formData.append('attachedImageLabels', JSON.stringify(attachedImageLabels));
       const response = await fetch(handoffApiUrl('/api/handoff/ai/generate-design'), {
         method: 'POST',
         body: formData,
@@ -578,22 +591,19 @@ const DesignWorkbenchPage = ({
         { role: 'assistant', prompt: 'Generated image', imageUrl: json.image!, timestamp: now },
       ]);
 
-      setImageSrc(json.image);
-      setAnnotations([]);
+      if (selectedGeneratedImageIdRef.current === requestId) {
+        setImageSrc(json.image);
+        setAnnotations([]);
+      }
       setGeneratedImages((current) =>
         current.map((image) => (image.id === requestId ? { ...image, src: json.image, status: 'completed' } : image))
       );
-      setPrompt('');
-      setPromptImages([]);
-      if (promptImageInputRef.current) promptImageInputRef.current.value = '';
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to generate.';
       setError(message);
       setGeneratedImages((current) =>
         current.map((image) => (image.id === requestId ? { ...image, status: 'error', error: message } : image))
       );
-    } finally {
-      setIsGenerating(false);
     }
   };
 
@@ -602,12 +612,6 @@ const DesignWorkbenchPage = ({
     setIsSaving(true);
     setError(null);
     try {
-      const sourceImages = await Promise.all(
-        benchFiles.map(async (f) => ({
-          name: f.name,
-          dataUrl: await fileToDataUrl(f),
-        }))
-      );
       const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -617,7 +621,7 @@ const DesignWorkbenchPage = ({
           description: saveDescription.trim(),
           status: 'review',
           imageUrl: imageSrc,
-          sourceImages,
+          sourceImages: [],
           componentGuides: selectedGuides,
           foundationContext: promptedFoundations,
           conversationHistory,
@@ -638,508 +642,471 @@ const DesignWorkbenchPage = ({
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <>
-      <div className="flex h-full min-h-0 flex-col">
-        <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => layoutReferenceInputRef.current?.click()}>
-              <LayoutTemplate className="h-4 w-4" />
-            </Button>
-            <Input
-              ref={layoutReferenceInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              multiple
-              onChange={(event) => addLayoutReferenceFiles(event.target.files)}
-              className="hidden"
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-8 w-8 p-0 ${isAnnotating ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : ''}`}
-              onClick={() => setIsAnnotating((current) => !current)}
-              disabled={!imageSrc}
-            >
-              <SquareDashedMousePointer className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setAnnotations([])} disabled={annotations.length === 0}>
-              <XIcon className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => void handleDownloadImage()} disabled={!imageSrc}>
-              <DownloadIcon className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 w-8 p-0"
-              onClick={() => void handleDownloadAnnotatedImage()}
-              disabled={!imageSrc || annotations.length === 0}
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-8 w-8 p-0 ${isAnnotating ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : ''}`}
+                onClick={() => setIsAnnotating((current) => !current)}
+                disabled={!imageSrc}
+              >
+                <SquareDashedMousePointer className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => setAnnotations([])}
+                disabled={annotations.length === 0}
+              >
+                <XIcon className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => void handleDownloadImage()} disabled={!imageSrc}>
+                <DownloadIcon className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => void handleDownloadAnnotatedImage()}
+                disabled={!imageSrc || annotations.length === 0}
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <Select
+                value={selectedClient}
+                onValueChange={(value) => {
+                  setSelectedClient(value as DesignLibraryClient);
+                  setSelectedAssetName(null);
+                }}
+              >
+                <SelectTrigger className="h-8 w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {DESIGN_CLIENTS.map((client) => (
+                    <SelectItem key={client} value={client}>
+                      {client}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
+                <Link href={`${basePath}/design/settings/`} aria-label="Design settings">
+                  <SettingsIcon className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <Select
-              value={selectedClient}
-              onValueChange={(value) => {
-                setSelectedClient(value as DesignLibraryClient);
-                setSelectedAssetName(null);
-              }}
-            >
-              <SelectTrigger className="h-8 w-28">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {DESIGN_CLIENTS.map((client) => (
-                  <SelectItem key={client} value={client}>
-                    {client}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
-              <Link href={`${basePath}/design/settings/`} aria-label="Design settings">
-                <SettingsIcon className="h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-        </div>
 
-        <div className="flex min-h-0 flex-1">
-          <aside className="flex w-[min(22rem,100%)] shrink-0 flex-col overflow-hidden border-r bg-background">
-            <div className="flex-1 space-y-2 overflow-y-auto p-2">
-              <Collapsible defaultOpen className="rounded-md border px-2 py-1">
-                <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
-                  <span>Reference library</span>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-2 pb-2">
-                  <div className="grid grid-cols-3 gap-2">
-                    {DESIGN_ASSETS.map((asset) => (
-                      <button
-                        key={asset.name}
-                        type="button"
-                        onClick={() => void handleSelectAsset(asset.name)}
-                        data-selected={selectedAssetName === asset.name}
-                        className="group relative rounded-md border bg-muted/20 p-1 data-[selected=true]:border-primary"
-                        title={asset.name}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={getDesignAssetSrc(selectedClient, asset.name)} alt={asset.name} className="aspect-square w-full rounded object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-
-              <Collapsible defaultOpen className="rounded-md border px-2 py-1">
-                <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
-                  <span className="flex items-center gap-2">
-                    <Upload className="h-4 w-4" /> Images
-                  </span>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-2 pb-2">
-                  <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => benchInputRef.current?.click()}>
-                    Add images
-                  </Button>
-                  <Input
-                    ref={benchInputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => addBenchFiles(e.target.files)}
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {benchFiles.map((file, i) => (
-                      <div key={`${file.name}-${i}-${file.lastModified}`} className="relative h-16 w-16 overflow-hidden rounded border">
-                        {benchPreviewUrls[i] ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={benchPreviewUrls[i]} alt={file.name} className="h-full w-full object-cover" />
-                        ) : null}
+          <div className="flex min-h-0 flex-1">
+            <aside className="flex w-[min(22rem,100%)] shrink-0 flex-col overflow-hidden border-r bg-background">
+              <div className="flex-1 space-y-2 overflow-y-auto p-2">
+                <Collapsible defaultOpen className="rounded-md border px-2 py-1">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
+                    <span>Reference library</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-2 pb-2">
+                    <div className="grid grid-cols-3 gap-2">
+                      {DESIGN_ASSETS.map((asset) => (
                         <button
+                          key={asset.name}
                           type="button"
-                          className="absolute right-0 top-0 rounded-bl bg-background/90 p-0.5"
-                          onClick={() => removeBenchFile(i)}
-                          aria-label="Remove"
+                          onClick={() => void handleSelectAsset(asset.name)}
+                          data-selected={selectedAssetName === asset.name}
+                          className="group relative rounded-md border bg-muted/20 p-1 data-[selected=true]:border-primary"
+                          title={asset.name}
                         >
-                          <Trash2Icon className="h-3 w-3" />
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={getDesignAssetSrc(selectedClient, asset.name)}
+                            alt={asset.name}
+                            className="aspect-square w-full rounded object-cover"
+                          />
                         </button>
-                      </div>
-                    ))}
-                  </div>
-                  {layoutReferenceImages.length > 0 ? (
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">Layout references</p>
-                      {layoutReferenceImages.map((file, i) => (
-                        <div key={`${file.name}-${i}`} className="flex items-center justify-between text-xs">
-                          <span className="truncate">{file.name}</span>
-                          <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => removeLayoutReference(i)}>
-                            <XIcon className="h-3 w-3" />
-                          </Button>
-                        </div>
                       ))}
                     </div>
-                  ) : null}
-                </CollapsibleContent>
-              </Collapsible>
+                  </CollapsibleContent>
+                </Collapsible>
 
-              <Collapsible defaultOpen className="rounded-md border px-2 py-1">
-                <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
-                  <span>Component guides</span>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="space-y-2 pb-2">
-                  <Input
-                    placeholder="Search components…"
-                    value={componentQuery}
-                    onChange={(e) => setComponentQuery(e.target.value)}
-                    className="h-8 text-sm"
-                  />
-                  <div className="max-h-72 space-y-1.5 overflow-y-auto pb-1">
-                    {filteredComponents.slice(0, 80).map((c) => {
-                      const selected = selectedIds.includes(c.id);
-                      const thumbUrl =
-                        c.previews?.[0]?.url != null
-                          ? componentScreenshotApiUrl(handoffApiUrl(`/api/component/${c.previews[0].url}`))
-                          : c.image;
-                      return (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => toggleComponent(c.id)}
-                          className={`flex w-full items-center gap-2.5 rounded-md border-2 bg-muted/20 p-1.5 text-left transition ${
-                            selected ? 'border-primary ring-1 ring-primary/30' : 'border-transparent hover:border-muted-foreground/30'
-                          }`}
-                          title={`${c.title}${c.group ? ` — ${c.group}` : ''}`}
-                        >
-                          <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded bg-muted/40">
-                            {thumbUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
-                            ) : (
-                              <div className="flex h-full items-center justify-center text-muted-foreground/40">
-                                <ImageIcon className="h-4 w-4" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <span className="block truncate text-xs font-medium">{c.title}</span>
-                            {c.group ? <span className="block truncate text-[10px] text-muted-foreground">{c.group}</span> : null}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </div>
-          </aside>
-
-          <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
-            {!serverAiAvailable ? (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                Design workbench needs server AI: <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_AI_API_KEY</code> or{' '}
-                <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_URL</code> +{' '}
-                <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code>.
-              </p>
-            ) : null}
-
-            {conversationHistory.length > 0 ? (
-              <div className="hidden max-h-24 flex-wrap gap-2 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs">
-                {conversationHistory.map((turn, idx) => (
-                  <span key={idx} className="rounded bg-background px-2 py-1 shadow-sm">
-                    <strong>{turn.role}:</strong> {turn.prompt.slice(0, 80)}
-                    {turn.prompt.length > 80 ? '…' : ''}
-                  </span>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted/20">
-              <TransformWrapper
-                initialScale={0.75}
-                minScale={0.25}
-                maxScale={4}
-                centerOnInit
-                limitToBounds={false}
-                panning={{ disabled: isAnnotating }}
-                wheel={{ step: 0.08 }}
-                doubleClick={{ mode: 'reset' }}
-              >
-                {({ zoomIn, zoomOut, resetTransform }) => (
-                  <>
-                    <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
-                      <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomOut()} aria-label="Zoom out">
-                        <ZoomOutIcon className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => resetTransform()} aria-label="Reset zoom">
-                        <RotateCcwIcon className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomIn()} aria-label="Zoom in">
-                        <ZoomInIcon className="h-4 w-4" />
-                      </Button>
+                <Collapsible defaultOpen className="rounded-md border px-2 py-1">
+                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
+                    <span>Component guides</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-2 pb-2">
+                    <Input
+                      placeholder="Search components…"
+                      value={componentQuery}
+                      onChange={(e) => setComponentQuery(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                    <div className="max-h-72 space-y-1.5 overflow-y-auto pb-1">
+                      {filteredComponents.slice(0, 80).map((c) => {
+                        const selected = selectedIds.includes(c.id);
+                        const thumbUrl =
+                          c.previews?.[0]?.url != null
+                            ? componentScreenshotApiUrl(handoffApiUrl(`/api/component/${c.previews[0].url}`))
+                            : c.image;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => toggleComponent(c.id)}
+                            className={`flex w-full items-center gap-2.5 rounded-md border-2 bg-muted/20 p-1.5 text-left transition ${
+                              selected ? 'border-primary ring-1 ring-primary/30' : 'border-transparent hover:border-muted-foreground/30'
+                            }`}
+                            title={`${c.title}${c.group ? ` — ${c.group}` : ''}`}
+                          >
+                            <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded bg-muted/40">
+                              {thumbUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full items-center justify-center text-muted-foreground/40">
+                                  <ImageIcon className="h-4 w-4" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <span className="block truncate text-xs font-medium">{c.title}</span>
+                              {c.group ? <span className="block truncate text-[10px] text-muted-foreground">{c.group}</span> : null}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            </aside>
 
-                    <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-fit !w-fit">
-                      <div
-                        className={`relative flex h-[1024px] w-[1024px] items-center justify-center p-8 ${isAnnotating ? 'cursor-crosshair' : ''}`}
-                        onMouseDown={handleAnnotationStart}
-                        onMouseMove={handleAnnotationMove}
-                        onMouseUp={handleAnnotationEnd}
-                        onMouseLeave={handleAnnotationEnd}
-                        style={{
-                          backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
-                          backgroundSize: '18px 18px',
-                        }}
-                      >
-                        {imageSrc ? (
-                          <Image
-                            src={imageSrc}
-                            alt={prompt || 'Generated design'}
-                            width={1024}
-                            height={1024}
-                            unoptimized
-                            className="h-auto w-[1024px] max-w-none rounded-md bg-background object-contain shadow-lg"
-                          />
-                        ) : (
-                          <div className="flex flex-col items-center gap-2 rounded-md border border-dashed bg-background/80 px-6 py-8 text-sm text-muted-foreground shadow-sm">
-                            <ImageIcon className="h-10 w-10 opacity-40" />
-                            <p>Add images, select components, or rely on foundations — then write a prompt and generate.</p>
-                          </div>
-                        )}
-                        {annotations.map((annotation) => (
-                          <div
-                            key={annotation.id}
-                            className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
-                            style={{ left: annotation.x, top: annotation.y, width: annotation.width, height: annotation.height }}
-                          />
-                        ))}
-                        {draftAnnotation ? (
-                          <div
-                            className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
-                            style={{
-                              left: getAnnotationRect(draftAnnotation).x,
-                              top: getAnnotationRect(draftAnnotation).y,
-                              width: getAnnotationRect(draftAnnotation).width,
-                              height: getAnnotationRect(draftAnnotation).height,
-                            }}
-                          />
-                        ) : null}
+            <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
+              {!serverAiAvailable ? (
+                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                  Design workbench needs server AI: <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_AI_API_KEY</code>{' '}
+                  or <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_URL</code> +{' '}
+                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code>.
+                </p>
+              ) : null}
+
+              {conversationHistory.length > 0 ? (
+                <div className="hidden max-h-24 flex-wrap gap-2 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs">
+                  {conversationHistory.map((turn, idx) => (
+                    <span key={idx} className="rounded bg-background px-2 py-1 shadow-sm">
+                      <strong>{turn.role}:</strong> {turn.prompt.slice(0, 80)}
+                      {turn.prompt.length > 80 ? '…' : ''}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted/20">
+                <TransformWrapper
+                  initialScale={0.75}
+                  minScale={0.25}
+                  maxScale={4}
+                  centerOnInit
+                  limitToBounds={false}
+                  panning={{ disabled: isAnnotating }}
+                  wheel={{ step: 0.08 }}
+                  doubleClick={{ mode: 'reset' }}
+                >
+                  {({ zoomIn, zoomOut, resetTransform }) => (
+                    <>
+                      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomOut()} aria-label="Zoom out">
+                          <ZoomOutIcon className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => resetTransform()} aria-label="Reset zoom">
+                          <RotateCcwIcon className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomIn()} aria-label="Zoom in">
+                          <ZoomInIcon className="h-4 w-4" />
+                        </Button>
                       </div>
-                    </TransformComponent>
-                  </>
-                )}
-              </TransformWrapper>
-            </div>
 
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-            <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
-              <Label htmlFor="design-prompt" className="sr-only">
-                {imageSrc ? 'Refine' : 'Prompt'}
-              </Label>
-              <input
-                ref={promptImageInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []).filter((f) => ['image/png', 'image/jpeg', 'image/webp'].includes(f.type));
-                  if (files.length) setPromptImages((current) => [...current, ...files]);
-                  e.currentTarget.value = '';
-                }}
-              />
-              <div className="px-5 pt-4">
-                <input
-                  id="design-prompt"
-                  className="h-8 w-full border-0 bg-transparent p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && void handleGenerate()}
-                  placeholder="Reply..."
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
-                <Select value={imageQuality} onValueChange={(value) => setImageQuality(value as ImageQuality)}>
-                  <SelectTrigger
-                    className="h-9 w-auto gap-2 border-0 px-2 text-sm font-medium text-gray-600 shadow-none hover:bg-gray-100 hover:text-gray-900 focus:ring-0"
-                    aria-label="Image quality"
-                  >
-                    <span>Quality</span>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent align="start">
-                    {IMAGE_QUALITY_OPTIONS.map((quality) => (
-                      <SelectItem key={quality} value={quality}>
-                        {quality[0].toUpperCase()}
-                        {quality.slice(1)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <div className="flex min-w-0 items-center gap-2">
-                  {promptImages.length > 0 ? (
-                    <div className="flex max-w-xs min-w-0 gap-2 overflow-x-auto">
-                      {promptImages.map((file, i) =>
-                        promptImagePreviewUrls[i] ? (
-                          <div key={`${file.name}-${file.lastModified}-${i}`} className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={promptImagePreviewUrls[i]} alt="" className="h-full w-full object-cover" />
-                            <button
-                              type="button"
-                              className="absolute inset-0 flex items-center justify-center bg-white/80 text-gray-700 opacity-0 transition hover:opacity-100"
-                              onClick={() => {
-                                setPromptImages((current) => current.filter((_, idx) => idx !== i));
-                                if (promptImageInputRef.current) promptImageInputRef.current.value = '';
+                      <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-fit !w-fit">
+                        <div
+                          className={`relative flex h-[1024px] w-[1024px] items-center justify-center p-8 ${isAnnotating ? 'cursor-crosshair' : ''}`}
+                          onMouseDown={handleAnnotationStart}
+                          onMouseMove={handleAnnotationMove}
+                          onMouseUp={handleAnnotationEnd}
+                          onMouseLeave={handleAnnotationEnd}
+                          style={{
+                            backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
+                            backgroundSize: '18px 18px',
+                          }}
+                        >
+                          {imageSrc ? (
+                            <Image
+                              src={imageSrc}
+                              alt={prompt || 'Generated design'}
+                              width={1024}
+                              height={1024}
+                              unoptimized
+                              className="h-auto w-[1024px] max-w-none rounded-md bg-background object-contain shadow-lg"
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed bg-background/80 px-6 py-8 text-sm text-muted-foreground shadow-sm">
+                              <ImageIcon className="h-10 w-10 opacity-40" />
+                              <p>Add images, select components, or rely on foundations — then write a prompt and generate.</p>
+                            </div>
+                          )}
+                          {annotations.map((annotation) => (
+                            <div
+                              key={annotation.id}
+                              className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
+                              style={{ left: annotation.x, top: annotation.y, width: annotation.width, height: annotation.height }}
+                            />
+                          ))}
+                          {draftAnnotation ? (
+                            <div
+                              className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
+                              style={{
+                                left: getAnnotationRect(draftAnnotation).x,
+                                top: getAnnotationRect(draftAnnotation).y,
+                                width: getAnnotationRect(draftAnnotation).width,
+                                height: getAnnotationRect(draftAnnotation).height,
                               }}
-                              aria-label={`Remove ${file.name}`}
+                            />
+                          ) : null}
+                        </div>
+                      </TransformComponent>
+                    </>
+                  )}
+                </TransformWrapper>
+              </div>
+
+              {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+                <Label htmlFor="design-prompt" className="sr-only">
+                  {imageSrc ? 'Refine' : 'Prompt'}
+                </Label>
+                <input
+                  ref={promptImageInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => addPromptImageFiles(e.target.files)}
+                />
+                <div className="px-5 pt-4">
+                  <input
+                    id="design-prompt"
+                    className="h-8 w-full border-0 bg-transparent p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    onPaste={handlePromptPaste}
+                    onKeyDown={(e) => e.key === 'Enter' && void handleGenerate()}
+                    placeholder="Reply..."
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
+                  <Select value={imageQuality} onValueChange={(value) => setImageQuality(value as ImageQuality)}>
+                    <SelectTrigger
+                      className="h-9 w-auto gap-2 border-0 px-2 text-sm font-medium text-gray-600 shadow-none hover:bg-gray-100 hover:text-gray-900 focus:ring-0"
+                      aria-label="Image quality"
+                    >
+                      <span>Quality</span>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent align="start">
+                      {IMAGE_QUALITY_OPTIONS.map((quality) => (
+                        <SelectItem key={quality} value={quality}>
+                          {quality[0].toUpperCase()}
+                          {quality.slice(1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex min-w-0 items-center gap-2">
+                    {promptImages.length > 0 ? (
+                      <div className="flex min-w-0 max-w-xs gap-2 overflow-x-auto">
+                        {promptImages.map((file, i) =>
+                          promptImagePreviewUrls[i] ? (
+                            <div
+                              key={`${file.name}-${file.lastModified}-${i}`}
+                              className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50"
                             >
-                              <Trash2Icon className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        ) : null
-                      )}
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
-                    onClick={() => promptImageInputRef.current?.click()}
-                    aria-label="Attach image to this prompt"
-                  >
-                    <PaperclipIcon className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleGenerate()}
-                    disabled={!prompt.trim() || isGenerating || !serverAiAvailable || !isLoggedIn}
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    title={
-                      !isLoggedIn
-                        ? LOGIN_TO_USE_TOOL_MESSAGE
-                        : !serverAiAvailable
-                          ? 'Configure server AI in Integrations or .env'
-                          : undefined
-                    }
-                    aria-label={imageSrc ? 'Refine design' : 'Generate design'}
-                  >
-                    {isGenerating ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <ArrowUpIcon className="h-5 w-5" />}
-                  </button>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={promptImagePreviewUrls[i]} alt="" className="h-full w-full object-cover" />
+                              <button
+                                type="button"
+                                className="absolute inset-0 flex items-center justify-center bg-white/80 text-gray-700 opacity-0 transition hover:opacity-100"
+                                onClick={() => {
+                                  setPromptImages((current) => current.filter((_, idx) => idx !== i));
+                                  if (promptImageInputRef.current) promptImageInputRef.current.value = '';
+                                }}
+                                aria-label={`Remove ${file.name}`}
+                              >
+                                <Trash2Icon className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : null
+                        )}
+                      </div>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+                      onClick={() => promptImageInputRef.current?.click()}
+                      aria-label="Attach image to this prompt"
+                    >
+                      <PaperclipIcon className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerate()}
+                      disabled={!prompt.trim() || !serverAiAvailable || !isLoggedIn}
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={
+                        !isLoggedIn
+                          ? LOGIN_TO_USE_TOOL_MESSAGE
+                          : !serverAiAvailable
+                            ? 'Configure server AI in Integrations or .env'
+                            : undefined
+                      }
+                      aria-label={imageSrc ? 'Refine design' : 'Generate design'}
+                    >
+                      <ArrowUpIcon className="h-5 w-5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <aside className="flex w-44 shrink-0 flex-col border-l bg-background">
-            <div className="border-b px-3 py-3">
-              <h2 className="text-sm font-semibold">Session</h2>
-              <p className="text-xs text-muted-foreground">{generatedImages.length} versions</p>
-            </div>
-            <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
-              {generatedImages.length > 0 ? (
-                generatedImages.map((img) => (
-                  <div key={img.id} className="group relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (img.src) {
+            <aside className="flex w-44 shrink-0 flex-col border-l bg-background">
+              <div className="border-b px-3 py-3">
+                <h2 className="text-sm font-semibold">Session</h2>
+                <p className="text-xs text-muted-foreground">{generatedImages.length} versions</p>
+              </div>
+              <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
+                {generatedImages.length > 0 ? (
+                  generatedImages.map((img) => (
+                    <div key={img.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectedGeneratedImageIdRef.current = img.id;
                           setSelectedGeneratedImageId(img.id);
                           setSelectedAssetName(null);
-                          setImageSrc(img.src);
+                          if (img.src) {
+                            setImageSrc(img.src);
+                          } else {
+                            setImageSrc(null);
+                          }
                           setAnnotations([]);
-                        }
-                      }}
-                      className="block w-full rounded-md border bg-muted/20 p-1 text-left text-xs transition hover:border-primary data-[selected=true]:border-primary disabled:cursor-default"
-                      title={img.error || img.prompt}
-                      disabled={!img.src}
-                      data-selected={selectedGeneratedImageId === img.id}
-                    >
-                      {img.status === 'completed' && img.src ? (
-                        <Image src={img.src} alt={img.prompt} width={128} height={128} unoptimized className="aspect-square w-full rounded object-cover" />
-                      ) : (
-                        <div className={`aspect-square w-full rounded ${img.status === 'error' ? 'bg-destructive/10' : 'animate-pulse bg-muted'}`} />
-                      )}
-                    </button>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="absolute right-1.5 top-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
-                      onClick={() => handleDeleteGeneratedImage(img.id)}
-                      aria-label="Delete generated image"
-                    >
-                      <Trash2Icon className="h-3.5 w-3.5" />
-                    </Button>
-                    {img.src ? (
+                        }}
+                        className="block w-full rounded-md border bg-muted/20 p-1 text-left text-xs transition hover:border-primary data-[selected=true]:border-primary"
+                        title={img.error || img.prompt}
+                        data-selected={selectedGeneratedImageId === img.id}
+                      >
+                        {img.status === 'completed' && img.src ? (
+                          <Image
+                            src={img.src}
+                            alt={img.prompt}
+                            width={128}
+                            height={128}
+                            unoptimized
+                            className="aspect-square w-full rounded object-cover"
+                          />
+                        ) : (
+                          <div
+                            className={`aspect-square w-full rounded ${img.status === 'error' ? 'bg-destructive/10' : 'animate-pulse bg-muted'}`}
+                          />
+                        )}
+                      </button>
                       <Button
                         variant="secondary"
                         size="sm"
-                        className="absolute bottom-1.5 right-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
-                        onClick={() => void handleDownloadImage(img.src)}
-                        aria-label="Save generated image"
+                        className="absolute right-1.5 top-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                        onClick={() => handleDeleteGeneratedImage(img.id)}
+                        aria-label="Delete generated image"
                       >
-                        <DownloadIcon className="h-3.5 w-3.5" />
+                        <Trash2Icon className="h-3.5 w-3.5" />
                       </Button>
-                    ) : null}
+                      {img.src ? (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="absolute bottom-1.5 right-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                          onClick={() => void handleDownloadImage(img.src)}
+                          aria-label="Save generated image"
+                        >
+                          <DownloadIcon className="h-3.5 w-3.5" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">Versions appear here.</p>
+                )}
+                {generatedImages.length > 0 ? (
+                  <div className="mt-auto flex w-full shrink-0 flex-col gap-1.5">
+                    <Button variant="secondary" size="sm" className="w-full" onClick={() => setSaveOpen(true)}>
+                      Save for review
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-auto w-full py-1 text-[11px] text-muted-foreground" asChild>
+                      <Link href={`${basePath}/design/library/`}>View saved designs</Link>
+                    </Button>
                   </div>
-                ))
-              ) : (
-                <p className="text-xs text-muted-foreground">Versions appear here.</p>
-              )}
-              {generatedImages.length > 0 ? (
-                <div className="mt-auto flex w-full shrink-0 flex-col gap-1.5">
-                  <Button variant="secondary" size="sm" className="w-full" onClick={() => setSaveOpen(true)}>
-                    Save for review
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-auto w-full py-1 text-[11px] text-muted-foreground" asChild>
-                    <Link href={`${basePath}/design/library/`}>View saved designs</Link>
-                  </Button>
+                ) : null}
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Save design for review</DialogTitle>
+              <DialogDescription>Describe the design and required assets. This is stored for your team to review.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              {imageSrc ? (
+                <div className="relative mx-auto h-40 w-40 overflow-hidden rounded border">
+                  <Image src={imageSrc} alt="Preview" fill className="object-contain" unoptimized />
                 </div>
               ) : null}
-            </div>
-          </aside>
-        </div>
-      </div>
-
-      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Save design for review</DialogTitle>
-            <DialogDescription>Describe the design and required assets. This is stored for your team to review.</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            {imageSrc ? (
-              <div className="relative mx-auto h-40 w-40 overflow-hidden rounded border">
-                <Image src={imageSrc} alt="Preview" fill className="object-contain" unoptimized />
+              <div className="space-y-1">
+                <Label htmlFor="artifact-title">Title</Label>
+                <Input
+                  id="artifact-title"
+                  value={saveTitle}
+                  onChange={(e) => setSaveTitle(e.target.value)}
+                  placeholder="e.g. Hero — pricing page"
+                />
               </div>
-            ) : null}
-            <div className="space-y-1">
-              <Label htmlFor="artifact-title">Title</Label>
-              <Input id="artifact-title" value={saveTitle} onChange={(e) => setSaveTitle(e.target.value)} placeholder="e.g. Hero — pricing page" />
+              <div className="space-y-1">
+                <Label htmlFor="artifact-desc">Description and assets</Label>
+                <Textarea
+                  id="artifact-desc"
+                  value={saveDescription}
+                  onChange={(e) => setSaveDescription(e.target.value)}
+                  rows={5}
+                  placeholder="What this design is for, copy notes, and image assets needed to build the component…"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Saves with status <strong>review</strong>. {selectedGuides.length} component guide(s), {conversationHistory.length}{' '}
+                conversation step(s).
+              </p>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="artifact-desc">Description and assets</Label>
-              <Textarea
-                id="artifact-desc"
-                value={saveDescription}
-                onChange={(e) => setSaveDescription(e.target.value)}
-                rows={5}
-                placeholder="What this design is for, copy notes, and image assets needed to build the component…"
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Saves with status <strong>review</strong>. {selectedGuides.length} component guide(s), {benchFiles.length} source image(s),{' '}
-              {conversationHistory.length} conversation step(s).
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSaveOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={() => void handleSaveArtifact()} disabled={!saveTitle.trim() || isSaving}>
-              {isSaving ? <Loader2Icon className="h-4 w-4 animate-spin" /> : 'Save'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSaveOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={() => void handleSaveArtifact()} disabled={!saveTitle.trim() || isSaving}>
+                {isSaving ? <Loader2Icon className="h-4 w-4 animate-spin" /> : 'Save'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </>
     </Layout>
   );

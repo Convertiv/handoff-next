@@ -50,6 +50,12 @@ function safeJson<T>(raw: string | null, fallback: T): T {
   }
 }
 
+function safeLabel(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 240) : fallback;
+}
+
 export async function POST(request: NextRequest) {
   const ctx = await authOrCloudToken(request);
   if (ctx instanceof NextResponse) return ctx;
@@ -73,6 +79,8 @@ export async function POST(request: NextRequest) {
     const prompt = String(formData.get('prompt') ?? '').trim();
     const quality = toAllowedImageQuality(String(formData.get('quality') ?? 'auto'));
     const designGuidelines = String(formData.get('designGuidelines') ?? '').trim();
+    const brandVoiceGuidelines = String(formData.get('brandVoiceGuidelines') ?? '').trim();
+    const promptImageCount = Math.max(0, Number.parseInt(String(formData.get('promptImageCount') ?? '0'), 10) || 0);
     if (!prompt) {
       return NextResponse.json({ error: 'prompt is required' }, { status: 400 });
     }
@@ -85,28 +93,45 @@ export async function POST(request: NextRequest) {
     });
     const componentGuides = safeJson<DesignWorkbenchComponentGuide[]>(String(formData.get('componentGuides') ?? ''), []);
     const conversationHistory = safeJson<DesignConversationTurn[]>(String(formData.get('conversationHistory') ?? ''), []);
+    const attachedImageLabels = safeJson<string[]>(String(formData.get('attachedImageLabels') ?? ''), []);
+    const customFoundationImage = formData.get('customFoundationImage');
+    let customFoundationImageInput: ImageEditInput | null = null;
 
-    const fullPrompt = buildDesignGenerationPrompt({
-      userPrompt: prompt,
-      foundationContext,
-      componentGuides: Array.isArray(componentGuides) ? componentGuides : [],
-      conversationHistory: Array.isArray(conversationHistory) ? conversationHistory : [],
-      designGuidelines,
-    });
+    if (customFoundationImage instanceof File && customFoundationImage.size > 0) {
+      const contentType = toAllowedImageType(customFoundationImage.type);
+      if (!contentType) {
+        return NextResponse.json(
+          { error: `customFoundationImage must be PNG, JPEG, or WEBP (got ${customFoundationImage.type || 'unknown'}).` },
+          { status: 400 }
+        );
+      }
+      customFoundationImageInput = {
+        filename: customFoundationImage.name || 'custom-foundations.png',
+        contentType,
+        data: Buffer.from(await customFoundationImage.arrayBuffer()),
+      };
+    }
 
     const images: ImageEditInput[] = [];
+    const imageOrderLabels: string[] = [];
 
-    try {
-      const foundationPng = await renderFoundationsImage(foundationContext);
-      if (foundationPng) {
-        images.push({
-          filename: 'design-system-foundations.png',
-          contentType: 'image/png',
-          data: foundationPng,
-        });
+    if (customFoundationImageInput) {
+      images.push(customFoundationImageInput);
+      imageOrderLabels.push('custom-foundations.png: custom foundation reference image from settings.');
+    } else {
+      try {
+        const foundationPng = await renderFoundationsImage(foundationContext);
+        if (foundationPng) {
+          images.push({
+            filename: 'design-system-foundations.png',
+            contentType: 'image/png',
+            data: foundationPng,
+          });
+          imageOrderLabels.push('design-system-foundations.png: generated design system foundations reference from settings/tokens.');
+        }
+      } catch (foundationErr) {
+        console.error('[generate-design] foundation raster failed:', foundationErr);
       }
-    } catch (foundationErr) {
-      console.error('[generate-design] foundation raster failed:', foundationErr);
     }
 
     const iterationBase = formData.get('iterationBase');
@@ -123,6 +148,7 @@ export async function POST(request: NextRequest) {
         contentType: ct,
         data: Buffer.from(await iterationBase.arrayBuffer()),
       });
+      imageOrderLabels.push('iteration-base.png: main canvas image the user is referring to for this request.');
     }
 
     const files = formData.getAll('image[]');
@@ -142,6 +168,7 @@ export async function POST(request: NextRequest) {
         contentType,
         data: buffer,
       });
+      imageOrderLabels.push(safeLabel(attachedImageLabels[i], `${value.name || `reference-${i + 1}.png`}: attached reference image.`));
     }
 
     if (images.length === 0) {
@@ -153,6 +180,18 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const fullPrompt = buildDesignGenerationPrompt({
+      userPrompt: prompt,
+      foundationContext,
+      componentGuides: Array.isArray(componentGuides) ? componentGuides : [],
+      conversationHistory: Array.isArray(conversationHistory) ? conversationHistory : [],
+      designGuidelines,
+      brandVoiceGuidelines,
+      customFoundationImageIncluded: Boolean(customFoundationImageInput),
+      promptImageCount,
+      attachedImageLabels: imageOrderLabels,
+    });
 
     const image = await openAiImageEdit({
       prompt: fullPrompt,

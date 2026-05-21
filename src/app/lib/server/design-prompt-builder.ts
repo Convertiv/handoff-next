@@ -1,10 +1,6 @@
 import 'server-only';
 
-import type {
-  DesignConversationTurn,
-  DesignWorkbenchComponentGuide,
-  DesignWorkbenchFoundationContext,
-} from '@/app/design/workbench-types';
+import type { DesignConversationTurn, DesignWorkbenchComponentGuide, DesignWorkbenchFoundationContext } from '@/app/design/workbench-types';
 
 export type { DesignConversationTurn, DesignWorkbenchComponentGuide, DesignWorkbenchFoundationContext };
 
@@ -37,9 +33,7 @@ export function serializeFoundationsFromTokens(payload: unknown): DesignWorkbenc
     const name = pickString(o, ['name', 'title', 'id', 'key']);
     const value =
       pickString(o, ['value', 'hex', 'color', 'css']) ||
-      (typeof o.values === 'object' && o.values !== null
-        ? pickString(asRecord(o.values) ?? {}, ['hex', 'value', 'color'])
-        : '');
+      (typeof o.values === 'object' && o.values !== null ? pickString(asRecord(o.values) ?? {}, ['hex', 'value', 'color']) : '');
     const group = pickString(o, ['group']);
     const subgroup = pickString(o, ['subgroup']);
     if (name || value) colors.push({ name: name || 'color', value: value || '—', group, subgroup });
@@ -68,9 +62,7 @@ export function serializeFoundationsFromTokens(payload: unknown): DesignWorkbenc
     const name = pickString(o, ['name', 'title', 'id', 'key']);
     const value =
       pickString(o, ['value', 'px', 'rem', 'css']) ||
-      (typeof o.values === 'object' && o.values !== null
-        ? pickString(asRecord(o.values) ?? {}, ['value', 'px', 'rem'])
-        : '');
+      (typeof o.values === 'object' && o.values !== null ? pickString(asRecord(o.values) ?? {}, ['value', 'px', 'rem']) : '');
     if (name || value) spacing.push({ name: name || 'space', value: value || '—' });
   }
 
@@ -86,7 +78,14 @@ export function serializeFoundationsFromTokens(payload: unknown): DesignWorkbenc
   return { colors, typography, effects, spacing };
 }
 
-function formatFoundationsBlock(ctx: DesignWorkbenchFoundationContext): string {
+function formatFoundationsBlock(ctx: DesignWorkbenchFoundationContext, customFoundationImageIncluded = false): string {
+  if (customFoundationImageIncluded) {
+    return [
+      '## Design system foundations (use strictly)',
+      'A custom foundation reference image is attached to this request. Use that image as the source of truth for colors, typography, spacing, effects, and component styling foundations.',
+    ].join('\n');
+  }
+
   const lines: string[] = ['## Design system foundations (use strictly)'];
   if (ctx.colors.length) {
     lines.push('### Colors');
@@ -146,6 +145,30 @@ function formatDesignGuidelinesBlock(markdown: string): string {
   return ['## Design.MD guidelines (use strictly)', trimmed].join('\n\n');
 }
 
+function formatBrandVoiceGuidelinesBlock(markdown: string): string {
+  const trimmed = markdown.trim();
+  if (!trimmed) return '';
+  return [
+    '## Brand voice & copy guidelines (use strictly)',
+    'Apply these guidelines to all generated UI copy, including headlines, CTAs, labels, descriptions, sample content, and the amount of copy that should fit the design.',
+    trimmed,
+  ].join('\n\n');
+}
+
+function formatPromptImagesBlock(count: number): string {
+  if (count <= 0) return '';
+  const label = count === 1 ? 'image' : 'images';
+  return [
+    '## User-attached prompt images',
+    `The user attached ${count} ${label} directly to this request. Treat these as request-specific visual references and prioritize them for the current user request, while still respecting the design system foundations and saved component references.`,
+  ].join('\n');
+}
+
+function formatAttachedImageOrderBlock(labels: string[]): string {
+  if (!labels.length) return '';
+  return ['## Attached image order', ...labels.map((label, index) => `${index + 1}. ${label}`)].join('\n');
+}
+
 const CANVAS_RULES = `## Output rules
 - Canvas is 1024×1024. The UI section should only use the vertical height it needs; leave unused canvas area minimal and neutral (do not stretch content to fill the square).
 - Match the design system's colors, typography, spacing, and component semantics described above.
@@ -160,19 +183,30 @@ export function buildDesignGenerationPrompt({
   componentGuides,
   conversationHistory,
   designGuidelines = '',
+  brandVoiceGuidelines = '',
+  customFoundationImageIncluded = false,
+  promptImageCount = 0,
+  attachedImageLabels = [],
 }: {
   userPrompt: string;
   foundationContext: DesignWorkbenchFoundationContext;
   componentGuides: DesignWorkbenchComponentGuide[];
   conversationHistory: DesignConversationTurn[];
   designGuidelines?: string;
+  brandVoiceGuidelines?: string;
+  customFoundationImageIncluded?: boolean;
+  promptImageCount?: number;
+  attachedImageLabels?: string[];
 }): string {
   const parts = [
     'You are an expert product designer generating a UI mock as an image edit.',
-    formatFoundationsBlock(foundationContext),
+    formatFoundationsBlock(foundationContext, customFoundationImageIncluded),
     formatComponentGuidesBlock(componentGuides),
     formatDesignGuidelinesBlock(designGuidelines),
+    formatBrandVoiceGuidelinesBlock(brandVoiceGuidelines),
     formatConversationBlock(conversationHistory),
+    formatPromptImagesBlock(promptImageCount),
+    formatAttachedImageOrderBlock(attachedImageLabels),
     CANVAS_RULES,
     '## Current user request',
     userPrompt,
