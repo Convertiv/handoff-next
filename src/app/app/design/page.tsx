@@ -5,6 +5,8 @@ import { getDataProvider } from '../../lib/data';
 import { isServerAiConfigured } from '../../lib/server/ai-client';
 import { serializeFoundationsFromTokens } from '../../lib/server/design-prompt-builder';
 import type { Metadata as DocMetadata } from '../../components/util';
+import CloudFeatureGate from '../../components/CloudFeatureGate';
+import { getHandoffCapabilities } from '@/lib/handoff-capabilities';
 import DesignClient from './DesignClient';
 import type {
   DesignWorkbenchComponentPreviewRef,
@@ -61,6 +63,7 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
   const raw = sp.loadArtifact;
   const loadArtifactId = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? '').trim() : '';
 
+  const caps = getHandoffCapabilities();
   const session = await auth();
   const isLoggedIn = Boolean(session?.user);
 
@@ -82,16 +85,18 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
   }
 
   return (
-    <DesignClient
-      menu={props.menu}
-      metadata={props.metadata as DocMetadata}
-      current={props.current}
-      config={config}
-      isLoggedIn={isLoggedIn}
-      serverAiAvailable={serverAiAvailable}
-      components={components}
-      foundations={foundations}
-      loadArtifactId={loadArtifactId || undefined}
-    />
+    <CloudFeatureGate feature="Design workbench" enabled={caps.designWorkbench}>
+      <DesignClient
+        menu={props.menu}
+        metadata={props.metadata as DocMetadata}
+        current={props.current}
+        config={config}
+        isLoggedIn={isLoggedIn}
+        serverAiAvailable={serverAiAvailable && caps.aiFeatures}
+        components={components}
+        foundations={foundations}
+        loadArtifactId={loadArtifactId || undefined}
+      />
+    </CloudFeatureGate>
   );
 }

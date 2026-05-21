@@ -3,6 +3,7 @@ import { getClientRuntimeConfig } from '../components/util';
 import { auth } from '../lib/auth';
 import { getDataProvider } from '../lib/data';
 import { usePostgres } from '../lib/db/dialect';
+import { getHandoffCapabilities, probeRemoteHandoffReachable } from '../lib/handoff-capabilities';
 import Providers from './providers';
 import '../css/index.css';
 import '../css/theme.css';
@@ -13,6 +14,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const authEnabled = usePostgres();
   const session = await auth().catch(() => null);
+  await probeRemoteHandoffReachable().catch(() => false);
+  const capabilities = getHandoffCapabilities();
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -43,7 +46,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             />
           </noscript>
         )}
-        <Providers config={config} menu={menu} authEnabled={authEnabled} session={session}>
+        <Providers config={config} menu={menu} authEnabled={authEnabled} session={session} capabilities={capabilities}>
           {children}
         </Providers>
       </body>

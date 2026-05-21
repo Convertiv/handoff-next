@@ -13,8 +13,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
         <p className="text-muted-foreground">
-          Sign in is only available when the app uses a team database. Set <code className="rounded bg-muted px-1">DATABASE_URL</code> for Postgres
-          (local solo dev uses embedded SQLite without accounts).
+          Sign in requires a hosted Handoff deployment with <code className="rounded bg-muted px-1">DATABASE_URL</code>. Local filesystem-only mode
+          has no accounts — use <code className="rounded bg-muted px-1">HANDOFF_CLOUD_URL</code> for team features.
         </p>
       </div>
     );

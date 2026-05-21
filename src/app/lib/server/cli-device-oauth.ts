@@ -28,8 +28,20 @@ export function hashDeviceCode(plain: string): string {
 }
 
 export function scopesForRole(role: string | undefined): string {
-  if (role === 'admin') return 'sync:read sync:write';
-  return 'sync:read';
+  if (role === 'admin') {
+    return [
+      'sync:read',
+      'sync:write',
+      'reference:read',
+      'components:read',
+      'components:write',
+      'design:read',
+      'design:write',
+      'generate:component',
+      'figma:sync',
+    ].join(' ');
+  }
+  return ['sync:read', 'reference:read', 'components:read', 'design:read', 'design:write'].join(' ');
 }
 
 export type CreateDeviceSessionResult = {

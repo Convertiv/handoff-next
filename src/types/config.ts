@@ -102,7 +102,24 @@ export interface NextAppConfig {
   };
 }
 
+export type StackProfileId = 'bootstrap-handlebars' | 'react-tailwind' | 'react-scss';
+
+/** Per-project MCP / agent hydration (optional; env vars used when omitted). */
+export interface HandoffProjectProfileConfig {
+  name?: string;
+  stackProfile?: StackProfileId;
+  figmaFileKey?: string | null;
+  paths?: {
+    components?: string[];
+    patterns?: string[];
+    pages?: string[];
+  };
+  translationRules?: string[];
+}
+
 export interface Config {
+  projectProfile?: HandoffProjectProfileConfig;
+  project_profile?: HandoffProjectProfileConfig;
   dev_access_token?: string | null | undefined;
   devAccessToken?: string | null | undefined;
   figma_project_id?: string | null | undefined;

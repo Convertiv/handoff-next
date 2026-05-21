@@ -8,6 +8,8 @@ import { ConfigContextProvider } from '../components/context/ConfigContext';
 import { ThemeProvider } from '../components/util/theme-provider';
 import type { ClientConfig } from '@handoff/types/config';
 import type { SectionLink } from '../components/util';
+import { HandoffCapabilitiesProvider } from '../components/context/HandoffCapabilitiesContext';
+import type { HandoffCapabilities } from '../lib/handoff-capabilities';
 
 interface ProvidersProps {
   config: ClientConfig;
@@ -15,17 +17,27 @@ interface ProvidersProps {
   children: ReactNode;
   authEnabled?: boolean;
   session?: Session | null;
+  capabilities: HandoffCapabilities;
 }
 
-export default function Providers({ config, menu, children, authEnabled = false, session = null }: ProvidersProps) {
+export default function Providers({
+  config,
+  menu,
+  children,
+  authEnabled = false,
+  session = null,
+  capabilities,
+}: ProvidersProps) {
   return (
     <SessionProvider session={session ?? undefined}>
       <AuthUiProvider authEnabled={authEnabled}>
-        <ConfigContextProvider defaultConfig={config} defaultMenu={menu}>
-          <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-            {children}
-          </ThemeProvider>
-        </ConfigContextProvider>
+        <HandoffCapabilitiesProvider capabilities={capabilities}>
+          <ConfigContextProvider defaultConfig={config} defaultMenu={menu}>
+            <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+              {children}
+            </ThemeProvider>
+          </ConfigContextProvider>
+        </HandoffCapabilitiesProvider>
       </AuthUiProvider>
     </SessionProvider>
   );

@@ -42,8 +42,8 @@ Handoff is a collection of four tools:
 * **Transformation Pipeline** - Transformers that produce SASS, CSS, Style
   Dictionary, and preview snippets from extracted data.
 * **Documentation Web App** - A Next.js server that renders live previews of
-  your components, tokens, and styles. Uses embedded **SQLite** locally with
-  zero config, or **Postgres** when `DATABASE_URL` is set for team features.
+  your components, tokens, and styles from your repo. Optional **Postgres** on
+  the hosted deployment (or `HANDOFF_CLOUD_URL` locally) for team features, AI, and sync.
 * **Delivery Tools** - Build tooling and CI/CD wrappers for automating token
   and documentation delivery.
 
@@ -74,8 +74,10 @@ automatic, up-to-date developer documentation.
 * Node 18.17+
 * NPM 8+
 
-No database setup is required for local development -- Handoff creates an
-embedded SQLite database automatically on first start.
+Local development uses your repo filesystem for docs and components. Set
+`HANDOFF_CLOUD_URL` (and run `handoff-app login`) for design library, AI, and sync
+against a hosted Postgres instance. See [SQLITE-REMOVAL-ADR](docs/SQLITE-REMOVAL-ADR.md)
+and [HANDOFF-MCP-RFC](docs/HANDOFF-MCP-RFC.md).
 
 ## Quick Start (New Project)
 
@@ -114,8 +116,8 @@ npm run fetch    # Extract tokens from your Figma file
 npm run start    # Start the documentation server
 ```
 
-Open http://localhost:3000. Handoff auto-creates a local SQLite database at
-`.handoff/local.db` -- no setup needed.
+Open http://localhost:3000. Docs and components load from your repo filesystem.
+For design library, AI, and sync, set `HANDOFF_CLOUD_URL` and run `handoff-app login`.
 
 ### Verify the pipeline
 
@@ -313,7 +315,6 @@ npm run start
 ```
 
 On first start, Handoff automatically:
-- Creates `.handoff/local.db` (embedded SQLite) -- no database setup required
 - Discovers all components from your `entries.components` paths
 - Loads pages from your `pages/` directory
 - Serves your existing `exported/` tokens

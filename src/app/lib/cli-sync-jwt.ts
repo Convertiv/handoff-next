@@ -1,6 +1,12 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 
-const AUD = 'handoff-cli-sync';
+/** Preferred audience for new tokens (CLI + MCP). */
+export const HANDOFF_API_JWT_AUD = 'handoff-api';
+/** @deprecated Legacy CLI tokens — still accepted on verify. */
+export const CLI_SYNC_JWT_AUD = 'handoff-cli-sync';
+export const MCP_JWT_AUD = 'handoff-mcp';
+
+const ACCEPTED_AUDIENCES = [HANDOFF_API_JWT_AUD, CLI_SYNC_JWT_AUD, MCP_JWT_AUD] as const;
 
 function base64UrlEncode(data: string): string {
   return Buffer.from(data, 'utf8')
@@ -20,7 +26,7 @@ export type CliSyncJwtPayload = {
   role: string;
   scp: string;
   iss: string;
-  aud: typeof AUD;
+  aud: string;
   iat: number;
   exp: number;
 };
@@ -45,7 +51,7 @@ export function signCliAccessToken(payload: Omit<CliSyncJwtPayload, 'aud' | 'iat
     role: payload.role,
     scp: payload.scp,
     iss: payload.iss,
-    aud: AUD,
+    aud: HANDOFF_API_JWT_AUD,
     iat: now,
     exp: now + ttl,
   };
@@ -80,7 +86,9 @@ export function verifyCliAccessToken(token: string, expectedIss: string): Verify
   } catch {
     return { ok: false, reason: 'bad_payload' };
   }
-  if (payload.aud !== AUD) return { ok: false, reason: 'bad_aud' };
+  if (!ACCEPTED_AUDIENCES.includes(payload.aud as (typeof ACCEPTED_AUDIENCES)[number])) {
+    return { ok: false, reason: 'bad_aud' };
+  }
   if (payload.iss !== expectedIss) return { ok: false, reason: 'bad_iss' };
   const now = Math.floor(Date.now() / 1000);
   if (typeof payload.exp !== 'number' || payload.exp < now) return { ok: false, reason: 'expired' };
@@ -88,8 +96,13 @@ export function verifyCliAccessToken(token: string, expectedIss: string): Verify
   return { ok: true, payload };
 }
 
-export function cliJwtScopesIncludeWrite(scp: string): boolean {
-  return scp.split(/\s+/).includes('sync:write');
+export function jwtScopesInclude(scp: string, scope: string): boolean {
+  return scp.split(/\s+/).filter(Boolean).includes(scope);
 }
 
-export { AUD as CLI_SYNC_JWT_AUD };
+export function cliJwtScopesIncludeWrite(scp: string): boolean {
+  return jwtScopesInclude(scp, 'sync:write');
+}
+
+/** @deprecated Use HANDOFF_API_JWT_AUD */
+export { CLI_SYNC_JWT_AUD as AUD };

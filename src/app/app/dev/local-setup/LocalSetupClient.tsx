@@ -5,8 +5,15 @@ import { Button } from '@/components/ui/button';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import McpSetupSection from './McpSetupSection';
 
-export default function LocalSetupClient() {
+type LocalSetupClientProps = {
+  mcpOnThisHost: boolean;
+  /** Team Handoff origin when this page is not the MCP host (local filesystem mode). */
+  fallbackMcpUrl: string;
+};
+
+export default function LocalSetupClient({ mcpOnThisHost, fallbackMcpUrl }: LocalSetupClientProps) {
   const { data: session, status } = useSession();
   const [copied, setCopied] = useState<string | null>(null);
 
@@ -17,13 +24,16 @@ export default function LocalSetupClient() {
     return base ? `${origin}${base}`.replace(/\/+$/, '') : origin.replace(/\/+$/, '');
   }, [origin]);
 
+  const mcpHandoffUrl = mcpOnThisHost ? handoffUrl : fallbackMcpUrl || handoffUrl;
+  const remoteUrl = mcpHandoffUrl || handoffUrl;
+
   const copy = async (label: string, text: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(label);
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const envSnippet = `HANDOFF_CLOUD_URL=${handoffUrl || 'https://your-handoff.example.com'}
+  const envSnippet = `HANDOFF_CLOUD_URL=${remoteUrl || 'https://your-handoff.example.com'}
 # Optional if you use \`handoff-app login\` (recommended):
 # (credentials saved to .handoff/cli-auth.json — no HANDOFF_CLOUD_TOKEN needed)
 
@@ -31,7 +41,7 @@ export default function LocalSetupClient() {
 # HANDOFF_CLOUD_TOKEN=...
 `;
 
-  const loginCmd = `handoff-app login --url ${handoffUrl || 'https://your-handoff.example.com'}`;
+  const loginCmd = `handoff-app login --url ${remoteUrl || 'https://your-handoff.example.com'}`;
 
   if (status === 'loading') {
     return <p className="text-sm text-muted-foreground">Loading…</p>;
@@ -39,11 +49,14 @@ export default function LocalSetupClient() {
 
   if (!session?.user) {
     return (
-      <div className="space-y-4">
-        <p className="text-sm text-muted-foreground">Sign in to see team-specific links and the CLI authorization page.</p>
-        <Button asChild variant="default">
-          <Link href={`${handoffApiUrl('/login')}?callbackUrl=${encodeURIComponent(`${handoffBasePath()}/dev/local-setup`)}`}>Sign in</Link>
-        </Button>
+      <div className="space-y-8">
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">Sign in to see team-specific links and the CLI authorization page.</p>
+          <Button asChild variant="default">
+            <Link href={`${handoffApiUrl('/login')}?callbackUrl=${encodeURIComponent(`${handoffBasePath()}/dev/local-setup`)}`}>Sign in</Link>
+          </Button>
+        </div>
+        <McpSetupSection handoffUrl={mcpHandoffUrl} mcpOnThisHost={mcpOnThisHost} />
       </div>
     );
   }
@@ -93,6 +106,8 @@ handoff-app push`}
           </Button>
         </div>
       </section>
+
+      <McpSetupSection handoffUrl={mcpHandoffUrl} mcpOnThisHost={mcpOnThisHost} />
 
       <section>
         <Button type="button" variant="ghost" size="sm" className="px-0" onClick={() => void copy('logout', 'handoff-app logout')}>

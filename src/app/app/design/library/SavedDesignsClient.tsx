@@ -5,6 +5,8 @@ import { ArrowLeft, ImageIcon, LayoutGrid, Loader2Icon, Rows, Search } from 'luc
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '@/components/Layout/Main';
+import CloudFeatureGate from '@/components/CloudFeatureGate';
+import { useHandoffCapabilities } from '@/components/context/HandoffCapabilitiesContext';
 import { handoffApiUrl } from '@/lib/api-path';
 import type { Metadata, SectionLink } from '@/components/util';
 import { Button } from '@/components/ui/button';
@@ -40,7 +42,18 @@ function formatDate(iso: string): string {
 }
 
 export default function SavedDesignsClient({ menu, metadata, config, message }: Props) {
+  const caps = useHandoffCapabilities();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+
+  if (!caps.designLibrary) {
+    return (
+      <Layout config={config} menu={menu} current={null} metadata={{ metaTitle: metadata.metaTitle, metaDescription: metadata.metaDescription }}>
+        <CloudFeatureGate feature="Design library" enabled={false}>
+          <span />
+        </CloudFeatureGate>
+      </Layout>
+    );
+  }
   const [items, setItems] = useState<SavedDesignListRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');

@@ -14,6 +14,7 @@ import { handoffComponents } from '@/lib/db/schema';
 import { isValidComponentId } from '@/lib/component-id';
 import { scheduleComponentGenerationJob } from '@/lib/server/component-generation-schedule';
 import type { RendererKind } from '@/lib/server/component-scaffold';
+import { requireHostedDatabase } from '@/lib/handoff-capabilities';
 
 const RENDERERS: RendererKind[] = ['handlebars', 'react', 'csf'];
 
@@ -38,6 +39,9 @@ export async function POST(request: NextRequest) {
   if (shouldProxyAi()) {
     return proxyAiToCloud(request, { actingUserId: ctx.userId !== 'cloud-proxy' ? ctx.userId : undefined });
   }
+
+  const dbRequired = requireHostedDatabase();
+  if (dbRequired) return dbRequired;
 
   if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
     return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
@@ -100,6 +104,9 @@ export async function GET(request: NextRequest) {
   if (shouldProxyAi()) {
     return proxyAiToCloud(request, { actingUserId: ctx.userId !== 'cloud-proxy' ? ctx.userId : undefined });
   }
+
+  const dbRequiredGet = requireHostedDatabase();
+  if (dbRequiredGet) return dbRequiredGet;
 
   const { searchParams } = new URL(request.url);
   const jobId = Number(searchParams.get('jobId') || '');

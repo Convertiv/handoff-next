@@ -19,6 +19,9 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
     '/api/tokens',
     '/login',
     '/reset-password',
+    '/api/mcp',
+    '/api/handoff/reference-materials',
+    '/api/sync',
   ];
 
   const { pathname } = request.nextUrl;
@@ -27,12 +30,10 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
     return NextResponse.next();
   }
 
-  /** Local SQLite mode: trusted single-user; skip JWT gate for /admin. */
-  const isLocalSqlite = !process.env.DATABASE_URL?.trim();
-
   if (pathname.startsWith('/admin')) {
-    if (isLocalSqlite) {
-      return NextResponse.next();
+    if (!process.env.DATABASE_URL?.trim()) {
+      const setup = new URL('/dev/local-setup', request.url);
+      return NextResponse.redirect(setup);
     }
     const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
     const token = await getToken({ req: request, secret });

@@ -7,7 +7,7 @@ import Google from 'next-auth/providers/google';
 import { eq } from 'drizzle-orm';
 import { getDb } from './db';
 import * as schema from './db/schema';
-import { useSqlite } from './db/dialect';
+import { usePostgres } from './db/dialect';
 import { verifyPassword } from './passwords';
 import { logEvent } from './server/event-log';
 
@@ -61,7 +61,7 @@ function linkedAccountProviders(): NextAuthConfig['providers'] {
   return list;
 }
 
-const db = typeof window === 'undefined' ? getDb() : null;
+const db = typeof window === 'undefined' && usePostgres() ? getDb() : null;
 const loginOauth = typeof window === 'undefined' ? loginOauthProviders() : [];
 const linkedOauth = typeof window === 'undefined' ? linkedAccountProviders() : [];
 const hasAnyOAuth = loginOauth.length > 0 || linkedOauth.length > 0;
@@ -172,25 +172,13 @@ const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
       });
     },
   },
-  secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? (useSqlite() ? 'handoff-local-dev-not-a-real-secret' : undefined),
+  secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
 });
 
 export { handlers, signIn, signOut };
 
-/** Local SQLite: synthetic admin session. Postgres: NextAuth session. */
+/** Postgres: NextAuth session. Local hybrid mode (no DATABASE_URL): no session. */
 export async function auth(): Promise<Session | null> {
-  if (useSqlite()) {
-    return {
-      user: {
-        id: 'local',
-        name: 'Local dev',
-        email: 'local@handoff.local',
-        emailVerified: null,
-        image: null,
-        role: 'admin',
-      },
-      expires: new Date(Date.now() + 60 * 864e5).toISOString(),
-    } as Session;
-  }
+  if (!usePostgres()) return null;
   return (await nextAuthLibAuth()) as Session | null;
 }
