@@ -38,12 +38,14 @@ import type {
   DesignWorkbenchFoundationContext,
 } from './workbench-types';
 import {
-  BRAND_VOICE_SETTINGS,
+  applyWorkspaceToState,
+  fetchDesignWorkspace,
+  readLocalStorageWorkspace,
+} from '@/lib/design-workspace-client';
+import { formatBrandVoiceForPrompt } from '@/lib/design-workspace-format';
+import {
   COMPONENT_REFERENCE_SETTINGS,
   CUSTOM_FOUNDATION_IMAGE_FILENAME,
-  CUSTOM_FOUNDATION_IMAGE_SETTING_KEY,
-  DESIGN_MD_SETTING_KEY,
-  INCLUDE_FOUNDATIONS_SETTING_KEY,
 } from './settings/settings-constants';
 
 type GeneratedImage = {
@@ -108,15 +110,6 @@ async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
   return new File([blob], name, { type: blob.type || 'image/png' });
 }
 
-function formatBrandVoiceGuidelines(values: Record<string, string>): string {
-  const lines: string[] = [];
-  for (const setting of BRAND_VOICE_SETTINGS) {
-    const value = values[setting.id]?.trim();
-    if (value) lines.push(`### ${setting.label}\n${value}`);
-  }
-  return lines.join('\n\n');
-}
-
 /** Full URL to the authenticated screenshot API for a preview HTML app path (includes basePath). */
 function componentScreenshotApiUrl(previewHtmlAppPath: string): string {
   const endpoint = handoffApiUrl('/api/handoff/ai/component-screenshot');
@@ -178,33 +171,30 @@ const DesignWorkbenchPage = ({
   }, [foundations]);
 
   useEffect(() => {
-    const readSetting = () => {
-      try {
-        setIncludeFoundations(window.localStorage.getItem(INCLUDE_FOUNDATIONS_SETTING_KEY) !== 'false');
-        setCustomFoundationImageDataUrl(window.localStorage.getItem(CUSTOM_FOUNDATION_IMAGE_SETTING_KEY) || '');
-        setComponentReferenceDataUrls(
-          Object.fromEntries(
-            COMPONENT_REFERENCE_SETTINGS.map((setting) => [setting.id, window.localStorage.getItem(setting.storageKey) || ''])
-          )
-        );
-        setDesignMd(window.localStorage.getItem(DESIGN_MD_SETTING_KEY) || '');
-        setBrandVoice(
-          Object.fromEntries(BRAND_VOICE_SETTINGS.map((setting) => [setting.id, window.localStorage.getItem(setting.storageKey) || '']))
-        );
-      } catch {
-        setIncludeFoundations(true);
-        setCustomFoundationImageDataUrl('');
-        setComponentReferenceDataUrls({});
-        setDesignMd('');
-        setBrandVoice({});
+    const readSetting = async () => {
+      const ws = await fetchDesignWorkspace();
+      if (ws) {
+        const state = applyWorkspaceToState(ws);
+        setIncludeFoundations(state.includeFoundations);
+        setCustomFoundationImageDataUrl(state.customFoundationImageUrl);
+        setComponentReferenceDataUrls(state.componentReferences);
+        setDesignMd(state.designMd);
+        setBrandVoice(state.brandVoice);
+        return;
       }
+      const local = readLocalStorageWorkspace();
+      setIncludeFoundations(local.includeFoundations);
+      setCustomFoundationImageDataUrl(local.customFoundationImageUrl);
+      setComponentReferenceDataUrls(
+        Object.fromEntries(Object.entries(local.componentReferences).map(([k, v]) => [k, v.imageUrl]))
+      );
+      setDesignMd(local.designMd);
+      setBrandVoice(local.brandVoice);
     };
-    readSetting();
-    window.addEventListener('storage', readSetting);
-    window.addEventListener('focus', readSetting);
+    void readSetting();
+    window.addEventListener('focus', () => void readSetting());
     return () => {
-      window.removeEventListener('storage', readSetting);
-      window.removeEventListener('focus', readSetting);
+      window.removeEventListener('focus', () => void readSetting());
     };
   }, []);
 
@@ -259,7 +249,7 @@ const DesignWorkbenchPage = ({
 
   const promptedFoundations = includeFoundations ? effectiveFoundations : EMPTY_FOUNDATIONS;
   const customFoundationImage = !includeFoundations ? customFoundationImageDataUrl : '';
-  const brandVoiceGuidelines = useMemo(() => formatBrandVoiceGuidelines(brandVoice), [brandVoice]);
+  const brandVoiceGuidelines = useMemo(() => formatBrandVoiceForPrompt(brandVoice), [brandVoice]);
 
   const hasFoundationsForRaster = useMemo(
     () =>

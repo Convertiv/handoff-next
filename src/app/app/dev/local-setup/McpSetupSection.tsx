@@ -136,11 +136,21 @@ export default function McpSetupSection({ handoffUrl, mcpOnThisHost }: Props) {
         <summary className="cursor-pointer font-medium text-foreground">Common MCP tools</summary>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>
-            <code className="rounded bg-muted px-1">handoff_get_project_context</code> — stack profile, paths, Figma key (call first)
+            <code className="rounded bg-muted px-1">handoff_get_project_context</code> — stack profile, paths, workspace summary (call first)
           </li>
           <li>
-            <code className="rounded bg-muted px-1">handoff_get_reference</code> /{' '}
-            <code className="rounded bg-muted px-1">handoff_get_stack_guide</code> — catalogs and authoring rules
+            <code className="rounded bg-muted px-1">handoff_get_stack_guide</code> — Handlebars/React authoring rules
+          </li>
+          <li>
+            <code className="rounded bg-muted px-1">handoff_get_reference</code> — catalog, tokens, icons, property-patterns (maintained in{' '}
+            <strong>Admin → Reference</strong>; regenerate after catalog changes)
+          </li>
+          <li>
+            <code className="rounded bg-muted px-1">handoff_get_design_guidelines</code> /{' '}
+            <code className="rounded bg-muted px-1">handoff_get_brand_voice</code> — team settings from Design → Settings
+          </li>
+          <li>
+            <code className="rounded bg-muted px-1">handoff_get_component_reference</code> — buttons / inputs / iconography reference images
           </li>
           <li>
             <code className="rounded bg-muted px-1">handoff_sync_pull</code> /{' '}

@@ -195,6 +195,14 @@ export async function runComponentGenerationJob(jobId: number): Promise<void> {
     referenceMarkdown = '';
   }
 
+  let designWorkspaceMarkdown = '';
+  try {
+    const { loadDesignWorkspaceMarkdown } = await import('@/lib/server/design-workspace');
+    designWorkspaceMarkdown = await loadDesignWorkspaceMarkdown();
+  } catch {
+    designWorkspaceMarkdown = '';
+  }
+
   const foundationBlock = await buildFoundationContextBlock(artifact);
   const similar = await pickSimilarComponentExamples({ artifact, maxExamples: 3 });
   const similarMd = similar.map((s) => `### ${s.id} — ${s.title}\n${s.snippet}`).join('\n\n');
@@ -254,6 +262,7 @@ export async function runComponentGenerationJob(jobId: number): Promise<void> {
         a11yStandard: row.a11yStandard,
         useExtractedAssets: row.useExtractedAssets,
         referenceMarkdown,
+        designWorkspaceMarkdown,
         foundationBlock,
         similarExamplesMarkdown: similarMd,
         scssPreamble,

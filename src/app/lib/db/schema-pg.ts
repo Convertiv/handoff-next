@@ -221,6 +221,18 @@ export const handoffReferenceMaterials = pgTable('handoff_reference_material', {
   metadata: jsonb('metadata').notNull().default({}),
 });
 
+/** Team-wide design workbench settings (singleton row id = default). */
+export const handoffDesignWorkspace = pgTable('handoff_design_workspace', {
+  id: text('id').primaryKey().default('default'),
+  designMd: text('design_md').notNull().default(''),
+  brandVoice: jsonb('brand_voice').notNull().default({}),
+  includeFoundations: boolean('include_foundations').notNull().default(true),
+  customFoundationImageUrl: text('custom_foundation_image_url').notNull().default(''),
+  componentReferences: jsonb('component_references').notNull().default({}),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});
+
 /**
  * Async design-to-component generation (agentic loop + Vite build).
  * Status: queued | generating | building | validating | iterating | complete | failed

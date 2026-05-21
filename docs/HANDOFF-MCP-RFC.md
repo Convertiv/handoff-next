@@ -71,9 +71,16 @@ projectProfile: {
 |------|-------------|
 | `handoff_get_project_context` | Merged profile: `stackProfile`, paths, Figma key, remote URL, sync cursor hint |
 | `handoff_get_stack_guide` | Markdown rules for active stack (template language, CSS, property shapes) |
-| `handoff_get_reference` | `catalog` \| `tokens` \| `icons` \| `property-patterns` |
+| `handoff_get_reference` | `catalog` \| `tokens` \| `icons` \| `property-patterns` (generated in **Admin → Reference**) |
+| `handoff_get_design_guidelines` | Team **Design.MD** from **Design → Settings** (Postgres `handoff_design_workspace`) |
+| `handoff_get_brand_voice` | Brand voice fields as JSON + formatted markdown |
+| `handoff_get_component_reference` | Reference image for `buttons` \| `inputs` \| `iconography` (`design:read`) |
 
 Server default: `HANDOFF_DEFAULT_STACK_PROFILE` env when client omits profile.
+
+**Reference maintenance:** Materials are regenerated from the live catalog (not copied from repo `handoff/reference/*.md`). After deploy or large catalog changes, run **Admin → Reference → Regenerate all** so MCP `handoff_get_reference` returns current content.
+
+**Design workspace:** Admins save Design.MD, brand voice, and component reference images under **Design → Settings**. The same data powers the design workbench LLM, component-generation jobs, and MCP tools above.
 
 ## Tools (Phase 1)
 
@@ -85,6 +92,9 @@ Server default: `HANDOFF_DEFAULT_STACK_PROFILE` env when client omits profile.
 - `handoff_search_components` — `{ query?, group?, limit? }`
 - `handoff_get_component` — `{ id }`
 - `handoff_get_tokens` — `{}`
+- `handoff_get_design_guidelines` — `{}`
+- `handoff_get_brand_voice` — `{}`
+- `handoff_get_component_reference` — `{ slot: 'buttons' | 'inputs' | 'iconography' }`
 
 ### Sync
 
@@ -146,10 +156,11 @@ sequenceDiagram
 ### Figma → Handoff component (with Figma MCP)
 
 1. `handoff_get_project_context` + `handoff_get_stack_guide`
-2. `handoff_get_reference` (catalog, property-patterns)
-3. Figma MCP: `get_design_context`, `get_screenshot`
-4. Agent writes component files locally
-5. `handoff_sync_push` or `handoff_patch_component` + `handoff_enqueue_build`
+2. `handoff_get_reference` (catalog, property-patterns, tokens, icons)
+3. `handoff_get_design_guidelines` + `handoff_get_brand_voice` (+ optional `handoff_get_component_reference`)
+4. Figma MCP: `get_design_context`, `get_screenshot`
+5. Agent writes component files locally
+6. `handoff_sync_push` or `handoff_patch_component` + `handoff_enqueue_build`
 
 ## REST alignment
 

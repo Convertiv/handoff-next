@@ -9,6 +9,8 @@ import {
 import { renderFoundationsImage } from '@/lib/server/foundation-image';
 import { openAiImageEdit, shouldProxyAi, type ImageEditInput, type ImageEditQuality } from '@/lib/server/ai-client';
 import { proxyAiToCloud } from '@/lib/server/ai-proxy';
+import { resolveDesignGenerationContext } from '@/lib/server/design-workspace';
+import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
 
 const MAX_PER_USER_PER_MINUTE = 10;
 const timestampsByUser = new Map<string, number[]>();
@@ -78,8 +80,8 @@ export async function POST(request: NextRequest) {
     const formData = await request.formData();
     const prompt = String(formData.get('prompt') ?? '').trim();
     const quality = toAllowedImageQuality(String(formData.get('quality') ?? 'auto'));
-    const designGuidelines = String(formData.get('designGuidelines') ?? '').trim();
-    const brandVoiceGuidelines = String(formData.get('brandVoiceGuidelines') ?? '').trim();
+    let designGuidelines = String(formData.get('designGuidelines') ?? '').trim();
+    let brandVoiceGuidelines = String(formData.get('brandVoiceGuidelines') ?? '').trim();
     const promptImageCount = Math.max(0, Number.parseInt(String(formData.get('promptImageCount') ?? '0'), 10) || 0);
     if (!prompt) {
       return NextResponse.json({ error: 'prompt is required' }, { status: 400 });
@@ -94,6 +96,13 @@ export async function POST(request: NextRequest) {
     const componentGuides = safeJson<DesignWorkbenchComponentGuide[]>(String(formData.get('componentGuides') ?? ''), []);
     const conversationHistory = safeJson<DesignConversationTurn[]>(String(formData.get('conversationHistory') ?? ''), []);
     const attachedImageLabels = safeJson<string[]>(String(formData.get('attachedImageLabels') ?? ''), []);
+    const workspaceResolved = await resolveDesignGenerationContext({
+      designGuidelines,
+      brandVoiceGuidelines,
+    });
+    designGuidelines = workspaceResolved.designGuidelines;
+    brandVoiceGuidelines = workspaceResolved.brandVoiceGuidelines;
+
     const customFoundationImage = formData.get('customFoundationImage');
     let customFoundationImageInput: ImageEditInput | null = null;
 
@@ -110,9 +119,22 @@ export async function POST(request: NextRequest) {
         contentType,
         data: Buffer.from(await customFoundationImage.arrayBuffer()),
       };
+    } else if (workspaceResolved.customFoundationImageUrl.startsWith('data:image/')) {
+      const match = workspaceResolved.customFoundationImageUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+      if (match) {
+        const contentType = toAllowedImageType(match[1]);
+        if (contentType) {
+          customFoundationImageInput = {
+            filename: 'custom-foundations.png',
+            contentType,
+            data: Buffer.from(match[2], 'base64'),
+          };
+        }
+      }
     }
 
     const images: ImageEditInput[] = [];
+    const attachedFilenames = new Set<string>();
     const imageOrderLabels: string[] = [];
 
     if (customFoundationImageInput) {
@@ -162,13 +184,32 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      const fname = value.name || `reference-${i + 1}.png`;
+      attachedFilenames.add(fname);
       const buffer = Buffer.from(await value.arrayBuffer());
       images.push({
-        filename: value.name || `reference-${i + 1}.png`,
+        filename: fname,
         contentType,
         data: buffer,
       });
-      imageOrderLabels.push(safeLabel(attachedImageLabels[i], `${value.name || `reference-${i + 1}.png`}: attached reference image.`));
+      imageOrderLabels.push(safeLabel(attachedImageLabels[i], `${fname}: attached reference image.`));
+    }
+
+    for (const ref of workspaceResolved.componentReferenceFiles) {
+      if (attachedFilenames.has(ref.filename)) continue;
+      const match = ref.dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+      if (!match) continue;
+      const contentType = toAllowedImageType(match[1]);
+      if (!contentType) continue;
+      const setting = COMPONENT_REFERENCE_SETTINGS.find((s) => s.id === ref.slot);
+      images.push({
+        filename: ref.filename,
+        contentType,
+        data: Buffer.from(match[2], 'base64'),
+      });
+      imageOrderLabels.push(
+        `${ref.filename}: saved ${setting?.label.toLowerCase() ?? ref.slot} style reference from team workspace.`
+      );
     }
 
     if (images.length === 0) {

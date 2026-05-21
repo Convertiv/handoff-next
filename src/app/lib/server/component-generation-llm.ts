@@ -62,6 +62,7 @@ export async function generateComponentWithLlm(opts: {
   a11yStandard: string;
   useExtractedAssets: boolean;
   referenceMarkdown: string;
+  designWorkspaceMarkdown?: string;
   foundationBlock: string;
   similarExamplesMarkdown: string;
   /** SCSS import preamble discovered from existing project components. */
@@ -127,7 +128,7 @@ Rules:
   const userParts: ChatMessage['content'] = [
     {
       type: 'text',
-      text: `Component id: ${componentId}\nRenderer: ${renderer}\nBehavior / interaction notes:\n${behaviorPrompt || '(none)'}\n\n## Project reference materials\n${opts.referenceMarkdown.slice(0, 24000)}\n\n## Similar components\n${opts.similarExamplesMarkdown.slice(0, 12000)}\n${opts.foundationBlock}${assetRefBlock}\n${opts.refinement ? `\n## Refinement pass\nAddress:\n${opts.refinement.differences.map((d) => `- ${d}`).join('\n')}\nA11y notes:\n${opts.refinement.a11yNotes.map((d) => `- ${d}`).join('\n')}\n\nPrevious entrySources (improve, do not shrink functionality):\n${JSON.stringify(opts.refinement.previous.entrySources).slice(0, 8000)}\n` : ''}`,
+      text: `Component id: ${componentId}\nRenderer: ${renderer}\nBehavior / interaction notes:\n${behaviorPrompt || '(none)'}\n\n## Project reference materials\n${opts.referenceMarkdown.slice(0, 24000)}\n${opts.designWorkspaceMarkdown ? `\n${opts.designWorkspaceMarkdown.slice(0, 8000)}\n` : ''}\n\n## Similar components\n${opts.similarExamplesMarkdown.slice(0, 12000)}\n${opts.foundationBlock}${assetRefBlock}\n${opts.refinement ? `\n## Refinement pass\nAddress:\n${opts.refinement.differences.map((d) => `- ${d}`).join('\n')}\nA11y notes:\n${opts.refinement.a11yNotes.map((d) => `- ${d}`).join('\n')}\n\nPrevious entrySources (improve, do not shrink functionality):\n${JSON.stringify(opts.refinement.previous.entrySources).slice(0, 8000)}\n` : ''}`,
     },
   ];
 

@@ -10,10 +10,23 @@ import {
   handoffDesignArtifacts,
   handoffEventLog,
   handoffPatterns,
+  handoffDesignWorkspace,
   handoffReferenceMaterials,
   handoffTokensSnapshots,
   users,
 } from './schema';
+
+export const DESIGN_WORKSPACE_ID = 'default';
+
+export type DesignWorkspaceRow = typeof handoffDesignWorkspace.$inferSelect;
+
+export type DesignWorkspacePatch = {
+  designMd?: string;
+  brandVoice?: Record<string, string>;
+  includeFoundations?: boolean;
+  customFoundationImageUrl?: string;
+  componentReferences?: Record<string, { imageUrl: string; updatedAt?: string }>;
+};
 
 export type { AdminBuildTaskRow };
 
@@ -548,6 +561,57 @@ export async function upsertReferenceMaterial(
       target: handoffReferenceMaterials.id,
       set: { content, generatedAt: now, metadata },
     });
+}
+
+export async function getDesignWorkspaceRow(): Promise<DesignWorkspaceRow | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(handoffDesignWorkspace)
+    .where(eq(handoffDesignWorkspace.id, DESIGN_WORKSPACE_ID));
+  return row ?? null;
+}
+
+export async function upsertDesignWorkspaceRow(
+  patch: DesignWorkspacePatch,
+  updatedByUserId: string | null
+): Promise<DesignWorkspaceRow> {
+  const db = getDb();
+  const now = new Date();
+  const existing = await getDesignWorkspaceRow();
+
+  const values = {
+    id: DESIGN_WORKSPACE_ID,
+    designMd: patch.designMd ?? existing?.designMd ?? '',
+    brandVoice: patch.brandVoice ?? (existing?.brandVoice as Record<string, string>) ?? {},
+    includeFoundations: patch.includeFoundations ?? existing?.includeFoundations ?? true,
+    customFoundationImageUrl: patch.customFoundationImageUrl ?? existing?.customFoundationImageUrl ?? '',
+    componentReferences:
+      patch.componentReferences ??
+      (existing?.componentReferences as Record<string, { imageUrl: string; updatedAt?: string }>) ??
+      {},
+    updatedAt: now,
+    updatedByUserId,
+  };
+
+  await db
+    .insert(handoffDesignWorkspace)
+    .values(values)
+    .onConflictDoUpdate({
+      target: handoffDesignWorkspace.id,
+      set: {
+        designMd: values.designMd,
+        brandVoice: values.brandVoice,
+        includeFoundations: values.includeFoundations,
+        customFoundationImageUrl: values.customFoundationImageUrl,
+        componentReferences: values.componentReferences,
+        updatedAt: now,
+        updatedByUserId,
+      },
+    });
+
+  const row = await getDesignWorkspaceRow();
+  return row!;
 }
 
 export type ComponentGenerationJobInsert = {

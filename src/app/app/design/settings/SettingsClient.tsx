@@ -3,25 +3,27 @@
 import type { ClientConfig } from '@handoff/types/config';
 import { ArrowLeftIcon, Trash2Icon, UploadIcon } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Layout from '@/components/Layout/Main';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import type { Metadata, SectionLink } from '@/components/util';
-import type { DesignWorkbenchFoundationContext } from '../workbench-types';
 import {
-  BRAND_VOICE_SETTINGS,
-  COMPONENT_REFERENCE_SETTINGS,
-  CUSTOM_FOUNDATION_IMAGE_SETTING_KEY,
-  DESIGN_MD_SETTING_KEY,
-  INCLUDE_FOUNDATIONS_SETTING_KEY,
-} from './settings-constants';
+  applyWorkspaceToState,
+  fetchDesignWorkspace,
+  migrateLocalStorageToWorkspace,
+  saveDesignWorkspace,
+} from '@/lib/design-workspace-client';
+import { isWorkspaceEmpty } from '@/lib/design-workspace-format';
+import type { DesignWorkbenchFoundationContext } from '../workbench-types';
+import { BRAND_VOICE_SETTINGS, COMPONENT_REFERENCE_SETTINGS } from './settings-constants';
 
 type Props = {
   config: ClientConfig;
   menu: SectionLink[];
   metadata: Metadata;
   foundations: DesignWorkbenchFoundationContext;
+  canEdit: boolean;
 };
 
 function countFoundations(foundations: DesignWorkbenchFoundationContext): number {
@@ -37,109 +39,136 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export default function DesignSettingsClient({ config, menu, metadata, foundations }: Props) {
+export default function DesignSettingsClient({ config, menu, metadata, foundations, canEdit }: Props) {
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [includeFoundations, setIncludeFoundations] = useState(true);
   const [customFoundationImage, setCustomFoundationImage] = useState('');
   const [componentReferences, setComponentReferences] = useState<Record<string, string>>({});
   const [designMd, setDesignMd] = useState('');
   const [brandVoice, setBrandVoice] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    try {
-      setIncludeFoundations(window.localStorage.getItem(INCLUDE_FOUNDATIONS_SETTING_KEY) !== 'false');
-      setCustomFoundationImage(window.localStorage.getItem(CUSTOM_FOUNDATION_IMAGE_SETTING_KEY) || '');
-      setComponentReferences(
-        Object.fromEntries(
-          COMPONENT_REFERENCE_SETTINGS.map((setting) => [setting.id, window.localStorage.getItem(setting.storageKey) || ''])
-        )
-      );
-      setDesignMd(window.localStorage.getItem(DESIGN_MD_SETTING_KEY) || '');
-      setBrandVoice(
-        Object.fromEntries(BRAND_VOICE_SETTINGS.map((setting) => [setting.id, window.localStorage.getItem(setting.storageKey) || '']))
-      );
-    } catch {
-      setIncludeFoundations(true);
-      setCustomFoundationImage('');
-      setComponentReferences({});
-      setDesignMd('');
-      setBrandVoice({});
-    }
+  const applyState = useCallback((state: ReturnType<typeof applyWorkspaceToState>) => {
+    setIncludeFoundations(state.includeFoundations);
+    setCustomFoundationImage(state.customFoundationImageUrl);
+    setComponentReferences(state.componentReferences);
+    setDesignMd(state.designMd);
+    setBrandVoice(state.brandVoice);
   }, []);
 
-  const updateIncludeFoundations = (checked: boolean) => {
-    setIncludeFoundations(checked);
-    try {
-      window.localStorage.setItem(INCLUDE_FOUNDATIONS_SETTING_KEY, checked ? 'true' : 'false');
-    } catch {
-      // Ignore storage failures; the UI still reflects the current session choice.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      const ws = await fetchDesignWorkspace();
+      if (cancelled) return;
+      if (ws) {
+        if (
+          canEdit &&
+          isWorkspaceEmpty({
+            designMd: ws.designMd,
+            brandVoice: ws.brandVoice,
+            customFoundationImageUrl: ws.customFoundationImageUrl,
+            componentReferences: ws.componentReferences,
+          })
+        ) {
+          const migrated = await migrateLocalStorageToWorkspace();
+          if (migrated && !cancelled) {
+            const refreshed = await fetchDesignWorkspace();
+            if (refreshed) {
+              applyState(applyWorkspaceToState(refreshed));
+              setSaveMessage('Settings migrated from this browser to the team workspace.');
+            }
+          } else {
+            applyState(applyWorkspaceToState(ws));
+          }
+        } else {
+          applyState(applyWorkspaceToState(ws));
+        }
+      } else {
+        setLoadError('Team workspace is unavailable (hosted Postgres required). Changes stay in this browser only.');
+        const { readLocalStorageWorkspace } = await import('@/lib/design-workspace-client');
+        const local = readLocalStorageWorkspace();
+        applyState({
+          includeFoundations: local.includeFoundations,
+          customFoundationImageUrl: local.customFoundationImageUrl,
+          componentReferences: Object.fromEntries(
+            Object.entries(local.componentReferences).map(([k, v]) => [k, v.imageUrl])
+          ),
+          designMd: local.designMd,
+          brandVoice: local.brandVoice,
+        });
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canEdit, applyState]);
+
+  const handleSave = async () => {
+    if (!canEdit) return;
+    setSaving(true);
+    setSaveMessage(null);
+    const refs: Record<string, { imageUrl: string }> = {};
+    for (const setting of COMPONENT_REFERENCE_SETTINGS) {
+      const url = componentReferences[setting.id]?.trim();
+      if (url) refs[setting.id] = { imageUrl: url };
     }
+    const result = await saveDesignWorkspace({
+      designMd,
+      brandVoice,
+      includeFoundations,
+      customFoundationImageUrl: customFoundationImage,
+      componentReferences: refs,
+    });
+    setSaving(false);
+    if (result.ok) {
+      setSaveMessage('Saved to team workspace.');
+      if (result.workspace) applyState(applyWorkspaceToState(result.workspace));
+    } else {
+      setSaveMessage(result.error ?? 'Save failed');
+    }
+  };
+
+  const updateIncludeFoundations = (checked: boolean) => {
+    if (!canEdit) return;
+    setIncludeFoundations(checked);
   };
 
   const updateCustomFoundationImage = async (file: File | undefined) => {
-    if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return;
-    const dataUrl = await fileToDataUrl(file);
-    setCustomFoundationImage(dataUrl);
-    try {
-      window.localStorage.setItem(CUSTOM_FOUNDATION_IMAGE_SETTING_KEY, dataUrl);
-    } catch {
-      // Ignore storage failures; the preview still updates for this session.
-    }
+    if (!canEdit || !file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return;
+    setCustomFoundationImage(await fileToDataUrl(file));
   };
 
   const removeCustomFoundationImage = () => {
+    if (!canEdit) return;
     setCustomFoundationImage('');
-    try {
-      window.localStorage.removeItem(CUSTOM_FOUNDATION_IMAGE_SETTING_KEY);
-    } catch {
-      // Ignore storage failures.
-    }
   };
 
   const updateComponentReference = async (setting: (typeof COMPONENT_REFERENCE_SETTINGS)[number], file: File | undefined) => {
-    if (!file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return;
+    if (!canEdit || !file || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) return;
     const dataUrl = await fileToDataUrl(file);
     setComponentReferences((current) => ({ ...current, [setting.id]: dataUrl }));
-    try {
-      window.localStorage.setItem(setting.storageKey, dataUrl);
-    } catch {
-      // Ignore storage failures; the preview still updates for this session.
-    }
   };
 
   const removeComponentReference = (setting: (typeof COMPONENT_REFERENCE_SETTINGS)[number]) => {
+    if (!canEdit) return;
     setComponentReferences((current) => ({ ...current, [setting.id]: '' }));
-    try {
-      window.localStorage.removeItem(setting.storageKey);
-    } catch {
-      // Ignore storage failures.
-    }
   };
 
   const updateDesignMd = (value: string) => {
+    if (!canEdit) return;
     setDesignMd(value);
-    try {
-      if (value.trim()) {
-        window.localStorage.setItem(DESIGN_MD_SETTING_KEY, value);
-      } else {
-        window.localStorage.removeItem(DESIGN_MD_SETTING_KEY);
-      }
-    } catch {
-      // Ignore storage failures; the UI still reflects the current session value.
-    }
   };
 
   const updateBrandVoice = (setting: (typeof BRAND_VOICE_SETTINGS)[number], value: string) => {
+    if (!canEdit) return;
     setBrandVoice((current) => ({ ...current, [setting.id]: value }));
-    try {
-      if (value.trim()) {
-        window.localStorage.setItem(setting.storageKey, value);
-      } else {
-        window.localStorage.removeItem(setting.storageKey);
-      }
-    } catch {
-      // Ignore storage failures; the UI still reflects the current session value.
-    }
   };
 
   const foundationCount = countFoundations(foundations);
@@ -156,16 +185,28 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Design settings</h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Control what gets included by default when the design workbench builds prompts.
+              Team-wide context for the design workbench and Handoff MCP (Design.MD, brand voice, component references).
+              {canEdit ? ' Admins can edit and save.' : ' View only — ask an admin to update.'}
             </p>
+            {loadError ? <p className="mt-2 text-sm text-amber-700 dark:text-amber-400">{loadError}</p> : null}
+            {saveMessage ? <p className="mt-2 text-sm text-muted-foreground">{saveMessage}</p> : null}
           </div>
-          <Button variant="outline" size="sm" asChild>
-            <Link href={`${basePath}/design/`}>
-              <ArrowLeftIcon className="mr-1.5 h-3.5 w-3.5" />
-              Workbench
-            </Link>
-          </Button>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {canEdit ? (
+              <Button type="button" size="sm" disabled={loading || saving} onClick={() => void handleSave()}>
+                {saving ? 'Saving…' : 'Save team settings'}
+              </Button>
+            ) : null}
+            <Button variant="outline" size="sm" asChild>
+              <Link href={`${basePath}/design/`}>
+                <ArrowLeftIcon className="mr-1.5 h-3.5 w-3.5" />
+                Workbench
+              </Link>
+            </Button>
+          </div>
         </div>
+
+        {loading ? <p className="text-sm text-muted-foreground">Loading team workspace…</p> : null}
 
         <section className="rounded-xl border bg-background p-4 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -189,7 +230,7 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
                   className="hidden"
-                  disabled={includeFoundations}
+                  disabled={includeFoundations || !canEdit}
                   onChange={(event) => {
                     void updateCustomFoundationImage(event.currentTarget.files?.[0]);
                     event.currentTarget.value = '';
@@ -200,6 +241,7 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
                 <input
                   type="checkbox"
                   checked={includeFoundations}
+                  disabled={!canEdit}
                   onChange={(event) => updateIncludeFoundations(event.target.checked)}
                   className="h-4 w-4 rounded border-gray-300"
                 />
@@ -232,6 +274,7 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
                   variant="ghost"
                   size="sm"
                   className="h-8 w-8 p-0"
+                  disabled={!canEdit}
                   onClick={removeCustomFoundationImage}
                   aria-label="Remove custom foundation image"
                 >
@@ -300,6 +343,7 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
                         variant="ghost"
                         size="sm"
                         className="h-8 w-8 p-0"
+                        disabled={!canEdit}
                         onClick={() => removeComponentReference(setting)}
                         aria-label={`Remove ${setting.label} reference`}
                       >
@@ -321,13 +365,18 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
                     )}
                   </div>
 
-                  <label className="mt-3 inline-flex h-9 cursor-pointer items-center gap-2 rounded-md border bg-background px-3 text-sm shadow-sm transition hover:bg-muted">
+                  <label
+                    className={`mt-3 inline-flex h-9 items-center gap-2 rounded-md border bg-background px-3 text-sm shadow-sm transition ${
+                      canEdit ? 'cursor-pointer hover:bg-muted' : 'cursor-not-allowed opacity-60'
+                    }`}
+                  >
                     <UploadIcon className="h-3.5 w-3.5" />
                     Upload image
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/webp"
                       className="hidden"
+                      disabled={!canEdit}
                       onChange={(event) => {
                         void updateComponentReference(setting, event.currentTarget.files?.[0]);
                         event.currentTarget.value = '';
@@ -351,6 +400,7 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
           <Textarea
             value={designMd}
             onChange={(event) => updateDesignMd(event.target.value)}
+            readOnly={!canEdit}
             rows={10}
             className="mt-4 font-mono text-sm"
             placeholder={`## Interaction guidelines\n- Use concise button labels\n- Keep forms compact and accessible\n\n## Visual rules\n- Prefer existing brand colors and spacing`}
@@ -376,6 +426,7 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
                   id={`brand-voice-${setting.id}`}
                   value={brandVoice[setting.id] || ''}
                   onChange={(event) => updateBrandVoice(setting, event.target.value)}
+                  readOnly={!canEdit}
                   rows={5}
                   className="mt-2 text-sm"
                   placeholder={setting.placeholder}

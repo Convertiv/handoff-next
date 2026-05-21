@@ -12,11 +12,26 @@ import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
 import type { SyncUploadBody } from '@/types/handoff-sync';
 import { applyUploadedChange } from '@/lib/db/sync-queries';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
+import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
+import {
+  formatBrandVoiceForPrompt,
+  formatDesignWorkspaceForMcp,
+  getDesignWorkspace,
+} from '@/lib/server/design-workspace';
+import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
 
 function textResult(data: unknown) {
   return {
     content: [{ type: 'text' as const, text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }],
   };
+}
+
+function requireScope(auth: McpAuthContext, scope: string) {
+  if (auth.isLegacySecret) return null;
+  if (!jwtScopesInclude(auth.scopes, scope)) {
+    return textResult({ error: `Forbidden — missing scope: ${scope}` });
+  }
+  return null;
 }
 
 export function createHandoffMcpServer(auth: McpAuthContext, request: Request): McpServer {
@@ -34,10 +49,13 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     async ({ projectName, stackProfile }) => {
       const profile = buildProjectContext({ projectName, stackProfile });
       const origin = issuerForCliSync(request);
+      const workspace = await getDesignWorkspace();
       return textResult({
         ...profile,
         handoffOrigin: origin,
         referenceIds: REFERENCE_MATERIAL_IDS,
+        referenceEndpoint: `${origin}/api/handoff/reference-materials`,
+        workspace: formatDesignWorkspaceForMcp(workspace),
       });
     }
   );
@@ -65,6 +83,67 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       const row = await getReferenceMaterialById(id);
       if (!row) return textResult({ error: 'Not found — regenerate reference materials in admin' });
       return textResult({ id: row.id, content: row.content, generatedAt: row.generatedAt, metadata: row.metadata });
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_design_guidelines',
+    {
+      description: 'Team Design.MD guidelines from design workspace settings.',
+      inputSchema: {},
+    },
+    async () => {
+      const denied = requireScope(auth, 'reference:read');
+      if (denied) return denied;
+      const ws = await getDesignWorkspace();
+      return textResult({ designMd: ws.designMd, updatedAt: ws.updatedAt });
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_brand_voice',
+    {
+      description: 'Formatted brand voice / copy guidelines from design workspace.',
+      inputSchema: {},
+    },
+    async () => {
+      const denied = requireScope(auth, 'reference:read');
+      if (denied) return denied;
+      const ws = await getDesignWorkspace();
+      return textResult({
+        brandVoice: ws.brandVoice,
+        markdown: formatBrandVoiceForPrompt(ws.brandVoice),
+        updatedAt: ws.updatedAt,
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_component_reference',
+    {
+      description: 'Component style reference image for a slot: buttons | inputs | iconography.',
+      inputSchema: { slot: z.enum(['buttons', 'inputs', 'iconography']) },
+    },
+    async ({ slot }) => {
+      const denied = requireScope(auth, 'design:read');
+      if (denied) return denied;
+      const ws = await getDesignWorkspace();
+      const ref = ws.componentReferences[slot];
+      const setting = COMPONENT_REFERENCE_SETTINGS.find((s) => s.id === slot);
+      if (!ref?.imageUrl?.trim()) {
+        return textResult({ slot, imageUrl: null, hint: `No ${setting?.label ?? slot} reference uploaded in design workspace.` });
+      }
+      const url = ref.imageUrl.trim();
+      let imageBase64: string | null = null;
+      const dataMatch = url.match(/^data:image\/[a-z+]+;base64,(.+)$/i);
+      if (dataMatch) imageBase64 = dataMatch[1];
+      return textResult({
+        slot,
+        label: setting?.label ?? slot,
+        imageUrl: url.startsWith('data:') ? '(data URL — use imageBase64)' : url,
+        imageBase64,
+        updatedAt: ref.updatedAt ?? ws.updatedAt,
+      });
     }
   );
 

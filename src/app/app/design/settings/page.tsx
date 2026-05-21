@@ -1,5 +1,6 @@
 import type { Metadata as NextMetadata } from 'next';
 import { getClientRuntimeConfig, type Metadata } from '@/components/util';
+import { auth } from '@/lib/auth';
 import { getDataProvider } from '@/lib/data';
 import { serializeFoundationsFromTokens } from '@/lib/server/design-prompt-builder';
 import type { DesignWorkbenchFoundationContext } from '../workbench-types';
@@ -31,5 +32,10 @@ export default async function DesignSettingsPage() {
     foundations = { colors: [], typography: [], effects: [], spacing: [] };
   }
 
-  return <DesignSettingsClient config={config} menu={menu} metadata={PAGE_METADATA} foundations={foundations} />;
+  const session = await auth();
+  const canEdit = session?.user?.role === 'admin';
+
+  return (
+    <DesignSettingsClient config={config} menu={menu} metadata={PAGE_METADATA} foundations={foundations} canEdit={canEdit} />
+  );
 }
