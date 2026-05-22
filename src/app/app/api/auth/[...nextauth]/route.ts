@@ -1,6 +1,9 @@
 import { handlers } from '@handoff/app/lib/auth';
 import type { NextRequest } from 'next/server';
 
+/** Auth uses Postgres, bcrypt, and Node crypto — must not run on Edge. */
+export const runtime = 'nodejs';
+
 /** Next.js 15+ typed routes expect `(req, ctx)`; next-auth `handlers` are still `(req)` only. */
 export function GET(
   request: NextRequest,

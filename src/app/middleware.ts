@@ -1,13 +1,15 @@
-import type { Session } from 'next-auth';
+import { getToken } from 'next-auth/jwt';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { withAuth } from './lib/auth';
 import { userMiddleware } from './middleware-hook.mjs';
 
 /**
- * Default Handoff gate: public asset/API paths, optional admin check when DATABASE_URL is set.
+ * Default Handoff gate: public asset/API paths, optional JWT admin check when DATABASE_URL is set.
+ *
+ * Uses `getToken` only (Edge-safe). Do not import `@/lib/auth` here — that module pulls in
+ * Postgres, bcrypt, and Node `crypto`, which break on Vercel Edge middleware.
  */
-async function defaultHandoffProxy(request: NextRequest, session: Session | null): Promise<NextResponse> {
+async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> {
   const publicPaths = [
     '/api/auth',
     '/_next',
@@ -36,12 +38,18 @@ async function defaultHandoffProxy(request: NextRequest, session: Session | null
       const setup = new URL('/dev/local-setup', request.url);
       return NextResponse.redirect(setup);
     }
-    if (!session?.user?.id) {
+    const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
+    const token = await getToken({
+      req: request,
+      secret,
+      secureCookie: process.env.NODE_ENV === 'production',
+    });
+    if (!token?.sub) {
       const login = new URL('/login', request.url);
       login.searchParams.set('callbackUrl', pathname);
       return NextResponse.redirect(login);
     }
-    if (session.user.role !== 'admin') {
+    if (token.role !== 'admin') {
       return NextResponse.redirect(new URL('/', request.url));
     }
   }
@@ -49,15 +57,12 @@ async function defaultHandoffProxy(request: NextRequest, session: Session | null
   return NextResponse.next();
 }
 
-export default withAuth(async (request) => {
-  const session = request.auth as Session | null;
-  const runDefault = () => defaultHandoffProxy(request, session);
-
+export async function middleware(request: NextRequest): Promise<NextResponse> {
   if (typeof userMiddleware === 'function') {
-    return userMiddleware(request, runDefault);
+    return userMiddleware(request, defaultHandoffProxy);
   }
-  return runDefault();
-});
+  return defaultHandoffProxy(request);
+}
 
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico|assets/).*)'],

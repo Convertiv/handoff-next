@@ -175,9 +175,6 @@ const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
 
 export { handlers, signIn, signOut };
 
-/** Auth.js middleware wrapper (same session as `auth()` — use instead of `getToken` in middleware). */
-export const withAuth = nextAuthLibAuth;
-
 /** Postgres: NextAuth session. Local hybrid mode (no DATABASE_URL): no session. */
 export async function auth(): Promise<Session | null> {
   if (!usePostgres()) return null;

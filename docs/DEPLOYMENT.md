@@ -81,9 +81,11 @@ Equivalent manual chain (same behavior as `vercel-build`): `handoff-app build:ap
 
 **Components on disk:** Run `handoff-app build:components` (or use `prepare-runtime` without `--skip-components`) before `next build` so `public/api/components.json` and per-component files exist and get synced into the runtime.
 
-**`/admin/*` and login:** When `DATABASE_URL` is set, middleware requires a signed-in user with `role: admin`. Use `/login` with an admin account. Sessions are **JWT** (even if GitHub/Google OAuth is configured) so Vercel Edge middleware can read them — set `AUTH_SECRET` on Vercel and log in again after deploy if `/admin` redirected to login while other pages worked.
+**`/admin/*` and login:** When `DATABASE_URL` is set, middleware requires a signed-in user with `role: admin`. Use `/login` with an admin account. Sessions are **JWT** (even if GitHub/Google OAuth is configured) so Edge middleware can read the token via `getToken`. Set `AUTH_SECRET` on Vercel and sign in again after deploy if sessions break.
 
-**Troubleshooting — logged in elsewhere but `/admin` sends you to login:** Usually `AUTH_GITHUB_ID` / `AUTH_GOOGLE_ID` were set on Vercel while local had only credentials login; older builds used database sessions that middleware could not read. Redeploy with current `handoff-app`, confirm `AUTH_SECRET` matches, sign out and sign in once.
+**Troubleshooting — `edge runtime does not support Node.js crypto` on `/api/auth/session`:** Middleware must not import `@/lib/auth` (use JWT `getToken` only). Auth API routes run on `nodejs` runtime. Redeploy and clear cookies if you hit this after an older build.
+
+**Troubleshooting — logged in elsewhere but `/admin` sends you to login:** Older builds used database sessions when OAuth env vars were set; middleware could not read them. Redeploy, confirm `AUTH_SECRET`, sign out and sign in once.
 
 **Troubleshooting — Vercel reports missing `.handoff/runtime/.next`:** That path exists only after a successful `next build` inside `.handoff/runtime`. If the build command stops after `prepare-runtime` / `build:app --mode vercel` only, add `vercel-build` (or the manual `cd .handoff/runtime && next build` step). If `next build` fails earlier in the log, fix those compile errors first; the output-directory message is usually a follow-on symptom.
 
