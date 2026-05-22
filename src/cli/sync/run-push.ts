@@ -1,10 +1,19 @@
+import { buildPatterns } from '@handoff/pipeline/patterns.js';
 import matter from 'gray-matter';
 import fs from 'fs-extra';
 import path from 'path';
-import type { SyncUploadBody } from '@handoff/types/handoff-sync';
+import type { ComponentSyncData, PatternSyncData, SyncUploadBody } from '@handoff/types/handoff-sync';
 import type Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
-import { getDeclarationAbsPathForEntity } from './resolve-declaration.js';
+import {
+  collectComponentBuildArtifacts,
+  collectPatternBuildArtifacts,
+  collectSharedComponentAssets,
+} from './collect-build-artifacts.js';
+import {
+  resolveComponentDeclarationForSync,
+  resolvePatternDeclarationForSync,
+} from './resolve-declaration-payload.js';
 import { getSyncBearerToken, resolveSyncRemoteUrl } from './sync-remote-env.js';
 
 async function collectMarkdownFiles(rootDir: string): Promise<string[]> {
@@ -23,20 +32,6 @@ async function collectMarkdownFiles(rootDir: string): Promise<string[]> {
   return out;
 }
 
-async function readComponentOrPatternJson(handoff: Handoff, kind: 'component' | 'pattern', id: string): Promise<Record<string, unknown> | null> {
-  const decl = getDeclarationAbsPathForEntity(handoff, kind, id);
-  if (!decl) return null;
-  const dir = path.dirname(decl);
-  const jsonPath = path.join(dir, `${id}.handoff.json`);
-  if (await fs.pathExists(jsonPath)) {
-    return (await fs.readJson(jsonPath)) as Record<string, unknown>;
-  }
-  if (decl.endsWith('.json')) {
-    return (await fs.readJson(decl)) as Record<string, unknown>;
-  }
-  return null;
-}
-
 export type RunPushOptions = {
   /** When set and non-empty, only these component ids are pushed (must exist in config). */
   componentIds?: string[];
@@ -46,10 +41,42 @@ export type RunPushOptions = {
   pageSlugs?: string[];
   /** List changes that would be uploaded without calling the remote API (no HANDOFF_CLOUD_* required). */
   dryRun?: boolean;
+  /** Run local component/pattern build before collecting artifacts (default true when pushing components/patterns). */
+  build?: boolean;
+  /** Skip build artifacts; upload declaration metadata only. */
+  metadataOnly?: boolean;
+  /** Skip build step; upload existing artifacts only. */
+  noBuild?: boolean;
 };
 
 function normalizePageSlug(s: string): string {
   return s.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+}
+
+function shouldRunBuild(opts: RunPushOptions | undefined, pushingComponentsOrPatterns: boolean): boolean {
+  if (opts?.metadataOnly) return false;
+  if (opts?.noBuild) return false;
+  if (!pushingComponentsOrPatterns) return false;
+  if (opts?.build === false) return false;
+  return true;
+}
+
+async function buildEntity(handoff: Handoff, kind: 'component' | 'pattern', id: string): Promise<void> {
+  if (kind === 'component') {
+    await handoff.component(id);
+    return;
+  }
+  await buildPatterns(handoff, { onlyPatternIds: new Set([id]) });
+}
+
+function attachArtifacts(
+  data: ComponentSyncData | PatternSyncData,
+  files: Record<string, string>,
+  shared?: Record<string, string>
+): ComponentSyncData | PatternSyncData {
+  const buildArtifacts = { ...shared, ...files };
+  if (Object.keys(buildArtifacts).length === 0) return data;
+  return { ...data, buildArtifacts };
 }
 
 /**
@@ -109,22 +136,46 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
       if (!set.has(id)) Logger.warn(`Component "${id}" is not in handoff.config entries.components — skipped.`);
     }
   }
-  for (const id of compIdsToScan) {
-    if (!configuredCompIds.includes(id)) continue;
-    const data = await readComponentOrPatternJson(handoff, 'component', id);
-    if (!data) {
-      Logger.warn(`Skipping component "${id}" (no ${id}.handoff.json next to declaration — push supports JSON declarations only).`);
-      continue;
-    }
-    changes.push({
-      entityType: 'component',
-      entityId: id,
-      action: 'update',
-      data: { id, ...data, data: (data as { data?: unknown }).data ?? data },
-    });
-  }
 
   const configuredPatIds = Object.keys(handoff.runtimeConfig?.entries?.patterns ?? {});
+  const pushingEntities = compIdsToScan.length > 0 || (selective ? (opts?.patternIds?.length ?? 0) > 0 : configuredPatIds.length > 0);
+  const runBuild = shouldRunBuild(opts, pushingEntities);
+  let sharedAssets: Record<string, string> | undefined;
+
+  for (const id of compIdsToScan) {
+    if (!configuredCompIds.includes(id)) continue;
+    try {
+      if (runBuild) {
+        Logger.info(`Building component "${id}"…`);
+        await buildEntity(handoff, 'component', id);
+      }
+      let payload = await resolveComponentDeclarationForSync(handoff, id, {
+        warnMissingArtifacts: !opts?.metadataOnly,
+      });
+      if (!payload) {
+        Logger.warn(`Skipping component "${id}" (no declaration file found in config).`);
+        continue;
+      }
+      if (!opts?.metadataOnly) {
+        const collected = await collectComponentBuildArtifacts(handoff, id);
+        for (const w of collected.warnings) Logger.warn(w);
+        if (!sharedAssets && Object.keys(collected.files).length > 0) {
+          sharedAssets = await collectSharedComponentAssets(handoff);
+        }
+        payload = attachArtifacts(payload, collected.files, sharedAssets) as ComponentSyncData;
+      }
+      changes.push({
+        entityType: 'component',
+        entityId: id,
+        action: 'update',
+        data: { ...payload, source: 'sync' },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Logger.error(`Component "${id}": ${msg}`);
+    }
+  }
+
   const patIdsToScan = selective ? (opts?.patternIds?.length ? opts.patternIds : []) : configuredPatIds;
   if (selective && opts?.patternIds?.length) {
     const set = new Set(configuredPatIds);
@@ -134,21 +185,35 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
   }
   for (const id of patIdsToScan) {
     if (!configuredPatIds.includes(id)) continue;
-    const data = await readComponentOrPatternJson(handoff, 'pattern', id);
-    if (!data) {
-      Logger.warn(`Skipping pattern "${id}" (no ${id}.handoff.json next to declaration — push supports JSON declarations only).`);
-      continue;
+    try {
+      if (runBuild) {
+        Logger.info(`Building pattern "${id}"…`);
+        await buildEntity(handoff, 'pattern', id);
+      }
+      let payload = await resolvePatternDeclarationForSync(handoff, id);
+      if (!payload) {
+        Logger.warn(`Skipping pattern "${id}" (no declaration file found in config).`);
+        continue;
+      }
+      if (!opts?.metadataOnly) {
+        const collected = await collectPatternBuildArtifacts(handoff, id);
+        for (const w of collected.warnings) Logger.warn(w);
+        payload = attachArtifacts(payload, collected.files) as PatternSyncData;
+      }
+      changes.push({
+        entityType: 'pattern',
+        entityId: id,
+        action: 'update',
+        data: { ...payload, source: 'sync' },
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      Logger.error(`Pattern "${id}": ${msg}`);
     }
-    changes.push({
-      entityType: 'pattern',
-      entityId: id,
-      action: 'update',
-      data: { id, ...data, data: (data as { data?: unknown }).data ?? data },
-    });
   }
 
   if (!changes.length) {
-    Logger.warn('Nothing to push (no pages or JSON declarations found).');
+    Logger.warn('Nothing to push (no pages or resolvable declarations found).');
     return;
   }
 
@@ -163,7 +228,9 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
     Logger.log(`  Patterns: ${patterns.length}`);
     if (handoff.debug) {
       for (const c of changes) {
-        Logger.debug(`  - ${c.entityType} ${c.entityId} (${c.action})`);
+        const art = (c.data as { buildArtifacts?: Record<string, string> })?.buildArtifacts;
+        const artCount = art ? Object.keys(art).length : 0;
+        Logger.debug(`  - ${c.entityType} ${c.entityId} (${c.action})${artCount ? ` [${artCount} artifacts]` : ''}`);
       }
     }
     Logger.log('');

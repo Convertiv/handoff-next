@@ -141,12 +141,6 @@ export function NewComponentForm() {
         group: group.trim() || 'Atomic Elements',
         renderer,
       });
-      fetch(handoffApiUrl('/api/handoff/components/build'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ componentId: finalSlug }),
-      }).catch(() => undefined);
       setOpen(false);
       setTitle('');
       setSlug('');

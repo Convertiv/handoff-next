@@ -28,6 +28,9 @@ export type ComponentSyncData = {
   data?: Record<string, unknown>;
   /** Serialized `.handoff` declaration when pushing from local */
   handoffConfig?: Record<string, unknown>;
+  /** Built preview files from `public/api/component/` keyed by basename */
+  buildArtifacts?: Record<string, string>;
+  source?: string;
 };
 
 export type PatternSyncData = {
@@ -39,6 +42,9 @@ export type PatternSyncData = {
   components?: unknown;
   data?: Record<string, unknown>;
   handoffConfig?: Record<string, unknown>;
+  /** Built preview files from `public/api/pattern/` keyed by basename */
+  buildArtifacts?: Record<string, string>;
+  source?: string;
 };
 
 export type SyncChangeData = PageSyncData | ComponentSyncData | PatternSyncData | Record<string, unknown> | null;

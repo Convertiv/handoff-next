@@ -4,10 +4,14 @@ import fs from 'fs-extra';
 import path from 'path';
 import type { SyncChange, SyncChangeset } from '@handoff/types/handoff-sync';
 import type Handoff from '@handoff/index';
+import { entryStubFilesForRenderer, inferProjectRenderer } from '@handoff/declarations/codegen.js';
 import { sha256File, sha256String } from './hash.js';
 import { entityKey, type EntityFingerprint, type HandoffSyncStateFile } from './sync-state.js';
-import { getDeclarationAbsPathForEntity } from './resolve-declaration.js';
 import { Logger } from '@handoff/utils/logger';
+import {
+  buildDeclarationPullContent,
+  writeBuildArtifactsFromPayload,
+} from './apply-declaration-pull.js';
 
 export type PullSummary = {
   written: string[];
@@ -23,37 +27,6 @@ function conflictsDir(workPath: string): string {
 function safeConflictName(entityType: string, entityId: string, ext: string): string {
   const key = `${entityType}__${entityId}`.replace(/[/\\]/g, '_');
   return `${key}${ext}`;
-}
-
-function dirHasDeclarationForBase(dir: string, base: string): boolean {
-  const modern = (['ts', 'js', 'cjs', 'json'] as const).map((ext) => path.join(dir, `${base}.handoff.${ext}`));
-  if (modern.some((p) => existsSync(p))) return true;
-  return existsSync(path.join(dir, `${base}.json`)) || existsSync(path.join(dir, `${base}.js`)) || existsSync(path.join(dir, `${base}.cjs`));
-}
-
-/**
- * Directory for a component/pattern id when there is no existing declaration (remote create).
- */
-function resolveEntityDir(handoff: Handoff, kind: 'component' | 'pattern', entityId: string): string {
-  const existing = getDeclarationAbsPathForEntity(handoff, kind, entityId);
-  if (existing) return path.dirname(existing);
-
-  const entries =
-    kind === 'component' ? handoff.config?.entries?.components : handoff.config?.entries?.patterns;
-  const first = entries?.[0];
-  if (!first) {
-    return path.join(handoff.workingPath, kind === 'component' ? 'components' : 'patterns', entityId);
-  }
-
-  const resolved = path.resolve(handoff.workingPath, first);
-  const base = path.basename(resolved);
-  if (base === entityId) {
-    return resolved;
-  }
-  if (dirHasDeclarationForBase(resolved, base)) {
-    return path.join(path.dirname(resolved), entityId);
-  }
-  return path.join(resolved, entityId);
 }
 
 function relativeToWork(workPath: string, abs: string): string {
@@ -136,19 +109,16 @@ export async function applySyncChange(
 
   if (change.entityType === 'component' || change.entityType === 'pattern') {
     const kind = change.entityType === 'component' ? 'component' : 'pattern';
-    const dir = resolveEntityDir(handoff, kind, change.entityId);
-    const jsonName = `${change.entityId}.handoff.json`;
-    const abs = path.join(dir, jsonName);
-    const rel = relativeToWork(workPath, abs);
+    const payload = (change.data ?? {}) as Record<string, unknown>;
 
     if (change.action === 'delete') {
       const prev = fp[key];
-      const target = prev ? path.join(workPath, prev.relativePath) : abs;
-      if (await fs.pathExists(target)) {
+      const target = prev ? path.join(workPath, prev.relativePath) : null;
+      if (target && (await fs.pathExists(target))) {
         if (await hasLocalModification(workPath, target, fp, key)) {
           if (!dryRun) {
             const content = await fs.readFile(target, 'utf8');
-            await writeConflictRemote(workPath, change.entityType, change.entityId, content, '.local.json');
+            await writeConflictRemote(workPath, change.entityType, change.entityId, content, '.local.ts');
           }
           return { ok: false, conflict: true };
         }
@@ -158,23 +128,39 @@ export async function applySyncChange(
       return { ok: true, kind: 'deleted' };
     }
 
-    const payload = (change.data ?? {}) as Record<string, unknown>;
-    const jsonBody = JSON.stringify(payload, null, 2);
-    const jsonWithNl = `${jsonBody}\n`;
-    const hash = sha256String(jsonWithNl);
+    const built = await buildDeclarationPullContent(handoff, kind, change.entityId, payload);
+    const bodyWithNl = `${built.content}\n`;
+    const hash = sha256String(bodyWithNl);
+    const rel = relativeToWork(workPath, built.absPath);
 
-    if ((await fs.pathExists(abs)) && (await hasLocalModification(workPath, abs, fp, key))) {
+    if ((await fs.pathExists(built.absPath)) && (await hasLocalModification(workPath, built.absPath, fp, key))) {
       if (!dryRun) {
-        await writeConflictRemote(workPath, change.entityType, change.entityId, jsonBody, '.remote.json');
+        await writeConflictRemote(workPath, change.entityType, change.entityId, bodyWithNl, '.remote.ts');
       }
       return { ok: false, conflict: true };
     }
 
     if (!dryRun) {
-      await fs.mkdirp(dir);
-      await fs.writeFile(abs, jsonWithNl, 'utf8');
+      await fs.mkdirp(path.dirname(built.absPath));
+      await fs.writeFile(built.absPath, bodyWithNl, 'utf8');
+      if (kind === 'component' && built.wroteEntryStubs.length) {
+        const dir = path.dirname(built.absPath);
+        const renderer = inferProjectRenderer(
+          handoff.runtimeConfig?.entries?.components ?? {},
+          String(payload.renderer ?? '')
+        );
+        const stubs = entryStubFilesForRenderer(change.entityId, renderer);
+        for (const name of built.wroteEntryStubs) {
+          const stubPath = path.join(dir, name);
+          if (!existsSync(stubPath)) {
+            await fs.writeFile(stubPath, stubs[name] ?? '', 'utf8');
+          }
+        }
+      }
+      await writeBuildArtifactsFromPayload(handoff, kind, change.entityId, payload, false);
     }
-    const contentHash = dryRun ? hash : ((await sha256File(abs)) ?? hash);
+
+    const contentHash = dryRun ? hash : ((await sha256File(built.absPath)) ?? hash);
     fp[key] = { relativePath: rel, sha256: contentHash };
     return { ok: true, kind: 'written' };
   }

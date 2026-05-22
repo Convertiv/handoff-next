@@ -1,15 +1,18 @@
 import type { ComponentListObject } from '@handoff/transformers/preview/types';
+import {
+  buildHandoffDeclarationCjs,
+  buildHandoffDeclarationObject,
+  buildHandoffDeclarationTsForRenderer,
+  buildHandoffDeclarationTsHandlebars,
+  handoffJsCsf,
+  handoffJsHandlebars,
+  handoffJsReact,
+  scaffoldNewComponentPayload as scaffoldNewComponentPayloadFromCodegen,
+  type DeclarationPreviewEntry,
+  type RendererKind,
+} from '@handoff/declarations/codegen.js';
 
-export type RendererKind = 'react' | 'handlebars' | 'csf';
-
-const HB_TEMPLATE = `<head>
-  {{{style}}}
-  {{{script}}}
-</head>
-<body class="theme preview-body">
-  <p>Hello from {{title}}</p>
-</body>
-`;
+export type { DeclarationPreviewEntry, RendererKind };
 
 const REACT_TSX = `import React from 'react';
 
@@ -42,117 +45,17 @@ export const Default = {
 };
 `;
 
-function esc(s: string): string {
-  return JSON.stringify(s);
-}
-
-export type DeclarationPreviewEntry = { title: string; values?: Record<string, unknown> };
-
-function previewsToCjsBlock(previews: Record<string, DeclarationPreviewEntry> | undefined): string {
-  const map =
-    previews && Object.keys(previews).length > 0
-      ? previews
-      : { default: { title: 'Default', values: {} as Record<string, unknown> } };
-  const lines: string[] = [];
-  for (const [key, p] of Object.entries(map)) {
-    const vals = p.values && typeof p.values === 'object' ? p.values : {};
-    lines.push(`    ${JSON.stringify(key)}: { title: ${esc(p.title || key)}, args: ${JSON.stringify(vals)} },`);
-  }
-  return `{\n${lines.join('\n')}\n  }`;
-}
-
-function previewsToDeclarationArgsRecord(
-  previews: Record<string, DeclarationPreviewEntry> | undefined
-): Record<string, { title: string; args: Record<string, unknown> }> {
-  const map =
-    previews && Object.keys(previews).length > 0
-      ? previews
-      : { default: { title: 'Default', values: {} as Record<string, unknown> } };
-  return Object.fromEntries(
-    Object.entries(map).map(([key, p]) => {
-      const vals = p.values && typeof p.values === 'object' ? p.values : {};
-      return [key, { title: p.title || key, args: vals as Record<string, unknown> }];
-    })
-  );
-}
-
-export function handoffJsHandlebars(
-  id: string,
-  title: string,
-  description: string,
-  group: string,
-  type: string,
-  previews?: Record<string, DeclarationPreviewEntry>
-): string {
-  return `module.exports = {
-  id: ${esc(id)},
-  name: ${esc(title)},
-  description: ${esc(description)},
-  group: ${esc(group)},
-  type: ${esc(type)},
-  renderer: 'handlebars',
-  entries: {
-    template: ${esc(`./${id}.hbs`)},
-    scss: ${esc(`./${id}.scss`)},
-    js: ${esc(`./${id}.client.js`)},
-  },
-  previews: ${previewsToCjsBlock(previews)},
-};
+const HB_TEMPLATE = `<head>
+  {{{style}}}
+  {{{script}}}
+</head>
+<body class="theme preview-body">
+  <p>Hello from {{title}}</p>
+</body>
 `;
-}
 
-export function handoffJsReact(
-  id: string,
-  title: string,
-  description: string,
-  group: string,
-  type: string,
-  previews?: Record<string, DeclarationPreviewEntry>
-): string {
-  return `module.exports = {
-  id: ${esc(id)},
-  name: ${esc(title)},
-  description: ${esc(description)},
-  group: ${esc(group)},
-  type: ${esc(type)},
-  renderer: 'react',
-  entries: {
-    component: ${esc(`./${id}.tsx`)},
-    scss: ${esc(`./${id}.scss`)},
-    js: ${esc(`./${id}.client.js`)},
-  },
-  previews: ${previewsToCjsBlock(previews)},
-};
-`;
-}
-
-export function handoffJsCsf(
-  id: string,
-  title: string,
-  description: string,
-  group: string,
-  type: string,
-  previews?: Record<string, DeclarationPreviewEntry>
-): string {
-  return `module.exports = {
-  id: ${esc(id)},
-  name: ${esc(title)},
-  description: ${esc(description)},
-  group: ${esc(group)},
-  type: ${esc(type)},
-  renderer: 'csf',
-  entries: {
-    story: ${esc(`./${id}.stories.tsx`)},
-    scss: ${esc(`./${id}.scss`)},
-    js: ${esc(`./${id}.client.js`)},
-  },
-  previews: ${previewsToCjsBlock(previews)},
-};
-`;
-}
-
-const EMPTY_SCSS = `/* ${'component'} styles */\n.preview-body { }\n`;
-const EMPTY_JS = `// ${'component'} client script\n`;
+const EMPTY_SCSS = `/* component styles */\n.preview-body { }\n`;
+const EMPTY_JS = `// component client script\n`;
 
 /** DB payload for a new component row (`handoff_component.data`). */
 export function scaffoldNewComponentPayload(opts: {
@@ -162,115 +65,24 @@ export function scaffoldNewComponentPayload(opts: {
   renderer: RendererKind;
   description?: string;
 }): ComponentListObject {
-  const { id, title, group, renderer, description = '' } = opts;
-  const type = 'element';
-  const path = `/system/component/${id}`;
-
-  let entrySources: { template?: string; scss?: string; js?: string; component?: string; story?: string };
-
-  if (renderer === 'react') {
+  const base = scaffoldNewComponentPayloadFromCodegen(opts);
+  let entrySources = (base as unknown as { entrySources: Record<string, string> }).entrySources;
+  if (opts.renderer === 'react') {
     entrySources = { component: REACT_TSX, scss: EMPTY_SCSS, js: EMPTY_JS };
-  } else if (renderer === 'csf') {
-    entrySources = { story: CSF_STORY, scss: EMPTY_SCSS, js: EMPTY_JS };
+  } else if (opts.renderer === 'csf') {
+    entrySources = { story: CSF_STORY.replace(/motion\./g, ''), scss: EMPTY_SCSS, js: EMPTY_JS };
   } else {
     entrySources = { template: HB_TEMPLATE, scss: EMPTY_SCSS, js: EMPTY_JS };
   }
-
-  return {
-    id,
-    path,
-    title,
-    description,
-    group,
-    image: '',
-    type,
-    renderer,
-    categories: [],
-    tags: [],
-    should_do: [],
-    should_not_do: [],
-    previews: {
-      default: {
-        title: 'Default',
-        values: {},
-        url: '',
-      },
-    },
-    properties: {},
-    entrySources,
-  } as unknown as ComponentListObject;
+  return { ...base, entrySources } as unknown as ComponentListObject;
 }
 
-export function buildHandoffDeclarationObject(data: {
-  id: string;
-  title: string;
-  description: string;
-  group: string;
-  type: string;
-  renderer?: string;
-  previews?: Record<string, DeclarationPreviewEntry>;
-}): Record<string, unknown> {
-  const { id, title, description, group, type, previews } = data;
-  const renderer = data.renderer ?? 'handlebars';
-  const previewRecord = previewsToDeclarationArgsRecord(previews);
-
-  if (renderer === 'react') {
-    return {
-      id,
-      name: title,
-      description,
-      group,
-      type,
-      renderer: 'react',
-      entries: { component: `./${id}.tsx`, scss: `./${id}.scss`, js: `./${id}.client.js` },
-      previews: previewRecord,
-    };
-  }
-  if (renderer === 'csf') {
-    return {
-      id,
-      name: title,
-      description,
-      group,
-      type,
-      renderer: 'csf',
-      entries: { story: `./${id}.stories.tsx`, scss: `./${id}.scss`, js: `./${id}.client.js` },
-      previews: previewRecord,
-    };
-  }
-  return {
-    id,
-    name: title,
-    description,
-    group,
-    type,
-    renderer: 'handlebars',
-    entries: { template: `./${id}.hbs`, scss: `./${id}.scss`, js: `./${id}.client.js` },
-    previews: previewRecord,
-  };
-}
-
-export function buildHandoffDeclarationTsHandlebars(nestedConfig: Record<string, unknown>): string {
-  const body = JSON.stringify(nestedConfig, null, 2);
-  return `import { defineHandlebarsComponent } from 'handoff-app';
-
-export default defineHandlebarsComponent(${body});
-`;
-}
-
-export function buildHandoffDeclarationCjs(data: {
-  id: string;
-  title: string;
-  description: string;
-  group: string;
-  type: string;
-  renderer?: string;
-  /** Preview keys → { title, values } (emitted as `args` in CJS for Handoff normalizer). */
-  previews?: Record<string, DeclarationPreviewEntry>;
-}): string {
-  const { id, title, description, group, type, previews } = data;
-  const renderer = data.renderer ?? 'handlebars';
-  if (renderer === 'react') return handoffJsReact(id, title, description, group, type, previews);
-  if (renderer === 'csf') return handoffJsCsf(id, title, description, group, type, previews);
-  return handoffJsHandlebars(id, title, description, group, type, previews);
-}
+export {
+  buildHandoffDeclarationObject,
+  buildHandoffDeclarationTsForRenderer,
+  buildHandoffDeclarationTsHandlebars,
+  buildHandoffDeclarationCjs,
+  handoffJsHandlebars,
+  handoffJsReact,
+  handoffJsCsf,
+};

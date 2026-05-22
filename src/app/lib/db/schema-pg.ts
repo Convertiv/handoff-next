@@ -83,6 +83,19 @@ export const handoffComponents = pgTable('handoff_component', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
+/** Synced component preview artifacts (HTML/CSS/JS/JSON from CLI push). */
+export const componentArtifacts = pgTable(
+  'component_artifact',
+  {
+    componentId: text('component_id').notNull(),
+    filename: text('filename').notNull(),
+    content: text('content').notNull(),
+    contentType: text('content_type').notNull().default('text/plain'),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.componentId, t.filename] })]
+);
+
 export const handoffPatterns = pgTable('handoff_pattern', {
   id: text('id').primaryKey(),
   path: text('path'),
@@ -171,7 +184,7 @@ export const handoffEventLog = pgTable('handoff_event_log', {
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
 });
 
-/** Async Vite preview build queue for dynamic component source edits */
+/** Async preview build queue (legacy — server builds retired; table kept for history). */
 export const componentBuildJobs = pgTable('component_build_job', {
   id: serial('id').primaryKey(),
   componentId: text('component_id').notNull(),

@@ -77,53 +77,17 @@ export function CodeEditor({ componentId, preview, onSourcesSaved }: CodeEditorP
     }
   };
 
-  const saveAndBuild = async () => {
+  const saveAndPushHint = async () => {
     setErr(null);
     setSaving(true);
-    setBuilding(true);
     setStatus(null);
     try {
       await persistEntrySources();
+      setStatus('Saved metadata. Build locally and run handoff-app push --build to update hosted previews.');
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed');
-      setSaving(false);
-      setBuilding(false);
-      return;
-    }
-    setSaving(false);
-
-    try {
-      const res = await fetch(handoffApiUrl('/api/handoff/components/build'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ componentId }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error || res.statusText);
-      }
-      const { jobId } = (await res.json()) as { jobId: number };
-      setStatus(`Build queued (#${jobId})…`);
-      const deadline = Date.now() + 120_000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const st = await fetch(handoffApiUrl(`/api/handoff/components/build?jobId=${jobId}`), { credentials: 'include' });
-        const row = (await st.json()) as { status?: string; error?: string | null };
-        if (row.status === 'complete') {
-          setStatus('Build complete. Reloading preview…');
-          await onSourcesSaved();
-          return;
-        }
-        if (row.status === 'failed') {
-          throw new Error(row.error || 'Build failed');
-        }
-      }
-      throw new Error('Build timed out while polling');
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'Build failed');
     } finally {
-      setBuilding(false);
+      setSaving(false);
     }
   };
 
@@ -131,7 +95,7 @@ export function CodeEditor({ componentId, preview, onSourcesSaved }: CodeEditorP
 
   return (
     <div className="mb-6 rounded-md border border-gray-200 bg-gray-50/80 p-4 dark:border-gray-700 dark:bg-gray-900/40">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-700 dark:text-gray-300">Source (saves to DB, then preview build)</p>
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-700 dark:text-gray-300">Source (saves metadata to DB — build locally and push for previews)</p>
       {err ? <p className="mb-2 text-sm text-red-600">{err}</p> : null}
       {status ? <p className="mb-2 text-xs text-gray-600 dark:text-gray-400">{status}</p> : null}
       <div className="mb-2 flex flex-wrap gap-2">
@@ -156,8 +120,8 @@ export function CodeEditor({ componentId, preview, onSourcesSaved }: CodeEditorP
         <Button type="button" size="sm" onClick={() => void saveSources()} disabled={saving || building}>
           Save source
         </Button>
-        <Button type="button" size="sm" variant="secondary" onClick={() => void saveAndBuild()} disabled={saving || building}>
-          {building ? 'Building…' : 'Save & rebuild preview'}
+        <Button type="button" size="sm" variant="secondary" onClick={() => void saveAndPushHint()} disabled={saving || building}>
+          Save metadata
         </Button>
       </div>
     </div>

@@ -9,12 +9,15 @@ export interface PushArgs extends SharedArgs {
   patterns?: string[];
   pages?: string[];
   dryRun?: boolean;
+  build?: boolean;
+  metadataOnly?: boolean;
+  noBuild?: boolean;
 }
 
 const command: CommandModule<{}, PushArgs> = {
   command: 'push',
   describe:
-    'Push local pages and *.handoff.json declarations to remote Handoff (requires HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN, or legacy HANDOFF_SYNC_URL + HANDOFF_SYNC_SECRET)',
+    'Push local pages, component/pattern declarations (.handoff.ts/.js/.json), and built preview artifacts to remote Handoff (requires HANDOFF_CLOUD_URL + token or handoff-app login)',
   builder: (yargs) =>
     getSharedOptions(yargs)
       .option('components', {
@@ -36,6 +39,20 @@ const command: CommandModule<{}, PushArgs> = {
         type: 'boolean',
         default: false,
         describe: 'List what would be pushed without calling the remote API (no cloud URL/token required).',
+      })
+      .option('build', {
+        type: 'boolean',
+        describe: 'Build components/patterns locally before push (default: true when pushing components or patterns).',
+      })
+      .option('metadata-only', {
+        type: 'boolean',
+        default: false,
+        describe: 'Push declaration metadata only; skip built preview artifacts under public/api/.',
+      })
+      .option('no-build', {
+        type: 'boolean',
+        default: false,
+        describe: 'Do not run local builds; upload existing artifacts only.',
       }),
   handler: async (args: PushArgs) => {
     const handoff = new Handoff(args.debug, args.force);
@@ -48,6 +65,9 @@ const command: CommandModule<{}, PushArgs> = {
       patternIds: patternIds?.length ? patternIds : undefined,
       pageSlugs: pageSlugs?.length ? pageSlugs : undefined,
       dryRun: Boolean(args.dryRun),
+      build: args.build,
+      metadataOnly: Boolean(args.metadataOnly),
+      noBuild: Boolean(args.noBuild),
     });
   },
 };

@@ -59,7 +59,7 @@ Commands:
 
   pull [opts] - Pulls remote edits from a Handoff deployment running in dynamic mode into local `pages/` and `*.handoff.json` files. Prefer `handoff-app login` so the CLI sends a deployment-scoped bearer token. Legacy: set `HANDOFF_CLOUD_URL` + `HANDOFF_CLOUD_TOKEN` (or `HANDOFF_SYNC_URL` / `HANDOFF_SYNC_SECRET`) to match the server’s `HANDOFF_SYNC_SECRET` (automation / CI). Use `--dry-run` to fetch the remote changeset and print what would happen without writing files or updating `.handoff/sync-state.json`.
 
-  push [opts] - Pushes local markdown pages and `*.handoff.json` component/pattern declarations to the remote API (same auth resolution as `pull`). Optional: `--components <id>…`, `--patterns <id>…`, `--pages <slug>…` to push a subset only (when any of these are set, categories you omit are not pushed). Use `--dry-run` to list what would be uploaded (no network; no cloud env vars required).
+  push [opts] - Pushes local markdown pages, component/pattern declarations (`.handoff.ts`, legacy `.js`, or `.handoff.json`), and built preview artifacts from `public/api/` to the remote API. By default runs a local build before upload when pushing components/patterns. Flags: `--metadata-only` (catalog only), `--no-build` (upload existing artifacts), `--build` / default build behavior, `--dry-run`. Selective: `--components`, `--patterns`, `--pages`.
 
   sync-status [opts] - Prints the remote sync cursor and local `.handoff/sync-state.json` metadata (same URL and bearer resolution as `push` / `pull`).
 

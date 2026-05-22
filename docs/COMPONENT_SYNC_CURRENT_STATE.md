@@ -9,50 +9,51 @@ How **local design-system repos** stay in sync with a **hosted Handoff** instanc
 | Local → hosted | `handoff-app push` | `POST {origin}/api/sync/upload` with `Authorization: Bearer …` |
 | Hosted → local | `handoff-app pull` | `GET {origin}/api/sync/changes?since=…` with the same bearer |
 
-The hosted app stores authoritative data in **Postgres**; `sync_event` is the append-only ledger so pulls can replay history. There is **no** in-app “import from code” / “export to disk” flow—admins sync by running the CLI from a checkout. **Interactive developers** should run `handoff-app login` (device flow) once; **CI and automation** can keep using `HANDOFF_CLOUD_URL` + `HANDOFF_CLOUD_TOKEN` (or legacy `HANDOFF_SYNC_*`) matching the server’s `HANDOFF_SYNC_SECRET`.
+The hosted app stores authoritative data in **Postgres**; `sync_event` is the append-only ledger so pulls can replay history. **Interactive developers** should run `handoff-app login` (device flow) once; **CI** can use `HANDOFF_CLOUD_URL` + `HANDOFF_CLOUD_TOKEN` (or legacy `HANDOFF_SYNC_*`).
 
-### CLI authentication (device flow + legacy bearer)
+## Local builds + artifact sync (no server Vite)
 
-1. **`handoff-app login`** — CLI calls `POST {origin}/api/oauth/device`, prints `verification_uri` and `user_code`; you approve in the browser at `{origin}/cli/device` (signed in). The CLI polls `POST {origin}/api/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:device_code` and stores tokens under `.handoff/cli-auth.json`.
-2. **`pull` / `push` / `sync-status`** — Bearer is taken from the stored access token first; if absent, from `HANDOFF_CLOUD_TOKEN` / `HANDOFF_SYNC_SECRET` (legacy).
-3. **`handoff-app logout`** — Deletes `.handoff/cli-auth.json` for the resolved host.
+Previews are **built on the developer machine** (where `node_modules`, design-system aliases, and `handoff.config` exist) and uploaded as **static artifacts** under `public/api/component/` — not compiled on Vercel.
 
-In-app help: open **Develop locally** in the nav (when auth is enabled) → `/dev/local-setup`, or use the device consent page `/cli/device`.
+| Artifact | Purpose |
+|----------|---------|
+| `{id}.json` | Catalog + preview metadata |
+| `{id}.css`, `{id}.js` | Per-component assets |
+| `{id}-{preview}.html` | iframe preview targets |
 
-### Environment variables
+Hosted Handoff serves artifacts from **disk** (local dev / materialized deploy) or **`component_artifact`** Postgres rows (synced push) via `GET /api/component/[...path]`.
 
-**On the server**
-
-- `HANDOFF_SYNC_SECRET` — Legacy shared bearer for automation; still accepted by `/api/sync/*` alongside CLI JWTs.
-- `HANDOFF_CLI_JWT_SECRET` (optional) — Dedicated secret for signing CLI access tokens. If unset, the app derives signing material from `AUTH_SECRET` for CLI JWTs only.
-- JWT access tokens use audience `handoff-cli-sync` and issuer matching the deployment public origin. **Admin** users receive `sync:read` and `sync:write`; non-admins receive **`sync:read` only** (push returns **403** without write scope).
-
-**On the developer machine** (`src/cli/sync/sync-remote-env.ts`):
-
-| Preferred | Legacy alias |
-|-----------|--------------|
-| `HANDOFF_CLOUD_URL` | `HANDOFF_SYNC_URL` |
-| `HANDOFF_CLOUD_TOKEN` | `HANDOFF_SYNC_SECRET` |
-
-`handoff-app sync-status` uses the same URL and bearer resolution as push/pull.
+**Server-side component builds are retired.** `POST /api/handoff/components/build` returns **410**. Use `handoff-app push --build` (default when pushing components) or `handoff-app build:components && handoff-app push`.
 
 ### Push (`src/cli/sync/run-push.ts`)
 
-1. **Default:** all `pages/**/*.md`, all `entries.components` ids with `{id}.handoff.json`, all `entries.patterns` ids with JSON.
-2. **Selective:** `handoff-app push --components a b --patterns p --pages index guides/foo` pushes **only** the listed categories (each flag is optional; omitted categories are skipped when any selective flag is present). Unknown ids log a warning.
-3. **`--dry-run`:** scans the same local inputs and prints counts (and per-change lines with `--debug`) without resolving cloud URL/token or calling the upload API.
-4. **POST** body: `SyncUploadBody` in `src/types/handoff-sync.ts`. Server applies changes via `applyUploadedChange` in `src/app/lib/db/sync-queries.ts`.
+1. **Declarations:** resolves `{id}.handoff.ts`, legacy `{id}.js`, or `{id}.handoff.json` via `resolveDeclarationForSync()` — evaluates TS/JS locally, never on the server.
+2. **Payload:** `handoffConfig` (serializable declaration), normalized `data`, optional `buildArtifacts` map (basename → file contents).
+3. **Flags:**
+   - `--build` / default — run local component/pattern build before upload
+   - `--metadata-only` — skip `buildArtifacts` (catalog/Figma/MCP only)
+   - `--no-build` — skip build step; upload existing artifacts only
+   - `--dry-run` — no network call
+4. **Selective:** `--components`, `--patterns`, `--pages` (same as before).
 
-### Pull (`src/cli/sync/run-pull.ts`, `apply-pull.ts`)
+### Pull (`apply-pull.ts`, `apply-declaration-pull.ts`)
 
-1. State: `.handoff/sync-state.json` (`remoteUrl`, `lastSyncVersion`, fingerprints).
-2. Writes **`pages/`** and **`{id}.handoff.json`** under the working tree; conflicts go to `.handoff/conflicts/`.
-3. **`--dry-run`:** still **GET**s `/api/sync/changes` (needs auth), runs the same apply logic in memory only—no files, conflict artifacts, or sync-state updates.
-4. **Local SQLite:** pull is **files-only** today. After pull, run `handoff-app start` again (or your usual dev restart) so the embedded DB / merged provider picks up changes. Optional future improvement: upsert pulled payloads into `.handoff/local.db` from the CLI for instant dev-server refresh without coupling the CLI to the full Drizzle stack.
+1. State: `.handoff/sync-state.json` (fingerprints + cursor).
+2. **Components/patterns:** writes or **patches** `{id}.handoff.ts` (metadata merge preserves imports and React component refs). New remote-only components get a **synthesized** stub using the project’s dominant renderer (`handlebars` / `react` / `csf`).
+3. **Artifacts:** when `buildArtifacts` is in the sync payload, restores files under `public/api/component/` (and `public/api/pattern/` for patterns).
+4. **Legacy:** if only `{id}.js` exists locally, pull creates `{id}.handoff.ts` and logs that modern declarations take precedence at runtime.
+5. Conflicts → `.handoff/conflicts/` (local-wins fingerprinting).
 
-### Sync status
+Pull does **not** write `{id}.handoff.json` sidecars.
 
-`handoff-app sync-status` → `GET …/api/sync/status` using the same remote URL and bearer resolution as push/pull (`getSyncBearerToken` / env fallback).
+### CI recipe
+
+```bash
+handoff-app build:components
+handoff-app push --components "$CHANGED_IDS"
+```
+
+Or a single command when pushing from a dev checkout: `handoff-app push --build`.
 
 ## Diagram
 
@@ -60,38 +61,40 @@ In-app help: open **Develop locally** in the nav (when auth is enabled) → `/de
 flowchart LR
   subgraph localRepo [Local design repo]
     PagesMd["pages/**/*.md"]
-    HandoffJson["id.handoff.json + declarations"]
+    DeclTs["id.handoff.ts / legacy id.js"]
+    Build["handoff build"]
+    Artifacts["public/api/component/*"]
   end
 
   subgraph cli [handoff-app CLI]
-    Push["push"]
+    Push["push --build"]
     Pull["pull"]
   end
 
   subgraph hosted [Hosted Handoff]
     Upload["POST /api/sync/upload"]
     Changes["GET /api/sync/changes"]
-    Status["GET /api/sync/status"]
-    PG[(Postgres)]
-    SyncEv["sync_event"]
+    PG[(Postgres + component_artifact)]
+    Serve["GET /api/component/*"]
   end
 
+  DeclTs --> Build
+  Build --> Artifacts
   PagesMd --> Push
-  HandoffJson --> Push
+  DeclTs --> Push
+  Artifacts --> Push
   Push --> Upload
   Upload --> PG
-  Upload --> SyncEv
+  PG --> Serve
 
-  SyncEv --> Changes
   Changes --> Pull
-  Pull --> PagesMd
-  Pull --> HandoffJson
-
-  Status -.-> cli
+  Pull --> DeclTs
+  Pull --> Artifacts
 ```
 
 ## Related reading
 
-- HTTP API (components PATCH/build, etc.): [`docs/api.md`](api.md)
+- HTTP API: [`docs/api.md`](api.md)
 - CLI commands: [`docs/cli.md`](cli.md)
-- Deployment / env: [`docs/DEPLOYMENT.md`](DEPLOYMENT.md)
+- Security (artifact serving): [`docs/SECURITY-COMPONENT-BUILDS.md`](SECURITY-COMPONENT-BUILDS.md)
+- Deployment: [`docs/DEPLOYMENT.md`](DEPLOYMENT.md)

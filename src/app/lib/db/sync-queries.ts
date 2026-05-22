@@ -1,5 +1,6 @@
 import { desc, eq, gt, sql } from 'drizzle-orm';
 import type { SyncAction, SyncChange, SyncChangeset, SyncEntityType, SyncStatusResponse } from '@handoff/types/handoff-sync';
+import { deleteComponentArtifacts, upsertComponentArtifacts } from './component-artifact-queries';
 import { getDb } from './index';
 import {
   handoffComponents,
@@ -92,6 +93,7 @@ export async function applyUploadedChange(input: {
 
   if (entityType === 'component') {
     if (action === 'delete') {
+      await deleteComponentArtifacts(entityId);
       await db.delete(handoffComponents).where(eq(handoffComponents.id, entityId));
       await insertSyncEvent({
         entityType,
@@ -103,18 +105,25 @@ export async function applyUploadedChange(input: {
       return;
     }
     const d = (data ?? {}) as Record<string, unknown>;
+    const dataPayload =
+      d.data && typeof d.data === 'object' && !Array.isArray(d.data)
+        ? ({ ...(d.data as Record<string, unknown>) } as Record<string, unknown>)
+        : ({ ...d } as Record<string, unknown>);
+    if (d.handoffConfig && typeof d.handoffConfig === 'object') {
+      dataPayload.handoffConfig = d.handoffConfig;
+    }
     const row = {
       id: String(d.id ?? entityId),
       path: d.path != null ? String(d.path) : null,
-      title: String(d.title ?? entityId),
-      description: d.description != null ? String(d.description) : '',
-      group: d.group != null ? String(d.group) : '',
-      image: d.image != null ? String(d.image) : null,
-      type: d.type != null ? String(d.type) : 'element',
-      properties: (d.properties as object) ?? null,
-      previews: (d.previews as object) ?? null,
-      data: (d.data as object) ?? (d as object),
-      source: typeof d.source === 'string' && d.source.length > 0 ? String(d.source) : 'disk',
+      title: String(d.title ?? dataPayload.title ?? entityId),
+      description: d.description != null ? String(d.description) : String(dataPayload.description ?? ''),
+      group: d.group != null ? String(d.group) : String(dataPayload.group ?? ''),
+      image: d.image != null ? String(d.image) : dataPayload.image != null ? String(dataPayload.image) : null,
+      type: d.type != null ? String(d.type) : String(dataPayload.type ?? 'element'),
+      properties: (d.properties as object) ?? (dataPayload.properties as object) ?? null,
+      previews: (d.previews as object) ?? (dataPayload.previews as object) ?? null,
+      data: dataPayload,
+      source: typeof d.source === 'string' && d.source.length > 0 ? String(d.source) : 'sync',
       updatedAt: new Date(),
     };
     await db
@@ -139,6 +148,9 @@ export async function applyUploadedChange(input: {
           updatedAt: row.updatedAt,
         },
       });
+    if (d.buildArtifacts && typeof d.buildArtifacts === 'object' && !Array.isArray(d.buildArtifacts)) {
+      await upsertComponentArtifacts(row.id, d.buildArtifacts as Record<string, string>);
+    }
     await insertSyncEvent({
       entityType,
       entityId: row.id,
