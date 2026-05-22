@@ -3,7 +3,7 @@ import type Handlebars from 'handlebars';
 import { Types as HandoffTypes } from 'handoff-core';
 import type { NextRequest, NextResponse } from 'next/server';
 import type { InlineConfig } from 'vite';
-import { SlotMetadata } from '@handoff/transformers/preview/component';
+import { SlotMetadata } from '@handoff/transformers/preview/slots';
 import { ComponentListObject, PatternListObject, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 import { ValidationResult } from './preview.js';
 

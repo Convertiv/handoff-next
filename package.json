@@ -32,8 +32,9 @@
     "node": ">=20.9.0"
   },
   "scripts": {
-    "postinstall": "node scripts/ensure-drizzle-kit-local.mjs",
+    "preinstall": "node scripts/assert-standalone-install.mjs",
     "prepare": "npm run build",
+    "doctor": "node scripts/assert-standalone-install.mjs",
     "start": "node ./dist/cli.js start",
     "dev": "node ./dist/cli.js dev",
     "build": "tsc && tsc-alias -p tsconfig.json && node scripts/fix-dist-esm-imports.mjs",
@@ -48,8 +49,9 @@
     "test:unit": "tsx --test test/path-contract.test.ts test/ephemeral-runtime.test.ts test/next-config-resolve.test.ts test/static-provider.test.ts test/figma-component-linking.test.ts",
     "playwright:install": "npx playwright install chromium",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:migrate:orm": "tsx scripts/db-migrate.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:migrate:baseline": "tsx scripts/db-migrate-baseline.ts",
+    "db:migrate:kit": "drizzle-kit migrate",
     "db:seed": "tsx src/app/lib/db/seed.ts",
     "db:bootstrap": "tsx src/app/lib/db/bootstrap-admin.ts",
     "design-asset-worker": "tsx src/app/lib/server/design-asset-worker.ts"

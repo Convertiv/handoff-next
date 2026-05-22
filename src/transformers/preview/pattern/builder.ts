@@ -3,8 +3,8 @@ import path from 'path';
 import Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
 import { PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
-import { readPatternSummaryApi, syncPatternArtifacts, writePatternApi, writePatternHtml, writePatternSummaryApi } from './api.js';
-import { composePatternHtml } from './html.js';
+import { readPatternSummaryApi, syncPatternArtifacts, writePatternApi, writePatternHtml, writePatternSummaryApi } from './api';
+import { composePatternHtml } from './html';
 
 export type ProcessPatternsOptions = {
   /** When set, only these pattern ids are recomposed; others keep existing artifacts. */

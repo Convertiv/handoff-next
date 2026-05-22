@@ -1,7 +1,7 @@
 import { Types as CoreTypes } from 'handoff-core';
 import type { GeneratedDocs } from 'handoff-docgen';
 import type { FigmaComponentLinkData } from '@handoff/figma/component-linking';
-import { SlotMetadata } from '@handoff/transformers/preview/component';
+import { SlotMetadata } from '@handoff/transformers/preview/slots';
 import { ComponentPageDefinition } from '@handoff/transformers/preview/types';
 import { type Filter } from '@handoff/utils/filter';
 

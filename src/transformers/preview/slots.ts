@@ -1,0 +1,72 @@
+import type { DocAnnotation, TypeNode } from 'handoff-docgen';
+
+/** Shared slot / property types (no builder or Vite deps — safe for Next.js server bundles). */
+
+export interface ComponentMetadata {
+  title: string;
+  type?: string;
+  group?: string;
+  description: string;
+  properties: { [key: string]: SlotMetadata };
+}
+
+export enum SlotType {
+  TEXT = 'text',
+  IMAGE = 'image',
+  BUTTON = 'button',
+  ARRAY = 'array',
+  NUMBER = 'number',
+  BOOLEAN = 'boolean',
+  OBJECT = 'object',
+  FUNCTION = 'function',
+  ENUM = 'enum',
+  ANY = 'any',
+}
+
+export interface SlotMetadata {
+  id?: string;
+  name: string;
+  description: string;
+  generic: string;
+  default?: string | number | boolean | object | any[] | null;
+  type: SlotType;
+  items?: {
+    type: SlotType;
+    properties?: { [key: string]: SlotMetadata };
+  };
+  properties?: { [key: string]: SlotMetadata };
+  key?: string;
+  rules?: RuleObject;
+  docgenType?: string;
+  deepType?: TypeNode;
+  typeRefs?: string[];
+  warnings?: string[];
+  annotations?: DocAnnotation[];
+}
+
+export type RuleObject = {
+  required?: boolean;
+  content?: {
+    min: number;
+    max: number;
+  };
+  dimensions?: {
+    width: number;
+    height: number;
+    min: {
+      width: number;
+      height: number;
+    };
+    max: {
+      width: number;
+      height: number;
+    };
+    recommend: {
+      width: number;
+      height: number;
+    };
+  };
+  filesize?: number;
+  filetype?: string;
+  pattern?: string;
+};

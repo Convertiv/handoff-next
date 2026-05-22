@@ -97,7 +97,7 @@ Beyond CLI `fetch` with a personal access token:
 - **Figma sync UI** — `/system/figma-sync`
 - **Component sync API** — list/sync component properties from Figma (`/api/handoff/figma/*`)
 - **CLI audit/scaffold** — `handoff-app audit:figma-components`, improved `scaffold` flow linking Figma components to local declarations
-- **`handoff-figma-plugin`** wired as a local file dependency for plugin contract work
+- **`handoff-figma-plugin`** — sibling repo; API contract mirrored in `src/app/lib/figma-plugin-contract.ts` (not an npm workspace dependency)
 
 Recent work (latest commits) focuses on **better Figma ↔ component sync** and path fixes.
 

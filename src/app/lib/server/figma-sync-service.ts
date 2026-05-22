@@ -21,7 +21,7 @@ import {
 } from '@handoff/figma/component-linking';
 import { slugify } from '@handoff/transformers/utils/string';
 import type { ComponentListObject, ComponentObject, OptionalPreviewRender, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
-import type { SlotMetadata } from '@handoff/transformers/preview/component';
+import { SlotType, type SlotMetadata } from '@handoff/transformers/preview/slots';
 import type { IDetectedImage, IDetectedProperty, PushComponentPropertiesRequest, PushComponentPropertiesResponse } from '@/lib/figma-plugin-contract';
 import { getValidFigmaAccessTokenForUser, hasFigmaConnection } from '@/lib/server/figma-auth';
 import type { FigmaAuditApiComponent, FigmaAuditApiResponse, FigmaAuditApiRow, FigmaSyncApiResponse, LinkedFigmaFileInfo } from '@/lib/figma-sync-types';
@@ -676,18 +676,18 @@ async function fetchNodePropertySeedsForValue(
 function slotTypeFromDetectedProperty(detected: IDetectedProperty): SlotMetadata['type'] {
   switch (detected.suggestedType) {
     case 'image':
-      return 'image';
+      return SlotType.IMAGE;
     case 'button':
     case 'link':
-      return 'button';
+      return SlotType.BUTTON;
     case 'boolean':
-      return 'boolean';
+      return SlotType.BOOLEAN;
     case 'array':
-      return 'array';
+      return SlotType.ARRAY;
     case 'object':
-      return 'object';
+      return SlotType.OBJECT;
     default:
-      return 'text';
+      return SlotType.TEXT;
   }
 }
 

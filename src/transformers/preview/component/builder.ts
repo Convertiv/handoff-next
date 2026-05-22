@@ -24,13 +24,13 @@ import { formatDurationMs } from '@handoff/utils/duration';
 import { Logger } from '@handoff/utils/logger';
 import { ensureIds } from '@handoff/transformers/utils/schema';
 import { ComponentListObject, ComponentType, OptionalPreviewRender, TransformComponentTokensResult } from '@handoff/transformers/preview/types';
-import { readComponentApi, readComponentMetadataApi, writeComponentApi } from './api.js';
-import { removeComponentApi, syncComponentArtifacts } from './artifacts.js';
-import { getDocumentedPreviews } from './previews.js';
-import { removeComponentFromSummaryApi, updateComponentSummaryApi } from './summary.js';
-import buildComponentCss from './css.js';
-import buildPreviews from './html.js';
-import buildComponentJs from './javascript.js';
+import { readComponentApi, readComponentMetadataApi, writeComponentApi } from './api';
+import { removeComponentApi, syncComponentArtifacts } from './artifacts';
+import { getDocumentedPreviews } from './previews';
+import { removeComponentFromSummaryApi, updateComponentSummaryApi } from './summary';
+import buildComponentCss from './css';
+import buildPreviews from './html';
+import buildComponentJs from './javascript';
 
 const defaultComponent: TransformComponentTokensResult = {
   id: '',

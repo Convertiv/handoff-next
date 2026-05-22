@@ -1,7 +1,7 @@
 import { Types as CoreTypes } from 'handoff-core';
 import { Plugin } from 'vite';
-import { SlotMetadata } from './preview/component.js';
-import { TransformComponentTokensResult } from './preview/types.js';
+import { SlotMetadata } from './preview/component';
+import { TransformComponentTokensResult } from './preview/types';
 
 /**
  * Module evaluation result

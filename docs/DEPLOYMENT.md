@@ -2,6 +2,8 @@
 
 Handoff materializes a Next.js app from its templates and your design tokens. The generated app is **not source code** — extend it via `handoff.config` hooks, `pages/`, `public/`, and documented overrides.
 
+**Standalone package:** Deploy from the **`handoff-app` repository root** only (`npm ci`, then `npm run build:vercel`). Do not point Vercel at a parent folder that uses npm `workspaces` to hoist dependencies — that layout breaks local tooling and does not match production. See [STANDALONE-INSTALL.md](./STANDALONE-INSTALL.md).
+
 Do not set Next.js `output: 'export'` on this app: NextAuth and App Route APIs require a Node (or compatible) server runtime.
 
 ## CLI commands (quick reference)
@@ -46,6 +48,8 @@ Never treat generated trees as source — extend via `handoff.config` hooks, `pa
 
 ## Vercel deployment
 
+**Repository root:** Connect Vercel to the `handoff-app` git repository and set **Root Directory** to the repo root (`.`). Do not deploy from a parent folder that uses npm `workspaces` to include `handoff-app` — that hoists dependencies outside the package and breaks local tooling vs production. See [STANDALONE-INSTALL.md](./STANDALONE-INSTALL.md).
+
 ### Option A: Ephemeral runtime (recommended — nothing committed)
 
 Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-runtime` command writes the Next.js app there and **symlinks** `.handoff/runtime/node_modules` to your repository root’s `node_modules` so there is only one copy of `next` (required for TypeScript and Vercel). Do **not** run `npm install` inside `.handoff/runtime` — that would install a second `next` and break type-checking.
@@ -67,7 +71,8 @@ Materialize at build time into `.handoff/runtime` (gitignored). The `prepare-run
 Equivalent manual chain (same behavior as `vercel-build`): `handoff-app build:app --mode vercel && cd .handoff/runtime && next build`. Prefer `vercel-build` so the full Handoff pipeline always runs before Next.
 
 4. Vercel settings:
-   - **Root Directory**: repository root
+   - **Root Directory**: repository root (`handoff-app` clone root, not a parent monorepo)
+   - **Install Command**: `npm ci`
    - **Build Command**: `npm run build:vercel`
    - **Output Directory**: `.handoff/runtime/.next`
    - **Framework**: Next.js

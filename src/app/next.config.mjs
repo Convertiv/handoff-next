@@ -34,6 +34,19 @@ const HANDOFF_MODULE_PATH = resolveAbsoluteFromApp(
 );
 const HANDOFF_EXPORT_PATH = resolveAbsoluteFromApp('%HANDOFF_EXPORT_PATH_REL%', '');
 const HANDOFF_TURBOPACK_ROOT = resolveAbsoluteFromApp('%HANDOFF_TURBOPACK_ROOT_REL%', APP_DIR);
+const HANDOFF_DIST = path.resolve(HANDOFF_MODULE_PATH, 'dist');
+
+/** Next bundles @handoff/* from compiled dist (.js); the materialized app uses @handoff/app → APP_DIR. */
+const handoffResolveAlias = () => ({
+  '@handoff/app': APP_DIR,
+  '@handoff/transformers': path.join(HANDOFF_DIST, 'transformers'),
+  '@handoff/config': path.join(HANDOFF_DIST, 'config'),
+  '@handoff/types': path.join(HANDOFF_DIST, 'types'),
+  '@handoff/figma': path.join(HANDOFF_DIST, 'figma'),
+  '@handoff/declarations': path.join(HANDOFF_DIST, 'declarations'),
+  '@handoff/utils': path.join(HANDOFF_DIST, 'utils'),
+  '@': APP_DIR,
+});
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -129,17 +142,13 @@ const nextConfig = {
   },
   turbopack: {
     root: HANDOFF_TURBOPACK_ROOT,
-    resolveAlias: {
-      '@handoff': path.resolve(HANDOFF_MODULE_PATH, 'src'),
-      '@': path.resolve('.'),
-    },
+    resolveAlias: handoffResolveAlias(),
     resolveExtensions: ['.js', '.jsx', '.ts', '.tsx'],
   },
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,
-      '@handoff': path.resolve(HANDOFF_MODULE_PATH, 'src'),
-      '@': path.resolve('.'),
+      ...handoffResolveAlias(),
     };
     return config;
   },

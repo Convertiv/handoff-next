@@ -2,8 +2,8 @@ import fs from 'fs-extra';
 import path from 'path';
 import Handoff from '@handoff/index';
 import { ComponentListObject } from '@handoff/transformers/preview/types';
-import { getDocumentedPreviews } from './previews.js';
-import { getAPIPath } from './api.js';
+import { getDocumentedPreviews } from './previews';
+import { getAPIPath } from './api';
 
 const getComponentSummaryPath = (handoff: Handoff): string => path.resolve(getAPIPath(handoff), 'components.json');
 

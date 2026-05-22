@@ -4,7 +4,7 @@ import type { RendererKind } from '@handoff/declarations/types';
 import type { FigmaComponentLinkData, FigmaImageAsset, FigmaMatchedBy, FigmaMatchStatus, FigmaVariantSchemaProperty } from '@handoff/figma/component-linking';
 import { ValidationResult } from '@handoff/types/preview';
 import { Filter } from '@handoff/utils/filter';
-import { SlotMetadata } from './component.js';
+import { SlotMetadata } from './slots';
 
 export enum ComponentType {
   Element = 'element',
