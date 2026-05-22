@@ -1,12 +1,13 @@
-import { getToken } from 'next-auth/jwt';
+import type { Session } from 'next-auth';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { withAuth } from './lib/auth';
 import { userMiddleware } from './middleware-hook.mjs';
 
 /**
- * Default Handoff gate: public asset/API paths, optional JWT admin check when DATABASE_URL is set.
+ * Default Handoff gate: public asset/API paths, optional admin check when DATABASE_URL is set.
  */
-async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> {
+async function defaultHandoffProxy(request: NextRequest, session: Session | null): Promise<NextResponse> {
   const publicPaths = [
     '/api/auth',
     '/_next',
@@ -35,14 +36,12 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
       const setup = new URL('/dev/local-setup', request.url);
       return NextResponse.redirect(setup);
     }
-    const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
-    const token = await getToken({ req: request, secret });
-    if (!token?.sub) {
+    if (!session?.user?.id) {
       const login = new URL('/login', request.url);
       login.searchParams.set('callbackUrl', pathname);
       return NextResponse.redirect(login);
     }
-    if (token.role !== 'admin') {
+    if (session.user.role !== 'admin') {
       return NextResponse.redirect(new URL('/', request.url));
     }
   }
@@ -50,12 +49,15 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
   return NextResponse.next();
 }
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export default withAuth(async (request) => {
+  const session = request.auth as Session | null;
+  const runDefault = () => defaultHandoffProxy(request, session);
+
   if (typeof userMiddleware === 'function') {
-    return userMiddleware(request, defaultHandoffProxy);
+    return userMiddleware(request, runDefault);
   }
-  return defaultHandoffProxy(request);
-}
+  return runDefault();
+});
 
 export const config = {
   matcher: ['/((?!_next/static|_next/image|favicon.ico|assets/).*)'],

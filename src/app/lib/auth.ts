@@ -66,15 +66,13 @@ const loginOauth = typeof window === 'undefined' ? loginOauthProviders() : [];
 const linkedOauth = typeof window === 'undefined' ? linkedAccountProviders() : [];
 const hasAnyOAuth = loginOauth.length > 0 || linkedOauth.length > 0;
 const useAdapter = Boolean(db && hasAnyOAuth);
-const useDatabaseSession = Boolean(db && loginOauth.length > 0);
 
 /**
  * NextAuth (Auth.js v5).
  * - Adapter is enabled whenever any OAuth providers exist (for account linking/storage).
- * - Session strategy is 'database' only when login OAuth providers (GitHub/Google) are
- *   configured; otherwise 'jwt' so credentials login works.
- * - Linked-account providers (Figma) use the adapter for token storage but don't affect
- *   session strategy — the user stays signed in via their credentials session.
+ * - Sessions always use JWT so Edge middleware can read `request.auth` / admin gates work on Vercel.
+ *   (Database sessions + `getToken()` break `/admin` when GitHub/Google OAuth env vars are set.)
+ * - Linked-account providers (Figma) use the adapter for token storage only.
  */
 const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -91,7 +89,7 @@ const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
           verificationTokensTable: schema.verificationTokens,
         } as never)
       : undefined,
-  session: { strategy: useDatabaseSession ? 'database' : 'jwt' },
+  session: { strategy: 'jwt' },
   providers: [
     ...loginOauth,
     ...linkedOauth,
@@ -176,6 +174,9 @@ const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
 });
 
 export { handlers, signIn, signOut };
+
+/** Auth.js middleware wrapper (same session as `auth()` — use instead of `getToken` in middleware). */
+export const withAuth = nextAuthLibAuth;
 
 /** Postgres: NextAuth session. Local hybrid mode (no DATABASE_URL): no session. */
 export async function auth(): Promise<Session | null> {

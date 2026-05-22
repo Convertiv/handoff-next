@@ -81,7 +81,9 @@ Equivalent manual chain (same behavior as `vercel-build`): `handoff-app build:ap
 
 **Components on disk:** Run `handoff-app build:components` (or use `prepare-runtime` without `--skip-components`) before `next build` so `public/api/components.json` and per-component files exist and get synced into the runtime.
 
-**`/admin/*` and login:** When `DATABASE_URL` is set, middleware requires a signed-in admin JWT for `/admin` routes. That is expected; use `/login` with an admin account, or use local SQLite-only mode without `DATABASE_URL` for open `/admin` during development.
+**`/admin/*` and login:** When `DATABASE_URL` is set, middleware requires a signed-in user with `role: admin`. Use `/login` with an admin account. Sessions are **JWT** (even if GitHub/Google OAuth is configured) so Vercel Edge middleware can read them — set `AUTH_SECRET` on Vercel and log in again after deploy if `/admin` redirected to login while other pages worked.
+
+**Troubleshooting — logged in elsewhere but `/admin` sends you to login:** Usually `AUTH_GITHUB_ID` / `AUTH_GOOGLE_ID` were set on Vercel while local had only credentials login; older builds used database sessions that middleware could not read. Redeploy with current `handoff-app`, confirm `AUTH_SECRET` matches, sign out and sign in once.
 
 **Troubleshooting — Vercel reports missing `.handoff/runtime/.next`:** That path exists only after a successful `next build` inside `.handoff/runtime`. If the build command stops after `prepare-runtime` / `build:app --mode vercel` only, add `vercel-build` (or the manual `cd .handoff/runtime && next build` step). If `next build` fails earlier in the log, fix those compile errors first; the output-directory message is usually a follow-on symptom.
 
