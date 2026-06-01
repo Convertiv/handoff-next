@@ -10,12 +10,12 @@ const CONFIG_NAMES = ['handoff.config.ts', 'handoff.config.js', 'handoff.config.
  * Avoids walking `process.cwd()` (breaks Turbopack NFT tracing when used from App Routes).
  */
 function packageJsonForRequire(projectRoot: string): string {
-  const root = path.resolve(projectRoot);
+  const root = path.resolve(/* turbopackIgnore: true */ projectRoot);
   const rootPkg = path.join(root, 'package.json');
   if (fs.existsSync(rootPkg)) return rootPkg;
   const mp = process.env.HANDOFF_MODULE_PATH?.trim();
   if (mp) {
-    const modPkg = path.join(path.resolve(mp), 'package.json');
+    const modPkg = path.join(path.resolve(/* turbopackIgnore: true */ mp), 'package.json');
     if (fs.existsSync(modPkg)) return modPkg;
   }
   return rootPkg;
@@ -30,9 +30,9 @@ function configFileExists(root: string, name: string): boolean {
 /** Project root used for component export / entry-dir resolution (linked client or handoff-app). */
 export function getComponentExportProjectRoot(): string {
   const w = process.env.HANDOFF_WORKING_PATH?.trim();
-  if (w) return path.resolve(w);
+  if (w) return path.resolve(/* turbopackIgnore: true */ w);
   const mp = process.env.HANDOFF_MODULE_PATH?.trim();
-  if (mp) return path.resolve(mp);
+  if (mp) return path.resolve(/* turbopackIgnore: true */ mp);
   // Materialized Handoff apps always set the env vars above; cwd fallback is dev-only.
   return path.resolve(/* turbopackIgnore: true */ process.cwd());
 }
@@ -42,7 +42,7 @@ export function getComponentExportProjectRoot(): string {
  * from `HANDOFF_WORKING_PATH`), not the handoff-app repo root.
  */
 export function loadHandoffConfigFromDir(projectRoot: string): { config: Config; configPath: string } | null {
-  const root = path.resolve(projectRoot);
+  const root = path.resolve(/* turbopackIgnore: true */ projectRoot);
   const requireFrom = packageJsonForRequire(root);
 
   for (const name of CONFIG_NAMES) {
@@ -69,6 +69,6 @@ export function loadHandoffConfigFromDir(projectRoot: string): { config: Config;
 /** Resolve `entries.components` paths against an arbitrary project root (e.g. `HANDOFF_WORKING_PATH`). */
 export function resolveComponentEntryDirsAt(config: Config | null, projectRoot: string): string[] {
   const roots = config?.entries?.components ?? [];
-  const base = path.resolve(projectRoot);
+  const base = path.resolve(/* turbopackIgnore: true */ projectRoot);
   return roots.map((p) => path.resolve(base, p));
 }

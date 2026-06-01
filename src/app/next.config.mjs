@@ -70,6 +70,12 @@ const nextConfig = {
     tsconfigPath: 'tsconfig.json',
   },
   basePath: resolveBasePath('%HANDOFF_APP_BASE_PATH%'),
+  // Nav sidebars and doc pages read markdown/JSON from the materialized tree via runtime fs
+  // (see getDefaultDocsDir, staticBuildMenu). Without this, Vercel lambdas omit config/docs
+  // and public/api from the serverless bundle — menu is empty and Layout hides the sidebar.
+  outputFileTracingIncludes: {
+    '/**': ['./config/docs/**/*', './public/api/**/*', './client.config.json'],
+  },
   env: {
     HANDOFF_PROJECT_ID: '%HANDOFF_PROJECT_ID%',
     HANDOFF_APP_BASE_PATH: '%HANDOFF_APP_BASE_PATH%',
@@ -96,7 +102,7 @@ const nextConfig = {
         HANDOFF_WEBSOCKET_PORT: '%HANDOFF_WEBSOCKET_PORT%',
       };
 
-      const clientConfigPath = path.resolve(env.HANDOFF_WORKING_PATH, 'handoff.config.json');
+      const clientConfigPath = path.resolve(/* turbopackIgnore: true */ env.HANDOFF_WORKING_PATH, 'handoff.config.json');
       if (fs.existsSync(clientConfigPath)) {
         const clientConfigRaw = fs.readFileSync(clientConfigPath, 'utf-8');
         const clientConfig = JSON.parse(clientConfigRaw);
@@ -104,15 +110,15 @@ const nextConfig = {
           if (
             clientConfig.hasOwnProperty('app') &&
             clientConfig['app'].hasOwnProperty('theme') &&
-            fs.existsSync(path.resolve(env.HANDOFF_WORKING_PATH, 'theme', `${clientConfig['app']['theme']}.scss`))
+            fs.existsSync(path.resolve(/* turbopackIgnore: true */ env.HANDOFF_WORKING_PATH, 'theme', `${clientConfig['app']['theme']}.scss`))
           ) {
             foundTheme = true;
             content =
               content +
-              `\n@import '${path.resolve(env.HANDOFF_WORKING_PATH, 'theme', clientConfig['app']['theme'])}';`;
+              `\n@import '${path.resolve(/* turbopackIgnore: true */ env.HANDOFF_WORKING_PATH, 'theme', clientConfig['app']['theme'])}';`;
             console.log(
               `- info Using custom app theme (name: ${clientConfig['app']['theme']}, path: ${path.resolve(
-                env.HANDOFF_WORKING_PATH,
+                /* turbopackIgnore: true */ env.HANDOFF_WORKING_PATH,
                 'theme',
                 clientConfig['app']['theme']
               )}.scss)`
@@ -122,11 +128,11 @@ const nextConfig = {
       }
 
       if (!foundTheme) {
-        if (fs.existsSync(path.resolve(env.HANDOFF_WORKING_PATH, 'theme', `default.scss`))) {
+        if (fs.existsSync(path.resolve(/* turbopackIgnore: true */ env.HANDOFF_WORKING_PATH, 'theme', `default.scss`))) {
           content = content + `\n@import 'theme/default';`;
           console.log(
             `- info Using default app theme override (path: ${path.resolve(
-              env.HANDOFF_WORKING_PATH,
+              /* turbopackIgnore: true */ env.HANDOFF_WORKING_PATH,
               'theme',
               `default.scss`
             )})`

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getFigmaAuditApiResponse } from '@/lib/server/figma-sync-service';
+import { getFigmaAuditApiResponse } from '@/lib/server/figma-audit-api';
 
 export async function GET() {
   const session = await auth();

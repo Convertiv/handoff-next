@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { countQueuedOrRunningFigmaFetchJobs, getFigmaFetchJob, insertFigmaFetchJob } from '@/lib/db/queries';
 import { hasFigmaConnection } from '@/lib/server/figma-auth';
 import { spawnFigmaFetchWorker } from '@/lib/server/figma-fetch';
-import { getLinkedFigmaFileInfo } from '@/lib/server/figma-sync-service';
+import { getLinkedFigmaFileInfo } from '@/lib/server/figma-audit-api';
 import { logEvent } from '@/lib/server/event-log';
 
 const MAX_FETCHES_PER_USER_PER_MINUTE = 3;

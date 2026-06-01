@@ -7,7 +7,8 @@ export type { DataProvider, DocPageContent } from './types';
 export { StaticDataProvider } from './static-provider';
 export { HybridDataProvider } from './hybrid-provider';
 export { DynamicDataProvider } from './dynamic-provider';
-export { getComponentIdsForStaticParams, getPublicApiDir } from './static-provider';
+export { getComponentIdsForStaticParams } from './static-provider';
+export { getPublicApiDir } from '../server/public-api-paths';
 
 let cached: DataProvider | null = null;
 

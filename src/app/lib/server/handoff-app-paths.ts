@@ -39,13 +39,13 @@ function readEnv(key: string, env?: NodeJS.ProcessEnv): string | undefined {
 export function getMaterializedAppRoot(env: NodeJS.ProcessEnv = process.env): string {
   const appRoot = readEnv('HANDOFF_APP_ROOT', env)?.trim();
   if (!isUnset(appRoot)) {
-    return path.resolve(appRoot!);
+    return path.resolve(/* turbopackIgnore: true */ appRoot!);
   }
   const w = readEnv('HANDOFF_WORKING_PATH', env)?.trim();
   if (!isUnset(w)) {
-    return path.resolve(w!, '.handoff', 'app');
+    return path.resolve(/* turbopackIgnore: true */ w!, '.handoff', 'app');
   }
-  return path.resolve(process.cwd(), '.handoff', 'app');
+  return path.resolve(/* turbopackIgnore: true */ process.cwd(), '.handoff', 'app');
 }
 
 /**

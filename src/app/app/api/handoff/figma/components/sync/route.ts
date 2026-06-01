@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { scaffoldFigmaComponent, syncFigmaMetadataIntoComponent } from '@/lib/server/figma-sync-service';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 type SyncBody = {
   action?: 'create_component' | 'sync_metadata';
@@ -25,6 +27,7 @@ export async function POST(request: NextRequest) {
       if (!componentId) {
         return NextResponse.json({ error: 'Missing componentId' }, { status: 400 });
       }
+      const { scaffoldFigmaComponent } = await import('@/lib/server/figma-sync-service');
       const response = await scaffoldFigmaComponent(componentId, session.user.id, body.figmaComponentKey, body.figmaSlug);
       return NextResponse.json(response);
     }
@@ -34,6 +37,7 @@ export async function POST(request: NextRequest) {
       if (!componentId) {
         return NextResponse.json({ error: 'Missing componentId' }, { status: 400 });
       }
+      const { syncFigmaMetadataIntoComponent } = await import('@/lib/server/figma-sync-service');
       const response = await syncFigmaMetadataIntoComponent(componentId, session.user.id, body.figmaComponentKey);
       return NextResponse.json(response);
     }

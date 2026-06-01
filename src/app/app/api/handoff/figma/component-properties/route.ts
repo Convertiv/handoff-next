@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import type { PushComponentPropertiesRequest } from '@/lib/figma-plugin-contract';
 import { authOrCloudToken } from '@/lib/sync-auth';
-import { pushPluginComponentProperties } from '@/lib/server/figma-sync-service';
+import { pushPluginComponentProperties } from '@/lib/server/figma-plugin-properties-sync';
 
 export async function POST(request: NextRequest) {
   const ctx = await authOrCloudToken(request, { allowServiceBearer: true });

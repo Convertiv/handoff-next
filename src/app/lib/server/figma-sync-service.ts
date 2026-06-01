@@ -3,19 +3,16 @@ import 'server-only';
 import fs from 'fs-extra';
 import path from 'path';
 import {
-  createFigmaAuditReport,
   enrichComponentWithFigmaData,
   fetchFigmaRasterExportUrls,
   fetchNodeImages,
   fetchNodePropertySeeds,
   flattenNestedFigmaInRawDeclaration,
-  getMissingFigmaMetadata,
   loadFigmaComponentCatalog,
   matchHandoffComponentToFigma,
   mergeFigmaImages,
   mergeFigmaPreviewsIntoComponent,
   nestFigmaLinkDataForDeclarationFile,
-  type FigmaChildComponentCatalogEntry,
   type FigmaImageAsset,
   type FigmaNodePropertySeed,
 } from '@handoff/figma/component-linking';
@@ -24,17 +21,28 @@ import type { ComponentListObject, ComponentObject, OptionalPreviewRender, Trans
 import { SlotType, type SlotMetadata } from '@handoff/transformers/preview/slots';
 import type { IDetectedImage, IDetectedProperty, PushComponentPropertiesRequest, PushComponentPropertiesResponse } from '@/lib/figma-plugin-contract';
 import { getValidFigmaAccessTokenForUser, hasFigmaConnection } from '@/lib/server/figma-auth';
-import type { FigmaAuditApiComponent, FigmaAuditApiResponse, FigmaAuditApiRow, FigmaSyncApiResponse, LinkedFigmaFileInfo } from '@/lib/figma-sync-types';
-import { getDataProvider } from '@/lib/data';
-import { getPublicApiDir } from '@/lib/data/static-provider';
+import type { FigmaAuditApiResponse, FigmaSyncApiResponse, LinkedFigmaFileInfo } from '@/lib/figma-sync-types';
 import { getDbTokensSnapshot } from '@/lib/db/queries';
 import { getBuildJob, insertBuildJob, spawnComponentBuildWorker } from './component-builder';
-import { buildHandoffDeclarationTsHandlebars } from './component-scaffold';
 import { evaluateTypeScriptDeclaration } from '@handoff/config/declaration-module-load';
-import { loadHandoffConfigFile, resolveHandoffRepoRoot } from './handoff-config-load';
+import { getComponentExportProjectRoot, loadHandoffConfigFromDir } from './handoff-config-project';
+import { getPublicApiDir } from './public-api-paths';
 
 const COMPONENTS_DIR = 'components';
 const IMAGE_SLOT_TYPE = 'image';
+
+async function getDataProviderLazy() {
+  const { getDataProvider } = await import('@/lib/data');
+  return getDataProvider();
+}
+
+function resolveHandoffRepoRoot(): string {
+  return getComponentExportProjectRoot();
+}
+
+function loadHandoffConfigFile(): ReturnType<typeof loadHandoffConfigFromDir> {
+  return loadHandoffConfigFromDir(resolveHandoffRepoRoot());
+}
 
 type ImageDimensionRules = {
   width: number;
@@ -156,7 +164,11 @@ async function readScaffoldDeclarationFile(componentId: string): Promise<Record<
 
 async function writeScaffoldDeclarationFile(componentId: string, declaration: Record<string, unknown>): Promise<void> {
   const nested = nestFigmaLinkDataForDeclarationFile(declaration);
-  await fs.writeFile(componentDeclarationPath(componentId), buildHandoffDeclarationTsHandlebars(nested), 'utf8');
+  await fs.writeFile(
+    componentDeclarationPath(componentId),
+    (await import('./component-scaffold')).buildHandoffDeclarationTsHandlebars(nested),
+    'utf8'
+  );
 }
 
 function toComponentSummary(componentId: string, data: TransformComponentTokensResult): ComponentListObject {
@@ -380,8 +392,7 @@ async function downloadFigmaImagesToPublicApiComponent(
   componentId: string,
   fileKey: string,
   images: FigmaImageAsset[] | undefined,
-  accessToken: string,
-  workingRoot: string
+  accessToken: string
 ): Promise<FigmaImageAsset[]> {
   if (!images?.length || !fileKey?.trim()) return images ?? [];
 
@@ -389,7 +400,7 @@ async function downloadFigmaImagesToPublicApiComponent(
   if (!nodeIds.length) return images;
 
   const urls = await fetchFigmaRasterExportUrls(fileKey, nodeIds, accessToken, { format: 'png', scale: 2 });
-  const publicDir = path.join(workingRoot, 'public', 'api', 'component');
+  const publicDir = path.join(getPublicApiDir(), 'component');
   await fs.ensureDir(publicDir);
 
   const out: FigmaImageAsset[] = [];
@@ -572,7 +583,7 @@ function declarationPreviewsFromBuiltData(
 }
 
 async function createCatalogLoaderContext(userId?: string) {
-  const provider = getDataProvider();
+  const provider = await getDataProviderLazy();
   const documentationObject = await provider.getTokens();
   const loaded = loadHandoffConfigFile();
   const projectId =
@@ -601,36 +612,7 @@ async function createCatalogLoaderContext(userId?: string) {
 function getConfiguredFigmaFileKey(): string | null {
   const fromEnv = process.env.HANDOFF_FIGMA_PROJECT_ID?.trim();
   if (fromEnv) return fromEnv;
-  const loaded = loadHandoffConfigFile();
-  const fromConfig = loaded?.config?.figma_project_id ?? loaded?.config?.figmaProjectId;
-  return typeof fromConfig === 'string' && fromConfig.trim() ? fromConfig.trim() : null;
-}
-
-function linkedFigmaFileUrl(fileKey: string): string {
-  return `https://www.figma.com/file/${fileKey}`;
-}
-
-function titleFromTokensSnapshot(snapshot: unknown): string | null {
-  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return null;
-  const name = (snapshot as Record<string, unknown>).name;
-  return typeof name === 'string' && name.trim() ? name.trim() : null;
-}
-
-async function fetchLiveFigmaFileTitle(userId: string, fileKey: string): Promise<string | null> {
-  try {
-    const accessToken = await getValidFigmaAccessTokenForUser(userId);
-    const res = await fetch(`https://api.figma.com/v1/files/${encodeURIComponent(fileKey)}?depth=1`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { name?: string };
-    return typeof json.name === 'string' && json.name.trim() ? json.name.trim() : null;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 async function getFigmaAccessTokenForSync(userId?: string): Promise<string | null> {
@@ -757,7 +739,7 @@ function mergeDetectedPropertiesIntoProperties(
 }
 
 async function resolveComponentForPluginPush(payload: PushComponentPropertiesRequest): Promise<PluginComponentMatch | null> {
-  const provider = getDataProvider();
+  const provider = await getDataProviderLazy();
   const components = await provider.getComponents();
 
   const requestedId = String(payload.handoffComponentId ?? '').trim();
@@ -791,87 +773,13 @@ async function resolveComponentForPluginPush(payload: PushComponentPropertiesReq
 }
 
 export async function getLinkedFigmaFileInfo(userId?: string): Promise<LinkedFigmaFileInfo | null> {
-  const fileKey = getConfiguredFigmaFileKey();
-  if (!fileKey) return null;
-
-  const snapshotTitle = titleFromTokensSnapshot(await getDbTokensSnapshot());
-  const liveTitle = userId ? await fetchLiveFigmaFileTitle(userId, fileKey) : null;
-
-  return {
-    fileKey,
-    title: liveTitle || snapshotTitle || fileKey,
-    url: linkedFigmaFileUrl(fileKey),
-  };
-}
-
-function buildChildRows(
-  childEntries: FigmaChildComponentCatalogEntry[],
-  components: ComponentListObject[],
-  byId: Map<string, ComponentListObject>,
-  componentMatches: Map<string, ReturnType<typeof matchHandoffComponentToFigma>>
-): FigmaAuditApiRow[] {
-  const linkedByChildKey = new Map<string, Array<{ component: ComponentListObject; match: ReturnType<typeof matchHandoffComponentToFigma> }>>();
-
-  for (const component of components) {
-    const match = componentMatches.get(component.id);
-    if (!match?.child?.figmaComponentKey) continue;
-    const current = linkedByChildKey.get(match.child.figmaComponentKey) ?? [];
-    current.push({ component, match });
-    linkedByChildKey.set(match.child.figmaComponentKey, current);
-  }
-
-  return childEntries
-    .map((child): FigmaAuditApiRow => {
-      const linked = linkedByChildKey.get(child.figmaComponentKey)?.[0];
-      if (!linked) {
-        return {
-          figma: child,
-          status: 'missing_in_handoff',
-          matchedBy: null,
-          missingMetadata: [],
-          component: null,
-        };
-      }
-
-      return {
-        figma: child,
-        status: linked.match.status === 'unlinked' ? 'unlinked' : 'matched',
-        matchedBy: linked.match.matchedBy,
-        missingMetadata: getMissingFigmaMetadata(linked.component, linked.match),
-        component: byId.get(linked.component.id) ?? linked.component,
-      };
-    })
-    .sort((a, b) => a.figma.figmaComponentName.localeCompare(b.figma.figmaComponentName));
+  const { getLinkedFigmaFileInfo: load } = await import('./figma-audit-api');
+  return load(userId);
 }
 
 export async function getFigmaAuditApiResponse(userId: string): Promise<FigmaAuditApiResponse> {
-  const provider = getDataProvider();
-  const catalog = await loadFigmaComponentCatalog((await createCatalogLoaderContext(userId)) as never);
-  const components = await provider.getComponents();
-  const report = createFigmaAuditReport(components, catalog);
-  const byId = new Map(components.map((component) => [component.id, component]));
-  const componentMatches = new Map(components.map((component) => [component.id, matchHandoffComponentToFigma(component, catalog)]));
-  const figmaComponents = buildChildRows(catalog.childEntries, components, byId, componentMatches);
-
-  return {
-    generatedAt: report.generatedAt,
-    summary: {
-      ...report.summary,
-      figmaComponents: figmaComponents.length,
-      matched: figmaComponents.filter((entry) => entry.status === 'matched').length,
-      unlinked: figmaComponents.filter((entry) => entry.status === 'unlinked').length,
-      missingInHandoff: figmaComponents.filter((entry) => entry.status === 'missing_in_handoff').length,
-      metadataGaps: figmaComponents.filter((entry) => entry.missingMetadata.length > 0).length,
-    },
-    figmaComponents,
-    components: report.components.map((entry): FigmaAuditApiComponent => ({
-      ...entry,
-      component: byId.get(entry.id) as ComponentListObject,
-    })),
-    connected: await hasFigmaConnection(userId),
-    oauthConfigured: Boolean(process.env.AUTH_FIGMA_ID && process.env.AUTH_FIGMA_SECRET),
-    linkedFile: await getLinkedFigmaFileInfo(userId),
-  };
+  const { getFigmaAuditApiResponse: load } = await import('./figma-audit-api');
+  return load(userId);
 }
 
 async function ensureConfigIncludesComponent(componentId: string): Promise<{ configPath: string; updated: boolean }> {
@@ -1052,7 +960,6 @@ export async function scaffoldFigmaComponent(
   }
   const entryMerged = await mergeFetchedNodeImages(rawEntry, userId);
   const accessToken = await getFigmaAccessTokenForSync(userId);
-  const workingRoot = resolveHandoffRepoRoot();
   let entry = entryMerged;
   if (accessToken && entryMerged.figmaFileKey && (entryMerged.figmaImages?.length ?? 0) > 0) {
     entry = {
@@ -1061,8 +968,7 @@ export async function scaffoldFigmaComponent(
         componentId,
         entryMerged.figmaFileKey,
         entryMerged.figmaImages,
-        accessToken,
-        workingRoot
+        accessToken
       ),
     };
   }
@@ -1103,7 +1009,7 @@ export async function syncFigmaMetadataIntoComponent(
   userId: string,
   figmaComponentKey?: string
 ): Promise<FigmaSyncApiResponse> {
-  const provider = getDataProvider();
+  const provider = await getDataProviderLazy();
   const runtimeComponent = await provider.getComponent(componentId);
   const builtComponent = await readPublicComponentApi(componentId);
   if (!runtimeComponent && !builtComponent) {
@@ -1124,15 +1030,13 @@ export async function syncFigmaMetadataIntoComponent(
   const propertySeeds = await fetchNodePropertySeedsForValue(enriched, userId);
   const mergedImagesBase = mergeFigmaImages(enriched.figmaImages ?? [], nodeSeedsToFigmaImages(propertySeeds));
   const accessToken = await getFigmaAccessTokenForSync(userId);
-  const workingRoot = resolveHandoffRepoRoot();
   let mergedImages = mergedImagesBase;
   if (accessToken && enriched.figmaFileKey && mergedImagesBase.length > 0) {
     mergedImages = await downloadFigmaImagesToPublicApiComponent(
       componentId,
       enriched.figmaFileKey,
       mergedImagesBase,
-      accessToken,
-      workingRoot
+      accessToken
     );
   }
   const next: TransformComponentTokensResult = {
@@ -1166,51 +1070,6 @@ export async function syncFigmaMetadataIntoComponent(
 export async function pushPluginComponentProperties(
   payload: PushComponentPropertiesRequest
 ): Promise<PushComponentPropertiesResponse> {
-  const match = await resolveComponentForPluginPush(payload);
-  if (!match) {
-    throw new Error('No Handoff component matched the plugin payload.');
-  }
-
-  const provider = getDataProvider();
-  const runtimeComponent = await provider.getComponent(match.componentId);
-  const builtComponent = await readPublicComponentApi(match.componentId);
-  if (!runtimeComponent && !builtComponent) {
-    throw new Error(`Component "${match.componentId}" was not found.`);
-  }
-
-  const base = getBaseComponentData(runtimeComponent, builtComponent, match.componentId);
-  const pluginImages = toFigmaImageAssets(payload.images);
-  const mergedImages = mergeFigmaImages(base.figmaImages ?? [], pluginImages);
-  const accessToken = await getFigmaAccessTokenForSync();
-  const fileKey = base.figmaFileKey ?? getConfiguredFigmaFileKey() ?? undefined;
-  let finalImages = mergedImages;
-  if (accessToken && fileKey && finalImages.length > 0) {
-    finalImages = await downloadFigmaImagesToPublicApiComponent(
-      match.componentId,
-      fileKey,
-      finalImages,
-      accessToken,
-      resolveHandoffRepoRoot()
-    );
-  }
-  const mergedProperties = mergeDetectedPropertiesIntoProperties(base.properties, payload.properties);
-  const next: TransformComponentTokensResult = {
-    ...base,
-    figmaImages: finalImages,
-    properties: mergeImageRulesIntoProperties(mergedProperties, finalImages),
-    image: base.image || base.figmaThumbnailUrl || '',
-  };
-
-  await writePublicComponentApi(match.componentId, next);
-  const summary = toComponentSummary(match.componentId, next);
-  await updatePublicComponentSummary(summary);
-
-  return {
-    ok: true,
-    componentId: match.componentId,
-    matchedBy: match.matchedBy ?? null,
-    propertyCount: payload.properties.length,
-    imageCount: payload.images.length,
-    message: payload.images.length > 0 ? 'Plugin properties and image dimensions synced.' : 'Plugin properties synced.',
-  };
+  const { pushPluginComponentProperties: push } = await import('./figma-plugin-properties-sync');
+  return push(payload);
 }
