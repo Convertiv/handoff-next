@@ -10,7 +10,7 @@ import {
   scaffoldNewComponentPayload as scaffoldNewComponentPayloadFromCodegen,
   type DeclarationPreviewEntry,
   type RendererKind,
-} from '@handoff/declarations/codegen.js';
+} from '@handoff/declarations/codegen';
 
 export type { DeclarationPreviewEntry, RendererKind };
 

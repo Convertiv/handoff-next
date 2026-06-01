@@ -353,10 +353,9 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
     await fs.writeFile(targetPath, nextConfigContent);
   }
 
-  // tsconfig paths must point at handoff-app/src from the materialized app dir.
-  // The template uses ./../../src/* which only works when the app lived under
-  // node_modules/handoff-app/.handoff/<id>/; under <workingPath>/.handoff/app
-  // that would resolve into the client repo instead.
+  // tsconfig paths must point at handoff-app/dist from the materialized app dir.
+  // next.config turbopack/webpack aliases also resolve @handoff/* from dist; if tsconfig
+  // still pointed at src, Turbopack would look for codegen.js under src/declarations (missing).
   const tsconfigPath = path.resolve(appPath, 'tsconfig.json');
   const tsconfigRaw = await fs.readFile(tsconfigPath, 'utf-8');
   const tsconfig = JSON.parse(tsconfigRaw) as {
@@ -368,8 +367,8 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   if (!tsconfig.compilerOptions.paths) {
     tsconfig.compilerOptions.paths = {};
   }
-  const relToModuleSrc = path.relative(appPath, path.join(handoffModulePath, 'src'));
-  const posixRel = relToModuleSrc.split(path.sep).join('/');
+  const relToModuleDist = path.relative(appPath, path.join(handoffModulePath, 'dist'));
+  const posixRel = relToModuleDist.split(path.sep).join('/');
   const handoffPathGlob = `${posixRel.startsWith('.') ? '' : './'}${posixRel}/*`;
   const prevHandoffGlob = tsconfig.compilerOptions.paths['@handoff/*']?.[0];
   if (prevHandoffGlob !== handoffPathGlob) {
