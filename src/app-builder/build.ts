@@ -370,8 +370,12 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
   const relToModuleDist = path.relative(appPath, path.join(handoffModulePath, 'dist'));
   const posixRel = relToModuleDist.split(path.sep).join('/');
   const handoffPathGlob = `${posixRel.startsWith('.') ? '' : './'}${posixRel}/*`;
+  // @handoff/app/* must resolve to the materialized Next tree, not handoff-app/dist/app/*
+  // (Turbopack prefers tsconfig paths over next.config aliases).
+  const prevAppGlob = tsconfig.compilerOptions.paths['@handoff/app/*']?.[0];
   const prevHandoffGlob = tsconfig.compilerOptions.paths['@handoff/*']?.[0];
-  if (prevHandoffGlob !== handoffPathGlob) {
+  tsconfig.compilerOptions.paths['@handoff/app/*'] = ['./*'];
+  if (prevAppGlob !== './*' || prevHandoffGlob !== handoffPathGlob) {
     tsconfig.compilerOptions.paths['@handoff/*'] = [handoffPathGlob];
     await fs.writeFile(tsconfigPath, JSON.stringify(tsconfig, null, 2) + '\n');
   }

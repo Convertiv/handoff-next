@@ -1,6 +1,8 @@
 import { nestFigmaLinkDataForDeclarationFile } from '@handoff/figma/component-linking';
 import type { RendererKind } from './types.js';
 
+export type { RendererKind } from './types.js';
+
 function esc(s: string): string {
   return JSON.stringify(s);
 }
