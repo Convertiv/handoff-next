@@ -16,8 +16,18 @@ function parseBearer(request: Request): string {
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
+const WORKSPACE_AUTH: McpAuthContext = {
+  userId: 'workspace',
+  role: 'admin',
+  scopes: 'sync:read reference:read components:read design:read',
+  isLegacySecret: false,
+};
+
 /**
- * MCP + reference API auth: legacy sync secret or Handoff API JWT with required scopes.
+ * MCP + reference API auth.
+ * - Workspace mode (no DATABASE_URL): unauthenticated local access — returns a read-only workspace context.
+ *   Set HANDOFF_SYNC_SECRET to require a bearer token even in workspace mode.
+ * - Registry mode (DATABASE_URL set): legacy sync secret or Handoff API JWT with required scopes.
  */
 export function verifyHandoffApiAuth(
   request: Request,
@@ -25,6 +35,12 @@ export function verifyHandoffApiAuth(
 ): NextResponse | McpAuthContext {
   const secret = process.env.HANDOFF_SYNC_SECRET?.trim();
   const token = parseBearer(request);
+
+  // Workspace mode with no secret configured: allow unauthenticated local access
+  if (!process.env.DATABASE_URL?.trim() && !secret) {
+    return WORKSPACE_AUTH;
+  }
+
   if (!token) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -54,12 +70,7 @@ export function verifyHandoffApiAuth(
   };
 }
 
+/** @deprecated MCP no longer requires Postgres — workspace mode is supported. */
 export function requirePostgresForMcp(): NextResponse | null {
-  if (!process.env.DATABASE_URL?.trim()) {
-    return NextResponse.json(
-      { error: 'MCP requires Postgres (DATABASE_URL). Deploy Handoff to a hosted instance.' },
-      { status: 503 }
-    );
-  }
   return null;
 }
