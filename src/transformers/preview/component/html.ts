@@ -63,7 +63,7 @@ export const buildPreviews = async (
       // @ts-ignore - its easy to have mismatched types here
       plugins,
       build: {
-        outDir: getComponentOutputPath(handoff),
+        outDir: getComponentOutputPath(handoff, data.id),
         emptyOutDir: false,
         rolldownOptions: {
           input: { script: 'script' },

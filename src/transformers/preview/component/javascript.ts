@@ -80,7 +80,7 @@ const buildJsBundle = async (
  */
 export const buildComponentJs = async (data: TransformComponentTokensResult, handoff: Handoff): Promise<TransformComponentTokensResult> => {
   const id = data.id;
-  const outputPath = getComponentOutputPath(handoff);
+  const outputPath = getComponentOutputPath(handoff, id);
   const builtJsPath = path.resolve(outputPath, `${id}.js`);
   const entry = data.entries?.js;
 

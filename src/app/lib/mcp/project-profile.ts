@@ -1,6 +1,6 @@
 import 'server-only';
 
-export const STACK_PROFILES = ['bootstrap-handlebars', 'react-tailwind', 'react-scss'] as const;
+export const STACK_PROFILES = ['bootstrap-handlebars', 'react-tailwind', 'react-scss', 'tailwind-handlebars'] as const;
 export type StackProfile = (typeof STACK_PROFILES)[number];
 
 export type HandoffProjectProfile = {

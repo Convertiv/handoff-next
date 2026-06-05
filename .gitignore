@@ -34,9 +34,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 
-# assets
+# assets — Next.js public dir contains only generated/runtime files in this repo
 /public
 /public-*
+
+# Component build artifacts (components/[id]/dist/) are intentionally tracked in VCS.
+# Client projects should NOT gitignore components/**/dist/ — artifacts commit with source.
 
 # figma exported
 .handoff

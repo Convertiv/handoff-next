@@ -1,6 +1,7 @@
 import { existsSync } from 'fs';
 import fs from 'fs-extra';
 import path from 'path';
+import { getComponentDistPath } from '@handoff/transformers/preview/component/api.js';
 import { evaluateTypeScriptDeclaration } from '@handoff/config/declaration-module-load.js';
 import type { RendererKind } from '@handoff/declarations/types.js';
 import {
@@ -224,7 +225,7 @@ export async function writeBuildArtifactsFromPayload(
 
   const baseDir =
     entityType === 'component'
-      ? path.join(handoff.workingPath, 'public/api/component')
+      ? getComponentDistPath(handoff, entityId)
       : path.join(handoff.workingPath, 'public/api/pattern');
 
   const written: string[] = [];

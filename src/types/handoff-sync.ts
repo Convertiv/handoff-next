@@ -14,6 +14,9 @@ export type PageSyncData = {
   markdown: string;
 };
 
+/** Granular change classification for selective pull. */
+export type SyncChangeType = 'metadata_updated' | 'source_updated' | 'artifacts_updated' | 'full';
+
 export type ComponentSyncData = {
   id: string;
   title?: string;
@@ -28,8 +31,12 @@ export type ComponentSyncData = {
   data?: Record<string, unknown>;
   /** Serialized `.handoff` declaration when pushing from local */
   handoffConfig?: Record<string, unknown>;
-  /** Built preview files from `public/api/component/` keyed by basename */
+  /** Built preview artifacts from components/[id]/dist/ keyed by basename */
   buildArtifacts?: Record<string, string>;
+  /** Handoff-layer source files from components/[id]/ (excl. dist/) keyed by relative path */
+  sourceFiles?: Record<string, string>;
+  /** Granular change classification for selective pull */
+  changeType?: SyncChangeType;
   source?: string;
 };
 

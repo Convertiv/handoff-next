@@ -57,12 +57,15 @@ function updateObject<T extends TransformComponentTokensResult>(target: T, sourc
 export const getAPIPath = (handoff: Handoff) => {
   const apiPath = path.resolve(handoff.workingPath, `public/api`);
   const componentPath = path.resolve(handoff.workingPath, `public/api/component`);
-  // Ensure the public API path exists
   if (!fs.existsSync(componentPath)) {
     fs.mkdirSync(componentPath, { recursive: true });
   }
   return apiPath;
 };
+
+/** Per-component build artifact directory: components/[id]/dist/ */
+export const getComponentDistPath = (handoff: Handoff, id: string): string =>
+  path.resolve(handoff.workingPath, 'components', id, 'dist');
 
 export const writeComponentApi = async (
   id: string,
@@ -70,7 +73,7 @@ export const writeComponentApi = async (
   handoff: Handoff,
   preserveKeys: string[] = []
 ) => {
-  const outputDirPath = path.resolve(getAPIPath(handoff), 'component');
+  const outputDirPath = getComponentDistPath(handoff, id);
   const outputFilePath = path.resolve(outputDirPath, `${id}.json`);
   const sanitizedComponent = sanitizeComponentApiData(component);
 
@@ -107,7 +110,7 @@ export const writeComponentApi = async (
  * @returns
  */
 export const readComponentApi = async (handoff: Handoff, id: string): Promise<TransformComponentTokensResult | null> => {
-  const outputFilePath = path.resolve(getAPIPath(handoff), 'component', `${id}.json`);
+  const outputFilePath = path.resolve(getComponentDistPath(handoff, id), `${id}.json`);
 
   if (fs.existsSync(outputFilePath)) {
     try {
@@ -166,7 +169,7 @@ export const readComponentMetadataApi = async (handoff: Handoff, id: string): Pr
     tags: componentData.tags ? componentData.tags : [],
     properties: componentData.properties,
     previews: getDocumentedPreviews(componentData.previews),
-    path: `/api/component/${id}.json`,
+    path: `/api/component/${id}/${id}.json`,
   };
 };
 export default writeComponentApi;

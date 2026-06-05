@@ -3,6 +3,7 @@ import path from 'path';
 import Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
 import { normalizePathForCompare } from '@handoff/utils/path';
+import { getComponentDistPath } from '@handoff/transformers/preview/component/api';
 import { computeDirectoryState, computeFileState, directoryStatesMatch, FileState, statesMatch } from './file-state.js';
 
 /** Current cache format version - bump when structure changes */
@@ -303,7 +304,7 @@ export function hasComponentChanged(
  * Checks if the component output files exist
  */
 export async function checkOutputExists(handoff: Handoff, componentId: string): Promise<boolean> {
-  const outputPath = path.resolve(handoff.workingPath, 'public/api/component', `${componentId}.json`);
+  const outputPath = path.resolve(getComponentDistPath(handoff, componentId), `${componentId}.json`);
   return fs.pathExists(outputPath);
 }
 

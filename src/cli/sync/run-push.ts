@@ -7,6 +7,7 @@ import type Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
 import {
   collectComponentBuildArtifacts,
+  collectComponentSourceFiles,
   collectPatternBuildArtifacts,
   collectSharedComponentAssets,
 } from './collect-build-artifacts.js';
@@ -163,7 +164,15 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
           sharedAssets = await collectSharedComponentAssets(handoff);
         }
         payload = attachArtifacts(payload, collected.files, sharedAssets) as ComponentSyncData;
+        const sourceFiles = await collectComponentSourceFiles(handoff, id);
+        if (Object.keys(sourceFiles).length > 0) {
+          payload = { ...payload, sourceFiles };
+        }
       }
+      payload = {
+        ...payload,
+        changeType: opts?.metadataOnly ? 'metadata_updated' : 'full',
+      } as ComponentSyncData;
       changes.push({
         entityType: 'component',
         entityId: id,

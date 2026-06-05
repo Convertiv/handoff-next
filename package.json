@@ -38,6 +38,7 @@
     "start": "node ./dist/cli.js start",
     "dev": "node ./dist/cli.js dev",
     "build": "tsc && tsc-alias -p tsconfig.json && node scripts/fix-dist-esm-imports.mjs",
+    "dev:cli": "tsc --watch",
     "build:static": "node ./dist/cli.js build:app",
     "build:dynamic": "node ./dist/cli.js build:app --mode dynamic",
     "build:vercel": "node ./dist/cli.js vercel-build",

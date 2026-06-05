@@ -122,7 +122,8 @@ const buildCssBundle = async ({
 const buildComponentCss = async (data: TransformComponentTokensResult, handoff: Handoff) => {
   const id = data.id;
   Logger.debug(`buildComponentCss`, id);
-  const outputPath = getComponentOutputPath(handoff);
+  const outputPath = getComponentOutputPath(handoff, id);
+  const sharedOutputPath = getComponentOutputPath(handoff);
   const builtCssPath = path.resolve(outputPath, `${id}.css`);
   const entry = data.entries?.scss;
 
@@ -183,7 +184,8 @@ const buildComponentCss = async (data: TransformComponentTokensResult, handoff: 
         if (splitCSS && splitCSS.length > 1) {
           data['css'] = splitCSS[1];
           data['sharedStyles'] = splitCSS[0];
-          await fs.writeFile(path.resolve(outputPath, SHARED_COMPONENT_CSS_FILE), data['sharedStyles']);
+          await fs.ensureDir(sharedOutputPath);
+          await fs.writeFile(path.resolve(sharedOutputPath, SHARED_COMPONENT_CSS_FILE), data['sharedStyles']);
         }
       } else {
         delete data['css'];

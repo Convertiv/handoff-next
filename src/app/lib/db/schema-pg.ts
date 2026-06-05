@@ -83,7 +83,10 @@ export const handoffComponents = pgTable('handoff_component', {
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-/** Synced component preview artifacts (HTML/CSS/JS/JSON from CLI push). */
+/**
+ * Synced component preview artifacts (HTML/CSS/JS/JSON from CLI push).
+ * Server never writes here except via the push API — all builds happen locally in the workspace.
+ */
 export const componentArtifacts = pgTable(
   'component_artifact',
   {
@@ -94,6 +97,26 @@ export const componentArtifacts = pgTable(
     updatedAt: timestamp('updated_at').defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.componentId, t.filename] })]
+);
+
+/**
+ * Handoff-layer source files for each component (pushed from workspace, stored for display and pull).
+ * Stores only the handoff layer: .handoff.ts declaration, templates, styles, scripts.
+ * External dependencies (e.g. @petvet/ui in monorepos) are NOT stored here — those come from git.
+ */
+export const handoffComponentSources = pgTable(
+  'handoff_component_source',
+  {
+    componentId: text('component_id')
+      .notNull()
+      .references(() => handoffComponents.id, { onDelete: 'cascade' }),
+    /** Relative path within the component dir, e.g. 'button.handoff.ts', 'template.hbs', 'style.scss' */
+    filePath: text('file_path').notNull(),
+    content: text('content').notNull(),
+    pushedAt: timestamp('pushed_at', { mode: 'date' }).defaultNow(),
+    pushedByUserId: text('pushed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => [primaryKey({ columns: [t.componentId, t.filePath] })]
 );
 
 export const handoffPatterns = pgTable('handoff_pattern', {
@@ -184,7 +207,7 @@ export const handoffEventLog = pgTable('handoff_event_log', {
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
 });
 
-/** Async preview build queue (legacy — server builds retired; table kept for history). */
+/** Async preview build queue — RETIRED. Builds happen locally in workspace only. Table kept for historical rows. */
 export const componentBuildJobs = pgTable('component_build_job', {
   id: serial('id').primaryKey(),
   componentId: text('component_id').notNull(),
@@ -215,12 +238,19 @@ export const handoffPages = pgTable('handoff_page', {
 
 /**
  * Append-only feed for online/local sync. `id` is the monotonic cursor clients pass as `since`.
+ * One event per component push. `changeType` lets pull be selective:
+ *   'metadata_updated'  — only title/description/tags changed (no artifact re-download needed)
+ *   'source_updated'    — .handoff.ts or template files changed
+ *   'artifacts_updated' — built preview HTML/CSS/JS changed
+ *   'full'              — all of the above (initial push or explicit full rebuild)
  */
 export const syncEvents = pgTable('sync_event', {
   id: serial('id').primaryKey(),
   entityType: text('entity_type').notNull(),
   entityId: text('entity_id').notNull(),
   action: text('action').notNull(),
+  /** Granular change type — null on legacy rows pre-dating this column. */
+  changeType: text('change_type'),
   payload: jsonb('payload'),
   userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at').defaultNow(),

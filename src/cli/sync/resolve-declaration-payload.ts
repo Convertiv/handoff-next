@@ -86,7 +86,7 @@ function loadDeclarationRaw(filePath: string, modulePath: string): Record<string
 }
 
 async function readBuiltComponentJson(workPath: string, id: string): Promise<Record<string, unknown> | null> {
-  const builtPath = path.join(workPath, 'public/api/component', `${id}.json`);
+  const builtPath = path.join(workPath, 'components', id, 'dist', `${id}.json`);
   if (!(await fs.pathExists(builtPath))) return null;
   try {
     return (await fs.readJson(builtPath)) as Record<string, unknown>;
@@ -148,7 +148,7 @@ export async function resolveComponentDeclarationForSync(
   };
 
   if (opts?.warnMissingArtifacts !== false && !built && Object.keys(normalized.entries ?? {}).length > 0) {
-    Logger.warn(`Component "${id}": no built preview at public/api/component/${id}.json — run build or push with --build for hosted previews.`);
+    Logger.warn(`Component "${id}": no built preview at components/${id}/dist/${id}.json — run build or push with --build for hosted previews.`);
   }
 
   return {

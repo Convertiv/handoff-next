@@ -6,10 +6,11 @@ import path from 'path';
 import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getTokens, staticBuildMenu } from '../../components/util';
 import type { DataProvider, DocPageContent } from './types';
 import type { SectionLink } from '../../components/util';
-import { getPublicApiDir } from '../server/public-api-paths';
+import { getComponentDistDir, getPublicApiDir } from '../server/public-api-paths';
 
 export { getPublicApiDir } from '../server/public-api-paths';
 
+// Workspace mode only — reads from filesystem, zero database access.
 export class StaticDataProvider implements DataProvider {
   async getComponents(): Promise<ComponentListObject[]> {
     const file = path.join(getPublicApiDir(), 'components.json');
@@ -24,7 +25,7 @@ export class StaticDataProvider implements DataProvider {
   }
 
   async getComponent(id: string): Promise<ComponentObject | null> {
-    const file = path.join(getPublicApiDir(), 'component', `${id}.json`);
+    const file = path.join(getComponentDistDir(id), `${id}.json`);
     if (!fs.existsSync(file)) {
       return null;
     }

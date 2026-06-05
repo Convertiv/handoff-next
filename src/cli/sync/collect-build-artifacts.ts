@@ -1,12 +1,8 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { MAIN_COMPONENT_CSS_FILE, SHARED_COMPONENT_CSS_FILE } from '@handoff/transformers/preview/component/css.js';
-import { MAIN_COMPONENT_JS_FILE } from '@handoff/transformers/preview/component/javascript.js';
+import { getComponentDistPath } from '@handoff/transformers/preview/component/api.js';
 import type Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
-
-const COMPONENT_JS_RESERVED = new Set([MAIN_COMPONENT_JS_FILE]);
-const COMPONENT_CSS_RESERVED = new Set([MAIN_COMPONENT_CSS_FILE, SHARED_COMPONENT_CSS_FILE]);
 
 const WARN_BYTES = 2 * 1024 * 1024;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -17,10 +13,6 @@ export type CollectedArtifacts = {
   warnings: string[];
 };
 
-function componentApiDir(handoff: Handoff): string {
-  return path.join(handoff.workingPath, 'public/api/component');
-}
-
 function patternApiDir(handoff: Handoff): string {
   return path.join(handoff.workingPath, 'public/api/pattern');
 }
@@ -29,13 +21,8 @@ async function collectMatchingFiles(dir: string, prefix: string): Promise<string
   if (!(await fs.pathExists(dir))) return [];
   const entries = await fs.readdir(dir);
   return entries.filter((name) => {
-    if (name === `${prefix}.json` || name.startsWith(`${prefix}.`) || name.startsWith(`${prefix}-`)) {
-      if (COMPONENT_JS_RESERVED.has(name) || COMPONENT_CSS_RESERVED.has(name)) {
-        return name === `${prefix}.js` || name === `${prefix}.css`;
-      }
-      return true;
-    }
-    return false;
+    if (name.startsWith('.')) return false; // skip Vite temp dirs
+    return name === `${prefix}.json` || name.startsWith(`${prefix}.`) || name.startsWith(`${prefix}-`);
   });
 }
 
@@ -73,10 +60,10 @@ async function readArtifactFiles(dir: string, names: string[]): Promise<Collecte
 }
 
 export async function collectComponentBuildArtifacts(handoff: Handoff, componentId: string): Promise<CollectedArtifacts> {
-  const dir = componentApiDir(handoff);
+  const dir = getComponentDistPath(handoff, componentId);
   const names = await collectMatchingFiles(dir, componentId);
   if (!names.includes(`${componentId}.json`)) {
-    Logger.warn(`Component "${componentId}": missing public/api/component/${componentId}.json — build before push or use --metadata-only.`);
+    Logger.warn(`Component "${componentId}": missing components/${componentId}/dist/${componentId}.json — build before push or use --metadata-only.`);
   }
   return readArtifactFiles(dir, names);
 }
@@ -88,10 +75,10 @@ export async function collectPatternBuildArtifacts(handoff: Handoff, patternId: 
 }
 
 export async function collectSharedComponentAssets(handoff: Handoff): Promise<Record<string, string>> {
-  const dir = componentApiDir(handoff);
-  const shared = [MAIN_COMPONENT_CSS_FILE, SHARED_COMPONENT_CSS_FILE, MAIN_COMPONENT_JS_FILE];
+  const dir = path.join(handoff.workingPath, 'public/api/component');
+  const sharedFiles = ['main.css', 'shared.css', 'main.js'];
   const out: Record<string, string> = {};
-  for (const name of shared) {
+  for (const name of sharedFiles) {
     const abs = path.join(dir, name);
     if (await fs.pathExists(abs)) {
       out[name] = await fs.readFile(abs, 'utf8');
@@ -103,4 +90,36 @@ export async function collectSharedComponentAssets(handoff: Handoff): Promise<Re
 export function isBinaryArtifactFilename(name: string): boolean {
   const ext = path.extname(name).toLowerCase();
   return ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.gif' || ext === '.webp';
+}
+
+const SOURCE_EXTENSIONS = new Set(['.ts', '.hbs', '.tsx', '.jsx', '.js', '.scss', '.css', '.md', '.json']);
+
+/**
+ * Collect handoff-layer source files for a component (everything in components/[id]/ except dist/).
+ * Returns a record keyed by relative file path.
+ * For monorepo projects (e.g. thin wrapper components), only the handoff-layer files are collected —
+ * external library dependencies are not included and must come from git.
+ */
+export async function collectComponentSourceFiles(handoff: Handoff, componentId: string): Promise<Record<string, string>> {
+  const componentDir = path.join(handoff.workingPath, 'components', componentId);
+  if (!(await fs.pathExists(componentDir))) return {};
+
+  const out: Record<string, string> = {};
+  const entries = await fs.readdir(componentDir);
+
+  for (const name of entries) {
+    if (name === 'dist' || name.startsWith('.')) continue;
+    const abs = path.join(componentDir, name);
+    const stat = await fs.stat(abs);
+    if (!stat.isFile()) continue;
+    const ext = path.extname(name).toLowerCase();
+    if (!SOURCE_EXTENSIONS.has(ext)) continue;
+    try {
+      out[name] = await fs.readFile(abs, 'utf8');
+    } catch {
+      // skip unreadable files
+    }
+  }
+
+  return out;
 }

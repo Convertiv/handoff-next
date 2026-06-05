@@ -158,6 +158,21 @@ export async function applySyncChange(
         }
       }
       await writeBuildArtifactsFromPayload(handoff, kind, change.entityId, payload, false);
+      // Write source files pulled from registry (skip files with local modifications)
+      if (kind === 'component' && payload.sourceFiles && typeof payload.sourceFiles === 'object') {
+        const componentDir = path.join(handoff.workingPath, 'components', change.entityId);
+        for (const [fileName, content] of Object.entries(payload.sourceFiles as Record<string, string>)) {
+          if (typeof content !== 'string') continue;
+          const abs = path.join(componentDir, fileName);
+          const srcKey = entityKey('component-source', `${change.entityId}/${fileName}`);
+          if (existsSync(abs) && (await hasLocalModification(workPath, abs, fp, srcKey))) {
+            Logger.warn(`Pull: skipping ${fileName} for "${change.entityId}" — local modifications detected.`);
+            continue;
+          }
+          await fs.mkdirp(componentDir);
+          await fs.writeFile(abs, content, 'utf8');
+        }
+      }
     }
 
     const contentHash = dryRun ? hash : ((await sha256File(built.absPath)) ?? hash);

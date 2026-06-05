@@ -144,9 +144,10 @@ function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatte
 }
 
 /**
- * DB-backed provider with progressive fallback to filesystem/static APIs.
- * In dynamic mode, component/pattern lists merge DB + built static JSON so disk-only
- * items stay visible after partial DB imports.
+ * Registry mode provider — reads from Postgres.
+ * The StaticDataProvider fallback is a migration safety net only: in steady-state registry
+ * mode every component row should carry a full `data` payload populated by CLI push.
+ * Do not add new filesystem reads here; workspace-only logic belongs in StaticDataProvider.
  */
 export class DynamicDataProvider implements DataProvider {
   private fallback = new StaticDataProvider();

@@ -4,6 +4,7 @@ import { deleteComponentArtifacts, upsertComponentArtifacts } from './component-
 import { getDb } from './index';
 import {
   handoffComponents,
+  handoffComponentSources,
   handoffPages,
   handoffPatterns,
   syncEvents,
@@ -15,6 +16,7 @@ export type InsertSyncEventInput = {
   action: SyncAction;
   payload?: Record<string, unknown> | null;
   userId?: string | null;
+  changeType?: string | null;
 };
 
 export async function insertSyncEvent(input: InsertSyncEventInput): Promise<number | null> {
@@ -25,11 +27,29 @@ export async function insertSyncEvent(input: InsertSyncEventInput): Promise<numb
       entityType: input.entityType,
       entityId: input.entityId,
       action: input.action,
+      changeType: input.changeType ?? null,
       payload: input.payload ?? null,
       userId: input.userId ?? null,
     })
     .returning({ id: syncEvents.id });
   return row?.id ?? null;
+}
+
+export async function upsertComponentSources(
+  componentId: string,
+  sourceFiles: Record<string, string>,
+  pushedByUserId: string | null
+): Promise<void> {
+  const db = getDb();
+  for (const [filePath, content] of Object.entries(sourceFiles)) {
+    await db
+      .insert(handoffComponentSources)
+      .values({ componentId, filePath, content, pushedByUserId, pushedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [handoffComponentSources.componentId, handoffComponentSources.filePath],
+        set: { content, pushedByUserId, pushedAt: new Date() },
+      });
+  }
 }
 
 export async function getLatestSyncEventId(): Promise<number> {
@@ -151,12 +171,16 @@ export async function applyUploadedChange(input: {
     if (d.buildArtifacts && typeof d.buildArtifacts === 'object' && !Array.isArray(d.buildArtifacts)) {
       await upsertComponentArtifacts(row.id, d.buildArtifacts as Record<string, string>);
     }
+    if (d.sourceFiles && typeof d.sourceFiles === 'object' && !Array.isArray(d.sourceFiles)) {
+      await upsertComponentSources(row.id, d.sourceFiles as Record<string, string>, userId ?? null);
+    }
     await insertSyncEvent({
       entityType,
       entityId: row.id,
       action: action === 'create' ? 'create' : 'update',
       payload: d,
       userId,
+      changeType: typeof d.changeType === 'string' ? d.changeType : undefined,
     });
     return;
   }

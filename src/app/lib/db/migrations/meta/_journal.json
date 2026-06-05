@@ -15,6 +15,13 @@
       "when": 1779200000000,
       "tag": "0001_design_workspace",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780694132841,
+      "tag": "0002_boring_ricochet",
+      "breakpoints": true
     }
   ]
 }

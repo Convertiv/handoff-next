@@ -8,6 +8,7 @@ import { loadStackGuideMarkdown } from '@/lib/mcp/stack-guides';
 import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queries';
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
 import { getDataProvider } from '@/lib/data';
+import { usePostgres } from '@/lib/db/dialect';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
 import type { SyncUploadBody } from '@handoff/types/handoff-sync';
 import { applyUploadedChange } from '@/lib/db/sync-queries';
@@ -19,6 +20,11 @@ import {
   getDesignWorkspace,
 } from '@/lib/server/design-workspace';
 import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
+
+const WORKSPACE_MODE_RESPONSE = {
+  mode: 'workspace',
+  message: 'Registry features unavailable in workspace mode. Set DATABASE_URL and HANDOFF_CLOUD_URL to connect a registry.',
+} as const;
 
 function textResult(data: unknown) {
   return {
@@ -207,8 +213,9 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
 
   server.registerTool(
     'handoff_sync_status',
-    { description: 'Remote sync cursor and health.', inputSchema: {} },
+    { description: 'Remote sync cursor and health. Returns workspace-mode notice if no registry is connected.', inputSchema: {} },
     async () => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const { getSyncStatus } = await import('@/lib/db/sync-queries');
       return textResult(await getSyncStatus());
     }
@@ -217,10 +224,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_sync_pull',
     {
-      description: 'Fetch sync changes since cursor (JSON patches for local apply).',
+      description: 'Fetch sync changes since cursor (JSON patches for local apply). Registry mode only.',
       inputSchema: { since: z.number().int().min(0).optional() },
     },
     async ({ since }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const changeset = await fetchSyncChangesSince(since ?? 0);
       return textResult(changeset);
     }
@@ -229,10 +237,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_sync_push',
     {
-      description: 'Upload sync changes (requires sync:write).',
+      description: 'Upload sync changes (requires sync:write). Registry mode only.',
       inputSchema: { body: z.custom<SyncUploadBody>() },
     },
     async ({ body }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       if (!auth.isLegacySecret && !auth.scopes.includes('sync:write')) {
         return textResult({ error: 'Forbidden — sync:write required' });
       }
@@ -254,10 +263,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_list_design_artifacts',
     {
-      description: 'List saved design library artifacts.',
+      description: 'List saved design library artifacts. Registry mode only.',
       inputSchema: { status: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
     },
     async ({ status, limit }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const { getDesignArtifacts } = await import('@/lib/db/queries');
       const isAdmin = auth.role === 'admin';
       const rows = await getDesignArtifacts({
@@ -368,11 +378,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_enqueue_build',
     {
-      description: 'Queue Vite preview build for a component (admin).',
+      description: 'DEPRECATED — server-side builds retired. Builds run locally via `handoff-app build`. Returns workspace-mode notice.',
       inputSchema: { componentId: z.string() },
     },
-    async ({ componentId }) => {
-      if (auth.role !== 'admin' && !auth.isLegacySecret) return textResult({ error: 'Admin required' });
+    async ({ componentId: _componentId }) => {
+      return textResult({ ...WORKSPACE_MODE_RESPONSE, message: 'Server-side builds are retired. Run `handoff-app build [id]` locally then push.' });
       const { insertBuildJob, spawnComponentBuildWorker } = await import('@/lib/server/component-builder');
       const jobId = await insertBuildJob(componentId.trim());
       spawnComponentBuildWorker(jobId);
