@@ -4,6 +4,24 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
+ * Run autoMigrate() at most once per process. Subsequent calls (concurrent or
+ * sequential) return the same promise. Used by self-healing entry points like
+ * /setup and getDataProvider() to ensure the schema exists before the first
+ * real DB query, even if instrumentation.ts didn't fire at cold start.
+ */
+let cachedMigrationPromise: Promise<void> | null = null;
+export function ensureMigrationsApplied(): Promise<void> {
+  if (!cachedMigrationPromise) {
+    cachedMigrationPromise = autoMigrate().catch((err) => {
+      // Reset on failure so a subsequent call can retry (e.g. transient connect issue)
+      cachedMigrationPromise = null;
+      throw err;
+    });
+  }
+  return cachedMigrationPromise;
+}
+
+/**
  * Automatically apply any pending Drizzle migrations at server startup.
  *
  * Called from instrumentation.ts so it runs once when the Node.js process boots
