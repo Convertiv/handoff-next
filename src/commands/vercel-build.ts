@@ -22,6 +22,41 @@ const command: CommandModule<{}, VercelBuildArgs> = {
   handler: async (args: VercelBuildArgs) => {
     const handoff = new Handoff(args.debug, args.force);
 
+    // Diagnostic: report which env vars are visible at build start (keys only,
+    // no values). Helps debug Vercel deploys where env vars may be scoped to
+    // runtime-only, marked sensitive, or simply missing.
+    const interesting = [
+      'DATABASE_URL',
+      'POSTGRES_URL',
+      'POSTGRES_PRISMA_URL',
+      'POSTGRES_URL_NON_POOLING',
+      'AUTH_SECRET',
+      'AUTH_URL',
+      'NEXTAUTH_URL',
+      'NEXTAUTH_SECRET',
+      'AUTH_TRUST_HOST',
+      'HANDOFF_SYNC_SECRET',
+      'HANDOFF_CLOUD_URL',
+      'HANDOFF_REGISTRY_MODE',
+      'HANDOFF_DEFAULT_STACK_PROFILE',
+      'VERCEL',
+      'VERCEL_URL',
+      'VERCEL_ENV',
+      'NEXT_PHASE',
+      'NODE_ENV',
+    ];
+    console.log('[handoff] Build-time env var diagnostic:');
+    for (const key of interesting) {
+      const raw = process.env[key];
+      if (raw === undefined) {
+        console.log(`  ${key}: NOT SET`);
+      } else {
+        const trimmed = raw.trim();
+        const ws = raw.length !== trimmed.length ? ' (has whitespace!)' : '';
+        console.log(`  ${key}: SET (length=${trimmed.length})${ws}`);
+      }
+    }
+
     // Registry mode: components are built locally in workspaces and pushed —
     // rebuilding them during CI is wasteful. Three ways to enable auto-skip:
     //   1. --skip-components flag (explicit, most reliable)
