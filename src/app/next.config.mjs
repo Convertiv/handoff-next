@@ -53,6 +53,15 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
   trailingSlash: true,
+  // Standalone output: Next.js writes a self-contained bundle to .next/standalone/
+  // with only the traced node_modules deps copied in. Required for Vercel registry
+  // deploys because our prepare-runtime symlinks node_modules from the repo root
+  // into .handoff/runtime/, and Vercel's serverless function packager refuses to
+  // follow that symlink ("framework produced an invalid deployment package for a
+  // Serverless Function. Typically this means that the framework produces files
+  // in symlinked directories"). With standalone, Vercel packages the resolved
+  // copies inside .next/standalone, not the live symlink.
+  output: 'standalone',
   serverExternalPackages: [
     '@resvg/resvg-js',
     'playwright-core',
