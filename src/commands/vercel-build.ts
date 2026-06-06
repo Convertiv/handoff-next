@@ -21,7 +21,18 @@ const command: CommandModule<{}, VercelBuildArgs> = {
     }) as Argv<VercelBuildArgs>,
   handler: async (args: VercelBuildArgs) => {
     const handoff = new Handoff(args.debug, args.force);
-    await handoff.build(args.skipComponents ?? false, 'vercel');
+
+    // Registry mode (DATABASE_URL present): components are built locally in workspaces
+    // and pushed to the registry — building them again during CI is wasteful.
+    // Auto-skip unless explicitly overridden with --no-skip-components.
+    const isRegistryMode = Boolean(process.env.DATABASE_URL?.trim());
+    const skipComponents = args.skipComponents ?? isRegistryMode;
+
+    if (isRegistryMode && skipComponents && !args.skipComponents) {
+      console.log('[handoff] Registry mode detected (DATABASE_URL set) — skipping component builds (use --no-skip-components to override).');
+    }
+
+    await handoff.build(skipComponents, 'vercel');
     const appPath = getEphemeralRuntimePath(handoff);
     runNextProductionBuild(handoff, appPath);
   },
