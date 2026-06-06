@@ -22,6 +22,8 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
     '/api/tokens',
     '/login',
     '/reset-password',
+    '/setup',       // first-run admin setup (reachable before any users exist)
+    '/api/setup',   // setup API route
     '/api/mcp',
     '/api/handoff/reference-materials',
     '/api/sync',
@@ -29,8 +31,15 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
 
   const { pathname } = request.nextUrl;
 
+  // Inject the pathname so server components can read it without the
+  // full request object (used by root layout for the /setup redirect).
+  const response = NextResponse.next({
+    request: { headers: new Headers(request.headers) },
+  });
+  response.headers.set('x-pathname', pathname);
+
   if (publicPaths.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
+    return response;
   }
 
   if (pathname.startsWith('/admin')) {
@@ -54,7 +63,7 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
     }
   }
 
-  return NextResponse.next();
+  return response;
 }
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {

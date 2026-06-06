@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: 'Sign in to Handoff',
 };
 
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reset?: string }> }) {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reset?: string; setup?: string }> }) {
   if (!usePostgres()) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
@@ -22,6 +22,11 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   return (
     <Suspense fallback={<div className="p-8 text-center text-sm text-muted-foreground">Loading…</div>}>
+      {sp.setup === '1' && (
+        <div className="mx-auto mb-4 max-w-sm rounded-md bg-green-50 px-4 py-3 text-sm text-green-800 dark:bg-green-950 dark:text-green-200">
+          Registry configured. Sign in with your new admin account.
+        </div>
+      )}
       <LoginClient passwordUpdated={sp.reset === '1'} />
     </Suspense>
   );

@@ -1,4 +1,6 @@
 import Script from 'next/script';
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { getClientRuntimeConfig } from '../components/util';
 import { auth } from '../lib/auth';
 import { getDataProvider } from '../lib/data';
@@ -10,9 +12,27 @@ import '../css/theme.css';
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const config = getClientRuntimeConfig();
-  const menu = await getDataProvider().getMenu();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const authEnabled = usePostgres();
+
+  // First-run check: registry mode with no users → send to /setup.
+  // Uses x-pathname header injected by middleware (no extra DB query on every request
+  // once users exist — early-exit on the no-DB or non-zero-user paths).
+  if (authEnabled) {
+    const hdrs = await headers();
+    const pathname = hdrs.get('x-pathname') ?? '/';
+    if (!pathname.startsWith('/setup') && !pathname.startsWith('/api') && !pathname.startsWith('/_next')) {
+      try {
+        const { getUserCount } = await import('../lib/db/queries');
+        const userCount = await getUserCount();
+        if (userCount === 0) redirect('/setup');
+      } catch {
+        // DB unreachable — don't block; request errors will surface naturally
+      }
+    }
+  }
+
+  const menu = await getDataProvider().getMenu();
   const session = await auth().catch(() => null);
   await probeRemoteHandoffReachable().catch(() => false);
   const capabilities = getHandoffCapabilities();

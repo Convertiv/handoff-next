@@ -7,6 +7,7 @@ import ejectPagesCommand from './eject/pages.js';
 import ejectThemeCommand from './eject/theme.js';
 import fetchCommand from './fetch/index.js';
 import initCommand from './init/index.js';
+import initVercelCommand from './init/vercel.js';
 import makeComponentCommand from './make/component.js';
 import makePageCommand from './make/page.js';
 import makeTemplateCommand from './make/template.js';
@@ -33,6 +34,7 @@ export const commands = [
   ejectThemeCommand,
   fetchCommand,
   initCommand,
+  initVercelCommand,
   makePageCommand,
   makeComponentCommand,
   makeTemplateCommand,

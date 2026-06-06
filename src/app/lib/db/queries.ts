@@ -18,6 +18,14 @@ import {
 
 export const DESIGN_WORKSPACE_ID = 'default';
 
+/** Returns the total number of registered users. Used to detect fresh/unconfigured deployments. */
+export async function getUserCount(): Promise<number> {
+  if (!usePostgres()) return 0;
+  const db = getDb();
+  const result = await db.select({ n: count() }).from(users);
+  return Number(result[0]?.n ?? 0);
+}
+
 export type DesignWorkspaceRow = typeof handoffDesignWorkspace.$inferSelect;
 
 export type DesignWorkspacePatch = {
