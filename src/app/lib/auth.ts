@@ -73,34 +73,45 @@ function getAuthProviders() {
   return { loginOauth: loginOauthProviders(), linkedOauth: linkedAccountProviders() };
 }
 
-const db = getAuthDb();
-const { loginOauth, linkedOauth } = getAuthProviders();
-const hasAnyOAuth = loginOauth.length > 0 || linkedOauth.length > 0;
-const useAdapter = Boolean(db && hasAnyOAuth);
-
 /**
  * NextAuth (Auth.js v5).
+ *
+ * Lazy-initialized so module import never fails — important for Next.js build-time
+ * page collection (e.g. /_not-found) where invalid env vars (AUTH_URL, NEXTAUTH_URL,
+ * AUTH_REDIRECT_PROXY_URL) would throw "TypeError: Invalid URL" during module load
+ * and crash the whole build. With lazy init, build collection sees no module
+ * side-effects; first real request initializes NextAuth.
+ *
  * - Adapter is enabled whenever any OAuth providers exist (for account linking/storage).
  * - Sessions always use JWT so Edge middleware can read `request.auth` / admin gates work on Vercel.
  *   (Database sessions + `getToken()` break `/admin` when GitHub/Google OAuth env vars are set.)
  * - Linked-account providers (Figma) use the adapter for token storage only.
  */
-const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
-  trustHost: true,
-  pages: {
-    signIn: '/login',
-  },
-  adapter:
-    useAdapter && db
-      ? // schema-active + dual DB: adapter types expect one dialect; runtime matches `getDb()`.
-        DrizzleAdapter(db as never, {
-          usersTable: schema.users,
-          accountsTable: schema.accounts,
-          sessionsTable: schema.sessions,
-          verificationTokensTable: schema.verificationTokens,
-        } as never)
-      : undefined,
-  session: { strategy: 'jwt' },
+type NextAuthInstance = ReturnType<typeof NextAuth>;
+let cachedNextAuth: NextAuthInstance | null = null;
+
+function buildNextAuth(): NextAuthInstance {
+  const db = getAuthDb();
+  const { loginOauth, linkedOauth } = getAuthProviders();
+  const hasAnyOAuth = loginOauth.length > 0 || linkedOauth.length > 0;
+  const useAdapter = Boolean(db && hasAnyOAuth);
+
+  return NextAuth({
+    trustHost: true,
+    pages: {
+      signIn: '/login',
+    },
+    adapter:
+      useAdapter && db
+        ? // schema-active + dual DB: adapter types expect one dialect; runtime matches `getDb()`.
+          DrizzleAdapter(db as never, {
+            usersTable: schema.users,
+            accountsTable: schema.accounts,
+            sessionsTable: schema.sessions,
+            verificationTokensTable: schema.verificationTokens,
+          } as never)
+        : undefined,
+    session: { strategy: 'jwt' },
   providers: [
     ...loginOauth,
     ...linkedOauth,
@@ -181,13 +192,28 @@ const { handlers, auth: nextAuthLibAuth, signIn, signOut } = NextAuth({
       });
     },
   },
-  secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
-});
+    secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
+  });
+}
 
-export { handlers, signIn, signOut };
+function getNextAuth(): NextAuthInstance {
+  if (!cachedNextAuth) {
+    cachedNextAuth = buildNextAuth();
+  }
+  return cachedNextAuth;
+}
+
+/** GET/POST handlers for `/api/auth/[...nextauth]`. Initialized lazily. */
+export const handlers = {
+  GET: (...args: Parameters<NextAuthInstance['handlers']['GET']>) => getNextAuth().handlers.GET(...args),
+  POST: (...args: Parameters<NextAuthInstance['handlers']['POST']>) => getNextAuth().handlers.POST(...args),
+};
+
+export const signIn: NextAuthInstance['signIn'] = (...args) => getNextAuth().signIn(...args);
+export const signOut: NextAuthInstance['signOut'] = (...args) => getNextAuth().signOut(...args);
 
 /** Postgres: NextAuth session. Local hybrid mode (no DATABASE_URL): no session. */
 export async function auth(): Promise<Session | null> {
   if (!usePostgres()) return null;
-  return (await nextAuthLibAuth()) as Session | null;
+  return (await getNextAuth().auth()) as Session | null;
 }
