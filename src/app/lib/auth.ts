@@ -61,9 +61,20 @@ function linkedAccountProviders(): NextAuthConfig['providers'] {
   return list;
 }
 
-const db = typeof window === 'undefined' && usePostgres() ? getDb() : null;
-const loginOauth = typeof window === 'undefined' ? loginOauthProviders() : [];
-const linkedOauth = typeof window === 'undefined' ? linkedAccountProviders() : [];
+// Lazily evaluate DB and providers so this module can be imported at build time
+// without triggering database connections or NextAuth initialization errors.
+// `typeof window === 'undefined'` guards were insufficient on their own because
+// Next.js static analysis runs in a Node environment where window is always undefined.
+function getAuthDb() {
+  return usePostgres() ? getDb() : null;
+}
+function getAuthProviders() {
+  if (typeof process === 'undefined') return { loginOauth: [], linkedOauth: [] };
+  return { loginOauth: loginOauthProviders(), linkedOauth: linkedAccountProviders() };
+}
+
+const db = getAuthDb();
+const { loginOauth, linkedOauth } = getAuthProviders();
 const hasAnyOAuth = loginOauth.length > 0 || linkedOauth.length > 0;
 const useAdapter = Boolean(db && hasAnyOAuth);
 
