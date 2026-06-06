@@ -144,6 +144,23 @@ When you want to share work or run designers/stakeholders against it, push to th
 
 6. **The `.handoff.ts` declaration format is unchanged.** Workspace authors components the same way. Push extracts metadata and serializes source files for the registry.
 
+7. **Forward compatibility for richer page types is explicitly preserved.** Custom routes are deferred, but the schema, API, and rendering pipeline are designed so the following progression is purely additive:
+
+   - **Stage 1 (now):** markdown pages only
+   - **Stage 2:** MDX with embedded components from a fixed catalog (covers ~80% of "custom page" cases — docs with live examples, guidelines with patterns)
+   - **Stage 3:** Workspace-rendered HTML pages — workspace renders to HTML locally, pushes HTML + asset bundle, registry serves verbatim (no code execution on registry side)
+   - **Stage 4:** Plugin bundles — workspace pushes compiled React components, registry loads via React.lazy + slot system
+   - **Stage 5:** Fork escape hatch — clients with extreme customization needs fork handoff-app and merge upstream
+
+   To keep these stages open without paying for them now:
+   - `handoff_page` gets a `type` column day one (`markdown` | `mdx` | `html` | `plugin` later)
+   - Page rendering is a `<PageRenderer type={page.type} />` dispatch, not a single render path
+   - Schema supports per-page asset bundles via a `page_artifact` table pattern (same shape as `component_artifact`)
+   - Navigation tree carries a `type` field on each node so future page types appear naturally
+   - Push API uses open-ended `entityType` strings — adding `'plugin'` or `'asset-bundle'` later is purely additive
+
+8. **Deploy model: clients point Vercel at `convertiv/handoff-app`, not at their own repo.** Each client gets a Vercel project configured against the handoff-app repo on a pinned branch (e.g. `release`) or tag. Their workspace repo stays pure content — no Next.js, no package.json wrestling, no monorepo gymnastics. Updates ship by merging to `release`; clients can pin to a tag if they need stability during a launch.
+
 ---
 
 ## Implementation Plan
