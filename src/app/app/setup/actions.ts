@@ -1,7 +1,7 @@
 'use server';
 
 import { redirect } from 'next/navigation';
-import { hash } from 'bcryptjs';
+import { hashPassword } from '../../lib/passwords';
 import { getDb } from '../../lib/db';
 import { getUserCount } from '../../lib/db/queries';
 import { users } from '../../lib/db/schema';
@@ -22,7 +22,7 @@ export async function createFirstAdmin(formData: FormData): Promise<SetupResult>
   if (existing > 0) return { error: 'Registry is already configured. Sign in to continue.' };
 
   const db = getDb();
-  const passwordHash = await hash(password, 10);
+  const passwordHash = await hashPassword(password);
 
   await db.insert(users).values({
     email,
