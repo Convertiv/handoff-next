@@ -8,7 +8,7 @@ import { users } from '../../lib/db/schema';
 
 export type SetupResult = { error: string } | null;
 
-export async function createFirstAdmin(formData: FormData): Promise<SetupResult> {
+export async function createFirstAdmin(_prevState: SetupResult, formData: FormData): Promise<SetupResult> {
   const email = String(formData.get('email') ?? '').trim().toLowerCase();
   const password = String(formData.get('password') ?? '');
   const confirm = String(formData.get('confirm') ?? '');
