@@ -162,14 +162,20 @@ function isBuildPhase(): boolean {
 
 /**
  * Log a DB fallback warning with enough detail to diagnose later.
+ * Prefers our augmented error message (contains URL diagnostic from getDb()) when
+ * present, falling back to the bare Postgres error code (e.g. ERR_INVALID_URL).
  * During build we always swallow the error; at runtime we only swallow 42P01
  * (missing tables, pre-migration) so other failures surface clearly.
  */
+let dbFallbackDiagnosticLogged = false;
 function logDbFallback(table: string, err: unknown): void {
-  const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
   const message = err instanceof Error ? err.message : String(err);
-  const detail = cause?.code ?? cause?.message ?? message;
-  console.warn(`[handoff] ${table} query failed (${detail}) — falling back to filesystem.`);
+  // Log the full diagnostic message once per process. Suppress per-query
+  // repeats so logs don't drown in identical traces. Next.js spawns multiple
+  // workers during build, so this may appear once per worker (1-3 lines).
+  if (dbFallbackDiagnosticLogged) return;
+  dbFallbackDiagnosticLogged = true;
+  console.warn(`[handoff] DB unavailable — falling back to filesystem (first error in ${table}): ${message}`);
 }
 
 function isUndefinedTableError(err: unknown): boolean {
