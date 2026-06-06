@@ -51,6 +51,66 @@ function resolveHostNodeModulesDir(handoffModulePath: string): string | null {
   }
 }
 
+/**
+ * Returns true when `modulePath` is a linked (development) package rather than one
+ * installed under `node_modules/`. An npm-linked or `file:`-referenced package lives
+ * outside any `node_modules` directory; an installed package always lives inside one.
+ */
+function isLinkedPackage(modulePath: string): boolean {
+  const abs = path.resolve(modulePath);
+  const sep = path.sep;
+  return !abs.includes(`${sep}node_modules${sep}`) && !abs.endsWith(`${sep}node_modules`);
+}
+
+/**
+ * Files/directories to skip during incremental app-source sync.
+ * `next.config.mjs` is excluded because it gets placeholder-replaced after the copy and
+ * must not be overwritten with the raw template on incremental runs.
+ * `node_modules` is always symlinked separately.
+ */
+const INCREMENTAL_SYNC_EXCLUDES = new Set(['next.config.mjs', 'node_modules']);
+
+/**
+ * Incrementally sync changed files from `srcPath` to `destPath` using mtime comparison.
+ * Only copies files where the source mtime is newer than the destination.
+ * Returns the count of files updated.
+ */
+async function syncIncrementalAppSource(srcPath: string, destPath: string): Promise<number> {
+  if (!(await fs.pathExists(srcPath))) return 0;
+  let updated = 0;
+
+  const walk = async (src: string, dest: string, isRoot: boolean): Promise<void> => {
+    const entries = await fs.readdir(src, { withFileTypes: true });
+    for (const entry of entries) {
+      if (isRoot && INCREMENTAL_SYNC_EXCLUDES.has(entry.name)) continue;
+      const srcFile = path.join(src, entry.name);
+      const destFile = path.join(dest, entry.name);
+      if (entry.isDirectory()) {
+        await fs.ensureDir(destFile);
+        await walk(srcFile, destFile, false);
+      } else if (entry.isFile()) {
+        const srcStat = await fs.stat(srcFile);
+        let stale = true;
+        try {
+          const destStat = await fs.stat(destFile);
+          // Source is newer than dest → needs update; equal or dest newer → skip
+          stale = srcStat.mtimeMs > destStat.mtimeMs;
+        } catch {
+          // dest doesn't exist yet
+        }
+        if (stale) {
+          await fs.copy(srcFile, destFile, { overwrite: true });
+          updated++;
+        }
+      }
+    }
+  };
+
+  await fs.ensureDir(destPath);
+  await walk(srcPath, destPath, true);
+  return updated;
+}
+
 /** Longest common ancestor directory of two absolute paths. */
 function commonAncestorDir(p1: string, p2: string): string {
   const parts1 = path.resolve(p1).split(path.sep);
@@ -251,6 +311,14 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
         return true;
       },
     });
+  } else if (isLinkedPackage(handoff.modulePath)) {
+    // Development mode with npm link or file: reference.
+    // The version number won't change between edits, so skip the version check and
+    // instead do a fast mtime-based incremental sync to pick up any source changes.
+    const updated = await syncIncrementalAppSource(srcPath, appPath);
+    if (updated > 0) {
+      Logger.info(`[handoff] Synced ${updated} changed file(s) from linked handoff-app source.`);
+    }
   } else {
     Logger.info(`[handoff] overlay materialization: skipped full app copy (handoff-app ${wantVersion}). Delete ${markerPath} to force a full refresh.`);
   }
