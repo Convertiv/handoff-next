@@ -66,7 +66,8 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
   return response;
 }
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+/** Next.js 16 proxy convention — function must be named `proxy` (or be a default export). */
+export async function proxy(request: NextRequest): Promise<NextResponse> {
   if (typeof userMiddleware === 'function') {
     return userMiddleware(request, defaultHandoffProxy);
   }
