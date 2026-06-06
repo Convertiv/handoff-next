@@ -21,9 +21,17 @@ export const DESIGN_WORKSPACE_ID = 'default';
 /** Returns the total number of registered users. Used to detect fresh/unconfigured deployments. */
 export async function getUserCount(): Promise<number> {
   if (!usePostgres()) return 0;
-  const db = getDb();
-  const result = await db.select({ n: count() }).from(users);
-  return Number(result[0]?.n ?? 0);
+  try {
+    const db = getDb();
+    const result = await db.select({ n: count() }).from(users);
+    return Number(result[0]?.n ?? 0);
+  } catch (err) {
+    // 42P01 = undefined_table — schema not yet migrated. Treat as zero users
+    // so /setup remains reachable on first deploy before migrations run.
+    const code = (err as { cause?: { code?: string } })?.cause?.code;
+    if (code === '42P01') return 0;
+    throw err;
+  }
 }
 
 export type DesignWorkspaceRow = typeof handoffDesignWorkspace.$inferSelect;

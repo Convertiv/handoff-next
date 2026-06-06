@@ -383,10 +383,6 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     },
     async ({ componentId: _componentId }) => {
       return textResult({ ...WORKSPACE_MODE_RESPONSE, message: 'Server-side builds are retired. Run `handoff-app build [id]` locally then push.' });
-      const { insertBuildJob, spawnComponentBuildWorker } = await import('@/lib/server/component-builder');
-      const jobId = await insertBuildJob(componentId.trim());
-      spawnComponentBuildWorker(jobId);
-      return textResult({ jobId, status: 'queued' });
     }
   );
 

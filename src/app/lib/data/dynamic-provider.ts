@@ -149,16 +149,50 @@ function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatte
  * mode every component row should carry a full `data` payload populated by CLI push.
  * Do not add new filesystem reads here; workspace-only logic belongs in StaticDataProvider.
  */
+/**
+ * If a DB query fails because the schema isn't migrated yet (Postgres code 42P01),
+ * return null so callers can fall back. On Vercel the build runs before
+ * instrumentation.ts applies migrations — generateStaticParams etc. must be tolerant.
+ * Any other error is re-thrown unchanged.
+ */
+function isUndefinedTableError(err: unknown): boolean {
+  return (err as { cause?: { code?: string } })?.cause?.code === '42P01';
+}
+
+async function safeDbComponents(): Promise<HandoffComponentRow[]> {
+  try {
+    return await getDbComponents();
+  } catch (err) {
+    if (isUndefinedTableError(err)) {
+      console.warn('[handoff] handoff_component table missing — falling back to filesystem. Migrations run at first request.');
+      return [];
+    }
+    throw err;
+  }
+}
+
+async function safeDbPatterns(): Promise<HandoffPatternRow[]> {
+  try {
+    return await getDbPatterns();
+  } catch (err) {
+    if (isUndefinedTableError(err)) {
+      console.warn('[handoff] handoff_pattern table missing — falling back to filesystem. Migrations run at first request.');
+      return [];
+    }
+    throw err;
+  }
+}
+
 export class DynamicDataProvider implements DataProvider {
   private fallback = new StaticDataProvider();
 
   async getComponents(): Promise<ComponentListObject[]> {
-    const [dbRows, staticList] = await Promise.all([getDbComponents(), this.fallback.getComponents()]);
+    const [dbRows, staticList] = await Promise.all([safeDbComponents(), this.fallback.getComponents()]);
     return mergeComponentLists(staticList, dbRows);
   }
 
   async getComponent(id: string): Promise<ComponentObject | null> {
-    const rows = await getDbComponents();
+    const rows = await safeDbComponents();
     const row = rows.find((r) => r.id === id);
     if (row?.data && typeof row.data === 'object') {
       return row.data as ComponentObject;
@@ -171,12 +205,12 @@ export class DynamicDataProvider implements DataProvider {
   }
 
   async getPatterns(): Promise<PatternListObject[]> {
-    const [dbRows, staticList] = await Promise.all([getDbPatterns(), this.fallback.getPatterns()]);
+    const [dbRows, staticList] = await Promise.all([safeDbPatterns(), this.fallback.getPatterns()]);
     return mergePatternLists(staticList, dbRows);
   }
 
   async getPattern(id: string): Promise<PatternObject | null> {
-    const rows = await getDbPatterns();
+    const rows = await safeDbPatterns();
     const row = rows.find((r) => r.id === id);
     if (row?.data && typeof row.data === 'object') {
       return row.data as PatternObject;
@@ -188,7 +222,14 @@ export class DynamicDataProvider implements DataProvider {
   }
 
   async getTokens(): Promise<CoreTypes.IDocumentationObject> {
-    const snap = await getDbTokensSnapshot();
+    let snap: unknown = null;
+    try {
+      snap = await getDbTokensSnapshot();
+    } catch (err) {
+      const code = (err as { cause?: { code?: string } })?.cause?.code;
+      if (code !== '42P01') throw err;
+      // tables don't exist yet — fall through to static
+    }
     if (snap) {
       return snap as CoreTypes.IDocumentationObject;
     }

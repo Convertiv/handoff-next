@@ -13,6 +13,7 @@ import {
   mergeFigmaImages,
   mergeFigmaPreviewsIntoComponent,
   nestFigmaLinkDataForDeclarationFile,
+  type FigmaChildComponentCatalogEntry,
   type FigmaImageAsset,
   type FigmaNodePropertySeed,
 } from '@handoff/figma/component-linking';
