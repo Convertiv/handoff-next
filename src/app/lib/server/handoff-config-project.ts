@@ -23,8 +23,8 @@ function packageJsonForRequire(projectRoot: string): string {
 
 /** Turbopack NFT: scope filesystem reads to a single known file under `root`. */
 function configFileExists(root: string, name: string): boolean {
-  const full = path.join(root, name);
-  return fs.existsSync(full);
+  const full = path.join(/* turbopackIgnore: true */ root, name);
+  return fs.existsSync(/* turbopackIgnore: true */ full);
 }
 
 /** Project root used for component export / entry-dir resolution (linked client or handoff-app). */
@@ -47,16 +47,22 @@ export function loadHandoffConfigFromDir(projectRoot: string): { config: Config;
 
   for (const name of CONFIG_NAMES) {
     if (!configFileExists(root, name)) continue;
-    const full = path.join(root, name);
+    const full = path.join(/* turbopackIgnore: true */ root, name);
     try {
       if (full.endsWith('.json')) {
-        const config = JSON.parse(fs.readFileSync(full, 'utf8')) as Config;
+        const config = JSON.parse(fs.readFileSync(/* turbopackIgnore: true */ full, 'utf8')) as Config;
         return { config, configPath: full };
       }
-      const req = createRequire(requireFrom);
-      const resolved = req.resolve(full);
+      // turbopackIgnore: createRequire + dynamic req(full) trace as "very dynamic
+      // require" which causes NFT to include the whole project — and once the
+      // symlinked node_modules gets into the trace, Vercel rejects the deploy
+      // with "framework produced an invalid deployment package... files in
+      // symlinked directories". This dynamic load only runs in workspace mode
+      // anyway (CLI start), so excluding it from NFT is safe.
+      const req = createRequire(/* turbopackIgnore: true */ requireFrom);
+      const resolved = req.resolve(/* turbopackIgnore: true */ full);
       delete req.cache[resolved];
-      const mod = req(full) as { default?: Config } | Config;
+      const mod = req(/* turbopackIgnore: true */ full) as { default?: Config } | Config;
       const config = (mod as { default?: Config }).default ?? (mod as Config);
       return { config, configPath: full };
     } catch {

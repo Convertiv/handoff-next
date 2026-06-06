@@ -26,14 +26,35 @@ const resolveAbsoluteFromApp = (relPath, fallback = '') => {
   return path.resolve(APP_DIR, relPath);
 };
 
+/**
+ * Module path detection.
+ *
+ * Three deployment scenarios where this config is loaded:
+ *
+ *   (a) Materialized into a client's `.handoff/runtime/` via prepare-runtime —
+ *       placeholders are substituted to absolute paths during materialization.
+ *       Detected via the `%HANDOFF_*%` placeholders being replaced.
+ *
+ *   (b) Client uses handoff-app as a dependency (installed via npm) and runs
+ *       `next build` from src/app/ at handoff-app's installed location. The
+ *       module IS handoff-app and lives at <APP_DIR>/../..
+ *
+ *   (c) handoff-app is itself the deployed app (registry-as-service per
+ *       ADR-001) — `next build` runs in src/app/ at the handoff-app repo root.
+ *       The module is the repo root.
+ *
+ * Cases (b) and (c) both resolve to <APP_DIR>/../.. — that's the handoff-app
+ * repo (or installed package) root. The old fallback at
+ * <APP_DIR>/../../node_modules/handoff-app was wrong for case (c): when we ARE
+ * handoff-app, we're not under our own node_modules.
+ */
+const REPO_ROOT_FROM_APP = path.resolve(APP_DIR, '..', '..');
+
 const HANDOFF_APP_ROOT = APP_DIR;
-const HANDOFF_WORKING_PATH = resolveAbsoluteFromApp('%HANDOFF_WORKING_PATH_REL%', path.resolve(APP_DIR, '..', '..'));
-const HANDOFF_MODULE_PATH = resolveAbsoluteFromApp(
-  '%HANDOFF_MODULE_PATH_REL%',
-  path.resolve(APP_DIR, '..', '..', 'node_modules', 'handoff-app')
-);
+const HANDOFF_WORKING_PATH = resolveAbsoluteFromApp('%HANDOFF_WORKING_PATH_REL%', REPO_ROOT_FROM_APP);
+const HANDOFF_MODULE_PATH = resolveAbsoluteFromApp('%HANDOFF_MODULE_PATH_REL%', REPO_ROOT_FROM_APP);
 const HANDOFF_EXPORT_PATH = resolveAbsoluteFromApp('%HANDOFF_EXPORT_PATH_REL%', '');
-const HANDOFF_TURBOPACK_ROOT = resolveAbsoluteFromApp('%HANDOFF_TURBOPACK_ROOT_REL%', APP_DIR);
+const HANDOFF_TURBOPACK_ROOT = resolveAbsoluteFromApp('%HANDOFF_TURBOPACK_ROOT_REL%', REPO_ROOT_FROM_APP);
 const HANDOFF_DIST = path.resolve(HANDOFF_MODULE_PATH, 'dist');
 
 /** Next bundles @handoff/* from compiled dist (.js); the materialized app uses @handoff/app → APP_DIR. */
