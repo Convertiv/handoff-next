@@ -125,34 +125,48 @@ When you want to share work or run designers/stakeholders against it, push to th
 
 ---
 
-## Implementation Plan
+## Confirmed Design Decisions
 
-See task list `#33` onwards. High-level phasing:
+1. **Multi-tenancy is deferred.** Each client gets a Vercel deploy of handoff-app. Simple to ship, simple to reason about. Multi-tenant comes later when client count justifies the org/project scoping work.
 
-**Phase 1 — Registry deploy path (1–2 days)**
-Stand up handoff-app on Vercel as itself. No materialization. Verify auth, setup, MCP, sync push/pull work against a real hosted Postgres. Document the deploy steps.
+2. **Theme CSS is compiled in the workspace and pushed.** The workspace runs Tailwind/SCSS locally (existing flow) and pushes the compiled CSS to the registry. The registry stores and serves the compiled output — it does not compile CSS. Keeps the registry simple and avoids shipping a SCSS/Tailwind compiler in the hosted runtime.
 
-**Phase 2 — Per-project content APIs (2–3 days)**
-Build `/api/registry/theme`, `/api/registry/tokens`, `/api/registry/navigation`, `/api/registry/config`. Tables + push endpoints. Workspace CLI commands to push them (`handoff-app push:theme`, etc.) or a unified `handoff-app push:all`.
+3. **Custom Next.js pages are deferred to a future plugin model.** v1 of this architecture covers markdown pages with component embeds. Arbitrary custom routes are out of scope. When a client needs them, we revisit with a plugin/extension design — not by restoring materialization.
 
-**Phase 3 — Registry reads from DB everywhere (2 days)**
-Wire the registry to serve theme CSS from DB, navigation from DB, config from DB. Today some of this is read from filesystem in `DynamicDataProvider`; complete the move.
+4. **Shared component bundles are first-class.** Push collects both per-component artifacts AND the shared `main.js` / `main.css` / `shared.css` bundles built from the workspace's global JS/SCSS entries. The registry serves these from the `component_artifact` table under a sentinel `__shared__` componentId (already implemented in `collectSharedComponentAssets`). Component preview iframes reference both their own files and the shared bundle.
 
-**Phase 4 — SSC migration test (1 day)**
-Use SSC as the proof-of-concept. Push all its content to the deployed registry. Verify the site looks right. Verify MCP works.
+5. **Local dev experience is preserved unchanged.** Workspace mode keeps:
+   - File watchers (chokidar) for components, pages, tokens, theme, handoff.config
+   - WebSocket server (port 4001) that pushes reload events to the browser
+   - Hot reload of component changes during development
+   - MCP server for local AI assistance
+   This is critical and any change to the materialization path must NOT regress workspace dev.
 
-**Phase 5 — Documentation + retirement (1–2 days)**
-Update `REGISTRY-SETUP.md` for the new flow. Mark `prepare-runtime` / `vercel-build` / materialization configs as deprecated. Leave the code in place for one release cycle for clients who haven't migrated yet.
-
-**Phase 6 (later, when needed) — Multi-tenancy**
-Add `org_id` to relevant tables. Org switcher in admin UI. Scoped push/pull tokens.
+6. **The `.handoff.ts` declaration format is unchanged.** Workspace authors components the same way. Push extracts metadata and serializes source files for the registry.
 
 ---
 
-## Open Questions
+## Implementation Plan
 
-1. **Multi-tenancy now or later?** Recommend later. Each client gets a Vercel deploy of handoff-app for now. Simple, ships sooner.
-2. **Theme CSS authoring workflow?** Workspace runs Tailwind/SCSS, output gets pushed. Or registry accepts SCSS + compiles on push? Recommend the former — keeps the registry simple.
-3. **Component preview JS bundles** that today reference shared `main.js` — does that pattern survive? Yes, push them alongside component artifacts (already partly handled via `collectSharedComponentAssets`).
-4. **Workspace dev server still useful?** Yes — local component iteration, MCP for AI assistance, push when ready.
-5. **The `.handoff.ts` declaration format.** No change — workspace still uses it. Push extracts metadata + serializes source files.
+See task list `#33` onwards. Six sequenced phases:
+
+**Phase 1 — Registry deploy path**
+Stand up handoff-app on Vercel as itself. No materialization. Verify auth, setup, MCP, sync push/pull work against a real hosted Postgres. Document the deploy steps. This is the foundational change; nothing downstream is feasible without it.
+
+**Phase 2 — Per-project content APIs**
+Build `/api/registry/theme`, `/api/registry/tokens`, `/api/registry/navigation`, `/api/registry/config`. Tables + push endpoints. Workspace CLI commands to push them, plus a unified `handoff-app push:all`. The four endpoints are independent and can be built in parallel.
+
+**Phase 3 — Registry reads from DB everywhere**
+Wire the hosted registry to serve theme CSS from DB, navigation from DB, config from DB, tokens from DB. Today some of this is read from filesystem in `DynamicDataProvider`; complete the move so registry mode is fully DB-backed.
+
+**Phase 4 — Workspace dev experience verification**
+After materialization changes, explicitly verify workspace mode still works end-to-end: file watchers fire, WebSocket reload works, component edits hot-reload in the browser, MCP responds, theme.css changes propagate. This is a check phase, not a build phase, but it gates merging.
+
+**Phase 5 — SSC end-to-end migration**
+Use SSC as the proof-of-concept. Push all its content (components + pages + tokens + theme + nav + config + shared bundles) to the deployed registry. Verify the site renders correctly with SSC branding. Verify MCP serves SSC stack guide. Verify push/pull cycle.
+
+**Phase 6 — Documentation + deprecation**
+Update `REGISTRY-SETUP.md` for the new flow. Mark `prepare-runtime` / `vercel-build` / `materialization_layout` / `materialization_strategy` as deprecated with CLI warnings pointing at this ADR. Don't delete the code yet — existing clients on the old flow need a migration window.
+
+**Phase 7 (later, when needed) — Multi-tenancy**
+Add `org_id` to relevant tables. Org switcher in admin UI. Scoped push/pull tokens.
