@@ -6,6 +6,8 @@
  * @see https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  */
 export async function register() {
+  console.log(`[handoff] instrumentation.register() — runtime=${process.env.NEXT_RUNTIME ?? 'nodejs'}, hasDB=${Boolean(process.env.DATABASE_URL?.trim())}`);
+
   // Only run in the Node.js runtime (not Edge) and only when a DB is configured
   if (process.env.NEXT_RUNTIME === 'edge') return;
   if (!process.env.DATABASE_URL?.trim()) return;

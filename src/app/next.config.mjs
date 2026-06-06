@@ -111,7 +111,20 @@ const nextConfig = {
   // (see getDefaultDocsDir, staticBuildMenu). Without this, Vercel lambdas omit config/docs
   // and public/api from the serverless bundle — menu is empty and Layout hides the sidebar.
   outputFileTracingIncludes: {
-    '/**': ['./config/docs/**/*', './public/api/**/*', './client.config.json'],
+    // Files needed at request time that aren't statically import()'d:
+    //   - config/docs: nav and catch-all markdown rendered by App Routes
+    //   - public/api:  built component JSON / shared assets served from disk in workspace mode
+    //   - client.config.json: per-project runtime client config
+    //   - lib/db/migrations: SQL files applied by instrumentation.ts on cold start.
+    //     Without this, Drizzle's migrator can't locate the migrations folder
+    //     when handoff-app is deployed and no schema is ever applied — first
+    //     request fails with "relation does not exist" forever.
+    '/**': [
+      './config/docs/**/*',
+      './public/api/**/*',
+      './client.config.json',
+      './lib/db/migrations/**/*',
+    ],
   },
   env: {
     HANDOFF_PROJECT_ID: '%HANDOFF_PROJECT_ID%',
