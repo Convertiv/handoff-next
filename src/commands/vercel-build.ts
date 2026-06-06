@@ -22,14 +22,23 @@ const command: CommandModule<{}, VercelBuildArgs> = {
   handler: async (args: VercelBuildArgs) => {
     const handoff = new Handoff(args.debug, args.force);
 
-    // Registry mode (DATABASE_URL present): components are built locally in workspaces
-    // and pushed to the registry — building them again during CI is wasteful.
-    // Auto-skip unless explicitly overridden with --no-skip-components.
-    const isRegistryMode = Boolean(process.env.DATABASE_URL?.trim());
+    // Registry mode: components are built locally in workspaces and pushed —
+    // rebuilding them during CI is wasteful. Three ways to enable auto-skip:
+    //   1. --skip-components flag (explicit, most reliable)
+    //   2. HANDOFF_REGISTRY_MODE=true env var (non-secret, reliable at Vercel build time)
+    //   3. DATABASE_URL present at build time (may not be exposed to build env on Vercel)
+    const isRegistryMode =
+      Boolean(process.env.HANDOFF_REGISTRY_MODE?.trim()) ||
+      Boolean(process.env.DATABASE_URL?.trim());
     const skipComponents = args.skipComponents ?? isRegistryMode;
 
-    if (isRegistryMode && skipComponents && !args.skipComponents) {
-      console.log('[handoff] Registry mode detected (DATABASE_URL set) — skipping component builds (use --no-skip-components to override).');
+    if (skipComponents) {
+      const reason = args.skipComponents
+        ? '--skip-components flag'
+        : process.env.HANDOFF_REGISTRY_MODE
+          ? 'HANDOFF_REGISTRY_MODE env var'
+          : 'DATABASE_URL detected';
+      console.log(`[handoff] Skipping component builds (${reason}). Use --no-skip-components to override.`);
     }
 
     await handoff.build(skipComponents, 'vercel');
