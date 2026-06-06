@@ -150,11 +150,28 @@ function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatte
  * Do not add new filesystem reads here; workspace-only logic belongs in StaticDataProvider.
  */
 /**
- * If a DB query fails because the schema isn't migrated yet (Postgres code 42P01),
- * return null so callers can fall back. On Vercel the build runs before
- * instrumentation.ts applies migrations — generateStaticParams etc. must be tolerant.
- * Any other error is re-thrown unchanged.
+ * Detect whether we're inside a Next.js production build (`next build`) rather
+ * than serving a request. During build, DB queries should never block the
+ * deploy — schema may not be migrated yet, DATABASE_URL may not be parseable
+ * by postgres-js, or the DB may simply be unreachable from the Vercel build
+ * environment. In all cases, fall back to filesystem so page collection succeeds.
  */
+function isBuildPhase(): boolean {
+  return process.env.NEXT_PHASE === 'phase-production-build' || process.env.NEXT_PHASE === 'phase-export';
+}
+
+/**
+ * Log a DB fallback warning with enough detail to diagnose later.
+ * During build we always swallow the error; at runtime we only swallow 42P01
+ * (missing tables, pre-migration) so other failures surface clearly.
+ */
+function logDbFallback(table: string, err: unknown): void {
+  const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+  const message = err instanceof Error ? err.message : String(err);
+  const detail = cause?.code ?? cause?.message ?? message;
+  console.warn(`[handoff] ${table} query failed (${detail}) — falling back to filesystem.`);
+}
+
 function isUndefinedTableError(err: unknown): boolean {
   return (err as { cause?: { code?: string } })?.cause?.code === '42P01';
 }
@@ -163,8 +180,8 @@ async function safeDbComponents(): Promise<HandoffComponentRow[]> {
   try {
     return await getDbComponents();
   } catch (err) {
-    if (isUndefinedTableError(err)) {
-      console.warn('[handoff] handoff_component table missing — falling back to filesystem. Migrations run at first request.');
+    if (isBuildPhase() || isUndefinedTableError(err)) {
+      logDbFallback('handoff_component', err);
       return [];
     }
     throw err;
@@ -175,8 +192,8 @@ async function safeDbPatterns(): Promise<HandoffPatternRow[]> {
   try {
     return await getDbPatterns();
   } catch (err) {
-    if (isUndefinedTableError(err)) {
-      console.warn('[handoff] handoff_pattern table missing — falling back to filesystem. Migrations run at first request.');
+    if (isBuildPhase() || isUndefinedTableError(err)) {
+      logDbFallback('handoff_pattern', err);
       return [];
     }
     throw err;
@@ -226,9 +243,8 @@ export class DynamicDataProvider implements DataProvider {
     try {
       snap = await getDbTokensSnapshot();
     } catch (err) {
-      const code = (err as { cause?: { code?: string } })?.cause?.code;
-      if (code !== '42P01') throw err;
-      // tables don't exist yet — fall through to static
+      if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
+      logDbFallback('handoff_tokens_snapshot', err);
     }
     if (snap) {
       return snap as CoreTypes.IDocumentationObject;

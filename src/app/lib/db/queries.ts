@@ -26,10 +26,18 @@ export async function getUserCount(): Promise<number> {
     const result = await db.select({ n: count() }).from(users);
     return Number(result[0]?.n ?? 0);
   } catch (err) {
-    // 42P01 = undefined_table — schema not yet migrated. Treat as zero users
-    // so /setup remains reachable on first deploy before migrations run.
+    // At build time, swallow ANY error (missing tables, unreachable DB, malformed
+    // DATABASE_URL) so page collection doesn't crash. Returning 0 means /setup
+    // becomes the redirect target — harmless if no real users exist.
+    // At runtime, swallow only 42P01 (undefined_table) so /setup is reachable
+    // pre-migration; other errors should surface for diagnosis.
+    const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build' || process.env.NEXT_PHASE === 'phase-export';
     const code = (err as { cause?: { code?: string } })?.cause?.code;
-    if (code === '42P01') return 0;
+    if (isBuildPhase || code === '42P01') {
+      const detail = code ?? (err instanceof Error ? err.message : String(err));
+      console.warn(`[handoff] getUserCount failed (${detail}) — treating as 0 users.`);
+      return 0;
+    }
     throw err;
   }
 }
