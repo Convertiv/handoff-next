@@ -70,6 +70,13 @@ const nextConfig = {
     tsconfigPath: 'tsconfig.json',
   },
   basePath: resolveBasePath('%HANDOFF_APP_BASE_PATH%'),
+  // outputFileTracingRoot must be a parent directory containing BOTH the materialized
+  // app (.handoff/runtime/) AND the actual node_modules being symlinked into it.
+  // Without this, Vercel's serverless function packager refuses the deploy with
+  // "The framework produced an invalid deployment package... files in symlinked
+  // directories." Using HANDOFF_TURBOPACK_ROOT — it's already computed as the
+  // common ancestor of (appPath, modulePath, node_modules) in app-builder/build.ts.
+  outputFileTracingRoot: HANDOFF_TURBOPACK_ROOT,
   // Nav sidebars and doc pages read markdown/JSON from the materialized tree via runtime fs
   // (see getDefaultDocsDir, staticBuildMenu). Without this, Vercel lambdas omit config/docs
   // and public/api from the serverless bundle — menu is empty and Layout hides the sidebar.
