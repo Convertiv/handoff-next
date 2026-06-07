@@ -142,6 +142,7 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
   const pushingEntities = compIdsToScan.length > 0 || (selective ? (opts?.patternIds?.length ?? 0) > 0 : configuredPatIds.length > 0);
   const runBuild = shouldRunBuild(opts, pushingEntities);
   let sharedAssets: Record<string, string> | undefined;
+  let sharedAttached = false;
 
   for (const id of compIdsToScan) {
     if (!configuredCompIds.includes(id)) continue;
@@ -163,7 +164,13 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
         if (!sharedAssets && Object.keys(collected.files).length > 0) {
           sharedAssets = await collectSharedComponentAssets(handoff);
         }
-        payload = attachArtifacts(payload, collected.files, sharedAssets) as ComponentSyncData;
+        // Attach shared assets (main.js, main.css, shared.css — easily 1MB+)
+        // to ONLY the first component change. Subsequent changes don't need
+        // to resend the same bundle; the server already has it after the
+        // first push. Cuts per-component payload from ~2MB to ~500KB.
+        const sharedForThis = sharedAttached ? undefined : sharedAssets;
+        payload = attachArtifacts(payload, collected.files, sharedForThis) as ComponentSyncData;
+        if (sharedAssets && Object.keys(sharedAssets).length > 0) sharedAttached = true;
         const sourceFiles = await collectComponentSourceFiles(handoff, id);
         if (Object.keys(sourceFiles).length > 0) {
           payload = { ...payload, sourceFiles };
@@ -246,21 +253,58 @@ export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<
     return;
   }
 
+  // Auto-batch changes so each HTTP request stays under Vercel's 4.5MB
+  // serverless-function body limit. We target 3.5MB per batch (with headroom
+  // for JSON encoding overhead and headers), and ensure each batch has at
+  // least one change so a single oversized payload still gets attempted
+  // (server will return 413 with a clear message).
   const url = `${baseUrl}/api/sync/upload`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${bearer}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ changes } as SyncUploadBody),
-  });
+  const MAX_BATCH_BYTES = 3.5 * 1024 * 1024;
+  const batches: SyncUploadBody['changes'][] = [];
+  let current: SyncUploadBody['changes'] = [];
+  let currentBytes = 0;
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`Sync push failed (${res.status}): ${text || res.statusText}`);
+  for (const change of changes) {
+    const changeBytes = Buffer.byteLength(JSON.stringify(change), 'utf8');
+    if (current.length > 0 && currentBytes + changeBytes > MAX_BATCH_BYTES) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(change);
+    currentBytes += changeBytes;
+  }
+  if (current.length > 0) batches.push(current);
+
+  if (batches.length > 1) {
+    Logger.info(`Splitting ${changes.length} changes into ${batches.length} batches (server body-size limit).`);
   }
 
-  const body = (await res.json()) as { appliedCount?: number };
-  Logger.success(`Push complete: ${body.appliedCount ?? changes.length} change(s) applied on server.`);
+  let totalApplied = 0;
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    const batchBytes = Buffer.byteLength(JSON.stringify({ changes: batch }), 'utf8');
+    Logger.info(`Pushing batch ${i + 1}/${batches.length}: ${batch.length} change(s), ${Math.round(batchBytes / 1024)}KB`);
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ changes: batch } as SyncUploadBody),
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(
+        `Sync push failed on batch ${i + 1}/${batches.length} (${res.status}): ${text || res.statusText}`
+      );
+    }
+
+    const body = (await res.json()) as { appliedCount?: number };
+    totalApplied += body.appliedCount ?? batch.length;
+  }
+
+  Logger.success(`Push complete: ${totalApplied} change(s) applied on server across ${batches.length} batch(es).`);
 }
