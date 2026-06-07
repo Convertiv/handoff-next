@@ -10,6 +10,20 @@ const resolveBasePath = (rawBasePath) => {
   return trimmed ? `/${trimmed}` : '';
 };
 
+/**
+ * Strip unsubstituted `%HANDOFF_*%` placeholders from values that get baked into
+ * the client bundle via Next.js `env`. In the materialization pipeline these get
+ * replaced by app-builder/build.ts at copy time. In the direct registry deploy
+ * path (no materialization), the substitution never happens — so the literal
+ * placeholder string would leak into the client and produce URLs like
+ * `/%HANDOFF_APP_BASE_PATH%/system`. Fall back to a sensible default instead.
+ */
+const resolveEnvPlaceholder = (raw, fallback = '') => {
+  if (typeof raw !== 'string') return fallback;
+  if (raw.startsWith('%HANDOFF_')) return fallback;
+  return raw;
+};
+
 const APP_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const resolveAbsoluteFromApp = (relPath, fallback = '') => {
@@ -127,13 +141,13 @@ const nextConfig = {
     ],
   },
   env: {
-    HANDOFF_PROJECT_ID: '%HANDOFF_PROJECT_ID%',
-    HANDOFF_APP_BASE_PATH: '%HANDOFF_APP_BASE_PATH%',
+    HANDOFF_PROJECT_ID: resolveEnvPlaceholder('%HANDOFF_PROJECT_ID%', 'default'),
+    HANDOFF_APP_BASE_PATH: resolveEnvPlaceholder('%HANDOFF_APP_BASE_PATH%', ''),
     HANDOFF_APP_ROOT: HANDOFF_APP_ROOT,
     HANDOFF_WORKING_PATH: HANDOFF_WORKING_PATH,
     HANDOFF_MODULE_PATH: HANDOFF_MODULE_PATH,
     HANDOFF_EXPORT_PATH: HANDOFF_EXPORT_PATH,
-    HANDOFF_WEBSOCKET_PORT: '%HANDOFF_WEBSOCKET_PORT%',
+    HANDOFF_WEBSOCKET_PORT: resolveEnvPlaceholder('%HANDOFF_WEBSOCKET_PORT%', '3001'),
   },
   images: {
     unoptimized: false,
