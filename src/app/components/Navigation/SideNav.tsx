@@ -118,29 +118,68 @@ const MenuIcon = ({ icon, isActive = false }) => {
   }
 };
 
+/**
+ * Render rules for a sidebar subSection. A subSection can be:
+ *  - A GROUP (no `path`, has `menu`) → group label + items inside
+ *  - A NESTED GROUP (no `path`, has `menu`) — same as above
+ *  - A LEAF LINK (`path` set, no/empty `menu`) → render as a direct link
+ *  - A LEAF WITH CHILDREN (`path` set AND `menu` set) → render as a
+ *    collapsible link (header link + nested items)
+ *  - Empty (no path, no menu) → skip
+ *
+ * The previous version only handled the "group with menu" case — anything
+ * else rendered an empty <SidebarGroup>, which is why registry sidebars on
+ * foundations/guidelines showed empty divs whenever DB nav didn't push an
+ * explicit frontmatter `menu:`.
+ */
+const renderSubSection = (
+  section: SectionLink['subSections'][number] & { menu?: unknown[] },
+  index: number,
+  total: number
+): React.ReactElement | null => {
+  const hasPath = typeof section.path === 'string' && section.path.length > 0;
+  const subMenu = Array.isArray(section.menu) ? (section.menu as Array<{ path?: string; title?: string; menu?: unknown[]; icon?: string; image?: string }>) : [];
+  const hasMenu = subMenu.length > 0;
+  if (!hasPath && !hasMenu) return null;
+
+  return (
+    <React.Fragment key={index}>
+      <SidebarGroup>
+        {/* Group header: label when no path, link when there is one */}
+        {hasPath ? (
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <MenuItem item={{ title: section.title, path: section.path, menu: hasMenu ? subMenu : undefined } as Parameters<typeof MenuItem>[0]['item']} />
+            </SidebarMenu>
+          </SidebarGroupContent>
+        ) : (
+          <>
+            <SidebarGroupLabel>{section.title}</SidebarGroupLabel>
+            {hasMenu && (
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {subMenu.map((item, subindex) => (
+                    <MenuItem key={`${index}-mi-${subindex}`} item={item as Parameters<typeof MenuItem>[0]['item']} />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            )}
+          </>
+        )}
+      </SidebarGroup>
+      {index < total - 1 && <SidebarSeparator className="mx-4" />}
+    </React.Fragment>
+  );
+};
+
 const SideNav = ({ menu }: { menu: SectionLink }) => {
+  const subSections = (menu?.subSections ?? []) as Array<SectionLink['subSections'][number]>;
   return (
     <Sidebar className="sticky left-auto">
       <SidebarContent className="px-4 pt-5">
-        {menu.subSections &&
-          menu.subSections.length > 0 &&
-          menu.subSections.map((section, index) => (
-            <React.Fragment key={index}>
-              <SidebarGroup>
-                {!section.path && <SidebarGroupLabel>{section.title}</SidebarGroupLabel>}
-                {section.menu && section.menu.length > 0 && (
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {section.menu.map((item, subindex) => (
-                        <MenuItem key={index + '-mi-' + subindex} item={item} />
-                      ))}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                )}
-              </SidebarGroup>
-              {index < menu.subSections.length && <SidebarSeparator className="mx-4" />}
-            </React.Fragment>
-          ))}
+        {subSections
+          .map((section, idx) => renderSubSection(section, idx, subSections.length))
+          .filter(Boolean)}
       </SidebarContent>
     </Sidebar>
   );
