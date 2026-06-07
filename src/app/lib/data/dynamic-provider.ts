@@ -120,12 +120,36 @@ function injectMergedComponentMenus(menu: SectionLink[], merged: ComponentListOb
     })),
   }));
 
-  return menu.map((section) => {
+  const hasComponents = asSubSections.some((s) => s.menu && s.menu.length > 0);
+  let foundSystem = false;
+  const next = menu.map((section) => {
     const isSystemSection = section.path === '/system' || section.path?.endsWith('/system');
-    if (!isSystemSection || !section.subSections?.length) return section;
-    if (!looksLikeComponentCatalogSubSections(section.subSections)) return section;
-    return { ...section, subSections: asSubSections };
+    if (!isSystemSection) return section;
+    foundSystem = true;
+    // Replace the catalog when present, OR materialize it on a section that
+    // existed via title/path but never received subSections (registry mode
+    // with no bundled docs).
+    if (!hasComponents) return section;
+    if (!section.subSections?.length || looksLikeComponentCatalogSubSections(section.subSections)) {
+      return { ...section, subSections: asSubSections };
+    }
+    return section;
   });
+
+  // Registry-mode safety net: when staticBuildMenu found no `/system` docs at
+  // all (which happens on a stock deploy without bundled config/docs), inject
+  // a synthetic System section so the component catalog is always reachable
+  // and its sidebar always populated. Without this the /system page renders
+  // an empty sidebar — see "registry sidebar empty" in the nav fix commit.
+  if (!foundSystem && hasComponents) {
+    next.push({
+      title: 'System',
+      weight: 0,
+      path: '/system',
+      subSections: asSubSections,
+    });
+  }
+  return next;
 }
 
 function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatternRow[]): PatternListObject[] {
@@ -311,37 +335,105 @@ export class DynamicDataProvider implements DataProvider {
 }
 
 /**
- * Merge DB-pushed navigation nodes into a structural skeleton. DB nodes match
- * skeleton sections by slug; matching ones override subSections, new ones get
- * appended. Skeleton sections without a DB counterpart (System, Foundations,
- * etc.) are preserved unchanged.
+ * Merge DB-pushed navigation nodes into a structural skeleton.
+ *
+ * Defensive rules — these matter because pushed nav from older clients or
+ * filesystems with `pages/foo.md` + `pages/foo/` siblings can carry duplicate
+ * slugs. The merge must NOT pass those duplicates through to render.
+ *
+ *  1. Slugs are normalized (leading slash, no trailing slash, lowercase) on
+ *     both sides before comparison.
+ *  2. DB tree is collapsed by slug at every depth — if two nodes share a
+ *     slug, the category (with children) wins over the leaf, and children
+ *     of the leaf are dropped.
+ *  3. Skeleton sections without a DB counterpart (System, Foundations, etc.)
+ *     are preserved unchanged. Critically, /system always keeps its
+ *     skeleton subSections — the component catalog — because the DB nav
+ *     has no concept of component groups.
+ *  4. When DB provides children for an existing skeleton section, those
+ *     children are MERGED into the skeleton's subSections by path, not
+ *     overwritten. An empty DB children array preserves skeleton subSections
+ *     entirely.
+ *  5. DB sections with slugs not in skeleton are appended.
  */
 function mergeDbNavIntoSkeleton(
   skeleton: SectionLink[],
   dbTree: { slug: string; title: string; type: string; children?: unknown[] }[]
 ): SectionLink[] {
-  const normalize = (s: string) => (s.startsWith('/') ? s : `/${s}`);
-  const dbBySlug = new Map(dbTree.map((n) => [normalize(n.slug), n]));
-  const skeletonBySlug = new Set(skeleton.map((s) => s.path));
+  type DbNode = { slug: string; title: string; type: string; children?: unknown[] };
 
-  // Override skeleton sections that the DB tree provides explicit content for
+  const normalize = (s: string): string => {
+    if (!s) return '/';
+    const trimmed = s.trim().toLowerCase();
+    const withLeading = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+    return withLeading.length > 1 ? withLeading.replace(/\/+$/, '') : withLeading;
+  };
+
+  /** Collapse duplicate slugs in a flat list. Category wins over leaf;
+   *  children from later duplicates are recursively merged in. */
+  const dedupeBySlug = (nodes: DbNode[]): DbNode[] => {
+    const order: string[] = [];
+    const bySlug = new Map<string, DbNode>();
+    for (const raw of nodes) {
+      const slug = normalize(raw.slug);
+      const childrenIn = Array.isArray(raw.children) ? (raw.children as DbNode[]) : undefined;
+      const existing = bySlug.get(slug);
+      if (!existing) {
+        order.push(slug);
+        bySlug.set(slug, {
+          ...raw,
+          slug,
+          children: childrenIn ? dedupeBySlug(childrenIn) : undefined,
+        });
+        continue;
+      }
+      // Merge: prefer the entry with children, union children if both have any.
+      const existingChildren = Array.isArray(existing.children) ? (existing.children as DbNode[]) : [];
+      const mergedChildren = dedupeBySlug([...existingChildren, ...(childrenIn ?? [])]);
+      bySlug.set(slug, {
+        ...existing,
+        title: existing.title || raw.title,
+        type: existingChildren.length > 0 || (childrenIn?.length ?? 0) > 0 ? 'category' : existing.type,
+        children: mergedChildren.length > 0 ? mergedChildren : undefined,
+      });
+    }
+    return order.map((s) => bySlug.get(s)!);
+  };
+
+  const cleanTree = dedupeBySlug(dbTree as DbNode[]);
+  const dbBySlug = new Map(cleanTree.map((n) => [normalize(n.slug), n]));
+  const skeletonBySlug = new Set(skeleton.map((s) => normalize(s.path)));
+
+  const childToSubSection = (child: DbNode) => ({
+    title: child.title,
+    path: normalize(child.slug),
+    image: '',
+    menu: [],
+  });
+
+  // Step 1: walk the skeleton, merging DB children into matching sections by path.
   const merged: SectionLink[] = skeleton.map((section) => {
-    const dbNode = dbBySlug.get(section.path);
-    if (!dbNode || !Array.isArray(dbNode.children)) return section;
+    const dbNode = dbBySlug.get(normalize(section.path));
+    const dbChildren = Array.isArray(dbNode?.children) ? (dbNode!.children as DbNode[]) : [];
+    if (dbChildren.length === 0) return section;
+
+    // Index skeleton subSections by normalized path so DB children with the
+    // same slug update titles but DON'T duplicate the entry.
+    const existing = section.subSections ?? [];
+    const seen = new Set(existing.map((s) => normalize(s.path ?? '')));
+    const additions = dbChildren
+      .filter((c) => !seen.has(normalize(c.slug)))
+      .map(childToSubSection);
+
     return {
       ...section,
-      title: dbNode.title || section.title,
-      subSections: (dbNode.children as typeof dbTree).map((child) => ({
-        title: child.title,
-        path: normalize(child.slug),
-        image: '',
-        menu: [],
-      })),
+      title: dbNode?.title || section.title,
+      subSections: [...existing, ...additions],
     };
   });
 
-  // Append DB sections that didn't match anything in the skeleton
-  for (const node of dbTree) {
+  // Step 2: append DB sections that weren't already in the skeleton.
+  for (const node of cleanTree) {
     const slug = normalize(node.slug);
     if (skeletonBySlug.has(slug)) continue;
     merged.push({
@@ -349,12 +441,7 @@ function mergeDbNavIntoSkeleton(
       weight: 0,
       path: slug,
       subSections: Array.isArray(node.children)
-        ? (node.children as typeof dbTree).map((child) => ({
-            title: child.title,
-            path: normalize(child.slug),
-            image: '',
-            menu: [],
-          }))
+        ? (node.children as DbNode[]).map(childToSubSection)
         : [],
     });
   }

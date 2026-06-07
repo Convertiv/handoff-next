@@ -107,9 +107,20 @@ async function deriveNavigationFromPages(workingPath: string): Promise<Navigatio
 
   const walk = async (dir: string, parentSlugParts: string[]): Promise<NavigationNode[]> => {
     const entries = await fs.readdir(dir, { withFileTypes: true });
+    const visible = entries.filter((e) => !e.name.startsWith('.') && !e.name.startsWith('_'));
+
+    // First pass: collect the set of directory stems at this level so a sibling
+    // `foo.md` next to a `foo/` directory is treated as the directory's index
+    // page (one node, not two). Without this, projects that follow the common
+    // `pages/foo.md` + `pages/foo/` convention get two top-level entries with
+    // the same slug — which the registry can't disambiguate and which renders
+    // as duplicated menu items.
+    const dirStems = new Set(
+      visible.filter((e) => e.isDirectory()).map((e) => e.name)
+    );
+
     const nodes: NavigationNode[] = [];
-    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+    for (const entry of visible.sort((a, b) => a.name.localeCompare(b.name))) {
       const abs = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         const children = await walk(abs, [...parentSlugParts, entry.name]);
@@ -123,8 +134,11 @@ async function deriveNavigationFromPages(workingPath: string): Promise<Navigatio
         }
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         const stem = entry.name.replace(/\.md$/, '');
-        // skip index.md — its parent dir already represents it
+        // index.md belongs to the parent dir, not a child entry.
         if (stem === 'index') continue;
+        // `foo.md` sibling of `foo/` directory → already represented by the
+        // category node. Skip to avoid duplicating the slug.
+        if (dirStems.has(stem)) continue;
         nodes.push({
           slug: [...parentSlugParts, stem].join('/'),
           title: titleCase(stem),
