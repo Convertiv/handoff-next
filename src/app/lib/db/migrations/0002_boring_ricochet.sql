@@ -31,6 +31,20 @@ CREATE TABLE IF NOT EXISTS "handoff_design_workspace" (
 );
 --> statement-breakpoint
 ALTER TABLE "sync_event" ADD COLUMN IF NOT EXISTS "change_type" text;--> statement-breakpoint
-ALTER TABLE "handoff_component_source" ADD CONSTRAINT IF NOT EXISTS "handoff_component_source_component_id_handoff_component_id_fk" FOREIGN KEY ("component_id") REFERENCES "public"."handoff_component"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "handoff_component_source" ADD CONSTRAINT IF NOT EXISTS "handoff_component_source_pushed_by_user_id_user_id_fk" FOREIGN KEY ("pushed_by_user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "handoff_design_workspace" ADD CONSTRAINT IF NOT EXISTS "handoff_design_workspace_updated_by_user_id_user_id_fk" FOREIGN KEY ("updated_by_user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;
+-- Postgres does NOT support `ADD CONSTRAINT IF NOT EXISTS` (MySQL-only syntax).
+-- Use DO blocks that check pg_constraint first for idempotency.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'handoff_component_source_component_id_handoff_component_id_fk') THEN
+    ALTER TABLE "handoff_component_source" ADD CONSTRAINT "handoff_component_source_component_id_handoff_component_id_fk" FOREIGN KEY ("component_id") REFERENCES "public"."handoff_component"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'handoff_component_source_pushed_by_user_id_user_id_fk') THEN
+    ALTER TABLE "handoff_component_source" ADD CONSTRAINT "handoff_component_source_pushed_by_user_id_user_id_fk" FOREIGN KEY ("pushed_by_user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;
+  END IF;
+END $$;--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'handoff_design_workspace_updated_by_user_id_user_id_fk') THEN
+    ALTER TABLE "handoff_design_workspace" ADD CONSTRAINT "handoff_design_workspace_updated_by_user_id_user_id_fk" FOREIGN KEY ("updated_by_user_id") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;
+  END IF;
+END $$;
