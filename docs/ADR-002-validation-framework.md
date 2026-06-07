@@ -370,63 +370,25 @@ Component push already sends the full data payload. No changes needed — valida
 
 ## Registry UI
 
-### Component catalog (`/system/component`)
+UI specifics are intentionally underspecified here — the design team owns layout, color, and interaction. What the data model promises:
 
-Each component card gets a **validation badge cluster**: a small horizontal strip of colored dots, one per validator, in the order they're configured.
+- Every component has a `validations: ValidatorResult[]` array (possibly empty)
+- Every result carries its own `validatorName` and `severity` so the UI doesn't need to cross-reference config
+- Every finding carries `target`, `helpUrl`, `tags`, and a human-readable `message`
+- Skipped validators are distinguishable from passing ones (skip carries a `skipReason`)
+- Worst-severity rollup is trivially computable per-component
 
-```
-[Button]              ⚫⚫⚫     primary action button
-                      axe schema contrast
-                      🟢 🟢   🟡
-```
+What the registry should surface in some form:
 
-Hover/tap a dot → tooltip with validator name + finding count + status.
+| Surface | What it shows | Why |
+|---------|---------------|-----|
+| Component catalog cards | Some indicator that the component has validation issues, ideally severity-colored | Scanability for reviewers |
+| Component detail page | Per-validator results with expandable findings, run timestamps, opt-out justifications | Triage and fix workflow |
+| Catalog filtering/sorting | Filter by validation status, sort by severity or finding count | Triage at scale |
 
-The card's main border color reflects the worst severity across all validators (subtle — gray default, soft yellow for warning, soft red for error).
+Specific UI patterns (badge clusters vs. single rollup, tabs vs. panels, colors, icons) are the UI designer's call. The data is complete enough to support any of them.
 
-### Component detail page (`/system/component/[id]`)
-
-New "Validation" tab/section alongside Properties / Previews / Source / Tokens. Layout:
-
-```
-┌─ Validation ─────────────────────────────────────────┐
-│                                                       │
-│  ▸ Accessibility (axe-core)            🟡 1 warning  │
-│      [click to expand]                                │
-│                                                       │
-│  ▸ Schema                              🟢 Passed     │
-│                                                       │
-│  ▸ Contrast (WCAG 2.1 AA)              🟢 Passed     │
-│                                                       │
-│  ▸ HubSpot Compatibility               ⚪ Skipped     │
-│      "Button is HubSpot-only, no a11y check needed"  │
-│                                                       │
-└───────────────────────────────────────────────────────┘
-```
-
-Each validator card expands to show:
-- Run timestamp + duration
-- List of findings (severity icon + rule id + message)
-- For each finding: target selector, snippet, help URL
-- "How to fix" if validator provides remediation guidance
-
-### Catalog filters
-
-Add filter controls above the catalog:
-
-- **Status**: all / has errors / has warnings / clean
-- **Validator**: filter by which validator surfaced issues
-- **Sort**: name | most violations | last updated
-
-### Aggregate dashboard (future)
-
-A `/system/validation` page showing rollups:
-- Component count by validation status (pie / bar chart)
-- Top 10 components with most errors
-- Most common rule violations across the system
-- Trend over time (requires storing historical results)
-
-Not v1 — but the data model supports it later.
+A future aggregate dashboard (`/system/validation`) for rollups across the whole system — top violations, components by status, trends over time — is deferrable but the data shape supports it.
 
 ---
 
