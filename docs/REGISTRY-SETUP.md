@@ -1,24 +1,40 @@
 # Handoff Registry Setup
 
-A **registry** is a hosted Handoff instance backed by Postgres. It stores built component artifacts, metadata, and sync events so teams can push from a local workspace and pull into other workspaces or consume via the MCP.
+A **registry** is a hosted instance of handoff-app backed by Postgres. It
+stores components, pages, design tokens, theme CSS, and project metadata for
+one design system project. Teams use the registry to browse the system, plug
+AI clients into the MCP, and pull pushed artifacts into their workspaces.
 
-A **workspace** is a local clone of your design-system repo. It runs filesystem-only — no database required.
+A **workspace** is a local clone of your design-system repo. It runs
+filesystem-only — no database. Workspace mode is for authoring components,
+pages, and theme files. When you're ready to publish, push to the registry.
 
----
-
-## Quick concepts
-
-```
-Workspace (your laptop)          Registry (Vercel / Docker)
-────────────────────────         ───────────────────────────
-handoff-app start                handoff-app start + DATABASE_URL
-filesystem: components/[id]/     Postgres: handoff_component, component_artifact
-HANDOFF_CLOUD_URL → push/pull    HANDOFF_SYNC_SECRET → auth
-```
+See [`ADR-001-registry-as-service.md`](./ADR-001-registry-as-service.md) for
+the architectural model.
 
 ---
 
-## Option A: Local registry with Docker (dev/test)
+## Topology
+
+```
+convertiv/handoff-app         (you maintain — the platform)
+  └── release branch  ──── auto-deploys to all client registries
+
+clients/your-design-system    (one per client — pure content)
+  ├── components/
+  ├── pages/
+  ├── theme.css
+  ├── handoff.config.js
+  └── .env  → HANDOFF_CLOUD_URL=https://your-registry.vercel.app
+```
+
+One Vercel project per client registry, each pointing at the same handoff-app
+repo on a pinned branch (or tag). Clients can pin to a specific tag if they
+need stability during a launch.
+
+---
+
+## Option A: Local registry with Docker (dev / test)
 
 ### 1. Start Postgres
 
@@ -31,203 +47,307 @@ docker run -d \
   -p 5433:5432 \
   postgres:16-alpine
 
-# Wait for it to be ready
 until docker exec handoff-registry pg_isready -U handoff; do sleep 1; done
 ```
 
-### 2. Create a registry project directory
+### 2. Start the registry from convertiv/handoff-app
 
 ```bash
-mkdir -p ~/handoff-local-registry
-cd ~/handoff-local-registry
+cd /path/to/handoff-app
+DATABASE_URL=postgresql://handoff:changeme@localhost:5433/handoff_registry \
+HANDOFF_REGISTRY_MODE=true \
+AUTH_SECRET=$(openssl rand -hex 32) \
+HANDOFF_SYNC_SECRET=dev-registry-secret \
+  npm run build:registry && \
+  cd src/app && npx next start -p 4002
 
-# Write the config
-cat > handoff.config.js << 'EOF'
-module.exports = {
-  figma_project_id: "registry",
-  app: {
-    title: "Local Registry",
-    client: "Dev",
-    ports: { app: 4002, websocket: 4003 },
-  },
-  entries: { components: [] },
-};
-EOF
-
-# Write the environment
-cat > .env << 'EOF'
-DATABASE_URL=postgresql://handoff:changeme@localhost:5433/handoff_registry
-HANDOFF_SYNC_SECRET=dev-registry-secret
-AUTH_SECRET=dev-auth-secret-not-for-production
-EOF
+# Or for hot-reload development:
+# npm run dev  (from handoff-app root)
 ```
 
-### 3. Start the registry
+The registry runs at `http://localhost:4002`. Visit `/setup` to create your
+admin account. Migrations run automatically on first request via
+`instrumentation.ts`.
+
+### 3. Configure the workspace
+
+In your design-system repo (the workspace):
 
 ```bash
-cd ~/handoff-local-registry
-handoff-app start
-# → http://localhost:4002
-# Migrations run automatically on first boot.
-# Visit http://localhost:4002/setup to create your admin account.
+cd my-design-system
+
+# Authenticate via device OAuth — opens browser, signs in, saves to .handoff/cli-auth.json
+handoff-app login --url http://localhost:4002
+
+# Or set env vars directly for shared-secret auth
+echo 'HANDOFF_CLOUD_URL=http://localhost:4002' >> .env
+echo 'HANDOFF_CLOUD_TOKEN=dev-registry-secret' >> .env
+
+# Verify the connection
+handoff-app sync-status
 ```
 
-### 4. Configure your workspace
-
-In your design-system project's `.env` (e.g. `ssc-handoff-next/handoff/.env`):
-
-```env
-# No DATABASE_URL — stays in workspace (filesystem) mode
-HANDOFF_CLOUD_URL=http://localhost:4002
-HANDOFF_CLOUD_TOKEN=dev-registry-secret
-```
-
-### 5. Push / pull
+### 4. Push your content
 
 ```bash
-# From your workspace directory:
-handoff-app push --components button blog hero_split   # push a few components
-handoff-app push                                       # push everything (batched internally)
-handoff-app pull                                       # pull from registry → local dist/
-handoff-app sync-status                                # check cursor + registry health
+handoff-app push:all
+# Pushes config + components + pages + theme + navigation + tokens
 ```
 
-### Stopping and restarting
-
-```bash
-docker stop handoff-registry    # stop Postgres (data persists)
-docker start handoff-registry   # resume
-# Then restart the registry server: cd ~/handoff-local-registry && handoff-app start
-```
+Visit `http://localhost:4002/` to see your design system.
 
 ---
 
-## Option B: Deploy to Vercel
+## Option B: Deploy to Vercel (production)
 
-### 1. Generate Vercel config
+### 1. Create the Vercel project
 
-In your workspace (design-system repo):
+In the Vercel dashboard:
 
-```bash
-cd path/to/your/handoff-directory   # e.g. ssc-handoff-next/handoff
-handoff-app init:vercel
-```
+- **Add New → Project → Import Git Repository**
+- Repository: `convertiv/handoff-next` (the handoff-app repo)
+- Project Name: e.g. `my-design-system-registry`
+- Branch: `release` (or a pinned tag like `v2.4.0`)
 
-This writes:
-- `vercel.json` — build/output settings
-- `.env.vercel.example` — env var template
+Vercel auto-detects `vercel.json` at the repo root and pre-configures:
+- Install: `npm install`
+- Build: `npm run build:registry`
+- Output: `src/app/.next`
+- Framework: Next.js
 
-Commit `vercel.json`. Do **not** commit `.env`.
+Leave **Root Directory** blank (repo root).
 
-### 2. Import to Vercel
+**Do NOT click Deploy yet — env vars first.**
 
-1. Push to GitHub/GitLab/Bitbucket.
-2. In Vercel: **Add New → Project → Import**.
-3. Set **Root Directory** to the folder containing `vercel.json`
-   (e.g. `handoff` if your design system lives in a `handoff/` subfolder).
-4. Vercel reads `vercel.json` — build/output are pre-configured.
+### 2. Add Postgres
 
-### 3. Add Vercel Postgres
+In the new project: **Storage → Connect Store → Create New → Postgres**
 
-In the Vercel dashboard for your project:  
-**Storage → Connect Store → Create New → Postgres**
+Vercel auto-injects `DATABASE_URL` and `POSTGRES_*` env vars. You can also
+attach an existing Postgres instance from another project (Storage → Connect
+Store → Existing).
 
-Vercel automatically adds `DATABASE_URL` and `POSTGRES_*` to your project's environment.
+### 3. Add the remaining env vars
 
-### 4. Add environment variables
-
-In **Project → Settings → Environment Variables**:
+Project → **Settings → Environment Variables** (all environments):
 
 | Variable | Value |
 |----------|-------|
 | `AUTH_SECRET` | `openssl rand -hex 32` |
-| `HANDOFF_SYNC_SECRET` | any strong random string |
+| `HANDOFF_SYNC_SECRET` | `openssl rand -hex 32` |
+| `HANDOFF_REGISTRY_MODE` | `true` |
+| `AUTH_URL` | the production URL Vercel assigns to your project (e.g. `https://my-design-system-registry.vercel.app`) |
 
 Optional:
 | Variable | Value |
 |----------|-------|
-| `HANDOFF_DEFAULT_STACK_PROFILE` | `bootstrap-handlebars` \| `react-tailwind` \| etc. |
-| `HANDOFF_PROJECT_NAME` | display name for the registry |
+| `HANDOFF_DEFAULT_STACK_PROFILE` | `bootstrap-handlebars` \| `react-tailwind` \| `tailwind-handlebars` \| `react-scss` |
+| `HANDOFF_PROJECT_NAME` | Display name for the registry |
 
-### 5. Deploy
+### 4. Deploy
 
-Click **Deploy**. The first deploy:
-1. Runs `handoff-app vercel-build` → materializes + `next build`
-2. On first request: auto-applies any pending migrations
-3. Redirects to `/setup` — create your admin account
+Click **Deploy**. The build:
+1. Runs `handoff-app vercel-build --skip-components` (registry mode auto-skips component builds)
+2. Outputs to `src/app/.next/`
+3. On first request, `instrumentation.ts` applies database migrations
+4. Layout redirects to `/setup` because no users exist yet
 
-### 6. Connect your workspace
+### 5. First-admin setup
 
-In your workspace `.env`:
+Visit your deployment URL — you'll be redirected to `/setup`. Create your admin
+account (email + password). On submit you're redirected to `/login?setup=1`.
+Sign in.
 
-```env
-HANDOFF_CLOUD_URL=https://your-registry.vercel.app
-HANDOFF_CLOUD_TOKEN=<same value as HANDOFF_SYNC_SECRET>
-```
-
----
-
-## Environment variable reference
-
-| Variable | Where | Purpose |
-|----------|-------|---------|
-| `DATABASE_URL` | Registry only | Postgres connection string. Absence = workspace mode. |
-| `AUTH_SECRET` | Registry only | NextAuth session signing key. Required when DATABASE_URL is set. |
-| `HANDOFF_SYNC_SECRET` | Registry + Workspace | Bearer token for CLI push/pull and MCP. Must match on both sides. |
-| `HANDOFF_CLOUD_URL` | Workspace only | URL of the registry to push/pull against. |
-| `HANDOFF_CLOUD_TOKEN` | Workspace only | Token sent as `Authorization: Bearer` — matches registry HANDOFF_SYNC_SECRET. |
-| `HANDOFF_DEFAULT_STACK_PROFILE` | Registry | Default stack guide profile (`bootstrap-handlebars`, `react-tailwind`, etc.). |
-| `HANDOFF_STACK_GUIDE_PATH` | Registry | Path to a custom stack guide markdown file (relative to working path). |
-
----
-
-## Push / pull reference
+### 6. Configure your workspace
 
 ```bash
-# Push all components (auto-builds any without dist/)
-handoff-app push
+cd my-design-system
 
-# Push specific components (useful during development)
-handoff-app push --components button hero_split stats
+# Device OAuth login — saves a scoped JWT to .handoff/cli-auth.json
+handoff-app login --url https://my-design-system-registry.vercel.app
 
-# Push only metadata (no artifact rebuild)
-handoff-app push --metadata-only
+# Or env-var auth (use HANDOFF_SYNC_SECRET as the token)
+echo 'HANDOFF_CLOUD_URL=https://my-design-system-registry.vercel.app' >> .env
+echo 'HANDOFF_CLOUD_TOKEN=<paste HANDOFF_SYNC_SECRET value>' >> .env
 
-# Pull all changes from registry since last sync
-handoff-app pull
+handoff-app sync-status   # confirm: latestVersion 0, counts all zero
+```
 
-# Preview what would be pulled without writing files
-handoff-app pull --dry-run
+### 7. Push content
 
-# Check registry health and sync cursor
-handoff-app sync-status
+```bash
+handoff-app push:all
+```
+
+Visit your registry — components, pages, foundations, and branding should all
+reflect the workspace content.
+
+---
+
+## Env var reference
+
+### Registry-side (on Vercel / Docker host)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `DATABASE_URL` | yes | Postgres connection string. Auto-set by Vercel Postgres. |
+| `AUTH_SECRET` | yes | NextAuth session signing key. Generate with `openssl rand -hex 32`. |
+| `HANDOFF_SYNC_SECRET` | yes | Bearer token for CLI push/pull and MCP. Generate with `openssl rand -hex 32`. |
+| `AUTH_URL` | yes (Vercel) | Public production URL — needed by NextAuth for callback redirects. |
+| `HANDOFF_REGISTRY_MODE` | recommended | Set to `true` so `vercel-build` skips the component build phase. |
+| `HANDOFF_DEFAULT_STACK_PROFILE` | optional | Default MCP stack guide profile. |
+| `HANDOFF_PROJECT_NAME` | optional | Display name when no project config has been pushed yet. |
+
+### Workspace-side (in the design-system repo)
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `HANDOFF_CLOUD_URL` | yes (for push/pull) | URL of the registry you push to. |
+| `HANDOFF_CLOUD_TOKEN` | yes (if not using `login`) | Bearer token — must equal the registry's `HANDOFF_SYNC_SECRET`. |
+| `DATABASE_URL` | **NEVER** | Workspaces are filesystem-only. Setting this would enable registry mode locally — usually not what you want. |
+
+After `handoff-app login`, the JWT in `.handoff/cli-auth.json` takes precedence
+over `HANDOFF_CLOUD_TOKEN` — you can omit the token env var if logged in.
+
+---
+
+## CLI quick reference
+
+```bash
+# Workspace dev
+handoff-app start              # local dev server on :4000, watches files
+handoff-app build:components   # rebuild all components (artifacts to dist/)
+handoff-app fetch              # pull design tokens from Figma
+
+# Auth
+handoff-app login --url https://your-registry.vercel.app
+handoff-app logout             # clears .handoff/cli-auth.json
+
+# Push / pull
+handoff-app push:all           # push everything (config, components, pages, theme, nav, tokens)
+handoff-app push --components button blog   # selective component push
+handoff-app pull               # fetch changes from registry → local files
+handoff-app sync-status        # show cursor + registry health
+
+# Diagnostics
+handoff-app sync-status        # check registry connection + cursor
 ```
 
 ---
 
-## MCP connection
+## Updating the registry
 
-With the workspace running on port 4000, add a `.claude/settings.json` to your project:
+To roll out a handoff-app fix to all clients:
 
-```json
+```bash
+# In handoff-app
+git push origin release        # → all client registries auto-deploy
+```
+
+To pin a client to a specific version:
+
+In Vercel: Project → Settings → Git → change the Production branch / tag.
+
+To migrate workspaces to a newer handoff-app CLI:
+
+```bash
+# In each workspace
+npm update handoff-app
+```
+
+---
+
+## MCP from external clients
+
+Your registry exposes an MCP server at `/api/mcp/`. To connect Claude Code or
+any MCP-compatible client to it:
+
+```jsonc
+// .claude/settings.json in your workspace
 {
   "mcpServers": {
-    "handoff": {
+    "handoff-registry": {
       "type": "http",
-      "url": "http://localhost:4000/api/mcp"
+      "url": "https://your-registry.vercel.app/api/mcp/",
+      "headers": {
+        "Authorization": "Bearer <HANDOFF_SYNC_SECRET or a CLI JWT>"
+      }
     }
   }
 }
 ```
 
-No auth token needed — workspace mode allows unauthenticated local access.  
-For a hosted registry, add `"headers": { "Authorization": "Bearer <HANDOFF_SYNC_SECRET>" }`.
-
-Run `handoff-app init:vercel` to also add a `docs/stack-guide.md` prompt for the MCP's `handoff_get_stack_guide` tool.
+The MCP exposes 20+ tools — project context, stack guide, component search,
+design tokens, design library, sync push/pull, and AI generation. See
+[`HANDOFF-MCP-RFC.md`](./HANDOFF-MCP-RFC.md) for the full tool list.
 
 ---
 
-## Known limitations
+## What changed from the old deploy model
 
-- **Push body size**: pushing >~10 components at once may hit Next.js's default body limit. Use `--components` to batch until auto-batching is shipped.
-- **Source storage**: source files (`template.hbs`, SCSS, etc.) are only stored in the registry for projects using the v2 component layout (`components/[id]/`). Legacy layout projects (`integration/components/`) push artifacts only.
+If you came from handoff-app v1 or early v2 with `prepare-runtime` /
+`vercel-build` materialization on the client project:
+
+- **You no longer deploy the client project.** The registry is deployed
+  separately as `convertiv/handoff-app`. Your client repo is workspace-only.
+- **No more `.handoff/runtime/` symlink dance.** Vercel deploys handoff-app's
+  `src/app/` directly, no per-project customization.
+- **Theme.css is pushed, not compiled in the deploy.** Compile in workspace,
+  `push:all` ships the bytes.
+- **Project metadata is pushed, not baked in.** `handoff.config.js` `app`
+  block becomes a database row via `push:all`.
+
+The old materialization commands (`prepare-runtime`, `vercel-build` on a
+client project, `materialization_layout` config) still work for legacy
+deployments but are deprecated. See task #43 / `ADR-001` for the deprecation
+timeline.
+
+See [`WORKSPACE-PACKAGE-JSON.md`](./WORKSPACE-PACKAGE-JSON.md) for guidance on
+trimming legacy deps (`next`, `react`, etc.) out of a workspace repo.
+
+---
+
+## Troubleshooting
+
+### Build fails on Vercel with "files in symlinked directories"
+
+This was a pre-ADR-001 issue. If you see it now, you're probably deploying the
+wrong repo. Confirm Vercel is pointed at `convertiv/handoff-app`, not at your
+client project repo.
+
+### `/setup` form crashes with "relation 'user' does not exist"
+
+Migrations failed. Check function logs for `[handoff] auto-migrate:` lines.
+If you see `migration failed:`, the actual SQL error follows.
+
+Manual recovery — POST `/api/admin/migrate` with bearer auth:
+
+```bash
+curl -X POST https://your-registry.vercel.app/api/admin/migrate \
+  -H "Authorization: Bearer $HANDOFF_SYNC_SECRET"
+```
+
+If migrations are corrupt mid-state, in your Postgres console:
+
+```sql
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
+```
+
+Then redeploy or hit `/api/admin/migrate` again.
+
+### `handoff-app push` returns 413 "Request Entity Too Large"
+
+The batching logic in push automatically splits large payloads. If you still
+hit this, an individual component's artifacts may exceed the per-request
+budget. Try `--metadata-only` to push the declaration without artifacts, then
+follow up with smaller selective pushes.
+
+### Registry shows the wrong project title / no theme
+
+You haven't run `push:all` yet (or the registry config push step failed).
+Re-run with `--skip-components` to push only the metadata pieces:
+
+```bash
+handoff-app push:all --skip-components --skip-pages
+```

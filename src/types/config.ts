@@ -65,19 +65,32 @@ export type RegisterHandlebarsHelpersContext = {
 
 export interface NextAppConfig {
   /**
+   * @deprecated ADR-001 (registry as service): per-project materialization is
+   * superseded by deploying convertiv/handoff-app directly as the registry.
+   * Workspaces no longer materialize+deploy a Next.js app for themselves; they
+   * push content to a hosted registry via `handoff-app push:all`. This option
+   * only affects the legacy `prepare-runtime` / `vercel-build` pipeline, which
+   * remains available for existing deployments but is slated for removal in a
+   * future major release. See docs/REGISTRY-SETUP.md.
+   *
    * Where the Next app is materialized relative to the Handoff working directory.
    * - `legacy` (default): `<workingPath>/.handoff/app`
    * - `runtime`: `<workingPath>/handoff-runtime` (stable sibling for host deploys)
    * - `root`: `<workingPath>` — use only when the repo root **is** the Next app (dedicated deploy repo)
    */
   materialization_layout?: MaterializationLayout;
+  /** @deprecated alias for `materialization_layout` */
   materializationLayout?: MaterializationLayout;
   /**
+   * @deprecated See `materialization_layout` deprecation note. Only applies to
+   * the legacy materialized deploy pipeline.
+   *
    * How Handoff updates the generated Next tree.
    * - `full` (default): always copy template from `handoff-app`
    * - `overlay`: skip full copy when `.handoff-app-bundle-version.json` matches (ignored when layout is `root`)
    */
   materialization_strategy?: MaterializationStrategy;
+  /** @deprecated alias for `materialization_strategy` */
   materializationStrategy?: MaterializationStrategy;
   theme?: string;
   title: string;

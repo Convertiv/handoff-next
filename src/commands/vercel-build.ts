@@ -2,6 +2,7 @@ import { Argv, CommandModule } from 'yargs';
 import { runNextProductionBuild } from '@handoff/app-builder/index';
 import { getEphemeralRuntimePath } from '@handoff/app-builder/paths';
 import Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
 import { SharedArgs } from '@handoff/commands/types';
 import { getSharedOptions } from '@handoff/commands/utils';
 
@@ -9,10 +10,19 @@ export interface VercelBuildArgs extends SharedArgs {
   skipComponents?: boolean;
 }
 
+const DEPRECATION_MESSAGE = `
+[DEPRECATED] vercel-build is for the legacy per-project deploy model where each
+client materialized + deployed handoff-app to Vercel themselves. Under ADR-001
+the registry is its own deployment (convertiv/handoff-app on a pinned branch),
+and workspaces push content via \`handoff-app push:all\` instead. See
+docs/REGISTRY-SETUP.md for the new flow. This command still works for legacy
+deployments and will be removed in a future major release.
+`;
+
 const command: CommandModule<{}, VercelBuildArgs> = {
   command: 'vercel-build',
   describe:
-    'Run `build:app --mode vercel` then `next build` in `.handoff/runtime` (single command for Vercel; preserves full Handoff pipeline)',
+    '[DEPRECATED] Materialize the Next.js app + run next build in .handoff/runtime (legacy per-project deploy model)',
   builder: (yargs): Argv<VercelBuildArgs> =>
     getSharedOptions(yargs).option('skip-components', {
       describe: 'Skip building components before preparing the runtime',
@@ -20,6 +30,7 @@ const command: CommandModule<{}, VercelBuildArgs> = {
       default: false,
     }) as Argv<VercelBuildArgs>,
   handler: async (args: VercelBuildArgs) => {
+    Logger.warn(DEPRECATION_MESSAGE);
     const handoff = new Handoff(args.debug, args.force);
 
     // Diagnostic: report which env vars are visible at build start (keys only,
