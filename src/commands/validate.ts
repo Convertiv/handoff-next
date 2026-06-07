@@ -77,23 +77,31 @@ const command: CommandModule<{}, ValidateArgs> = {
 
     const { runValidators } = await import('@handoff/transformers/validation/runner');
     const { readComponentApi, writeComponentApi } = await import('@handoff/transformers/preview/component/api');
+    const { closeSharedBrowser } = await import('@handoff/transformers/preview/component/playwright-shared');
 
     type PerComponent = { id: string; results: ValidatorResult[] };
     const allResults: PerComponent[] = [];
 
-    for (const id of targetIds) {
-      const data = await readComponentApi(handoff, id);
-      if (!data) {
-        Logger.warn(`Skipping "${id}": no built component data (run \`handoff-app build:components ${id}\` first).`);
-        continue;
-      }
-      const results = await runValidators(handoff, data, activeValidators);
-      allResults.push({ id, results });
+    try {
+      for (const id of targetIds) {
+        const data = await readComponentApi(handoff, id);
+        if (!data) {
+          Logger.warn(`Skipping "${id}": no built component data (run \`handoff-app build:components ${id}\` first).`);
+          continue;
+        }
+        const results = await runValidators(handoff, data, activeValidators);
+        allResults.push({ id, results });
 
-      if (args.update) {
-        data.validationResults = results;
-        await writeComponentApi(id, data, handoff, []);
+        if (args.update) {
+          data.validationResults = results;
+          await writeComponentApi(id, data, handoff, []);
+        }
       }
+    } finally {
+      // Browser-based validators lazy-launch a shared chromium. Close it here
+      // so the CLI process can exit; the launch is a no-op if no validator
+      // actually opened the browser.
+      await closeSharedBrowser();
     }
 
     if (args.json) {
