@@ -433,6 +433,26 @@ export async function processComponents(
         handoff,
         components
       );
+
+      // Generate a thumbnail screenshot of the default preview if the project
+      // hasn't supplied an explicit component image. Cached by the upstream
+      // build cache — we only enter this block when previews actually rebuilt,
+      // so unchanged components don't re-screenshot. Failures are non-fatal:
+      // the component just ships without a screenshot.
+      const screenshotMod = await import('./screenshot');
+      const screenshotResult = await screenshotMod.generateComponentScreenshot(handoff, data);
+      if (screenshotResult.ok === true) {
+        Logger.info(`Generated screenshot for component "${runtimeComponentId}"`);
+        if (!data.image) {
+          // Auto-fill the catalog image when none was set by the project — the
+          // PNG ships as part of the dist artifacts so the URL resolves both
+          // in workspace mode (disk) and registry mode (component_artifact).
+          data.image = screenshotMod.screenshotUrlFor(runtimeComponentId);
+        }
+      } else {
+        const reason = (screenshotResult as { reason?: string }).reason ?? 'unknown';
+        Logger.debug(`Screenshot skipped for "${runtimeComponentId}": ${reason}`);
+      }
     }
 
     if (runsViteBuildSteps) {
@@ -489,6 +509,15 @@ export async function processComponents(
   const isFullRebuild = !id;
   await updateComponentSummaryApi(handoff, result, isFullRebuild);
   await syncComponentArtifacts(handoff);
+
+  // Release the shared chromium process kept alive across components for
+  // screenshot generation. Idempotent — no-op if no screenshots were taken.
+  try {
+    const { closeScreenshotBrowser } = await import('./screenshot');
+    await closeScreenshotBrowser();
+  } catch {
+    // ignore — module may not be importable in restricted environments
+  }
 
   return result;
 }
