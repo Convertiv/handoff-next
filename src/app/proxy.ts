@@ -28,6 +28,7 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
     '/api/handoff/reference-materials',
     '/api/sync',
     '/api/admin/migrate', // manual migration trigger (bearer-auth'd inside the route)
+    '/api/registry',      // per-project content push/get (bearer-auth on writes)
   ];
 
   const { pathname } = request.nextUrl;

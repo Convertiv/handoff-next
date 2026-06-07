@@ -273,8 +273,52 @@ export class DynamicDataProvider implements DataProvider {
   }
 
   async getMenu(): Promise<SectionLink[]> {
+    // Prefer the DB-pushed navigation tree (ADR-001 §1+§3). Fall back to the
+    // static filesystem menu if no nav is stored yet (e.g. fresh registry
+    // pre-push, or build-phase prerender before migrations).
+    try {
+      const { getRegistryNavigation } = await import('../db/registry-queries');
+      const tree = await getRegistryNavigation();
+      if (tree && tree.length > 0) {
+        const merged = await this.getComponents();
+        return navigationTreeToSectionLinks(tree, merged);
+      }
+    } catch (err) {
+      if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
+      logDbFallback('handoff_registry_navigation', err);
+    }
+    // Fallback path — same as today
     const base = staticBuildMenu();
     const merged = await this.getComponents();
     return injectMergedComponentMenus(base, merged);
   }
+}
+
+/**
+ * Convert the DB navigation tree (typed { slug, title, type, children }) to
+ * the SectionLink[] shape the rest of the app uses. Component menus get
+ * injected for nodes flagged as the component catalog (today: nodes with
+ * slug 'system' or 'system/component'); other nodes pass through as-is.
+ */
+function navigationTreeToSectionLinks(
+  tree: { slug: string; title: string; type: string; children?: unknown[] }[],
+  components: ComponentListObject[]
+): SectionLink[] {
+  const toSection = (node: { slug: string; title: string; type: string; children?: unknown[] }): SectionLink => ({
+    title: node.title,
+    weight: 0,
+    path: node.slug.startsWith('/') ? node.slug : `/${node.slug}`,
+    subSections: Array.isArray(node.children)
+      ? (node.children as typeof tree).map((child) => ({
+          title: child.title,
+          path: child.slug.startsWith('/') ? child.slug : `/${child.slug}`,
+          image: '',
+          menu: [],
+        }))
+      : [],
+  });
+  const sections = tree.map(toSection);
+  // Inject the live component catalog into any /system section the same way
+  // staticBuildMenu+injectMergedComponentMenus does for the filesystem nav.
+  return injectMergedComponentMenus(sections, components);
 }

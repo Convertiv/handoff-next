@@ -227,11 +227,21 @@ export const figmaFetchJobs = pgTable('figma_fetch_job', {
   completedAt: timestamp('completed_at', { mode: 'date' }),
 });
 
-/** Doc page content for dynamic mode + sync (slug is path under `pages/`, e.g. `getting-started/install`). */
+/**
+ * Doc page content for dynamic mode + sync (slug is path under `pages/`, e.g. `getting-started/install`).
+ * `type` lets future page renderers handle different content forms per ADR-001 §7:
+ *   - markdown: default markdown rendering (current)
+ *   - mdx: MDX with component embeds (stage 2)
+ *   - html: workspace-rendered HTML + asset bundle (stage 3)
+ *   - plugin: dynamically loaded React bundle (stage 4)
+ * `assets` holds any per-page asset bundle (CSS, JS) keyed by filename — used by html/plugin types.
+ */
 export const handoffPages = pgTable('handoff_page', {
   slug: text('slug').primaryKey(),
+  type: text('type').notNull().default('markdown'),
   frontmatter: jsonb('frontmatter').notNull().default({}),
   markdown: text('markdown').notNull().default(''),
+  assets: jsonb('assets').notNull().default({}),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -320,4 +330,51 @@ export const componentGenerationJobs = pgTable('component_generation_job', {
   error: text('error'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
   completedAt: timestamp('completed_at', { mode: 'date' }),
+});
+
+/**
+ * Per-project registry config — singleton row (id='default' until ADR-001 §7+
+ * adds multi-tenancy). Stores project metadata that today comes from
+ * handoff.config.js at build time and gets pushed via /api/registry/config
+ * after deploy. Allows the registry Next.js app to read project title,
+ * client name, breakpoints, etc. at request time without any per-project
+ * build customization.
+ *
+ * `data` holds the full Config['app'] shape verbatim — the workspace pushes
+ * its handoff.config.js's `app` block here on push:all. Registry reads it
+ * via DynamicDataProvider.getConfig().
+ */
+export const handoffRegistryConfig = pgTable('handoff_registry_config', {
+  id: text('id').primaryKey().default('default'),
+  data: jsonb('data').notNull().default({}),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});
+
+/**
+ * Theme CSS — singleton row. Workspace compiles its theme.scss / Tailwind to
+ * a plain CSS file locally, then pushes the bytes here. Registry serves the
+ * compiled CSS at /api/registry/theme.css with cache headers, and the root
+ * layout includes it via <link rel="stylesheet">. No SCSS compilation on the
+ * registry side per ADR-001 §2.
+ */
+export const handoffRegistryTheme = pgTable('handoff_registry_theme', {
+  id: text('id').primaryKey().default('default'),
+  css: text('css').notNull().default(''),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});
+
+/**
+ * Navigation tree — singleton row. Stored as a JSON tree of:
+ *   { slug, title, type, children: [...] }
+ * where `type` is 'markdown' | 'mdx' | 'html' | 'plugin' | 'category' (ADR-001 §7).
+ * Replaces the static staticBuildMenu() filesystem reads in registry mode.
+ * Workspace pushes this tree from its derived nav structure.
+ */
+export const handoffRegistryNavigation = pgTable('handoff_registry_navigation', {
+  id: text('id').primaryKey().default('default'),
+  tree: jsonb('tree').notNull().default([]),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 });

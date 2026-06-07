@@ -1,17 +1,20 @@
 import Script from 'next/script';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
-import { getClientRuntimeConfig } from '../components/util';
 import { auth } from '../lib/auth';
 import { getDataProvider } from '../lib/data';
 import { usePostgres } from '../lib/db/dialect';
 import { getHandoffCapabilities, probeRemoteHandoffReachable } from '../lib/handoff-capabilities';
+import { getMergedRuntimeConfig } from '../lib/server/runtime-config';
 import Providers from './providers';
 import '../css/index.css';
 import '../css/theme.css';
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const config = getClientRuntimeConfig();
+  // Resolve runtime config (per-project metadata). Workspace mode reads from
+  // filesystem; registry mode reads from handoff_registry_config and merges
+  // over the static defaults. See ADR-001 §1.
+  const config = await getMergedRuntimeConfig();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const authEnabled = usePostgres();
 
@@ -42,6 +45,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         <link rel="shortcut icon" href={`${basePath}/favicon.ico`} />
         <link rel="icon" sizes="16x16 32x32 64x64" href={`${basePath}/favicon.ico`} />
+        {/*
+          Registry mode: layer the DB-pushed theme CSS over the bundled defaults.
+          Workspace mode: this 404s harmlessly (no DB) and the browser ignores it.
+          ADR-001 §2 — theme is compiled in the workspace and pushed as bytes.
+        */}
+        {authEnabled && <link rel="stylesheet" href={`${basePath}/api/registry/theme.css`} />}
         {config?.app?.google_tag_manager && (
           <Script id="google-tag-manager" strategy="afterInteractive">
             {`
