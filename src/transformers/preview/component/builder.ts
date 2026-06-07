@@ -461,12 +461,42 @@ export async function processComponents(
     }
 
     /**
-     * Run validation if explicitly requested and a hook is configured.
-     * This allows custom logic to assess the validity of the generated component data.
+     * Legacy single-hook validation (back-compat for projects on the old
+     * `hooks.validateComponent` API). Populates `data.validations` as a
+     * Record<category, ValidationResult>. Deprecated in favor of the new
+     * validation framework — see below.
      */
     if (buildPlan.validationMode && handoff.config?.hooks?.validateComponent) {
       const validationResults = await handoff.config.hooks.validateComponent(data);
       data.validations = validationResults;
+    }
+
+    /**
+     * New validation framework (ADR-002). Runs when:
+     *  - previews were built this pass (so preview HTML / screenshot exist), OR
+     *  - we're explicitly in validation mode
+     * AND the project has configured `config.validation.validators`. Results
+     * attach to `data.validationResults` as ValidatorResult[] — separate from
+     * the legacy `data.validations` field so back-compat is preserved.
+     */
+    const validationCfg = (handoff.config as { validation?: { validators?: unknown[] } })?.validation;
+    const configuredValidators = Array.isArray(validationCfg?.validators) ? validationCfg.validators : [];
+    if ((buildPlan.previews || buildPlan.validationMode) && configuredValidators.length > 0) {
+      const { runValidators } = await import('@handoff/transformers/validation/runner');
+      try {
+        const results = await runValidators(handoff, data, configuredValidators as never);
+        data.validationResults = results;
+        const failed = results.filter((r) => r.severity === 'error').length;
+        const warned = results.filter((r) => r.severity === 'warning').length;
+        if (failed || warned) {
+          Logger.info(
+            `Validation for "${runtimeComponentId}": ${failed} error, ${warned} warning across ${results.length} validator(s)`
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        Logger.warn(`Validation runner failed for "${runtimeComponentId}": ${msg}`);
+      }
     }
 
     // Ensure that every property within the properties array/object contains an 'id' field.

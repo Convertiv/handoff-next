@@ -22,6 +22,7 @@ import scaffoldCommand from './scaffold/index.js';
 import startCommand from './start/index.js';
 import syncStatusCommand from './sync-status.js';
 import validateComponentsCommand from './validate/components.js';
+import validateCommand from './validate.js';
 
 export const commands = [
   auditFigmaComponentsCommand,
@@ -48,4 +49,5 @@ export const commands = [
   startCommand,
   syncStatusCommand,
   validateComponentsCommand,
+  validateCommand,
 ];

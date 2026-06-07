@@ -196,7 +196,19 @@ export type TransformComponentTokensResult = {
       groupBy?: string;
     };
   };
+  /**
+   * Legacy single-hook validations keyed by category. Populated by the
+   * deprecated `hooks.validateComponent` config hook.
+   * @deprecated Use `validationResults` (the new validation framework from
+   * ADR-002 / config.validation). Kept for backward compatibility.
+   */
   validations?: Record<string, ValidationResult>;
+  /**
+   * Results from the validation framework (ADR-002). One entry per configured
+   * validator. Carries severity, findings with target selectors and help URLs.
+   * Empty array when no validators are configured.
+   */
+  validationResults?: import('@handoff/types/validation.js').ValidatorResult[];
   page?: ComponentPageDefinition;
   docgen?: GeneratedDocs;
 } | null;

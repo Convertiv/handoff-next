@@ -157,6 +157,25 @@ export interface Config {
   };
   app?: NextAppConfig;
   /**
+   * Component validation framework (ADR-002). List of validators to run on
+   * each component during build. Mix of built-in factories (axe, schema,
+   * contrast) and inline custom validators.
+   *
+   * ```ts
+   * import { axe, schema, contrast } from 'handoff-app/validators';
+   * module.exports = {
+   *   validation: {
+   *     validators: [axe({ spec: 'wcag21aa' }), schema(), contrast()],
+   *     failOn: 'error',
+   *   },
+   * };
+   * ```
+   *
+   * Supersedes the single-slot `hooks.validateComponent` (which still works
+   * for back-compat but is deprecated).
+   */
+  validation?: import('./validation.js').ValidationConfig;
+  /**
    * Configuration for the build pipeline
    */
   pipeline?: PipelineConfig;
@@ -211,24 +230,17 @@ export interface Config {
    */
   hooks?: {
     /**
+     * @deprecated Use the new validation framework (ADR-002) — declare
+     * validators in `config.validation.validators[]` instead. Custom
+     * validators implement the {@link Validator} interface and can return
+     * structured findings with severity, target selectors, and help URLs.
+     * This single-slot hook continues to work for back-compat and is
+     * automatically adapted into a custom validator under the hood, but new
+     * projects should use `config.validation`.
+     *
      * Optional validation callback for components
      * @param component - The component instance to validate
      * @returns A record of validation results where keys are validation types and values are detailed validation results
-     * @example
-     * ```typescript
-     * validateComponent: async (component) => ({
-     *   a11y: {
-     *     description: 'Accessibility validation check',
-     *     passed: true,
-     *     messages: ['No accessibility issues found']
-     *   },
-     *   responsive: {
-     *     description: 'Responsive design validation',
-     *     passed: false,
-     *     messages: ['Component breaks at mobile breakpoint']
-     *   }
-     * })
-     * ```
      */
     validateComponent?: (component: TransformComponentTokensResult) => Promise<Record<string, ValidationResult>>;
 
