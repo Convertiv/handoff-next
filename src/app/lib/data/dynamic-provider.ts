@@ -273,52 +273,91 @@ export class DynamicDataProvider implements DataProvider {
   }
 
   async getMenu(): Promise<SectionLink[]> {
-    // Prefer the DB-pushed navigation tree (ADR-001 §1+§3). Fall back to the
-    // static filesystem menu if no nav is stored yet (e.g. fresh registry
-    // pre-push, or build-phase prerender before migrations).
+    // Menu has two layers:
+    //   1. Structural: System (component catalog), Foundations (tokens), etc.
+    //      These come from handoff-app's bundled config/docs and are ALWAYS
+    //      present — they're how users navigate the registry UI.
+    //   2. Project content: workspace's pages/ (guidelines, getting started, etc.)
+    //      In registry mode these are pushed to handoff_registry_navigation
+    //      and merged on top of the structural skeleton.
+    //
+    // The bug we hit (#47): treating DB nav as a complete replacement made
+    // System+Foundations disappear in registry mode when push:all included
+    // a DB nav. Fix: always start with staticBuildMenu() as the skeleton,
+    // then merge in DB project pages by slug.
+    const base = staticBuildMenu();
+    const merged = await this.getComponents();
+    const skeleton = injectMergedComponentMenus(base, merged);
+
+    let dbTree: { slug: string; title: string; type: string; children?: unknown[] }[] | null = null;
     try {
       const { getRegistryNavigation } = await import('../db/registry-queries');
-      const tree = await getRegistryNavigation();
-      if (tree && tree.length > 0) {
-        const merged = await this.getComponents();
-        return navigationTreeToSectionLinks(tree, merged);
-      }
+      dbTree = await getRegistryNavigation();
     } catch (err) {
       if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
       logDbFallback('handoff_registry_navigation', err);
     }
-    // Fallback path — same as today
-    const base = staticBuildMenu();
-    const merged = await this.getComponents();
-    return injectMergedComponentMenus(base, merged);
+
+    if (!dbTree || dbTree.length === 0) {
+      return skeleton;
+    }
+
+    // Merge DB nodes on top of the skeleton, indexed by top-level slug.
+    // - Match existing skeleton section by slug → DB section's children REPLACE
+    //   its subSections (so projects can customize what's under /guidelines, etc.)
+    // - DB section with no skeleton match → APPEND as a new section
+    return mergeDbNavIntoSkeleton(skeleton, dbTree);
   }
 }
 
 /**
- * Convert the DB navigation tree (typed { slug, title, type, children }) to
- * the SectionLink[] shape the rest of the app uses. Component menus get
- * injected for nodes flagged as the component catalog (today: nodes with
- * slug 'system' or 'system/component'); other nodes pass through as-is.
+ * Merge DB-pushed navigation nodes into a structural skeleton. DB nodes match
+ * skeleton sections by slug; matching ones override subSections, new ones get
+ * appended. Skeleton sections without a DB counterpart (System, Foundations,
+ * etc.) are preserved unchanged.
  */
-function navigationTreeToSectionLinks(
-  tree: { slug: string; title: string; type: string; children?: unknown[] }[],
-  components: ComponentListObject[]
+function mergeDbNavIntoSkeleton(
+  skeleton: SectionLink[],
+  dbTree: { slug: string; title: string; type: string; children?: unknown[] }[]
 ): SectionLink[] {
-  const toSection = (node: { slug: string; title: string; type: string; children?: unknown[] }): SectionLink => ({
-    title: node.title,
-    weight: 0,
-    path: node.slug.startsWith('/') ? node.slug : `/${node.slug}`,
-    subSections: Array.isArray(node.children)
-      ? (node.children as typeof tree).map((child) => ({
-          title: child.title,
-          path: child.slug.startsWith('/') ? child.slug : `/${child.slug}`,
-          image: '',
-          menu: [],
-        }))
-      : [],
+  const normalize = (s: string) => (s.startsWith('/') ? s : `/${s}`);
+  const dbBySlug = new Map(dbTree.map((n) => [normalize(n.slug), n]));
+  const skeletonBySlug = new Set(skeleton.map((s) => s.path));
+
+  // Override skeleton sections that the DB tree provides explicit content for
+  const merged: SectionLink[] = skeleton.map((section) => {
+    const dbNode = dbBySlug.get(section.path);
+    if (!dbNode || !Array.isArray(dbNode.children)) return section;
+    return {
+      ...section,
+      title: dbNode.title || section.title,
+      subSections: (dbNode.children as typeof dbTree).map((child) => ({
+        title: child.title,
+        path: normalize(child.slug),
+        image: '',
+        menu: [],
+      })),
+    };
   });
-  const sections = tree.map(toSection);
-  // Inject the live component catalog into any /system section the same way
-  // staticBuildMenu+injectMergedComponentMenus does for the filesystem nav.
-  return injectMergedComponentMenus(sections, components);
+
+  // Append DB sections that didn't match anything in the skeleton
+  for (const node of dbTree) {
+    const slug = normalize(node.slug);
+    if (skeletonBySlug.has(slug)) continue;
+    merged.push({
+      title: node.title,
+      weight: 0,
+      path: slug,
+      subSections: Array.isArray(node.children)
+        ? (node.children as typeof dbTree).map((child) => ({
+            title: child.title,
+            path: normalize(child.slug),
+            image: '',
+            menu: [],
+          }))
+        : [],
+    });
+  }
+
+  return merged;
 }
