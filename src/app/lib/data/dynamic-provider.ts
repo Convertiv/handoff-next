@@ -14,6 +14,7 @@ import { handoffComponents, handoffPatterns } from '../db/schema';
 import { getDbComponents, getDbPatterns, getDbTokensSnapshot } from '../db/queries';
 import type { DataProvider, DocPageContent } from './types';
 import { StaticDataProvider } from './static-provider';
+import { mergeDbNavIntoSkeleton, shapeComponentCatalogSubSections } from './menu-merge';
 
 type HandoffComponentRow = InferSelectModel<typeof handoffComponents>;
 type HandoffPatternRow = InferSelectModel<typeof handoffPatterns>;
@@ -108,42 +109,11 @@ function looksLikeComponentCatalogSubSections(sub: SectionLink['subSections']): 
 
 function injectMergedComponentMenus(menu: SectionLink[], merged: ComponentListObject[]): SectionLink[] {
   const summaries = mergedComponentsToMenuSummaries(merged);
-  // When `type === true`, this returns a 2-level structure:
-  //   [{ title: 'Elements', menu: [{ title: 'Group', menu: [{ path, title }] }] }, ...]
-  // Type-cast in source was a lie — items inside `block.menu` are GROUPS that
-  // themselves contain the actual leaf links, not leaves. Flattening them to
-  // `{ title, path, image }` drops `item.path` (undefined for groups) AND
-  // drops their nested leaves, producing rendered links with `href={undefined}`
-  // that crash Next.js URL parsing.
-  type RebuiltLeaf = { path: string; title: string };
-  type RebuiltGroup = { title: string; menu: RebuiltLeaf[] };
-  type RebuiltBlock = { title: string; menu: RebuiltGroup[] };
-  const rebuilt = buildComponentSubmenusFromSummaries(summaries, true) as RebuiltBlock[];
-
-  // Casting to SectionLink['subSections'] would be a lie — the runtime SideNav
-  // walks `menu` arbitrarily deep via MenuItem → CollapsibleMenuItem recursion,
-  // and the existing workspace path emits this same nested shape (see
-  // staticBuildMenu's `sub.components` branch). The static type is too narrow;
-  // keep the shape that actually renders.
-  const asSubSections = rebuilt.map((block) => ({
-    title: block.title,
-    path: '',
-    image: '',
-    menu: block.menu
-      .filter((group) => Array.isArray(group?.menu))
-      .map((group) => ({
-        title: group.title,
-        path: '',
-        image: '',
-        menu: group.menu
-          .filter((leaf) => typeof leaf?.path === 'string' && leaf.path.length > 0)
-          .map((leaf) => ({
-            title: leaf.title,
-            path: leaf.path,
-            image: '',
-          })),
-      })),
-  })) as unknown as SectionLink['subSections'];
+  const rebuilt = buildComponentSubmenusFromSummaries(summaries, true);
+  // Shape is enforced + tested in `./menu-merge.ts` so the bad-paths bug that
+  // brought down the registry (Next/Link splitting undefined hrefs) can't
+  // come back without a failing test.
+  const asSubSections = shapeComponentCatalogSubSections(rebuilt);
 
   const hasComponents = asSubSections.some((s) => s.menu && s.menu.length > 0);
   let foundSystem = false;
@@ -360,6 +330,10 @@ export class DynamicDataProvider implements DataProvider {
 }
 
 /**
+ * Implementation moved to `./menu-merge.ts` so its pure shape is unit-tested
+ * (test/menu-merge.test.ts). The notes below describe the contract the
+ * runtime relies on.
+ *
  * Merge DB-pushed navigation nodes into a structural skeleton.
  *
  * Defensive rules — these matter because pushed nav from older clients or
@@ -381,95 +355,3 @@ export class DynamicDataProvider implements DataProvider {
  *     entirely.
  *  5. DB sections with slugs not in skeleton are appended.
  */
-function mergeDbNavIntoSkeleton(
-  skeleton: SectionLink[],
-  dbTree: { slug: string; title: string; type: string; children?: unknown[] }[]
-): SectionLink[] {
-  type DbNode = { slug: string; title: string; type: string; children?: unknown[] };
-
-  const normalize = (s: string): string => {
-    if (!s) return '/';
-    const trimmed = s.trim().toLowerCase();
-    const withLeading = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-    return withLeading.length > 1 ? withLeading.replace(/\/+$/, '') : withLeading;
-  };
-
-  /** Collapse duplicate slugs in a flat list. Category wins over leaf;
-   *  children from later duplicates are recursively merged in. */
-  const dedupeBySlug = (nodes: DbNode[]): DbNode[] => {
-    const order: string[] = [];
-    const bySlug = new Map<string, DbNode>();
-    for (const raw of nodes) {
-      const slug = normalize(raw.slug);
-      const childrenIn = Array.isArray(raw.children) ? (raw.children as DbNode[]) : undefined;
-      const existing = bySlug.get(slug);
-      if (!existing) {
-        order.push(slug);
-        bySlug.set(slug, {
-          ...raw,
-          slug,
-          children: childrenIn ? dedupeBySlug(childrenIn) : undefined,
-        });
-        continue;
-      }
-      // Merge: prefer the entry with children, union children if both have any.
-      const existingChildren = Array.isArray(existing.children) ? (existing.children as DbNode[]) : [];
-      const mergedChildren = dedupeBySlug([...existingChildren, ...(childrenIn ?? [])]);
-      bySlug.set(slug, {
-        ...existing,
-        title: existing.title || raw.title,
-        type: existingChildren.length > 0 || (childrenIn?.length ?? 0) > 0 ? 'category' : existing.type,
-        children: mergedChildren.length > 0 ? mergedChildren : undefined,
-      });
-    }
-    return order.map((s) => bySlug.get(s)!);
-  };
-
-  const cleanTree = dedupeBySlug(dbTree as DbNode[]);
-  const dbBySlug = new Map(cleanTree.map((n) => [normalize(n.slug), n]));
-  const skeletonBySlug = new Set(skeleton.map((s) => normalize(s.path)));
-
-  const childToSubSection = (child: DbNode) => ({
-    title: child.title,
-    path: normalize(child.slug),
-    image: '',
-    menu: [],
-  });
-
-  // Step 1: walk the skeleton, merging DB children into matching sections by path.
-  const merged: SectionLink[] = skeleton.map((section) => {
-    const dbNode = dbBySlug.get(normalize(section.path));
-    const dbChildren = Array.isArray(dbNode?.children) ? (dbNode!.children as DbNode[]) : [];
-    if (dbChildren.length === 0) return section;
-
-    // Index skeleton subSections by normalized path so DB children with the
-    // same slug update titles but DON'T duplicate the entry.
-    const existing = section.subSections ?? [];
-    const seen = new Set(existing.map((s) => normalize(s.path ?? '')));
-    const additions = dbChildren
-      .filter((c) => !seen.has(normalize(c.slug)))
-      .map(childToSubSection);
-
-    return {
-      ...section,
-      title: dbNode?.title || section.title,
-      subSections: [...existing, ...additions],
-    };
-  });
-
-  // Step 2: append DB sections that weren't already in the skeleton.
-  for (const node of cleanTree) {
-    const slug = normalize(node.slug);
-    if (skeletonBySlug.has(slug)) continue;
-    merged.push({
-      title: node.title,
-      weight: 0,
-      path: slug,
-      subSections: Array.isArray(node.children)
-        ? (node.children as DbNode[]).map(childToSubSection)
-        : [],
-    });
-  }
-
-  return merged;
-}
