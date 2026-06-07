@@ -308,7 +308,7 @@ export class DynamicDataProvider implements DataProvider {
     const merged = await this.getComponents();
     const skeleton = injectMergedComponentMenus(base, merged);
 
-    let dbTree: { slug: string; title: string; type: string; children?: unknown[] }[] | null = null;
+    let dbTree: import('./menu-merge').DbNavNode[] | null = null;
     try {
       const { getRegistryNavigation } = await import('../db/registry-queries');
       dbTree = await getRegistryNavigation();

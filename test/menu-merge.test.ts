@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
 import {
+  coerceDefinitionToSubSections,
   collectRenderedPaths,
   dedupeDbNavBySlug,
   mergeDbNavIntoSkeleton,
@@ -269,6 +270,99 @@ describe('shapeComponentCatalogSubSections', () => {
       assert.strictEqual(typeof p, 'string', `bad item leaked through: ${JSON.stringify(p)}`);
     }
     assert.ok(paths.includes('/system/component/button'));
+  });
+});
+
+describe('coerceDefinitionToSubSections (frontmatter menu honor)', () => {
+  // The SSC foundations.md `menu:` frontmatter shape: an array of groups, each
+  // with a title and a `menu` of leaves; leaves may have nested `menu`.
+  // Registry-side sidebar must render exactly this — group labels + nested
+  // children — instead of falling back to a flat auto-walked list.
+  const sscFoundations = [
+    {
+      title: 'Getting Started',
+      menu: [{ path: 'foundations', title: 'Foundations', icon: 'square-chart-gantt' }],
+    },
+    {
+      title: 'Foundations',
+      menu: [
+        {
+          path: 'foundations/logo',
+          title: 'Logo',
+          icon: 'hexagon',
+          menu: [
+            { path: 'foundations/logo', title: 'Overview' },
+            { path: 'foundations/logo-resources', title: 'Resources' },
+          ],
+        },
+        { path: 'foundations/grid', title: 'Grid', icon: 'grid' },
+      ],
+    },
+  ];
+
+  it('preserves group labels (no path) and nested children verbatim', () => {
+    const out = coerceDefinitionToSubSections(sscFoundations);
+    assert.strictEqual(out.length, 2);
+    assert.strictEqual(out[0].title, 'Getting Started');
+    assert.strictEqual(out[0].path, ''); // groups have no path → render as label
+    const groupMenu = out[0].menu!;
+    assert.strictEqual(groupMenu.length, 1);
+    assert.strictEqual(groupMenu[0].path, '/foundations'); // leading slash added
+    const nestedLogo = out[1].menu!.find((m) => m.title === 'Logo')!;
+    assert.ok(Array.isArray((nestedLogo as { menu?: unknown[] }).menu));
+    assert.strictEqual(((nestedLogo as { menu: { path: string }[] }).menu)[1].path, '/foundations/logo-resources');
+  });
+
+  it('drops malformed entries instead of crashing the renderer', () => {
+    const messy = [
+      'not an object',
+      null,
+      { title: 'Group', menu: [
+        { path: 'x', title: 'Leaf' },
+        { path: 123, title: 'Bad path' },  // non-string path → coerced/dropped
+        null,
+      ]},
+    ];
+    const out = coerceDefinitionToSubSections(messy);
+    const paths = collectRenderedPaths([{ title: 'X', weight: 0, path: '/x', subSections: out }] as never);
+    for (const p of paths) assert.strictEqual(typeof p, 'string');
+  });
+
+  it('merge prefers frontmatter definition over auto-walked children', () => {
+    const skeleton: SectionLink[] = [
+      { title: 'Foundations', weight: 0, path: '/foundations', subSections: [] },
+    ];
+    const dbTree: DbNavNode[] = [{
+      slug: 'foundations',
+      type: 'category',
+      title: 'Foundations',
+      definition: sscFoundations,
+      // Also has auto-walked children — should be IGNORED in favor of definition.
+      children: [{ slug: 'foundations/should-not-appear', type: 'markdown', title: 'Should Not Appear' }],
+    }];
+    const merged = mergeDbNavIntoSkeleton(skeleton, dbTree);
+    const f = merged.find((s) => s.path === '/foundations')!;
+    const titles = f.subSections.map((s) => s.title);
+    assert.deepStrictEqual(titles, ['Getting Started', 'Foundations']);
+    // The auto-walked path should NOT show up anywhere.
+    const renderedPaths = collectRenderedPaths(merged).filter((p): p is string => typeof p === 'string');
+    assert.ok(!renderedPaths.includes('/foundations/should-not-appear'));
+  });
+
+  it('falls back to children when no frontmatter definition is pushed', () => {
+    const skeleton: SectionLink[] = [
+      { title: 'Foundations', weight: 0, path: '/foundations', subSections: [] },
+    ];
+    const dbTree: DbNavNode[] = [{
+      slug: 'foundations',
+      type: 'category',
+      title: 'Foundations',
+      children: [{ slug: 'foundations/colors', type: 'markdown', title: 'Colors' }],
+    }];
+    const merged = mergeDbNavIntoSkeleton(skeleton, dbTree);
+    const f = merged.find((s) => s.path === '/foundations')!;
+    assert.strictEqual(f.subSections.length, 1);
+    assert.strictEqual(f.subSections[0].path, '/foundations/colors');
   });
 });
 

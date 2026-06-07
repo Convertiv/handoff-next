@@ -61,6 +61,16 @@ export type NavigationNode = {
   /** 'markdown' | 'mdx' | 'html' | 'plugin' | 'category' — see ADR-001 §7 */
   type: string;
   children?: NavigationNode[];
+  /**
+   * Optional sidebar definition lifted from the page's frontmatter `menu:`
+   * key during push. The registry uses this verbatim (after coercion) as the
+   * section's subSections — preserves group labels, icons, and nested
+   * children that the auto-walked tree can't infer. Stored as `unknown`
+   * because shape is project-authored YAML.
+   */
+  definition?: unknown;
+  icon?: string;
+  weight?: number;
 };
 
 export async function getRegistryNavigation(): Promise<NavigationNode[] | null> {

@@ -20,6 +20,15 @@ export type DbNavNode = {
   title: string;
   type: string;
   children?: unknown[];
+  /**
+   * Optional explicit sidebar definition, pushed from the page's frontmatter
+   * `menu:` key. When present, the runtime uses it verbatim as subSections
+   * (preserves group labels, icons, nested children). When absent, falls back
+   * to `children`.
+   */
+  definition?: unknown;
+  icon?: string;
+  weight?: number;
 };
 
 /** Normalize a slug or path to a canonical comparable form. */
@@ -65,6 +74,34 @@ export function dedupeDbNavBySlug(nodes: DbNavNode[]): DbNavNode[] {
 }
 
 /**
+ * Coerce a value into the SectionLink subSections shape. Used to turn a
+ * pushed frontmatter `menu:` payload (raw user-authored YAML) into a tree the
+ * registry SideNav can render. Filters anything that would crash the renderer
+ * (non-string paths, missing titles).
+ */
+export function coerceDefinitionToSubSections(def: unknown): SectionLink['subSections'] {
+  if (!Array.isArray(def)) return [];
+  const visitLeaf = (node: unknown): unknown => {
+    if (!node || typeof node !== 'object') return null;
+    const n = node as { title?: unknown; path?: unknown; icon?: unknown; menu?: unknown; external?: unknown };
+    const title = typeof n.title === 'string' ? n.title : '';
+    const rawPath = typeof n.path === 'string' ? n.path : '';
+    const path = rawPath === '' ? '' : rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
+    const out: Record<string, unknown> = { title, path, image: '' };
+    if (typeof n.icon === 'string') out.icon = n.icon;
+    if (typeof n.external === 'string' || typeof n.external === 'boolean') out.external = n.external;
+    if (Array.isArray(n.menu)) {
+      const nested = n.menu.map(visitLeaf).filter((x): x is Record<string, unknown> => x !== null);
+      if (nested.length > 0) out.menu = nested;
+    }
+    return out;
+  };
+  return def
+    .map(visitLeaf)
+    .filter((x): x is Record<string, unknown> => x !== null) as unknown as SectionLink['subSections'];
+}
+
+/**
  * Merge DB-pushed navigation nodes into a structural skeleton.
  *  - Skeleton sections without a DB counterpart are preserved.
  *  - DB children for an existing section are MERGED into its subSections by
@@ -86,9 +123,31 @@ export function mergeDbNavIntoSkeleton(
     menu: [],
   });
 
+  const subSectionsForNode = (node: DbNavNode): SectionLink['subSections'] => {
+    // Explicit frontmatter definition wins — it's authored by the project and
+    // carries group labels + icons the auto-walked tree can't infer.
+    if (node.definition !== undefined && node.definition !== null) {
+      const coerced = coerceDefinitionToSubSections(node.definition);
+      if (coerced.length > 0) return coerced;
+    }
+    if (Array.isArray(node.children)) {
+      return (node.children as DbNavNode[]).map(childToSubSection);
+    }
+    return [];
+  };
+
   const merged: SectionLink[] = skeleton.map((section) => {
     const dbNode = dbBySlug.get(normalizeNavPath(section.path));
-    const dbChildren = Array.isArray(dbNode?.children) ? (dbNode!.children as DbNavNode[]) : [];
+    if (!dbNode) return section;
+    // If the project pushed an explicit definition for this section, it wins
+    // over the skeleton's auto-derived subSections.
+    if (dbNode.definition !== undefined && dbNode.definition !== null) {
+      const coerced = coerceDefinitionToSubSections(dbNode.definition);
+      if (coerced.length > 0) {
+        return { ...section, title: dbNode.title || section.title, subSections: coerced };
+      }
+    }
+    const dbChildren = Array.isArray(dbNode.children) ? (dbNode.children as DbNavNode[]) : [];
     if (dbChildren.length === 0) return section;
     const existing = section.subSections ?? [];
     const seen = new Set(existing.map((s) => normalizeNavPath(s.path ?? '')));
@@ -97,7 +156,7 @@ export function mergeDbNavIntoSkeleton(
       .map(childToSubSection);
     return {
       ...section,
-      title: dbNode?.title || section.title,
+      title: dbNode.title || section.title,
       subSections: [...existing, ...additions],
     };
   });
@@ -107,11 +166,9 @@ export function mergeDbNavIntoSkeleton(
     if (skeletonBySlug.has(slug)) continue;
     merged.push({
       title: node.title,
-      weight: 0,
+      weight: node.weight ?? 0,
       path: slug,
-      subSections: Array.isArray(node.children)
-        ? (node.children as DbNavNode[]).map(childToSubSection)
-        : [],
+      subSections: subSectionsForNode(node),
     });
   }
 
