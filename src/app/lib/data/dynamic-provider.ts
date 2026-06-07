@@ -108,17 +108,42 @@ function looksLikeComponentCatalogSubSections(sub: SectionLink['subSections']): 
 
 function injectMergedComponentMenus(menu: SectionLink[], merged: ComponentListObject[]): SectionLink[] {
   const summaries = mergedComponentsToMenuSummaries(merged);
-  const rebuilt = buildComponentSubmenusFromSummaries(summaries, true) as Array<{ title: string; menu: { path: string; title: string }[] }>;
-  const asSubSections: SectionLink['subSections'] = rebuilt.map((block) => ({
+  // When `type === true`, this returns a 2-level structure:
+  //   [{ title: 'Elements', menu: [{ title: 'Group', menu: [{ path, title }] }] }, ...]
+  // Type-cast in source was a lie — items inside `block.menu` are GROUPS that
+  // themselves contain the actual leaf links, not leaves. Flattening them to
+  // `{ title, path, image }` drops `item.path` (undefined for groups) AND
+  // drops their nested leaves, producing rendered links with `href={undefined}`
+  // that crash Next.js URL parsing.
+  type RebuiltLeaf = { path: string; title: string };
+  type RebuiltGroup = { title: string; menu: RebuiltLeaf[] };
+  type RebuiltBlock = { title: string; menu: RebuiltGroup[] };
+  const rebuilt = buildComponentSubmenusFromSummaries(summaries, true) as RebuiltBlock[];
+
+  // Casting to SectionLink['subSections'] would be a lie — the runtime SideNav
+  // walks `menu` arbitrarily deep via MenuItem → CollapsibleMenuItem recursion,
+  // and the existing workspace path emits this same nested shape (see
+  // staticBuildMenu's `sub.components` branch). The static type is too narrow;
+  // keep the shape that actually renders.
+  const asSubSections = rebuilt.map((block) => ({
     title: block.title,
     path: '',
     image: '',
-    menu: block.menu.map((item) => ({
-      title: item.title,
-      path: item.path,
-      image: '',
-    })),
-  }));
+    menu: block.menu
+      .filter((group) => Array.isArray(group?.menu))
+      .map((group) => ({
+        title: group.title,
+        path: '',
+        image: '',
+        menu: group.menu
+          .filter((leaf) => typeof leaf?.path === 'string' && leaf.path.length > 0)
+          .map((leaf) => ({
+            title: leaf.title,
+            path: leaf.path,
+            image: '',
+          })),
+      })),
+  })) as unknown as SectionLink['subSections'];
 
   const hasComponents = asSubSections.some((s) => s.menu && s.menu.length > 0);
   let foundSystem = false;

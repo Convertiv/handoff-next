@@ -5,15 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export const trimSlashes = (input: string): string => {
+export const trimSlashes = (input: string | null | undefined): string => {
+  if (typeof input !== 'string') return '';
   return input.replace(/^\/+|\/+$/g, '');
 };
 
-export const toAbsolutePath = (input: string): string => {
+export const toAbsolutePath = (input: string | null | undefined): string => {
   return `/${trimSlashes(input)}`;
 };
 
-export const normalizePathForMatch = (input: string): string => {
+export const normalizePathForMatch = (input: string | null | undefined): string => {
+  if (typeof input !== 'string') return '';
   const [pathname] = input.split(/[?#]/);
   return trimSlashes(pathname);
 };
