@@ -91,26 +91,56 @@ export async function autoMigrate(): Promise<void> {
   const { migrate } = await import('drizzle-orm/postgres-js/migrator');
   const postgres = (await import('postgres')).default;
 
+  // Vercel Postgres / Neon / Supabase poolers all require SSL. postgres-js
+  // honors `sslmode=require` URL params, but be explicit here too.
+  const isPooler = /-pooler\.|pooler\.|neon\.tech/i.test(url);
+  console.log(`[handoff] auto-migrate: connecting (pooler=${isPooler})…`);
+
   const client = postgres(url, {
     max: 1,
-    connect_timeout: 10,
+    connect_timeout: 15,
     idle_timeout: 5,
+    prepare: !isPooler, // Neon pooler can't use prepared statements
+    ssl: 'require',
     onnotice: () => {},
   });
 
   try {
+    // Set timeouts on this session so a stuck advisory lock or hung query
+    // fails fast instead of silently consuming the lambda's execution budget.
+    await client`SET lock_timeout = '30s'`;
+    await client`SET statement_timeout = '120s'`;
+    console.log('[handoff] auto-migrate: session timeouts set, starting migrate()…');
+
     const db = drizzle(client);
-    await migrate(db, { migrationsFolder });
+
+    // Hard wrap the migrate() call with a timeout. Vercel lambda timeouts
+    // (10s Hobby / 60s Pro default) can kill us mid-migration; better to fail
+    // explicitly with a clear log than silently disappear.
+    const MIGRATE_TIMEOUT_MS = 90_000;
+    await Promise.race([
+      migrate(db, { migrationsFolder }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`migrate() exceeded ${MIGRATE_TIMEOUT_MS}ms timeout`)), MIGRATE_TIMEOUT_MS)
+      ),
+    ]);
+
     console.log('[handoff] auto-migrate: database schema is up to date.');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!msg.includes('no migrations')) {
       console.error('[handoff] auto-migrate: migration failed:', msg);
-      // Do NOT re-throw — failing the entire process makes Vercel cold starts
-      // permanently fail. Surface the error in logs instead; routes will 500
-      // with clearer errors when they try to query missing tables.
+      if (err instanceof Error && err.stack) {
+        console.error('[handoff] auto-migrate: stack:', err.stack);
+      }
+      // Re-throw so the memoized ensureMigrationsApplied() promise rejects and
+      // can be retried by a subsequent call. The /setup action will surface
+      // this to the user.
+      throw err;
     }
   } finally {
-    await client.end({ timeout: 0 }).catch(() => {});
+    await client.end({ timeout: 5 }).catch((e) => {
+      console.warn('[handoff] auto-migrate: client.end() failed:', e instanceof Error ? e.message : String(e));
+    });
   }
 }
