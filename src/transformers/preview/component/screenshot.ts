@@ -81,4 +81,15 @@ export function screenshotUrlFor(componentId: string): string {
   return `${base}/api/component/${componentId}/${SCREENSHOT_FILENAME}`;
 }
 
+/** Returns the absolute disk path where the screenshot would live for a
+ *  component, regardless of whether it currently exists. */
+export function screenshotDiskPathFor(handoff: Handoff, componentId: string): string {
+  return path.join(getComponentDistPath(handoff, componentId), SCREENSHOT_FILENAME);
+}
+
+/** True when the screenshot.png already exists on disk for this component. */
+export function screenshotExists(handoff: Handoff, componentId: string): boolean {
+  return fs.existsSync(screenshotDiskPathFor(handoff, componentId));
+}
+
 void getAPIPath;

@@ -148,12 +148,20 @@ export function coerceDefinitionToSubSections(
       if (n.components === true) {
         return groups.map((g) => ({ title: g.title, path: '', image: '', menu: g.menu.map((m) => ({ ...m, image: '' })) }));
       }
-      // `components: '<type>'` → one wrapping group titled by the YAML `title:`
+      // `components: '<type>'` → one wrapping group titled by the YAML `title:`.
+      // Preserve the inner group structure (Inputs / Forms / etc.) so the
+      // sidebar renders Atoms → Inputs → Button rather than flattening to
+      // Atoms → Button. CollapsibleMenuItem handles the nested menu.
       return [{
         title: typeof n.title === 'string' ? n.title : '',
         path: '',
         image: '',
-        menu: groups.flatMap((g) => g.menu).map((m) => ({ ...m, image: '' })),
+        menu: groups.map((g) => ({
+          title: g.title,
+          path: '',
+          image: '',
+          menu: g.menu.map((m) => ({ ...m, image: '' })),
+        })),
       }];
     }
     if (n.tokens !== undefined && resolver?.tokens) {

@@ -19,9 +19,29 @@ import { mergeDbNavIntoSkeleton, shapeComponentCatalogSubSections } from './menu
 type HandoffComponentRow = InferSelectModel<typeof handoffComponents>;
 type HandoffPatternRow = InferSelectModel<typeof handoffPatterns>;
 
+/**
+ * Rewrite a legacy `/images/components/<id>.png` image path to the new
+ * generated-screenshot URL convention served by `/api/component/[...path]`.
+ *
+ * Why this lives at read time, not just at build time: SSC's already-pushed
+ * component rows in production have the legacy path baked in. The builder.ts
+ * fix only updates `data.image` on the NEXT build; existing rows would
+ * continue 404'ing until every workspace rebuilds and re-pushes. Normalizing
+ * at read keeps the registry resilient against historical pushes.
+ */
+function normalizeLegacyImagePath(image: unknown, componentId: string): string {
+  if (typeof image !== 'string' || image.length === 0) return '';
+  if (/^\/?images\/components\//.test(image)) {
+    const base = process.env.HANDOFF_APP_BASE_PATH ?? '';
+    return `${base}/api/component/${componentId}/screenshot.png`;
+  }
+  return image;
+}
+
 function componentListFromRow(r: HandoffComponentRow): ComponentListObject {
   if (r.data && typeof r.data === 'object') {
-    return r.data as ComponentListObject;
+    const data = r.data as ComponentListObject;
+    return { ...data, image: normalizeLegacyImagePath(data.image, r.id) };
   }
   return {
     id: r.id,
@@ -29,7 +49,7 @@ function componentListFromRow(r: HandoffComponentRow): ComponentListObject {
     title: r.title,
     description: r.description ?? '',
     group: r.group ?? '',
-    image: r.image ?? '',
+    image: normalizeLegacyImagePath(r.image, r.id),
     type: r.type ?? 'element',
     properties: (r.properties ?? {}) as ComponentObject['properties'],
     previews: (r.previews ?? {}) as ComponentObject['previews'],

@@ -433,31 +433,44 @@ export async function processComponents(
         handoff,
         components
       );
+    }
 
-      // Generate a thumbnail screenshot of the default preview if the project
-      // hasn't supplied an explicit component image. Cached by the upstream
-      // build cache — we only enter this block when previews actually rebuilt,
-      // so unchanged components don't re-screenshot. Failures are non-fatal:
-      // the component just ships without a screenshot.
+    /**
+     * Screenshot generation, deliberately OUTSIDE the `buildPlan.previews`
+     * gate. We want it idempotent: generate when screenshot.png is missing on
+     * disk, regardless of whether previews rebuilt this pass. Without this,
+     * a project on a warm build cache (everything hits, nothing rebuilds)
+     * never produces screenshots — exactly the SSC repro where `push:all`
+     * after `npm update` shipped the same data as before and component cards
+     * 404'd against the legacy `/images/components/<id>.png` path.
+     *
+     * Stays cheap on warm builds: `screenshotExists` is a single fs stat.
+     * Stays correct on cold builds: previews rebuild then screenshot follows.
+     */
+    {
       const screenshotMod = await import('./screenshot');
-      const screenshotResult = await screenshotMod.generateComponentScreenshot(handoff, data);
-      if (screenshotResult.ok === true) {
-        Logger.info(`Generated screenshot for component "${runtimeComponentId}"`);
-        // Adopt the generated screenshot URL when the project hasn't set an
-        // explicit external image. We accept legacy `/images/components/...`
-        // paths as "default/unset" because that was the convention before the
-        // screenshot pipeline existed — those paths point at workspace-local
-        // PNGs that don't ship to the registry, so leaving them in produces
-        // 404s on every component card. A user-set URL (http://, /assets/,
-        // or anything else) is left alone.
-        const looksLegacy = typeof data.image === 'string'
-          && /^\/?images\/components\//.test(data.image);
-        if (!data.image || looksLegacy) {
-          data.image = screenshotMod.screenshotUrlFor(runtimeComponentId);
+      const alreadyExists = screenshotMod.screenshotExists(handoff, runtimeComponentId);
+      const looksLegacy =
+        typeof data.image === 'string' && /^\/?images\/components\//.test(data.image);
+
+      if (!alreadyExists) {
+        const result = await screenshotMod.generateComponentScreenshot(handoff, data);
+        if (result.ok === true) {
+          Logger.info(`Generated screenshot for component "${runtimeComponentId}"`);
+        } else {
+          const reason = (result as { reason?: string }).reason ?? 'unknown';
+          Logger.debug(`Screenshot skipped for "${runtimeComponentId}": ${reason}`);
         }
-      } else {
-        const reason = (screenshotResult as { reason?: string }).reason ?? 'unknown';
-        Logger.debug(`Screenshot skipped for "${runtimeComponentId}": ${reason}`);
+      }
+
+      // Whether the screenshot was just generated or already existed on disk
+      // from a prior build, point `data.image` at the served URL when the
+      // user hasn't set an explicit external image. Catches legacy
+      // `/images/components/...` paths so old projects migrate to the new
+      // URL on next push without needing a forced rebuild.
+      const screenshotNowExists = alreadyExists || screenshotMod.screenshotExists(handoff, runtimeComponentId);
+      if (screenshotNowExists && (!data.image || looksLegacy)) {
+        data.image = screenshotMod.screenshotUrlFor(runtimeComponentId);
       }
     }
 

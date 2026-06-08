@@ -405,12 +405,18 @@ describe('coerceDefinitionToSubSections — dynamic markers', () => {
     assert.ok(!titles.includes('Atoms'));
   });
 
-  it('resolves component markers into populated subSections', () => {
+  it('resolves component markers and preserves inner group nesting', () => {
     const out = coerceDefinitionToSubSections(sscSystem, { resolver });
     const atoms = out.find((s) => s.title === 'Atoms');
     assert.ok(atoms, 'Atoms section must be present');
-    assert.ok(atoms!.menu!.length > 0, 'Atoms must contain component links');
-    assert.strictEqual(atoms!.menu![0].path, '/system/component/button');
+    assert.ok(atoms!.menu!.length > 0, 'Atoms must contain at least one group');
+    // First level under Atoms is a GROUP (no path) with a nested menu of leaves.
+    // Flattening this layer was the bug — sidebar lost the Inputs/Forms/etc.
+    // subdivision that the workspace shows.
+    const firstGroup = atoms!.menu![0] as { title: string; path: string; menu?: Array<{ path: string }> };
+    assert.strictEqual(firstGroup.path, '', 'inner group must have empty path so it renders as a collapsible header');
+    assert.ok(Array.isArray(firstGroup.menu) && firstGroup.menu.length > 0, 'group must contain leaf component links');
+    assert.ok(firstGroup.menu![0].path.startsWith('/system/component/'));
   });
 
   it('resolves tokens marker', () => {
