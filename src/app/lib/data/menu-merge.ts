@@ -74,16 +74,115 @@ export function dedupeDbNavBySlug(nodes: DbNavNode[]): DbNavNode[] {
 }
 
 /**
+ * Resolver for dynamic markers in a pushed frontmatter `menu:`. The workspace's
+ * `staticBuildMenu` substitutes these on the fly by reading the filesystem;
+ * the registry has to substitute them from the live DB-backed component /
+ * token / pattern data instead.
+ *
+ * Each method returns an array of subSection-shaped objects (with `menu`
+ * inside as needed). The merge inlines those at the marker's position,
+ * dropping the marker container — matching how the workspace resolves them.
+ *
+ * Returning `null`/`undefined` (or omitting the method) means "I don't have
+ * data for this marker"; the marker is then dropped to avoid empty groups.
+ */
+export interface DynamicMenuResolver {
+  /**
+   * @param type  Filter from the frontmatter — `true` for "all components
+   *              grouped by type", or a specific type string like 'element',
+   *              'block', 'data', 'template'.
+   */
+  components?: (type: boolean | string) => Array<{ title: string; menu: Array<{ path: string; title: string }> }> | null | undefined;
+  tokens?: () => Array<{ title: string; path?: string; menu?: Array<{ path: string; title: string }> }> | null | undefined;
+  patterns?: () => Array<{ title: string; menu: Array<{ path: string; title: string }> }> | null | undefined;
+}
+
+/**
  * Coerce a value into the SectionLink subSections shape. Used to turn a
  * pushed frontmatter `menu:` payload (raw user-authored YAML) into a tree the
  * registry SideNav can render. Filters anything that would crash the renderer
  * (non-string paths, missing titles).
+ *
+ * Dynamic markers (`tokens: true`, `components: 'element'`, `patterns: true`)
+ * are resolved via `opts.resolver` when present — same substitution the
+ * workspace performs via staticBuildComponentMenu / staticBuildTokensMenu /
+ * staticBuildPatternMenu. Markers without a resolver are dropped.
  */
-export function coerceDefinitionToSubSections(def: unknown): SectionLink['subSections'] {
+export function coerceDefinitionToSubSections(
+  def: unknown,
+  opts: { resolver?: DynamicMenuResolver; basePath?: string } = {}
+): SectionLink['subSections'] {
   if (!Array.isArray(def)) return [];
-  const visitLeaf = (node: unknown): unknown => {
+  const resolver = opts.resolver;
+
+  // Returns `null` to drop, an array to inline (replacing the marker), or a
+  // single object to keep as a normal entry.
+  const visit = (node: unknown): unknown[] | unknown | null => {
     if (!node || typeof node !== 'object') return null;
-    const n = node as { title?: unknown; path?: unknown; icon?: unknown; menu?: unknown; external?: unknown };
+    const n = node as {
+      title?: unknown;
+      path?: unknown;
+      icon?: unknown;
+      menu?: unknown;
+      external?: unknown;
+      components?: unknown;
+      tokens?: unknown;
+      patterns?: unknown;
+      enabled?: unknown;
+    };
+    if (n.enabled === false) return null;
+
+    // Dynamic marker check — if any of these keys are present, the entry is
+    // ONLY meaningful via the resolver. Skip entirely when no resolver was
+    // provided rather than rendering an empty group with just the title.
+    const isDynamic = n.components !== undefined || n.tokens !== undefined || n.patterns !== undefined;
+    if (isDynamic && !resolver) return null;
+
+    // Dynamic markers — resolved via the provider's live data.
+    if (n.components !== undefined && resolver?.components) {
+      const filter = typeof n.components === 'string' || n.components === true ? n.components : true;
+      const groups = resolver.components(filter as boolean | string) ?? [];
+      if (groups.length === 0) return null;
+      // `components: true` → inline all type-groups at this level
+      // (matches staticBuildMenu's behavior for the boolean form).
+      if (n.components === true) {
+        return groups.map((g) => ({ title: g.title, path: '', image: '', menu: g.menu.map((m) => ({ ...m, image: '' })) }));
+      }
+      // `components: '<type>'` → one wrapping group titled by the YAML `title:`
+      return [{
+        title: typeof n.title === 'string' ? n.title : '',
+        path: '',
+        image: '',
+        menu: groups.flatMap((g) => g.menu).map((m) => ({ ...m, image: '' })),
+      }];
+    }
+    if (n.tokens !== undefined && resolver?.tokens) {
+      const tokensMenu = resolver.tokens() ?? [];
+      if (tokensMenu.length === 0) return null;
+      return [{
+        title: typeof n.title === 'string' && n.title.length > 0 ? n.title : 'Tokens',
+        path: '',
+        image: '',
+        menu: tokensMenu.map((entry) => ({
+          title: entry.title,
+          path: entry.path ?? '',
+          image: '',
+          ...(Array.isArray(entry.menu) ? { menu: entry.menu.map((m) => ({ ...m, image: '' })) } : {}),
+        })),
+      }];
+    }
+    if (n.patterns !== undefined && resolver?.patterns) {
+      const groups = resolver.patterns() ?? [];
+      if (groups.length === 0) return null;
+      return [{
+        title: typeof n.title === 'string' && n.title.length > 0 ? n.title : 'Patterns',
+        path: '',
+        image: '',
+        menu: groups.flatMap((g) => g.menu).map((m) => ({ ...m, image: '' })),
+      }];
+    }
+
+    // Plain entry — recursively process its menu.
     const title = typeof n.title === 'string' ? n.title : '';
     const rawPath = typeof n.path === 'string' ? n.path : '';
     const path = rawPath === '' ? '' : rawPath.startsWith('/') ? rawPath : `/${rawPath}`;
@@ -91,14 +190,26 @@ export function coerceDefinitionToSubSections(def: unknown): SectionLink['subSec
     if (typeof n.icon === 'string') out.icon = n.icon;
     if (typeof n.external === 'string' || typeof n.external === 'boolean') out.external = n.external;
     if (Array.isArray(n.menu)) {
-      const nested = n.menu.map(visitLeaf).filter((x): x is Record<string, unknown> => x !== null);
+      const nested: unknown[] = [];
+      for (const child of n.menu) {
+        const r = visit(child);
+        if (r === null) continue;
+        if (Array.isArray(r)) nested.push(...r);
+        else nested.push(r);
+      }
       if (nested.length > 0) out.menu = nested;
     }
     return out;
   };
-  return def
-    .map(visitLeaf)
-    .filter((x): x is Record<string, unknown> => x !== null) as unknown as SectionLink['subSections'];
+
+  const out: unknown[] = [];
+  for (const item of def) {
+    const r = visit(item);
+    if (r === null) continue;
+    if (Array.isArray(r)) out.push(...r);
+    else out.push(r);
+  }
+  return out as unknown as SectionLink['subSections'];
 }
 
 /**
@@ -110,7 +221,8 @@ export function coerceDefinitionToSubSections(def: unknown): SectionLink['subSec
  */
 export function mergeDbNavIntoSkeleton(
   skeleton: SectionLink[],
-  dbTree: DbNavNode[]
+  dbTree: DbNavNode[],
+  opts: { resolver?: DynamicMenuResolver; basePath?: string } = {}
 ): SectionLink[] {
   const cleanTree = dedupeDbNavBySlug(dbTree);
   const dbBySlug = new Map(cleanTree.map((n) => [normalizeNavPath(n.slug), n]));
@@ -127,7 +239,7 @@ export function mergeDbNavIntoSkeleton(
     // Explicit frontmatter definition wins — it's authored by the project and
     // carries group labels + icons the auto-walked tree can't infer.
     if (node.definition !== undefined && node.definition !== null) {
-      const coerced = coerceDefinitionToSubSections(node.definition);
+      const coerced = coerceDefinitionToSubSections(node.definition, opts);
       if (coerced.length > 0) return coerced;
     }
     if (Array.isArray(node.children)) {
@@ -142,7 +254,7 @@ export function mergeDbNavIntoSkeleton(
     // If the project pushed an explicit definition for this section, it wins
     // over the skeleton's auto-derived subSections.
     if (dbNode.definition !== undefined && dbNode.definition !== null) {
-      const coerced = coerceDefinitionToSubSections(dbNode.definition);
+      const coerced = coerceDefinitionToSubSections(dbNode.definition, opts);
       if (coerced.length > 0) {
         return { ...section, title: dbNode.title || section.title, subSections: coerced };
       }

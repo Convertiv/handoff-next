@@ -366,6 +366,82 @@ describe('coerceDefinitionToSubSections (frontmatter menu honor)', () => {
   });
 });
 
+describe('coerceDefinitionToSubSections — dynamic markers', () => {
+  // SSC's actual system.md frontmatter as pushed to production. None of these
+  // entries have explicit children/menu — they all rely on the workspace
+  // resolving `tokens: true` and `components: '<type>'` dynamically.
+  const sscSystem = [
+    { menu: [{ path: 'system', title: 'Overview' }], title: 'Design System' },
+    { title: 'Tokens', tokens: true },
+    { title: 'Atoms', components: 'element' },
+    { title: 'Charts', components: 'data' },
+    { title: 'Components', components: 'block' },
+    { title: 'Templates', components: 'template' },
+  ];
+
+  const resolver = {
+    components: (filter: boolean | string) => {
+      const all = [
+        { id: 'button', type: 'element', title: 'Button' },
+        { id: 'chart', type: 'data', title: 'Chart' },
+        { id: 'card', type: 'block', title: 'Card' },
+      ];
+      const filtered = typeof filter === 'string' ? all.filter((c) => c.type === filter) : all;
+      if (filtered.length === 0) return [];
+      return [{ title: 'Group', menu: filtered.map((c) => ({ title: c.title, path: `/system/component/${c.id}` })) }];
+    },
+    tokens: () => [{ title: 'Foundations', path: '/system/tokens/foundations' }],
+  };
+
+  it('drops the dynamic marker when no resolver is provided (regression: empty Atoms/Charts/Components)', () => {
+    const out = coerceDefinitionToSubSections(sscSystem);
+    const titles = out.map((s) => s.title);
+    // The non-marker entry ("Design System") with explicit menu survives.
+    assert.ok(titles.includes('Design System'));
+    // Markers without a resolver are dropped entirely — better than emitting
+    // empty groups (which is exactly what shipped to prod and rendered as
+    // bare divs).
+    assert.ok(!titles.includes('Tokens'));
+    assert.ok(!titles.includes('Atoms'));
+  });
+
+  it('resolves component markers into populated subSections', () => {
+    const out = coerceDefinitionToSubSections(sscSystem, { resolver });
+    const atoms = out.find((s) => s.title === 'Atoms');
+    assert.ok(atoms, 'Atoms section must be present');
+    assert.ok(atoms!.menu!.length > 0, 'Atoms must contain component links');
+    assert.strictEqual(atoms!.menu![0].path, '/system/component/button');
+  });
+
+  it('resolves tokens marker', () => {
+    const out = coerceDefinitionToSubSections(sscSystem, { resolver });
+    const tokens = out.find((s) => s.title === 'Tokens');
+    assert.ok(tokens, 'Tokens section must be present');
+    const inner = tokens!.menu as Array<{ title: string }>;
+    assert.ok(inner.some((m) => m.title === 'Foundations'));
+  });
+
+  it('drops a section whose resolver returns no items (e.g. project has no `data` components)', () => {
+    const limitedResolver = {
+      components: (filter: boolean | string) => {
+        if (filter === 'data') return []; // SSC has 0 chart components
+        return [{ title: 'Group', menu: [{ title: 'Button', path: '/system/component/button' }] }];
+      },
+    };
+    const out = coerceDefinitionToSubSections(sscSystem, { resolver: limitedResolver });
+    assert.ok(!out.some((s) => s.title === 'Charts'), 'Charts (empty resolver) must be dropped');
+    assert.ok(out.some((s) => s.title === 'Atoms'), 'Atoms (populated resolver) must remain');
+  });
+
+  it('every rendered path is a string after resolution', () => {
+    const out = coerceDefinitionToSubSections(sscSystem, { resolver });
+    const synthetic = [{ title: 'System', weight: 0, path: '/system', subSections: out }] as never;
+    for (const p of collectRenderedPaths(synthetic)) {
+      assert.strictEqual(typeof p, 'string', `non-string path: ${JSON.stringify(p)}`);
+    }
+  });
+});
+
 describe('end-to-end nav (the actual regression contract)', () => {
   it('full registry-mode pipeline produces zero undefined paths', () => {
     // Simulate: registry deploy with no bundled docs → skeleton is empty,

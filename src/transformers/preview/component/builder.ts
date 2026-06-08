@@ -443,10 +443,16 @@ export async function processComponents(
       const screenshotResult = await screenshotMod.generateComponentScreenshot(handoff, data);
       if (screenshotResult.ok === true) {
         Logger.info(`Generated screenshot for component "${runtimeComponentId}"`);
-        if (!data.image) {
-          // Auto-fill the catalog image when none was set by the project — the
-          // PNG ships as part of the dist artifacts so the URL resolves both
-          // in workspace mode (disk) and registry mode (component_artifact).
+        // Adopt the generated screenshot URL when the project hasn't set an
+        // explicit external image. We accept legacy `/images/components/...`
+        // paths as "default/unset" because that was the convention before the
+        // screenshot pipeline existed — those paths point at workspace-local
+        // PNGs that don't ship to the registry, so leaving them in produces
+        // 404s on every component card. A user-set URL (http://, /assets/,
+        // or anything else) is left alone.
+        const looksLegacy = typeof data.image === 'string'
+          && /^\/?images\/components\//.test(data.image);
+        if (!data.image || looksLegacy) {
           data.image = screenshotMod.screenshotUrlFor(runtimeComponentId);
         }
       } else {

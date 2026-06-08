@@ -317,15 +317,59 @@ export class DynamicDataProvider implements DataProvider {
       logDbFallback('handoff_registry_navigation', err);
     }
 
+    // Build the resolver up front — projects' frontmatter may carry dynamic
+    // markers like `{tokens: true}` or `{components: 'element'}` that the
+    // workspace's staticBuildMenu substitutes at render time. The registry
+    // has to substitute them from live data (DB component list, tokens, etc.)
+    // or the system sidebar shows nothing but a top-level "Overview" link.
+    const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+    const resolver: import('./menu-merge').DynamicMenuResolver = {
+      components: (filter) => {
+        const summaries = mergedComponentsToMenuSummaries(merged);
+        const groups = buildComponentSubmenusFromSummaries(summaries, filter) as Array<{
+          title: string;
+          menu: Array<{ path: string; title: string }>;
+        }>;
+        return groups.filter((g) => Array.isArray(g.menu) && g.menu.length > 0);
+      },
+      tokens: () => {
+        // The token sidebar layout is static (Foundations/Components groupings) —
+        // staticBuildTokensMenu reads the filesystem to enumerate component
+        // sub-menus, which we can't do in registry mode without the same source.
+        // Mirror its top-level shape from the live component list.
+        const componentItems = merged.map((c) => ({
+          title: c.title || c.id,
+          path: `${basePath}/system/tokens/components/${c.id}`,
+        }));
+        const items: Array<{ title: string; path?: string; menu?: Array<{ path: string; title: string }> }> = [
+          {
+            title: 'Foundations',
+            path: `${basePath}/system/tokens/foundations`,
+            menu: [
+              { title: 'Colors', path: `${basePath}/system/tokens/foundations/colors` },
+              { title: 'Effects', path: `${basePath}/system/tokens/foundations/effects` },
+              { title: 'Typography', path: `${basePath}/system/tokens/foundations/typography` },
+            ],
+          },
+        ];
+        if (componentItems.length > 0) {
+          items.push({
+            title: 'Components',
+            path: `${basePath}/system/tokens/components`,
+            menu: componentItems.sort((a, b) => a.title.localeCompare(b.title)),
+          });
+        }
+        return items;
+      },
+      // Patterns left undefined — DynamicDataProvider can fetch them via
+      // getPatterns() if a project needs it. Kept off by default until we
+      // see a workspace that uses `patterns: true` in registry mode.
+    };
+
     if (!dbTree || dbTree.length === 0) {
       return skeleton;
     }
-
-    // Merge DB nodes on top of the skeleton, indexed by top-level slug.
-    // - Match existing skeleton section by slug → DB section's children REPLACE
-    //   its subSections (so projects can customize what's under /guidelines, etc.)
-    // - DB section with no skeleton match → APPEND as a new section
-    return mergeDbNavIntoSkeleton(skeleton, dbTree);
+    return mergeDbNavIntoSkeleton(skeleton, dbTree, { resolver, basePath });
   }
 }
 
