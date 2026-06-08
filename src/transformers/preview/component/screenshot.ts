@@ -1,6 +1,7 @@
 import fs from 'fs-extra';
 import path from 'path';
 import type Handoff from '@handoff/index';
+import { Logger } from '@handoff/utils/logger';
 import type { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 import { getAPIPath, getComponentDistPath } from './api';
 import { closeSharedBrowser, getSharedBrowser, handleInterceptedRoute } from './playwright-shared';
@@ -29,7 +30,43 @@ function findDefaultPreviewPath(handoff: Handoff, data: TransformComponentTokens
   return null;
 }
 
-export type ScreenshotResult = { ok: true; path: string } | { ok: false; reason: string };
+export type ScreenshotResult =
+  | { ok: true; path: string }
+  | { ok: false; reason: string; kind?: 'chromium-missing' | 'no-preview' | 'render-failed' };
+
+/**
+ * Tracks whether we've already shown the loud install-chromium banner this
+ * run. Module-scoped state so 50 components don't print 50 banners — once is
+ * enough to get the user to act.
+ */
+let chromiumWarningShown = false;
+
+/** Reset the once-per-run flags. Used by tests; otherwise just relaunch. */
+export function resetScreenshotWarnings(): void {
+  chromiumWarningShown = false;
+}
+
+/** Print the install instructions ONCE per run when chromium can't launch. */
+export function warnChromiumMissingOnce(reason: string): void {
+  if (chromiumWarningShown) return;
+  chromiumWarningShown = true;
+  Logger.warn('');
+  Logger.warn('╔══════════════════════════════════════════════════════════════════╗');
+  Logger.warn('║  Component screenshots will NOT be generated this build pass.   ║');
+  Logger.warn('║                                                                  ║');
+  Logger.warn('║  Headless Chromium failed to launch:                            ║');
+  Logger.warn(`║    ${reason.slice(0, 60).padEnd(60)} ║`);
+  Logger.warn('║                                                                  ║');
+  Logger.warn('║  Fix: run this once in your workspace, then re-run push:all     ║');
+  Logger.warn('║                                                                  ║');
+  Logger.warn('║      npx playwright install chromium                            ║');
+  Logger.warn('║                                                                  ║');
+  Logger.warn('║  Until chromium is installed, component cards on the registry   ║');
+  Logger.warn('║  will fall back to whatever `image:` you set in declarations    ║');
+  Logger.warn('║  (or render with a placeholder).                                ║');
+  Logger.warn('╚══════════════════════════════════════════════════════════════════╝');
+  Logger.warn('');
+}
 
 /**
  * Render the component's default preview HTML in headless Chromium and write
@@ -41,7 +78,7 @@ export async function generateComponentScreenshot(
   data: TransformComponentTokensResult
 ): Promise<ScreenshotResult> {
   const previewPath = findDefaultPreviewPath(handoff, data);
-  if (!previewPath) return { ok: false, reason: 'no preview HTML on disk yet' };
+  if (!previewPath) return { ok: false, reason: 'no preview HTML on disk yet', kind: 'no-preview' };
 
   const outputPath = path.join(getComponentDistPath(handoff, data.id), SCREENSHOT_FILENAME);
 
@@ -53,6 +90,7 @@ export async function generateComponentScreenshot(
     return {
       ok: false,
       reason: `chromium launch failed (${msg}). Run \`npx playwright install chromium\` once if you haven't.`,
+      kind: 'chromium-missing',
     };
   }
 
@@ -70,7 +108,7 @@ export async function generateComponentScreenshot(
     return { ok: true, path: outputPath };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, reason: `screenshot failed: ${msg}` };
+    return { ok: false, reason: `screenshot failed: ${msg}`, kind: 'render-failed' };
   } finally {
     await context.close().catch(() => {});
   }

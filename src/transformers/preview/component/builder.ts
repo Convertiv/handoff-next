@@ -458,8 +458,15 @@ export async function processComponents(
         if (result.ok === true) {
           Logger.info(`Generated screenshot for component "${runtimeComponentId}"`);
         } else {
-          const reason = (result as { reason?: string }).reason ?? 'unknown';
-          Logger.debug(`Screenshot skipped for "${runtimeComponentId}": ${reason}`);
+          const reason = result.reason ?? 'unknown';
+          // Loud banner once per run when chromium is the actual blocker —
+          // otherwise every project upgrade silently ships without
+          // screenshots and users can't tell why their cards 404.
+          if (result.kind === 'chromium-missing') {
+            screenshotMod.warnChromiumMissingOnce(reason);
+          } else {
+            Logger.debug(`Screenshot skipped for "${runtimeComponentId}": ${reason}`);
+          }
         }
       }
 
