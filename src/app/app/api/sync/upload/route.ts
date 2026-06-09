@@ -55,7 +55,7 @@ export async function POST(request: Request) {
 
 async function recordValidationSnapshot(): Promise<void> {
   try {
-    const { getDataProvider } = await import('@/lib/data/provider');
+    const { getDataProvider } = await import('@/lib/data/index');
     const { computeHealthSummary, summaryToRunRecord } = await import('@/lib/health-types');
     const { insertValidationRun } = await import('@/lib/db/validation-queries');
 

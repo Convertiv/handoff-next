@@ -1,5 +1,5 @@
 import { desc } from 'drizzle-orm';
-import { getDb } from './db';
+import { getDb } from './index';
 import { handoffValidationRuns } from './schema';
 
 export interface ValidationRunRecord {

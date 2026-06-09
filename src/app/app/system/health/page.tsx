@@ -1,5 +1,5 @@
 import React from 'react';
-import { getDataProvider } from '@/lib/data/provider';
+import { getDataProvider } from '@/lib/data/index';
 import { getClientRuntimeConfig } from '@/components/util';
 import type { ComponentInput } from './health-types';
 import { computeHealthSummary } from './health-types';
