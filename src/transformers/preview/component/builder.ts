@@ -498,16 +498,32 @@ export async function processComponents(
     }
 
     /**
-     * New validation framework (ADR-002). Runs when:
-     *  - previews were built this pass (so preview HTML / screenshot exist), OR
-     *  - we're explicitly in validation mode
-     * AND the project has configured `config.validation.validators`. Results
-     * attach to `data.validationResults` as ValidatorResult[] — separate from
-     * the legacy `data.validations` field so back-compat is preserved.
+     * New validation framework (ADR-002). Runs whenever the project has
+     * configured `config.validation.validators` — independent of whether
+     * previews actually rebuilt this pass. Reason: validation must run on
+     * EVERY push so the registry shows current pass/fail state. Gating it
+     * on `buildPlan.previews` meant a warm-cache build (everything reused)
+     * pushed stale results, or none at all when the component had never
+     * been validated. Validators are idempotent and operate on the
+     * already-built preview HTML, so re-running is cheap-ish (axe/contrast
+     * need a browser, schema is microseconds).
+     *
+     * Respects `config.validation.runOn`:
+     *   - 'build'  → only during a build pass (matches old default)
+     *   - 'push'   → run unconditionally when validators are configured
+     *                (the default; covers the common case)
+     *   - 'manual' → only when `handoff-app validate` invokes us
      */
-    const validationCfg = (handoff.config as { validation?: { validators?: unknown[] } })?.validation;
-    const configuredValidators = Array.isArray(validationCfg?.validators) ? validationCfg.validators : [];
-    if ((buildPlan.previews || buildPlan.validationMode) && configuredValidators.length > 0) {
+    type ValidationCfg = { validators?: unknown[]; runOn?: 'build' | 'push' | 'manual' };
+    const validationCfg = (handoff.config as { validation?: ValidationCfg })?.validation ?? {};
+    const configuredValidators = Array.isArray(validationCfg.validators) ? validationCfg.validators : [];
+    const runOn = validationCfg.runOn ?? 'push';
+    const shouldValidate =
+      configuredValidators.length > 0 &&
+      (buildPlan.validationMode ||
+        runOn === 'push' ||
+        (runOn === 'build' && buildPlan.previews));
+    if (shouldValidate) {
       const { runValidators } = await import('@handoff/transformers/validation/runner');
       try {
         const results = await runValidators(handoff, data, configuredValidators as never);

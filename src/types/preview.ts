@@ -75,8 +75,15 @@ export interface PreviewObject {
   /**
    * Validation results for the component
    * Each key represents a validation type and the value contains detailed validation results
+   * @deprecated Use `validationResults` (ADR-002).
    */
   validations?: Record<string, ValidationResult>;
+  /**
+   * Results from the pluggable validation framework (ADR-002). One entry
+   * per configured validator; pushed up by the workspace and rendered as
+   * pass/fail badges + finding lists on the registry component detail page.
+   */
+  validationResults?: import('./validation').ValidatorResult[];
   page?: ComponentPageDefinition;
   docgen?: GeneratedDocs;
 }

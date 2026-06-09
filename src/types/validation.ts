@@ -133,10 +133,15 @@ export interface ComponentValidationOptOut {
  */
 export interface ValidationConfig {
   /**
-   * When the validator pipeline runs automatically.
-   *  - 'build':  during `handoff-app build:components` (default)
-   *  - 'push':   only when `handoff-app push --validate` is called
-   *  - 'manual': only when `handoff-app validate` is invoked
+   * When the validator pipeline runs automatically. Default: 'push'.
+   *  - 'push':   run during `handoff-app push[:all]` and `build:components`,
+   *              regardless of whether the build cache hits — ensures the
+   *              registry always shows current validation state. (default)
+   *  - 'build':  only during `handoff-app build:components` when previews
+   *              actually rebuild. Lighter; useful when validators are
+   *              expensive and the project verifies a11y separately.
+   *  - 'manual': only when `handoff-app validate` is invoked. Disables the
+   *              automatic pass entirely.
    */
   runOn?: 'build' | 'push' | 'manual';
   /**

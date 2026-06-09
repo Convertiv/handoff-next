@@ -4,6 +4,7 @@ import { BuildStatusBanner } from '@handoff/app/components/Component/BuildStatus
 import { CodeEditor } from '@handoff/app/components/Component/CodeEditor';
 import { InlineComponentEditor } from '@handoff/app/components/Component/InlineComponentEditor';
 import { ComponentPreview } from '@handoff/app/components/Component/Preview';
+import { ValidationFrameworkResults } from '@handoff/app/components/Validation/ValidationFrameworkResults';
 import { HotReloadProvider } from '@handoff/app/components/context/HotReloadProvider';
 import { PreviewContextProvider } from '@handoff/app/components/context/PreviewContext';
 import Layout from '@handoff/app/components/Layout/Main';
@@ -302,6 +303,15 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
                 </ComponentPreview>
               </PreviewContextProvider>
             </HotReloadProvider>
+          )}
+          {Array.isArray(component?.validationResults) && component.validationResults.length > 0 && (
+            <section className="mt-12 scroll-mt-24" id="framework-validation">
+              <HeadersType.H2>Validation</HeadersType.H2>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Automated checks run on every push (configured in <code>handoff.config.js</code> → <code>validation.validators</code>).
+              </p>
+              <ValidationFrameworkResults results={component.validationResults} />
+            </section>
           )}
           <hr className="mt-8" />
           <PrevNextNav previous={previousLink} next={nextLink} />
