@@ -60,15 +60,24 @@ const command: CommandModule<{}, PushArgs> = {
     const componentIds = args.components?.flatMap((s) => s.split(/\s+/).map((x) => x.trim()).filter(Boolean));
     const patternIds = args.patterns?.flatMap((s) => s.split(/\s+/).map((x) => x.trim()).filter(Boolean));
     const pageSlugs = args.pages?.flatMap((s) => s.split(/\s+/).map((x) => x.trim()).filter(Boolean));
-    await runPush(handoff, {
-      componentIds: componentIds?.length ? componentIds : undefined,
-      patternIds: patternIds?.length ? patternIds : undefined,
-      pageSlugs: pageSlugs?.length ? pageSlugs : undefined,
-      dryRun: Boolean(args.dryRun),
-      build: args.build,
-      metadataOnly: Boolean(args.metadataOnly),
-      noBuild: Boolean(args.noBuild),
-    });
+    try {
+      await runPush(handoff, {
+        componentIds: componentIds?.length ? componentIds : undefined,
+        patternIds: patternIds?.length ? patternIds : undefined,
+        pageSlugs: pageSlugs?.length ? pageSlugs : undefined,
+        dryRun: Boolean(args.dryRun),
+        build: args.build,
+        metadataOnly: Boolean(args.metadataOnly),
+        noBuild: Boolean(args.noBuild),
+      });
+      // Force-exit after a successful push. The chromium child process (used for
+      // screenshots and validators) can keep the Node event loop alive even after
+      // browser.close() — its IPC channel doesn't always drain cleanly on macOS.
+      // A CLI tool has no deferred work to wait for at this point.
+      process.exit(0);
+    } catch (e) {
+      process.exit(1);
+    }
   },
 };
 

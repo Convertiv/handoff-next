@@ -33,12 +33,21 @@ export async function getSharedBrowser(): Promise<Browser> {
   return cachedBrowser;
 }
 
-/** Close the shared chromium. Call once at end of build pass. Idempotent. */
+/** Close the shared chromium. Call once at end of build pass. Idempotent.
+ *
+ * Uses a 5-second timeout because browser.close() can stall indefinitely
+ * on macOS with some chromium builds — the promise never rejects, it just
+ * never resolves either. .catch() alone does not protect against that.
+ */
 export async function closeSharedBrowser(): Promise<void> {
-  if (cachedBrowser && cachedBrowser.isConnected()) {
-    await cachedBrowser.close().catch(() => {});
-    cachedBrowser = null;
-  }
+  if (!cachedBrowser) return;
+  const b = cachedBrowser;
+  cachedBrowser = null; // clear ref first — double-close is safe
+  if (!b.isConnected()) return;
+  await Promise.race([
+    b.close().catch(() => {}),
+    new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+  ]);
 }
 
 const MIME_TYPES: Record<string, string> = {
