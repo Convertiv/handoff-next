@@ -162,6 +162,15 @@ export async function openAiImageEdit({
   throw new Error('OpenAI did not return an image.');
 }
 
+export type OpenAiTool = {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+};
+
 /**
  * OpenAI chat completions (JSON mode). Supports both text-only and
  * vision/multimodal messages via the content array format.
@@ -272,4 +281,182 @@ export async function openAiChatJson(
     usageOutputTokens: json.usage?.completion_tokens,
   });
   return content;
+}
+
+/**
+ * OpenAI chat completions with streaming and tool support.
+ * Returns a ReadableStream that emits newline-delimited JSON events:
+ *   {"type":"delta","content":"..."}
+ *   {"type":"action","action":{"type":"<function_name>",...args}}
+ *   {"type":"done"}
+ *   {"type":"error","message":"..."}
+ */
+export async function openAiChatStream(
+  messages: ChatMessage[],
+  tools: OpenAiTool[],
+  options?: {
+    actorUserId?: string | null;
+    route?: string | null;
+    eventType?: string;
+    model?: string;
+    maxTokens?: number;
+  }
+): Promise<ReadableStream<Uint8Array>> {
+  const apiKey = process.env.HANDOFF_AI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error('HANDOFF_AI_API_KEY is not configured.');
+  }
+  const model = options?.model?.trim() || getServerAiModel();
+  const startedAt = Date.now();
+
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    stream: true,
+    stream_options: { include_usage: true },
+    max_tokens: options?.maxTokens ?? 4096,
+  };
+  if (tools.length > 0) {
+    body.tools = tools;
+  }
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const encoder = new TextEncoder();
+
+  if (!response.ok || !response.body) {
+    const errText = response.body ? await response.text() : `HTTP ${response.status}`;
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(JSON.stringify({ type: 'error', message: `OpenAI error (${response.status}): ${errText.slice(0, 500)}` }) + '\n'));
+        controller.close();
+      },
+    });
+  }
+
+  const upstream = response.body;
+
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = upstream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      // tool call accumulator: index -> { id, name, arguments }
+      const toolCalls: Record<number, { id: string; name: string; arguments: string }> = {};
+      let usageInputTokens: number | undefined;
+      let usageOutputTokens: number | undefined;
+
+      const emit = (obj: unknown) => {
+        controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'));
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line || line === 'data: [DONE]') {
+              if (line === 'data: [DONE]') {
+                // Flush accumulated tool calls
+                for (const tc of Object.values(toolCalls)) {
+                  let parsedArgs: Record<string, unknown> = {};
+                  try { parsedArgs = JSON.parse(tc.arguments); } catch { /* leave empty */ }
+                  emit({ type: 'action', action: { type: tc.name, ...parsedArgs } });
+                }
+                emit({ type: 'done' });
+              }
+              continue;
+            }
+            if (!line.startsWith('data: ')) continue;
+
+            let chunk: {
+              choices?: {
+                delta?: {
+                  content?: string;
+                  tool_calls?: { index: number; id?: string; function?: { name?: string; arguments?: string } }[];
+                };
+                finish_reason?: string | null;
+              }[];
+              usage?: { prompt_tokens?: number; completion_tokens?: number };
+            };
+            try {
+              chunk = JSON.parse(line.slice(6));
+            } catch {
+              continue;
+            }
+
+            if (chunk.usage) {
+              usageInputTokens = chunk.usage.prompt_tokens;
+              usageOutputTokens = chunk.usage.completion_tokens;
+            }
+
+            const choice = chunk.choices?.[0];
+            if (!choice) continue;
+
+            const delta = choice.delta;
+            if (delta?.content) {
+              emit({ type: 'delta', content: delta.content });
+            }
+
+            if (delta?.tool_calls) {
+              for (const tc of delta.tool_calls) {
+                if (!toolCalls[tc.index]) {
+                  toolCalls[tc.index] = { id: '', name: '', arguments: '' };
+                }
+                if (tc.id) toolCalls[tc.index].id = tc.id;
+                if (tc.function?.name) toolCalls[tc.index].name += tc.function.name;
+                if (tc.function?.arguments) toolCalls[tc.index].arguments += tc.function.arguments;
+              }
+            }
+
+            if (choice.finish_reason === 'tool_calls') {
+              for (const tc of Object.values(toolCalls)) {
+                let parsedArgs: Record<string, unknown> = {};
+                try { parsedArgs = JSON.parse(tc.arguments); } catch { /* leave empty */ }
+                emit({ type: 'action', action: { type: tc.name, ...parsedArgs } });
+              }
+              // Clear after flushing so [DONE] doesn't double-emit
+              for (const k of Object.keys(toolCalls)) delete toolCalls[Number(k)];
+              emit({ type: 'done' });
+            }
+          }
+        }
+      } catch (err) {
+        emit({ type: 'error', message: err instanceof Error ? err.message : 'Stream read error' });
+      } finally {
+        reader.releaseLock();
+        controller.close();
+      }
+
+      // Log event after stream ends
+      try {
+        await logAiEvent({
+          eventType: options?.eventType ?? 'ai.chat',
+          actorUserId: options?.actorUserId,
+          route: options?.route,
+          model,
+          durationMs: Date.now() - startedAt,
+          status: 'success',
+          usageInputTokens,
+          usageOutputTokens,
+        });
+      } catch {
+        // Non-critical: swallow log errors
+      }
+    },
+  });
 }

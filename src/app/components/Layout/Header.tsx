@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
+import { Sparkles } from 'lucide-react';
 import { AuthControls } from '../Auth/AuthControls';
 import { BuildBadge } from './BuildBadge';
 import { ModeToggle } from '../../components/ModeSwitcher';
@@ -14,6 +15,8 @@ import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { useAuthUi } from '../context/AuthUiContext';
 import { useConfigContext } from '../context/ConfigContext';
+import { useHandoffCapabilities } from '../context/HandoffCapabilitiesContext';
+import { useChatContext } from '../Chat/ChatContext';
 
 function CliIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -30,9 +33,12 @@ export function Header() {
   const pathname = usePathname();
   const { authEnabled } = useAuthUi();
   const { data: session } = useSession();
+  const { aiFeatures } = useHandoffCapabilities();
+  const { toggleChat, isOpen } = useChatContext();
   const [isScrolled, setIsScrolled] = useState(false);
   const showDevelopLocally = authEnabled && Boolean(session?.user);
   const developLocallyActive = pathname.includes('dev/local-setup');
+  const showChatButton = aiFeatures && authEnabled && Boolean(session?.user);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -58,6 +64,18 @@ export function Header() {
           <div className="hidden items-center gap-4 @2xl:flex">
             <MainNav />
             <BuildBadge />
+            {showChatButton && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleChat}
+                title="Design assistant"
+                aria-label="Design assistant"
+                className={cn(isOpen && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
+              >
+                <Sparkles className="h-[1.1rem] w-[1.1rem]" />
+              </Button>
+            )}
             <AuthControls />
             <ModeToggle />
             {showDevelopLocally ? (

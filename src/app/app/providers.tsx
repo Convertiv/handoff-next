@@ -10,6 +10,8 @@ import type { ClientConfig } from '@handoff/types/config';
 import type { SectionLink } from '../components/util';
 import { HandoffCapabilitiesProvider } from '../components/context/HandoffCapabilitiesContext';
 import type { HandoffCapabilities } from '../lib/handoff-capabilities';
+import { ChatProvider } from '../components/Chat/ChatContext';
+import { ChatDrawer } from '../components/Chat/ChatDrawer';
 
 interface ProvidersProps {
   config: ClientConfig;
@@ -28,13 +30,18 @@ export default function Providers({
   session = null,
   capabilities,
 }: ProvidersProps) {
+  const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
+
   return (
     <SessionProvider session={session ?? undefined}>
       <AuthUiProvider authEnabled={authEnabled}>
         <HandoffCapabilitiesProvider capabilities={capabilities}>
           <ConfigContextProvider defaultConfig={config} defaultMenu={menu}>
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-              {children}
+              <ChatProvider>
+                {children}
+                {capabilities.aiFeatures && <ChatDrawer basePath={basePath} />}
+              </ChatProvider>
             </ThemeProvider>
           </ConfigContextProvider>
         </HandoffCapabilitiesProvider>
