@@ -6,11 +6,20 @@ import { handoffApiUrl } from '@/lib/api-path';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+export interface ComponentCardRef {
+  id: string;
+  title: string;
+  group: string;
+  description: string;
+  screenshotUrl: string;
+}
+
 export type ChatAction =
   | { type: 'navigate_component'; id: string; title: string; reason?: string }
   | { type: 'navigate_pattern'; id: string; title: string; reason?: string }
   | { type: 'open_playground'; description: string }
-  | { type: 'open_design_workbench'; description: string };
+  | { type: 'open_design_workbench'; description: string; componentId?: string; generationPrompt?: string }
+  | { type: 'show_components'; components: ComponentCardRef[]; recommendation?: string; recommendationReason?: string };
 
 export interface ChatMessage {
   id: string;

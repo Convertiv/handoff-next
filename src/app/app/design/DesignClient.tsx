@@ -77,6 +77,10 @@ type DesignClientProps = DocumentationProps & {
   components: DesignWorkbenchComponentRow[];
   foundations: DesignWorkbenchFoundationContext;
   loadArtifactId?: string;
+  /** Pre-select component IDs (from chat assistant hand-off) */
+  initialComponentIds?: string[];
+  /** Pre-fill the prompt textarea (from chat assistant hand-off) */
+  initialPrompt?: string;
 };
 
 const DESIGN_CLIENTS = ['ssc', '8x8'] as const;
@@ -126,6 +130,8 @@ const DesignWorkbenchPage = ({
   components,
   foundations,
   loadArtifactId,
+  initialComponentIds,
+  initialPrompt,
 }: DesignClientProps) => {
   const router = useRouter();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
@@ -238,6 +244,26 @@ const DesignWorkbenchPage = ({
       cancelled = true;
     };
   }, [loadArtifactId, router, basePath]);
+
+  // Pre-populate from chat assistant hand-off (?component=<id>&prompt=<text>)
+  useEffect(() => {
+    if (!initialComponentIds?.length && !initialPrompt) return;
+    if (initialComponentIds?.length) {
+      const known = new Set(componentsRef.current.map((c) => c.id));
+      const valid = initialComponentIds.filter((id) => known.has(id));
+      if (valid.length) setSelectedIds(valid);
+    }
+    if (initialPrompt) {
+      setPrompt(initialPrompt);
+    }
+    // Scroll prompt textarea into view after a tick
+    setTimeout(() => {
+      const el = document.querySelector<HTMLElement>('[data-design-prompt]');
+      el?.focus();
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 150);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const urls = promptImages.map((f) => URL.createObjectURL(f));
@@ -888,6 +914,7 @@ const DesignWorkbenchPage = ({
                 <div className="px-5 pt-4">
                   <input
                     id="design-prompt"
+                    data-design-prompt
                     className="h-8 w-full border-0 bg-transparent p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}

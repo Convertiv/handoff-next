@@ -3,6 +3,7 @@
 import { Bot, User } from 'lucide-react';
 import type { ChatMessage as ChatMessageType } from './ChatContext';
 import { ChatActionCard } from './ChatActionCard';
+import { ChatComponentGrid } from './ChatComponentGrid';
 
 interface Props {
   message: ChatMessageType;
@@ -12,6 +13,10 @@ interface Props {
 
 export function ChatMessage({ message, basePath, onClose }: Props) {
   const isUser = message.role === 'user';
+
+  // Split actions: show_components renders inline as a grid, others render as cards
+  const gridActions = message.actions?.filter((a) => a.type === 'show_components') ?? [];
+  const cardActions = message.actions?.filter((a) => a.type !== 'show_components') ?? [];
 
   return (
     <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -27,24 +32,38 @@ export function ChatMessage({ message, basePath, onClose }: Props) {
       </div>
 
       {/* Bubble + actions */}
-      <div className={`flex min-w-0 max-w-[85%] flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
-        <div
-          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-            isUser
-              ? 'rounded-tr-sm bg-primary text-primary-foreground'
-              : 'rounded-tl-sm bg-muted text-foreground'
-          }`}
-        >
-          {message.content || (message.streaming ? <StreamingCursor /> : null)}
-          {!message.content && !message.streaming && (
-            <span className="italic text-muted-foreground">Empty response</span>
-          )}
-        </div>
+      <div className={`flex min-w-0 max-w-[85%] flex-col gap-2 ${isUser ? 'items-end' : 'items-start'}`}>
+        {/* Text bubble — omit if empty and streaming hasn't started */}
+        {(message.content || message.streaming) && (
+          <div
+            className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+              isUser
+                ? 'rounded-tr-sm bg-primary text-primary-foreground'
+                : 'rounded-tl-sm bg-muted text-foreground'
+            }`}
+          >
+            {message.content || (message.streaming ? <StreamingCursor /> : null)}
+          </div>
+        )}
 
-        {/* Action cards rendered below the bubble */}
-        {message.actions && message.actions.length > 0 && (
+        {/* Component grids render full-width below the bubble */}
+        {gridActions.map((action, idx) =>
+          action.type === 'show_components' ? (
+            <ChatComponentGrid
+              key={idx}
+              components={action.components}
+              recommendation={action.recommendation}
+              recommendationReason={action.recommendationReason}
+              basePath={basePath}
+              onClose={onClose}
+            />
+          ) : null
+        )}
+
+        {/* Standard action cards */}
+        {cardActions.length > 0 && (
           <div className="w-full space-y-1.5">
-            {message.actions.map((action, idx) => (
+            {cardActions.map((action, idx) => (
               <ChatActionCard
                 key={idx}
                 action={action}

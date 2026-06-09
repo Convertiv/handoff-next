@@ -55,13 +55,28 @@ export async function generateMetadata() {
 }
 
 type DesignPageProps = {
-  searchParams?: Promise<{ loadArtifact?: string | string[] }>;
+  searchParams?: Promise<{
+    loadArtifact?: string | string[];
+    /** Pre-select component IDs (comma-separated or repeated param) — from chat assistant */
+    component?: string | string[];
+    /** Pre-fill the prompt textarea — from chat assistant */
+    prompt?: string | string[];
+  }>;
 };
+
+function pickParam(val: string | string[] | undefined): string {
+  if (!val) return '';
+  return typeof val === 'string' ? val.trim() : String(val[0] ?? '').trim();
+}
 
 export default async function DesignPage({ searchParams }: DesignPageProps) {
   const sp = searchParams ? await searchParams : {};
   const raw = sp.loadArtifact;
-  const loadArtifactId = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? '').trim() : '';
+  const loadArtifactId = pickParam(raw);
+
+  // Chat assistant hand-off: pre-select component + pre-fill prompt
+  const initialComponentId = pickParam(sp.component);
+  const initialPrompt = pickParam(sp.prompt);
 
   const caps = getHandoffCapabilities();
   const session = await auth();
@@ -96,6 +111,8 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
         components={components}
         foundations={foundations}
         loadArtifactId={loadArtifactId || undefined}
+        initialComponentIds={initialComponentId ? [initialComponentId] : undefined}
+        initialPrompt={initialPrompt || undefined}
       />
     </CloudFeatureGate>
   );
