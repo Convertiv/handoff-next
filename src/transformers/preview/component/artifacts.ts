@@ -86,9 +86,20 @@ export const syncComponentArtifacts = async (handoff: Handoff): Promise<void> =>
     for (const entry of distEntries) {
       if (entry.startsWith('.')) continue; // skip temp dirs from Vite
       const ext = path.extname(entry);
-      // Include .png so screenshot.png survives cleanup. Anything else with
-      // .png in the dist dir is ours by definition (we don't ship user images here).
-      if (['.json', '.js', '.css', '.html', '.png'].includes(ext) && !validFiles.has(entry)) {
+      // .css/.js files are KEPT regardless of name. Vite emits the bundle
+      // under whatever rollup decides — typically the project name from the
+      // workspace's package.json (e.g. SSC's `ssc-handoff.css`), not the
+      // component id. Deleting these here was the root cause of blank
+      // screenshots: the HTML template references `/api/component/<id>.css`,
+      // the route interceptor's dist-scan fallback found the bundle, served
+      // it — but the next build pass removed it before the screenshot ran.
+      // Keep them; the worst case is a stale orphan when a workspace stops
+      // emitting a file (rare; users can clean dist/ manually).
+      if (ext === '.css' || ext === '.js') continue;
+      // .png: only screenshot.png is ours; user images don't live here.
+      // .json/.html: prune anything not in the valid set (preview HTML and
+      // the canonical declaration).
+      if (['.json', '.html', '.png'].includes(ext) && !validFiles.has(entry)) {
         await fs.remove(path.resolve(distDir, entry));
       }
     }
