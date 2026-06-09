@@ -1,4 +1,12 @@
 import { ClientConfig } from '@handoff/types/config';
+// Generated at build time — falls back when not yet built
+let BUILD_VERSION = '2.0.0-alpha';
+try {
+  const meta = await import('../lib/generated/build-meta');
+  BUILD_VERSION = meta.BUILD_VERSION;
+} catch {
+  // pre-build or dev mode before first `npm run build:app`
+}
 
 interface FooterProps {
   config: ClientConfig;
@@ -19,6 +27,9 @@ function Footer({ config }: FooterProps) {
             </a>
           </>
         )}
+        <span className="ml-3 font-mono opacity-50" title="Registry build version">
+          v{BUILD_VERSION}
+        </span>
       </p>
     </footer>
   );

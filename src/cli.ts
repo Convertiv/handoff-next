@@ -4,6 +4,16 @@ import { hideBin } from 'yargs/helpers';
 import yargs from 'yargs/yargs';
 import { commands } from './commands/index.js';
 
+// Generated at build time by scripts/write-build-meta.mjs.
+// Falls back gracefully if someone runs ts-node directly before a build.
+let BUILD_VERSION = '2.0.0-alpha';
+try {
+  const meta = await import('./generated/build-meta.js');
+  BUILD_VERSION = meta.BUILD_VERSION;
+} catch {
+  // pre-build or direct ts-node invocation — use the base version
+}
+
 class HandoffCliError extends Error {
   exitCode: number;
   messageOnly: boolean;
@@ -16,10 +26,10 @@ class HandoffCliError extends Error {
 }
 
 /**
- * Show the help message
+ * Show the version string stamped at build time.
  */
 const showVersion = () => {
-  return 'Handoff App - 2.0.0';
+  return `handoff-app ${BUILD_VERSION}`;
 };
 
 /**
