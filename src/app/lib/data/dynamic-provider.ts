@@ -393,7 +393,7 @@ export class DynamicDataProvider implements DataProvider {
   }
 
   /** Read the validationManifest stored in registry config (pushed by workspace on push:all). */
-  async getValidationManifest(): Promise<import('../../app/system/health/health-types').ValidationManifest | null> {
+  async getValidationManifest(): Promise<import('../health-types').ValidationManifest | null> {
     try {
       const { getRegistryConfig } = await import('../db/registry-queries');
       const cfg = await getRegistryConfig();
