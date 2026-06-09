@@ -151,6 +151,44 @@ export async function POST(request: Request) {
           },
         },
       },
+
+      // ── Recent changes ────────────────────────────────────────────────────
+      {
+        type: 'function',
+        function: {
+          name: 'get_recent_changes',
+          description:
+            'Show a changelog of recent component updates. Call when user asks what changed recently, ' +
+            'what was updated, recent pushes, or wants to see the changelog.',
+          parameters: {
+            type: 'object',
+            properties: {
+              days: { type: 'number', description: 'How many days back to look. Default 14.' },
+              limit: { type: 'number', description: 'Max entries to return. Default 20.' },
+            },
+            required: [],
+          },
+        },
+      },
+
+      // ── Validation / accessibility ────────────────────────────────────────
+      {
+        type: 'function',
+        function: {
+          name: 'check_validation',
+          description:
+            'Show accessibility and validation results for a component. Call when user asks about ' +
+            'a11y issues, errors, warnings, or validation for a named component.',
+          parameters: {
+            type: 'object',
+            properties: {
+              componentId: { type: 'string', description: 'The component ID to check' },
+              componentTitle: { type: 'string', description: 'Human-readable component title' },
+            },
+            required: ['componentId', 'componentTitle'],
+          },
+        },
+      },
     ];
 
     const stream = await openAiChatStream(

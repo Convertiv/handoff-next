@@ -1,7 +1,7 @@
 'use client';
 
 import { PreviewObject } from '@handoff/types/preview';
-import { ArrowRight, Badge, Settings, Webhook } from 'lucide-react';
+import { ArrowRight, Badge, History, Settings, Webhook } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -69,6 +69,18 @@ export default function SystemPageClient({ content, menu, metadata, current, con
         <div className="mt-3 flex flex-row flex-wrap items-start justify-between gap-3">
           <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{metadata.description}</p>
           <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="icon" asChild>
+                  <Link href="/system/changelog" aria-label="Component changelog">
+                    <History strokeWidth={1.5} className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Component changelog</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           {isAdmin && (
             <TooltipProvider>
               <Tooltip>

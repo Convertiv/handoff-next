@@ -1,9 +1,12 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { Bot, User } from 'lucide-react';
 import type { ChatMessage as ChatMessageType } from './ChatContext';
 import { ChatActionCard } from './ChatActionCard';
 import { ChatComponentGrid } from './ChatComponentGrid';
+import { ChatChangelogFeed } from './ChatChangelogFeed';
+import { ChatValidationPanel } from './ChatValidationPanel';
 
 interface Props {
   message: ChatMessageType;
@@ -13,10 +16,16 @@ interface Props {
 
 export function ChatMessage({ message, basePath, onClose }: Props) {
   const isUser = message.role === 'user';
+  const router = useRouter();
 
-  // Split actions: show_components renders inline as a grid, others render as cards
+  // Inline rich actions — rendered below the bubble, full-width
   const gridActions = message.actions?.filter((a) => a.type === 'show_components') ?? [];
-  const cardActions = message.actions?.filter((a) => a.type !== 'show_components') ?? [];
+  const changelogActions = message.actions?.filter((a) => a.type === 'get_recent_changes') ?? [];
+  const validationActions = message.actions?.filter((a) => a.type === 'check_validation') ?? [];
+
+  // Standard action cards — everything else
+  const inlineTypes = new Set(['show_components', 'get_recent_changes', 'check_validation']);
+  const cardActions = message.actions?.filter((a) => !inlineTypes.has(a.type)) ?? [];
 
   return (
     <div className={`flex gap-2.5 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -56,6 +65,27 @@ export function ChatMessage({ message, basePath, onClose }: Props) {
               recommendationReason={action.recommendationReason}
               basePath={basePath}
               onClose={onClose}
+            />
+          ) : null
+        )}
+
+        {/* Changelog feed */}
+        {changelogActions.map((_action, idx) => (
+          <ChatChangelogFeed key={idx} basePath={basePath} onClose={onClose} />
+        ))}
+
+        {/* Validation panels */}
+        {validationActions.map((action, idx) =>
+          action.type === 'check_validation' ? (
+            <ChatValidationPanel
+              key={idx}
+              componentId={action.componentId}
+              componentTitle={action.componentTitle}
+              basePath={basePath}
+              onNavigate={() => {
+                router.push(`${basePath ?? ''}/system/component/${encodeURIComponent(action.componentId)}`);
+                onClose?.();
+              }}
             />
           ) : null
         )}

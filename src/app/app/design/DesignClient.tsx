@@ -167,6 +167,8 @@ const DesignWorkbenchPage = ({
   const [effectiveFoundations, setEffectiveFoundations] = useState<DesignWorkbenchFoundationContext>(foundations);
 
   const selectedGeneratedImageIdRef = useRef<string | null>(null);
+  /** True when the page was opened from the chat assistant with a pre-built prompt. Reset after first fire. */
+  const autoGenerateRef = useRef(Boolean(initialPrompt));
 
   useEffect(() => {
     selectedGeneratedImageIdRef.current = selectedGeneratedImageId;
@@ -256,14 +258,18 @@ const DesignWorkbenchPage = ({
     if (initialPrompt) {
       setPrompt(initialPrompt);
     }
-    // Scroll prompt textarea into view after a tick
-    setTimeout(() => {
-      const el = document.querySelector<HTMLElement>('[data-design-prompt]');
-      el?.focus();
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 150);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-fire generation once the prompt state has settled after chat hand-off.
+  // autoGenerateRef is only true when initialPrompt was set; we reset it on first fire.
+  useEffect(() => {
+    if (!autoGenerateRef.current || !prompt) return;
+    autoGenerateRef.current = false;
+    void handleGenerate();
+  // handleGenerate is a stable closure inside this render; prompt changing is the correct trigger.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt]);
 
   useEffect(() => {
     const urls = promptImages.map((f) => URL.createObjectURL(f));

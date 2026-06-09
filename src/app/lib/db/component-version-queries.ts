@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { desc, eq, max, sql } from 'drizzle-orm';
+import { desc, eq, gte, max, sql } from 'drizzle-orm';
 import { getDb } from './index';
-import { componentArtifacts, handoffComponentVersions, users } from './schema';
+import { componentArtifacts, handoffComponents, handoffComponentVersions, users } from './schema';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
@@ -288,4 +288,66 @@ function rowToRecord(r: typeof handoffComponentVersions.$inferSelect): Component
     sourceFileHashes: (r.sourceFileHashes ?? {}) as Record<string, string>,
     artifactFilenames: ((r.artifactFilenames ?? []) as string[]),
   };
+}
+
+// ─── Cross-component recent changes ──────────────────────────────────────────
+
+export interface RecentChangeRow {
+  id: number;
+  componentId: string;
+  componentTitle: string;
+  componentGroup: string;
+  versionNumber: number;
+  pushedAt: Date;
+  pushedByName: string | null;
+  pushedByEmail: string | null;
+  trigger: string;
+  changeSummary: ComponentChangeSummary;
+}
+
+export async function getRecentComponentChanges(
+  limit = 50,
+  since?: Date
+): Promise<RecentChangeRow[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      id: handoffComponentVersions.id,
+      componentId: handoffComponentVersions.componentId,
+      versionNumber: handoffComponentVersions.versionNumber,
+      pushedAt: handoffComponentVersions.pushedAt,
+      pushedByName: handoffComponentVersions.pushedByName,
+      pushedByEmail: handoffComponentVersions.pushedByEmail,
+      trigger: handoffComponentVersions.trigger,
+      changeSummary: handoffComponentVersions.changeSummary,
+      componentTitle: handoffComponents.title,
+      componentGroup: handoffComponents.group,
+    })
+    .from(handoffComponentVersions)
+    .leftJoin(handoffComponents, eq(handoffComponentVersions.componentId, handoffComponents.id))
+    .where(since ? gte(handoffComponentVersions.pushedAt, since) : undefined)
+    .orderBy(desc(handoffComponentVersions.pushedAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    id: r.id,
+    componentId: r.componentId,
+    versionNumber: r.versionNumber,
+    pushedAt: r.pushedAt as Date,
+    pushedByName: r.pushedByName,
+    pushedByEmail: r.pushedByEmail,
+    trigger: r.trigger,
+    changeSummary: (r.changeSummary as unknown as ComponentChangeSummary) ?? {
+      firstVersion: false,
+      metadataChanged: false,
+      fieldsChanged: [],
+      sourceAdded: [],
+      sourceModified: [],
+      sourceRemoved: [],
+      artifactsChanged: false,
+      artifactCount: 0,
+    },
+    componentTitle: r.componentTitle ?? r.componentId,
+    componentGroup: r.componentGroup ?? '',
+  }));
 }

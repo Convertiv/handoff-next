@@ -19,7 +19,9 @@ export type ChatAction =
   | { type: 'navigate_pattern'; id: string; title: string; reason?: string }
   | { type: 'open_playground'; description: string }
   | { type: 'open_design_workbench'; description: string; componentId?: string; generationPrompt?: string }
-  | { type: 'show_components'; components: ComponentCardRef[]; recommendation?: string; recommendationReason?: string };
+  | { type: 'show_components'; components: ComponentCardRef[]; recommendation?: string; recommendationReason?: string }
+  | { type: 'get_recent_changes'; days?: number; limit?: number }
+  | { type: 'check_validation'; componentId: string; componentTitle: string };
 
 export interface ChatMessage {
   id: string;

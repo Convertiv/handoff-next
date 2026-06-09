@@ -87,5 +87,11 @@ function resolveAction(
     case 'show_components':
       // show_components is rendered as a grid, not a card — this branch is unreachable
       return { icon: <Layers className="h-4 w-4" />, label: 'Components' };
+    case 'get_recent_changes':
+      // rendered inline as ChatChangelogFeed — unreachable here
+      return { icon: <Layers className="h-4 w-4" />, label: 'Recent changes' };
+    case 'check_validation':
+      // rendered inline as ChatValidationPanel — unreachable here
+      return { icon: <Layers className="h-4 w-4" />, label: 'Validation' };
   }
 }
