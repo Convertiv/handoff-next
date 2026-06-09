@@ -391,6 +391,33 @@ export class DynamicDataProvider implements DataProvider {
     }
     return mergeDbNavIntoSkeleton(skeleton, dbTree, { resolver, basePath });
   }
+
+  /** Read the validationManifest stored in registry config (pushed by workspace on push:all). */
+  async getValidationManifest(): Promise<import('../../app/system/health/health-types').ValidationManifest | null> {
+    try {
+      const { getRegistryConfig } = await import('../db/registry-queries');
+      const cfg = await getRegistryConfig();
+      if (cfg && typeof cfg === 'object' && 'validationManifest' in cfg) {
+        const m = (cfg as Record<string, unknown>).validationManifest;
+        if (m && typeof m === 'object' && (m as any).configured === true) {
+          return m as import('../../app/system/health/health-types').ValidationManifest;
+        }
+      }
+    } catch {
+      // Not fatal — health page shows empty state
+    }
+    return null;
+  }
+
+  /** Read the last N validation run snapshots for the trend chart. */
+  async getValidationRunHistory(limit = 30): Promise<import('../db/validation-queries').ValidationRunRecord[]> {
+    try {
+      const { getValidationRunHistory } = await import('../db/validation-queries');
+      return await getValidationRunHistory(limit);
+    } catch {
+      return [];
+    }
+  }
 }
 
 /**

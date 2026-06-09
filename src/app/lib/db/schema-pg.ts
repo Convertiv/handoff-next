@@ -378,3 +378,31 @@ export const handoffRegistryNavigation = pgTable('handoff_registry_navigation', 
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
   updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 });
+
+/**
+ * Append-only health-snapshot log. One row is inserted by the registry API
+ * every time a push includes component data that carries validationResults.
+ * Enables the /system/health trend chart without any workspace-side change.
+ *
+ * `score`           0–100, weighted average of per-component health scores.
+ * `grade`           A / B+ / B / C+ / C / D / F derived from score.
+ * `trigger`         'push' | 'manual' — what caused the snapshot.
+ * `validatorBreakdown`  [{ id, name, passed, failed, skipped }] per validator.
+ * `componentSnapshot`   [{ id, title, score, severity }] compact per-component.
+ */
+export const handoffValidationRuns = pgTable('handoff_validation_run', {
+  id: serial('id').primaryKey(),
+  runAt: timestamp('run_at', { mode: 'date' }).notNull().defaultNow(),
+  trigger: text('trigger').notNull().default('push'),
+  score: numeric('score', { precision: 5, scale: 2 }),
+  grade: text('grade'),
+  totalComponents: integer('total_components').notNull().default(0),
+  validatedComponents: integer('validated_components').notNull().default(0),
+  totalErrors: integer('total_errors').notNull().default(0),
+  totalWarnings: integer('total_warnings').notNull().default(0),
+  totalInfos: integer('total_infos').notNull().default(0),
+  passedValidators: integer('passed_validators').notNull().default(0),
+  skippedValidators: integer('skipped_validators').notNull().default(0),
+  validatorBreakdown: jsonb('validator_breakdown').notNull().default([]),
+  componentSnapshot: jsonb('component_snapshot').notNull().default([]),
+});

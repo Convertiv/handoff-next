@@ -41,7 +41,26 @@ export async function pushRegistryConfig(handoff: Handoff): Promise<void> {
   // The `app` block of handoff.config.js carries title, client, breakpoints,
   // sort orders, base_path, attribution flag, ports, etc. — everything the
   // registry needs to identify this project at runtime.
-  const data = handoff.config?.app ?? {};
+  const data: Record<string, unknown> = { ...(handoff.config?.app ?? {}) };
+
+  // Derive a validation manifest from the workspace's validation config.
+  // The registry uses this to:
+  //  (a) decide whether to show the /system/health page link
+  //  (b) know which validators to expect (vs "not run yet")
+  // We push only the stable IDs/names — not the full Validator objects (which
+  // contain closures and can't be serialized).
+  const validationCfg = (handoff.runtimeConfig as any)?.validation;
+  if (validationCfg?.validators?.length) {
+    data.validationManifest = {
+      configured: true,
+      runOn: validationCfg.runOn ?? 'push',
+      validators: (validationCfg.validators as Array<{ id: string; name: string; description?: string }>)
+        .map((v) => ({ id: v.id, name: v.name, description: v.description })),
+    };
+  } else {
+    // Explicitly clear any stale manifest if validators were removed
+    data.validationManifest = { configured: false, validators: [], runOn: 'push' };
+  }
 
   Logger.info('Pushing registry config…');
   await postJson(url, bearer, { data });
