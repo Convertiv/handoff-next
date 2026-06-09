@@ -1,9 +1,11 @@
 'use client';
 
 import { PreviewObject } from '@handoff/types/preview';
-import { ArrowRight, Badge, Webhook } from 'lucide-react';
+import { ArrowRight, Badge, Settings, Webhook } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -18,6 +20,8 @@ import { JsonTreeView } from '../../components/ui/json-tree-view';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 
 export default function SystemPageClient({ content, menu, metadata, current, config }) {
+  const { data: session } = useSession();
+  const isAdmin = session?.user?.role === 'admin';
   const [components, setComponents] = useState<PreviewObject[]>(undefined);
   const fetchComponents = async () => {
     const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
@@ -65,6 +69,20 @@ export default function SystemPageClient({ content, menu, metadata, current, con
         <div className="mt-3 flex flex-row flex-wrap items-start justify-between gap-3">
           <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{metadata.description}</p>
           <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
+          {isAdmin && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="outline" size="icon" asChild>
+                    <Link href="/admin/reference" aria-label="Reference settings">
+                      <Settings strokeWidth={1.5} className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">Reference settings</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <Drawer direction="right">
             <TooltipProvider>
               <Tooltip>

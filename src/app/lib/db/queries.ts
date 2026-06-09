@@ -711,3 +711,40 @@ export async function getLatestComponentGenerationJobForArtifact(artifactId: str
     .limit(1);
   return row ?? null;
 }
+
+export type AiCostByUserRow = {
+  userId: string | null;
+  name: string | null;
+  email: string | null;
+  calls: number;
+  failedCalls: number;
+  totalCostUsd: number;
+};
+
+export async function getAiCostByUser({ from, to }: { from: Date; to: Date }): Promise<AiCostByUserRow[]> {
+  if (!usePostgres()) return [];
+  const db = getDb();
+  const rows = await db
+    .select({
+      userId: handoffEventLog.actorUserId,
+      name: users.name,
+      email: users.email,
+      calls: count(),
+      failedCalls: sql<number>`count(*) filter (where ${handoffEventLog.status} = 'error')`,
+      totalCostUsd: sql<string>`coalesce(sum(${handoffEventLog.estimatedCostUsd}), 0)`,
+    })
+    .from(handoffEventLog)
+    .leftJoin(users, eq(users.id, handoffEventLog.actorUserId))
+    .where(and(eq(handoffEventLog.category, 'ai'), gte(handoffEventLog.createdAt, from), lte(handoffEventLog.createdAt, to)))
+    .groupBy(handoffEventLog.actorUserId, users.name, users.email)
+    .orderBy(desc(sql`coalesce(sum(${handoffEventLog.estimatedCostUsd}), 0)`));
+
+  return rows.map((r) => ({
+    userId: r.userId,
+    name: r.name ?? null,
+    email: r.email ?? null,
+    calls: Number(r.calls ?? 0),
+    failedCalls: Number(r.failedCalls ?? 0),
+    totalCostUsd: Number(r.totalCostUsd ?? 0),
+  }));
+}

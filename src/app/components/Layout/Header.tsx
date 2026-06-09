@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useEffect, useState } from 'react';
 import { AuthControls } from '../Auth/AuthControls';
+import { BuildBadge } from './BuildBadge';
 import { ModeToggle } from '../../components/ModeSwitcher';
 import { MainNav } from '../../components/Navigation/MainNav';
 import { MobileNav } from '../../components/Navigation/MobileNav';
@@ -56,6 +57,7 @@ export function Header() {
           </Link>
           <div className="hidden items-center gap-4 @2xl:flex">
             <MainNav />
+            <BuildBadge />
             <AuthControls />
             <ModeToggle />
             {showDevelopLocally ? (

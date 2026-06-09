@@ -48,14 +48,27 @@ export function AuthControls() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="font-normal">
-          <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{displayName}</p>
-            <p className="text-xs leading-none text-muted-foreground">{displayEmail}</p>
-            <Badge variant="secondary" className="mt-2 w-fit text-[10px]">
-              {displayRole}
-            </Badge>
-          </div>
+        <DropdownMenuLabel className="font-normal p-0">
+          {!isLocal ? (
+            <Link
+              href="/account"
+              className="flex flex-col space-y-1 rounded-sm px-2 py-1.5 hover:bg-accent hover:text-accent-foreground"
+            >
+              <p className="text-sm font-medium leading-none">{displayName}</p>
+              <p className="text-xs leading-none text-muted-foreground">{displayEmail}</p>
+              <Badge variant="secondary" className="mt-2 w-fit text-[10px]">
+                {displayRole}
+              </Badge>
+            </Link>
+          ) : (
+            <div className="flex flex-col space-y-1 px-2 py-1.5">
+              <p className="text-sm font-medium leading-none">{displayName}</p>
+              <p className="text-xs leading-none text-muted-foreground">{displayEmail}</p>
+              <Badge variant="secondary" className="mt-2 w-fit text-[10px]">
+                {displayRole}
+              </Badge>
+            </div>
+          )}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {displayRole === 'admin' ? (
@@ -65,15 +78,6 @@ export function AuthControls() {
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href="/admin/builds">Builds</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/reference">Reference</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/integrations">Integrations</Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/admin/ai-cost">AI cost</Link>
             </DropdownMenuItem>
           </>
         ) : null}
@@ -118,6 +122,7 @@ export function AuthControlsMobile() {
   }
 
   const displayEmail = isLocal ? 'local@handoff.local' : (session?.user?.email || '');
+  const displayName = isLocal ? 'Dev User' : (session?.user?.name || session?.user?.email || 'User');
   const displayRole = isLocal ? 'admin' : (session?.user?.role || 'member');
 
   return (
@@ -126,6 +131,11 @@ export function AuthControlsMobile() {
         <UserRound className="h-4 w-4" />
         <span className="truncate">{isLocal ? 'Dev User' : displayEmail}</span>
       </div>
+      {!isLocal && (
+        <Link href="/account" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
+          Account settings
+        </Link>
+      )}
       {displayRole === 'admin' ? (
         <>
           <Link href="/admin/users" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
@@ -133,15 +143,6 @@ export function AuthControlsMobile() {
           </Link>
           <Link href="/admin/builds" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
             Builds
-          </Link>
-          <Link href="/admin/reference" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
-            Reference
-          </Link>
-          <Link href="/admin/integrations" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
-            Integrations
-          </Link>
-          <Link href="/admin/ai-cost" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
-            AI cost
           </Link>
         </>
       ) : null}
