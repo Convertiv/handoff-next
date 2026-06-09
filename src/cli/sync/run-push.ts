@@ -267,18 +267,60 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
   }
 
   // Auto-batch changes so each HTTP request stays under Vercel's 4.5MB
-  // serverless-function body limit. We target 3.5MB per batch (with headroom
-  // for JSON encoding overhead and headers), and ensure each batch has at
-  // least one change so a single oversized payload still gets attempted
-  // (server will return 413 with a clear message).
+  // serverless-function body limit. We target 3MB per batch (with comfortable
+  // headroom for the JSON wrapper and HTTP headers).
+  //
+  // Individual components can still exceed the batch limit when they carry many
+  // HTML preview variants. We handle this with a two-level safeguard:
+  //   1. If a single item's serialized size exceeds MAX_ITEM_BYTES we strip its
+  //      buildArtifacts (the HTML previews) and log a warning — the component
+  //      metadata + source files still get pushed.
+  //   2. After any stripping, if the item is still over MAX_ITEM_BYTES (rare —
+  //      e.g. very large source files), we log an error and skip it entirely so
+  //      one bad component never blocks the rest of the push.
   const url = `${baseUrl}/api/sync/upload`;
-  const MAX_BATCH_BYTES = 3.5 * 1024 * 1024;
+  const MAX_BATCH_BYTES = 3 * 1024 * 1024;   // 3 MB per batch
+  const MAX_ITEM_BYTES  = 3 * 1024 * 1024;   // 3 MB per single change (must fit in one batch)
   const batches: SyncUploadBody['changes'][] = [];
   let current: SyncUploadBody['changes'] = [];
   let currentBytes = 0;
 
-  for (const change of changes) {
-    const changeBytes = Buffer.byteLength(JSON.stringify(change), 'utf8');
+  for (let change of changes) {
+    let changeBytes = Buffer.byteLength(JSON.stringify(change), 'utf8');
+
+    // ── Per-item oversize guard ──────────────────────────────────────────────
+    if (changeBytes > MAX_ITEM_BYTES) {
+      const sizeMb = (changeBytes / (1024 * 1024)).toFixed(1);
+      const hasArtifacts =
+        change.entityType === 'component' &&
+        !!(change.data as Record<string, unknown>)?.buildArtifacts;
+
+      if (hasArtifacts) {
+        // Strip build artifacts and retry — metadata + source files still push.
+        Logger.warn(
+          `Component "${change.entityId}" payload is ${sizeMb}MB (limit 3MB). ` +
+          `Stripping buildArtifacts from this push — HTML previews will not update on the registry ` +
+          `until a subsequent push where artifact sizes are smaller. ` +
+          `To avoid this, run \`handoff-app push --skip-build\` after reducing preview variant count.`
+        );
+        const { buildArtifacts: _dropped, ...dataWithout } = change.data as Record<string, unknown>;
+        change = { ...change, data: dataWithout };
+        changeBytes = Buffer.byteLength(JSON.stringify(change), 'utf8');
+      }
+
+      if (changeBytes > MAX_ITEM_BYTES) {
+        // Still too large even after stripping — skip to avoid a guaranteed 413.
+        const sizeMb2 = (changeBytes / (1024 * 1024)).toFixed(1);
+        Logger.error(
+          `Component "${change.entityId}" payload is ${sizeMb2}MB even after stripping buildArtifacts. ` +
+          `Skipping this component — use \`handoff-app push --metadata-only --component ${change.entityId}\` ` +
+          `to push just its metadata.`
+        );
+        continue;
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────
+
     if (current.length > 0 && currentBytes + changeBytes > MAX_BATCH_BYTES) {
       batches.push(current);
       current = [];

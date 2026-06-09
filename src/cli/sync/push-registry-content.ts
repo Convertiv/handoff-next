@@ -49,7 +49,9 @@ export async function pushRegistryConfig(handoff: Handoff): Promise<void> {
   //  (b) know which validators to expect (vs "not run yet")
   // We push only the stable IDs/names — not the full Validator objects (which
   // contain closures and can't be serialized).
-  const validationCfg = (handoff.runtimeConfig as any)?.validation;
+  // NOTE: `validation` lives on `handoff.config` (the full project config), NOT
+  // on `handoff.runtimeConfig` (which only carries component-level options).
+  const validationCfg = (handoff.config as any)?.validation;
   if (validationCfg?.validators?.length) {
     data.validationManifest = {
       configured: true,

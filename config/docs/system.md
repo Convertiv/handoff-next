@@ -14,6 +14,10 @@ menu:
         title: Overview
       - path: system/figma-sync
         title: Figma Sync
+      - path: system/health
+        title: Health
+      - path: system/changelog
+        title: Changelog
   - title: Tokens
     tokens: true
   - title: Components

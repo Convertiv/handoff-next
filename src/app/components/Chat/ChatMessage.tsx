@@ -70,9 +70,17 @@ export function ChatMessage({ message, basePath, onClose }: Props) {
         )}
 
         {/* Changelog feed */}
-        {changelogActions.map((_action, idx) => (
-          <ChatChangelogFeed key={idx} basePath={basePath} onClose={onClose} />
-        ))}
+        {changelogActions.map((action, idx) =>
+          action.type === 'get_recent_changes' ? (
+            <ChatChangelogFeed
+              key={idx}
+              basePath={basePath}
+              onClose={onClose}
+              days={action.days}
+              limit={action.limit}
+            />
+          ) : null
+        )}
 
         {/* Validation panels */}
         {validationActions.map((action, idx) =>

@@ -386,10 +386,14 @@ export class DynamicDataProvider implements DataProvider {
       // see a workspace that uses `patterns: true` in registry mode.
     };
 
-    if (!dbTree || dbTree.length === 0) {
-      return skeleton;
-    }
-    return mergeDbNavIntoSkeleton(skeleton, dbTree, { resolver, basePath });
+    const builtMenu: SectionLink[] = !dbTree || dbTree.length === 0
+      ? skeleton
+      : mergeDbNavIntoSkeleton(skeleton, dbTree, { resolver, basePath });
+
+    // Inject built-in registry utility pages into the System section.
+    // These are registry-level features (Health dashboard, Changelog) — they
+    // should always appear regardless of what the workspace's system.md defines.
+    return injectSystemUtilityLinks(builtMenu, basePath);
   }
 
   /** Read the validationManifest stored in registry config (pushed by workspace on push:all). */
@@ -418,6 +422,66 @@ export class DynamicDataProvider implements DataProvider {
       return [];
     }
   }
+}
+
+/**
+ * Inject the registry's built-in utility pages (Health, Changelog) into the
+ * System section's subSections. These are registry features — they should
+ * always be reachable regardless of what a workspace's system.md menu defines.
+ *
+ * Strategy: find the System section's first subSection that already has a menu
+ * (i.e. the "Design System" group with Overview/Figma Sync), and append the
+ * utility links there if they're not already present. This keeps them grouped
+ * with the top-level system navigation rather than the component catalog.
+ */
+function injectSystemUtilityLinks(menu: SectionLink[], basePath: string): SectionLink[] {
+  const utilLinks = [
+    { title: 'Health', path: `${basePath}/system/health` },
+    { title: 'Changelog', path: `${basePath}/system/changelog` },
+  ];
+
+  return menu.map((section) => {
+    const isSystem = section.path === '/system' || section.path === `${basePath}/system` || section.path?.endsWith('/system');
+    if (!isSystem) return section;
+
+    // Find the first subSection that has a menu (the "Design System" group)
+    const subSections = section.subSections ?? [];
+    const firstWithMenu = subSections.findIndex((s) => Array.isArray(s.menu) && s.menu.length > 0);
+
+    if (firstWithMenu === -1) {
+      // No existing submenu group — append as a standalone "System" group
+      return {
+        ...section,
+        subSections: [
+          ...subSections,
+          {
+            title: 'System',
+            path: `${basePath}/system`,
+            image: '',
+            menu: utilLinks.map((l) => ({ ...l, image: '' })),
+          },
+        ],
+      };
+    }
+
+    // Merge into the first submenu group, skipping any already present
+    const existingPaths = new Set(
+      (subSections[firstWithMenu].menu ?? []).map((m) => m.path)
+    );
+    const toAdd = utilLinks
+      .filter((l) => !existingPaths.has(l.path))
+      .map((l) => ({ ...l, image: '' }));
+
+    if (toAdd.length === 0) return section;
+
+    const updatedSubSections = subSections.map((s, i) =>
+      i === firstWithMenu
+        ? { ...s, menu: [...(s.menu ?? []), ...toAdd] }
+        : s
+    );
+
+    return { ...section, subSections: updatedSubSections };
+  });
 }
 
 /**

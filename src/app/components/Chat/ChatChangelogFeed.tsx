@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { GitCommit, Clock, User } from 'lucide-react';
+import { ArrowRight, GitCommit } from 'lucide-react';
 import { Badge } from '@handoff/app/components/ui/badge';
 import { handoffApiUrl } from '@/lib/api-path';
 
@@ -36,6 +36,10 @@ interface DateGroup {
 interface Props {
   basePath?: string;
   onClose?: () => void;
+  /** Number of days back to show — passed through from the AI get_recent_changes action */
+  days?: number;
+  /** Max entries to return — passed through from the AI get_recent_changes action */
+  limit?: number;
 }
 
 function relativeTime(iso: string): string {
@@ -105,14 +109,20 @@ function ChangeBadges({ s }: { s: ChangeSummary }) {
   return badges.length > 0 ? <>{badges}</> : null;
 }
 
-export function ChatChangelogFeed({ basePath = '', onClose }: Props) {
+export function ChatChangelogFeed({ basePath = '', onClose, days, limit = 30 }: Props) {
   const router = useRouter();
   const [groups, setGroups] = useState<DateGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(handoffApiUrl('/api/handoff/changelog?limit=30'), { credentials: 'include' })
+    const params = new URLSearchParams({ limit: String(Math.min(limit, 50)) });
+    if (days) {
+      const since = new Date();
+      since.setDate(since.getDate() - days);
+      params.set('since', since.toISOString());
+    }
+    fetch(handoffApiUrl(`/api/handoff/changelog?${params.toString()}`), { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as { changes: ChangeEntry[] };
@@ -148,6 +158,7 @@ export function ChatChangelogFeed({ basePath = '', onClose }: Props) {
   return (
     <div className="mt-2 w-full space-y-3">
       {groups.map((group) => (
+
         <div key={group.label}>
           {/* Date divider */}
           <div className="mb-1.5 flex items-center gap-2">
@@ -184,6 +195,19 @@ export function ChatChangelogFeed({ basePath = '', onClose }: Props) {
           </div>
         </div>
       ))}
+
+      {/* Footer: link to the full changelog page */}
+      <button
+        type="button"
+        onClick={() => {
+          router.push(`${basePath}/system/changelog`);
+          onClose?.();
+        }}
+        className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-md py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        View full changelog
+        <ArrowRight className="h-3 w-3" />
+      </button>
     </div>
   );
 }

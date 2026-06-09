@@ -126,15 +126,29 @@ function ChangeTags({ s }: { s: ChangeSummary }) {
 }
 
 export function ChangelogClient() {
-  const [groups, setGroups] = useState<DateGroup[]>([]);
+  // Raw data — all entries for the selected time range
+  const [allEntries, setAllEntries] = useState<ChangeEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
-  const [total, setTotal] = useState(0);
+  const [groupFilter, setGroupFilter] = useState<string>('');
+
+  // Derived: unique groups from loaded data
+  const availableGroups = Array.from(
+    new Set(allEntries.map((e) => e.componentGroup).filter(Boolean))
+  ).sort();
+
+  // Derived: filtered + grouped for display
+  const filteredEntries = groupFilter
+    ? allEntries.filter((e) => e.componentGroup === groupFilter)
+    : allEntries;
+  const groups = groupByDate(filteredEntries);
+  const total = filteredEntries.length;
 
   const load = useCallback((range: TimeRange) => {
     setLoading(true);
     setError(null);
+    setGroupFilter('');
     const rangeDef = TIME_RANGES.find((r) => r.value === range);
     const params = new URLSearchParams({ limit: '200' });
     if (rangeDef?.days) {
@@ -146,8 +160,7 @@ export function ChangelogClient() {
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as { changes: ChangeEntry[]; total: number };
-        setGroups(groupByDate(data.changes ?? []));
-        setTotal(data.total ?? 0);
+        setAllEntries(data.changes ?? []);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load changelog'))
       .finally(() => setLoading(false));
@@ -157,8 +170,9 @@ export function ChangelogClient() {
 
   return (
     <div className="space-y-4">
-      {/* Time range filter */}
+      {/* Filters row */}
       <div className="flex flex-wrap items-center gap-2">
+        {/* Time range */}
         {TIME_RANGES.map((r) => (
           <Button
             key={r.value}
@@ -169,6 +183,31 @@ export function ChangelogClient() {
             {r.label}
           </Button>
         ))}
+
+        {/* Group filter — only shown when there are 2+ groups */}
+        {!loading && availableGroups.length > 1 && (
+          <>
+            <div className="mx-1 h-5 w-px bg-border" />
+            <Button
+              variant={groupFilter === '' ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={() => setGroupFilter('')}
+            >
+              All groups
+            </Button>
+            {availableGroups.map((g) => (
+              <Button
+                key={g}
+                variant={groupFilter === g ? 'secondary' : 'outline'}
+                size="sm"
+                onClick={() => setGroupFilter(groupFilter === g ? '' : g)}
+              >
+                {g}
+              </Button>
+            ))}
+          </>
+        )}
+
         {!loading && total > 0 && (
           <span className="ml-auto text-sm text-muted-foreground">
             {total} {total === 1 ? 'push' : 'pushes'}
