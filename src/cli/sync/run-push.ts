@@ -84,6 +84,19 @@ function attachArtifacts(
  * Scan local project and POST declarations + pages to the remote Handoff API.
  */
 export async function runPush(handoff: Handoff, opts?: RunPushOptions): Promise<void> {
+  // Screenshots and validators share a single headless Chromium process that
+  // is opened lazily on the first call to getSharedBrowser(). We MUST close
+  // it before returning; otherwise Node.js keeps the chromium child process
+  // alive and the CLI hangs indefinitely after "Push complete."
+  try {
+    await _runPushInner(handoff, opts);
+  } finally {
+    const { closeSharedBrowser } = await import('@handoff/transformers/preview/component/playwright-shared');
+    await closeSharedBrowser();
+  }
+}
+
+async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<void> {
   const workPath = handoff.workingPath;
   const dryRun = Boolean(opts?.dryRun);
 
