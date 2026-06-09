@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, numeric, pgTable, primaryKey, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, numeric, pgTable, primaryKey, serial, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /** NextAuth / Auth.js — user (+ Handoff RBAC + credentials password) */
 export const users = pgTable('user', {
@@ -378,6 +378,47 @@ export const handoffRegistryNavigation = pgTable('handoff_registry_navigation', 
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
   updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 });
+
+/**
+ * Immutable version snapshots for each component.
+ * One row is appended every time a push results in a detectable change to a
+ * component's metadata, source files, or build artifacts.
+ * Identical pushes (no change from the previous version) do NOT create a row.
+ *
+ * `version_number`      Monotonically increasing per component (1, 2, 3…).
+ * `snapshot`            Full component row at this version (title, description,
+ *                       group, type, path, properties, previews, data).
+ * `change_summary`      What changed vs the previous version.
+ *                       { firstVersion, metadataChanged, fieldsChanged,
+ *                         sourceAdded, sourceModified, sourceRemoved,
+ *                         artifactsChanged, artifactCount }
+ * `source_file_hashes`  { "path/file.ts": "sha256_prefix_12" } at this version.
+ * `artifact_filenames`  ["index.html", "index.css", …] at this version.
+ */
+export const handoffComponentVersions = pgTable(
+  'handoff_component_version',
+  {
+    id: serial('id').primaryKey(),
+    componentId: text('component_id')
+      .notNull()
+      .references(() => handoffComponents.id, { onDelete: 'cascade' }),
+    versionNumber: integer('version_number').notNull(),
+    pushedAt: timestamp('pushed_at', { mode: 'date' }).notNull().defaultNow(),
+    pushedByUserId: text('pushed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    pushedByName: text('pushed_by_name'),
+    pushedByEmail: text('pushed_by_email'),
+    trigger: text('trigger').notNull().default('push'),
+    // Full metadata snapshot
+    snapshot: jsonb('snapshot').notNull().default({}),
+    // What changed from the previous version
+    changeSummary: jsonb('change_summary').notNull().default({}),
+    // Source file fingerprints: { "path": "sha256[:12]" }
+    sourceFileHashes: jsonb('source_file_hashes').notNull().default({}),
+    // Artifact filenames present at this version
+    artifactFilenames: jsonb('artifact_filenames').notNull().default([]),
+  },
+  (t) => [uniqueIndex('component_version_unique').on(t.componentId, t.versionNumber)]
+);
 
 /**
  * Append-only health-snapshot log. One row is inserted by the registry API

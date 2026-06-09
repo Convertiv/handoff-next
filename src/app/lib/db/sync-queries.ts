@@ -1,6 +1,7 @@
 import { desc, eq, gt, sql } from 'drizzle-orm';
 import type { SyncAction, SyncChange, SyncChangeset, SyncEntityType, SyncStatusResponse } from '@handoff/types/handoff-sync';
 import { deleteComponentArtifacts, upsertComponentArtifacts } from './component-artifact-queries';
+import { recordComponentVersion } from './component-version-queries';
 import { getDb } from './index';
 import {
   handoffComponents,
@@ -168,12 +169,37 @@ export async function applyUploadedChange(input: {
           updatedAt: row.updatedAt,
         },
       });
+    const incomingArtifactFilenames: string[] = [];
     if (d.buildArtifacts && typeof d.buildArtifacts === 'object' && !Array.isArray(d.buildArtifacts)) {
       await upsertComponentArtifacts(row.id, d.buildArtifacts as Record<string, string>);
+      incomingArtifactFilenames.push(...Object.keys(d.buildArtifacts as Record<string, string>).sort());
     }
+    const incomingSourceFiles: Record<string, string> = {};
     if (d.sourceFiles && typeof d.sourceFiles === 'object' && !Array.isArray(d.sourceFiles)) {
-      await upsertComponentSources(row.id, d.sourceFiles as Record<string, string>, userId ?? null);
+      Object.assign(incomingSourceFiles, d.sourceFiles as Record<string, string>);
+      await upsertComponentSources(row.id, incomingSourceFiles, userId ?? null);
     }
+
+    // Record a version snapshot if anything changed from the previous push.
+    // Fire-and-forget: a version failure never surfaces to the push caller.
+    recordComponentVersion({
+      componentId: row.id,
+      userId: userId ?? null,
+      trigger: typeof d.trigger === 'string' ? d.trigger : 'push',
+      newRow: {
+        title: row.title,
+        description: row.description ?? null,
+        group: row.group ?? null,
+        path: row.path ?? null,
+        type: row.type ?? null,
+        properties: row.properties ?? null,
+        previews: row.previews ?? null,
+        data: row.data ?? null,
+      },
+      incomingSourceFiles,
+      incomingArtifactFilenames,
+    }).catch(() => {});
+
     await insertSyncEvent({
       entityType,
       entityId: row.id,
