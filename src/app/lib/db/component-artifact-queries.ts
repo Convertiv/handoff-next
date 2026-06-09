@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from './index';
 import { componentArtifacts } from './schema';
 
@@ -63,6 +63,29 @@ export async function getComponentArtifactByFilename(filename: string): Promise<
     .select()
     .from(componentArtifacts)
     .where(eq(componentArtifacts.filename, filename))
+    .limit(1);
+  if (!row) return null;
+  return { content: row.content, contentType: row.contentType };
+}
+
+/**
+ * Lookup an artifact by (componentId, basename) — used by the catch-all
+ * `/api/component/<id>/<file>` route when the URL carries the component id
+ * as a path segment rather than baked into the filename prefix. Without this
+ * pairing, files pushed under a basename (e.g. `screenshot.png`) are
+ * unreachable because the route's earlier "by-filename" lookup searches for
+ * the full `${id}/${file}` string and never matches the stored basename.
+ */
+export async function getComponentArtifactByComponentAndFilename(
+  componentId: string,
+  filename: string
+): Promise<{ content: string; contentType: string } | null> {
+  const db = getDb();
+  const ownerId = artifactComponentIdForFilename(filename, componentId);
+  const [row] = await db
+    .select()
+    .from(componentArtifacts)
+    .where(and(eq(componentArtifacts.componentId, ownerId), eq(componentArtifacts.filename, filename)))
     .limit(1);
   if (!row) return null;
   return { content: row.content, contentType: row.contentType };

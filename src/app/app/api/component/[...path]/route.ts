@@ -1,7 +1,11 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getComponentArtifactByFilename, isBinaryContentType } from '@/lib/db/component-artifact-queries';
+import {
+  getComponentArtifactByComponentAndFilename,
+  getComponentArtifactByFilename,
+  isBinaryContentType,
+} from '@/lib/db/component-artifact-queries';
 import { getComponentDistDir, getPublicApiComponentDir } from '@/lib/server/public-api-paths';
 
 export const runtime = 'nodejs';
@@ -37,9 +41,25 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ pa
     return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
   }
 
-  // Registry mode: serve from Postgres
+  // Registry mode: serve from Postgres.
+  // Lookup strategy mirrors the workspace-mode disk lookup below:
+  //   - 1 segment  → shared global file, query by basename
+  //   - 2+ segs   → first is component id, rest is the basename — query by
+  //                 (componentId, basename). Falls back to a flat-filename
+  //                 query so URLs like /api/component/video-generic.html
+  //                 keep working unchanged.
+  // Without the (componentId, basename) path, files pushed under a generic
+  // basename (e.g. `screenshot.png` for many components) are unreachable.
   if (process.env.DATABASE_URL?.trim()) {
-    const row = await getComponentArtifactByFilename(filename);
+    let row: { content: string; contentType: string } | null = null;
+    if (segments.length >= 2) {
+      const [componentId, ...rest] = segments;
+      const basename = rest.join('/');
+      row = await getComponentArtifactByComponentAndFilename(componentId, basename);
+    }
+    if (!row) {
+      row = await getComponentArtifactByFilename(filename);
+    }
     if (!row) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }

@@ -17,11 +17,24 @@ function patternApiDir(handoff: Handoff): string {
   return path.join(handoff.workingPath, 'public/api/pattern');
 }
 
+/**
+ * Files that ship as artifacts despite NOT being prefixed with the component
+ * id. Add a name here when a new generator writes to `components/<id>/dist/`
+ * using a generic filename — otherwise the file lives on disk forever but
+ * never reaches the registry, and the served URL 404s.
+ *
+ * Historic regression: `screenshot.png` (introduced in #46) was generated
+ * but never pushed, so the image URL stamped onto `data.image` resolved to
+ * 404 on the registry side. This list closes that gap.
+ */
+const COMMON_DIST_FILENAMES = new Set(['screenshot.png']);
+
 async function collectMatchingFiles(dir: string, prefix: string): Promise<string[]> {
   if (!(await fs.pathExists(dir))) return [];
   const entries = await fs.readdir(dir);
   return entries.filter((name) => {
     if (name.startsWith('.')) return false; // skip Vite temp dirs
+    if (COMMON_DIST_FILENAMES.has(name)) return true;
     return name === `${prefix}.json` || name.startsWith(`${prefix}.`) || name.startsWith(`${prefix}-`);
   });
 }
