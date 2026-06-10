@@ -325,53 +325,90 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   );
 
   server.registerTool(
-    'handoff_start_component_from_design',
+    'handoff_get_component_spec',
     {
-      description: 'Enqueue design → component generation job.',
+      description: 'Get the component specification (structured spec + editable markdown) for a saved design artifact. Returns the full ComponentSpec JSON and the rendered markdown for use in local component generation.',
       inputSchema: {
-        artifactId: z.string(),
-        componentName: z.string(),
-        renderer: z.enum(['handlebars', 'react', 'csf']).optional(),
-        behaviorPrompt: z.string().optional(),
-        a11yStandard: z.enum(['none', 'wcag-aa', 'wcag-aaa']).optional(),
-        useExtractedAssets: z.boolean().optional(),
-        maxIterations: z.number().int().min(1).max(10).optional(),
+        artifactId: z.string().describe('ID of the saved design artifact'),
       },
     },
-    async (args) => {
-      const { getDesignArtifactById, insertComponentGenerationJob } = await import('@/lib/db/queries');
-      const { scheduleComponentGenerationJob } = await import('@/lib/server/component-generation-schedule');
-      const { isValidComponentId } = await import('@/lib/component-id');
-      const componentId = args.componentName.trim().toLowerCase();
-      if (!isValidComponentId(componentId)) return textResult({ error: 'Invalid componentName' });
-      const artifact = await getDesignArtifactById(args.artifactId.trim());
+    async ({ artifactId }) => {
+      const { getDesignArtifactById } = await import('@/lib/db/queries');
+      const artifact = await getDesignArtifactById(artifactId.trim());
       if (!artifact) return textResult({ error: 'Design not found' });
-      const jobId = await insertComponentGenerationJob({
+      const specStatus = typeof artifact.specStatus === 'string' ? artifact.specStatus : 'none';
+      if (specStatus === 'none' || specStatus === 'failed') {
+        return textResult({
+          error: 'No spec available. Use regenerate_spec on the design detail page, or call handoff_generate_component_from_design to queue generation.',
+          specStatus,
+          artifactId: artifact.id,
+          title: artifact.title,
+        });
+      }
+      if (specStatus === 'pending' || specStatus === 'generating') {
+        return textResult({ specStatus, message: 'Spec generation is in progress. Try again shortly.', artifactId: artifact.id });
+      }
+      return textResult({
         artifactId: artifact.id,
-        userId: auth.userId,
-        componentId,
-        renderer: args.renderer ?? 'handlebars',
-        behaviorPrompt: args.behaviorPrompt ?? '',
-        a11yStandard: args.a11yStandard ?? 'none',
-        useExtractedAssets: args.useExtractedAssets ?? true,
-        maxIterations: args.maxIterations ?? 3,
+        title: artifact.title,
+        specStatus,
+        componentSpec: artifact.componentSpec ?? null,
+        componentSpecMd: artifact.componentSpecMd ?? null,
+        imageUrl: artifact.imageUrl,
+        assets: Array.isArray(artifact.assets) ? artifact.assets : [],
       });
-      scheduleComponentGenerationJob(jobId);
-      return textResult({ jobId, status: 'queued' });
     }
   );
 
   server.registerTool(
-    'handoff_get_generation_job',
+    'handoff_generate_component_from_design',
     {
-      description: 'Poll component generation job status.',
-      inputSchema: { jobId: z.number().int() },
+      description: 'Fetch a design artifact\'s spec and extracted assets to generate a component locally. If no spec exists yet, queues server-side spec generation. Returns the full spec, markdown, image URLs, and stack guide context for you to implement the component in the local codebase.',
+      inputSchema: {
+        artifactId: z.string().describe('ID of the saved design artifact'),
+        queueSpecIfMissing: z.boolean().optional().describe('If true (default), queue spec generation when none exists'),
+      },
     },
-    async ({ jobId }) => {
-      const { getComponentGenerationJob } = await import('@/lib/db/queries');
-      const job = await getComponentGenerationJob(jobId);
-      if (!job) return textResult({ error: 'Not found' });
-      return textResult(job);
+    async ({ artifactId, queueSpecIfMissing = true }) => {
+      const { getDesignArtifactById, updateDesignArtifactById } = await import('@/lib/db/queries');
+      const artifact = await getDesignArtifactById(artifactId.trim());
+      if (!artifact) return textResult({ error: 'Design not found' });
+
+      const specStatus = typeof artifact.specStatus === 'string' ? artifact.specStatus : 'none';
+
+      if ((specStatus === 'none' || specStatus === 'failed') && queueSpecIfMissing) {
+        try {
+          const { scheduleSpecGeneration } = await import('@/lib/server/design-asset-schedule');
+          await updateDesignArtifactById(artifact.id, { specStatus: 'pending' } as Parameters<typeof updateDesignArtifactById>[1]);
+          scheduleSpecGeneration(artifact.id);
+          return textResult({
+            message: 'Spec generation queued. Call handoff_get_component_spec in ~30 seconds to retrieve it.',
+            specStatus: 'pending',
+            artifactId: artifact.id,
+            title: artifact.title,
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return textResult({ error: `Could not queue spec generation: ${msg}` });
+        }
+      }
+
+      if (specStatus === 'pending' || specStatus === 'generating') {
+        return textResult({ message: 'Spec is still generating. Call handoff_get_component_spec shortly.', specStatus, artifactId: artifact.id });
+      }
+
+      const assets = (Array.isArray(artifact.assets) ? artifact.assets : []) as { key?: string; label: string; imageUrl: string; prompt?: string }[];
+      return textResult({
+        artifactId: artifact.id,
+        title: artifact.title,
+        description: artifact.description,
+        specStatus,
+        componentSpec: artifact.componentSpec ?? null,
+        componentSpecMd: artifact.componentSpecMd ?? null,
+        imageUrl: artifact.imageUrl,
+        assets: assets.map((a) => ({ key: a.key, label: a.label, imageUrl: a.imageUrl })),
+        hint: 'Use componentSpecMd as your implementation brief. Implement the component locally using the props, variants, behavior, and accessibility requirements from componentSpec. The imageUrl is the reference design.',
+      });
     }
   );
 

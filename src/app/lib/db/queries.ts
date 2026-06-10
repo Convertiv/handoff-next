@@ -399,6 +399,9 @@ export type DesignArtifactInsert = {
   metadata?: unknown;
   assets?: unknown;
   assetsStatus?: string;
+  componentSpec?: unknown;
+  componentSpecMd?: string;
+  specStatus?: string;
   publicAccess?: boolean;
 };
 
@@ -447,6 +450,9 @@ export async function updateDesignArtifact(
   if (patch.metadata !== undefined) values.metadata = patch.metadata as typeof handoffDesignArtifacts.$inferInsert.metadata;
   if (patch.assets !== undefined) values.assets = patch.assets as typeof handoffDesignArtifacts.$inferInsert.assets;
   if (patch.assetsStatus !== undefined) values.assetsStatus = patch.assetsStatus;
+  if (patch.componentSpec !== undefined) values.componentSpec = patch.componentSpec as typeof handoffDesignArtifacts.$inferInsert.componentSpec;
+  if (patch.componentSpecMd !== undefined) values.componentSpecMd = patch.componentSpecMd;
+  if (patch.specStatus !== undefined) values.specStatus = patch.specStatus;
   if (patch.publicAccess !== undefined) values.publicAccess = patch.publicAccess;
   const updated = await db
     .update(handoffDesignArtifacts)
@@ -477,6 +483,9 @@ export async function updateDesignArtifactById(
   if (patch.metadata !== undefined) values.metadata = patch.metadata as typeof handoffDesignArtifacts.$inferInsert.metadata;
   if (patch.assets !== undefined) values.assets = patch.assets as typeof handoffDesignArtifacts.$inferInsert.assets;
   if (patch.assetsStatus !== undefined) values.assetsStatus = patch.assetsStatus;
+  if (patch.componentSpec !== undefined) values.componentSpec = patch.componentSpec as typeof handoffDesignArtifacts.$inferInsert.componentSpec;
+  if (patch.componentSpecMd !== undefined) values.componentSpecMd = patch.componentSpecMd;
+  if (patch.specStatus !== undefined) values.specStatus = patch.specStatus;
   if (patch.publicAccess !== undefined) values.publicAccess = patch.publicAccess;
   const updated = await db
     .update(handoffDesignArtifacts)

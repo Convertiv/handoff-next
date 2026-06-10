@@ -12,7 +12,7 @@ import {
   sanitizeDesignAssetsForStorage,
   sanitizeSourceImagesForStorage,
 } from '@/lib/server/design-artifact-persist';
-import { scheduleDesignAssetExtraction } from '@/lib/server/design-asset-schedule';
+import { scheduleDesignAssetExtraction, scheduleSpecGeneration } from '@/lib/server/design-asset-schedule';
 import { isServerAiConfigured, shouldProxyAi } from '@/lib/server/ai-client';
 
 const ALLOWED_STATUS = new Set(['draft', 'review', 'approved']);
@@ -128,6 +128,8 @@ type PatchBody = {
   id?: string;
   publicAccess?: boolean;
   extractAssets?: boolean;
+  regenerateSpec?: boolean;
+  componentSpecMd?: string;
 };
 
 export async function PATCH(request: NextRequest) {
@@ -241,7 +243,22 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ id, publicAccess: Boolean(body.publicAccess) });
     }
 
-    return NextResponse.json({ error: 'No supported patch fields (use publicAccess or extractAssets).' }, { status: 400 });
+    if (body.regenerateSpec === true) {
+      if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+        return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
+      }
+      await updateDesignArtifactById(id, { specStatus: 'pending' });
+      scheduleSpecGeneration(id);
+      return NextResponse.json({ id, specQueued: true });
+    }
+
+    if (body.componentSpecMd !== undefined) {
+      const ok = await updateDesignArtifactById(id, { componentSpecMd: String(body.componentSpecMd) });
+      if (!ok) return NextResponse.json({ error: 'Not found or not owned by you' }, { status: 404 });
+      return NextResponse.json({ id, specSaved: true });
+    }
+
+    return NextResponse.json({ error: 'No supported patch fields (use publicAccess, extractAssets, regenerateSpec, or componentSpecMd).' }, { status: 400 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Patch failed';
     return NextResponse.json({ error: msg }, { status: 500 });

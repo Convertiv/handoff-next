@@ -164,6 +164,12 @@ export const handoffDesignArtifacts = pgTable('handoff_design_artifact', {
   assets: jsonb('assets').notNull().default([]),
   /** none | pending | extracting | done | failed */
   assetsStatus: text('assets_status').notNull().default('none'),
+  /** Structured component specification (ComponentSpec JSON). Generated after extraction. */
+  componentSpec: jsonb('component_spec'),
+  /** Editable markdown version of the spec. Authoritative after first user edit. */
+  componentSpecMd: text('component_spec_md'),
+  /** none | pending | generating | done | failed */
+  specStatus: text('spec_status').notNull().default('none'),
   /** When true, public share API and share page may expose safe fields. */
   publicAccess: boolean('public_access').notNull().default(false),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),

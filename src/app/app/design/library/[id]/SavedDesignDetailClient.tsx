@@ -1,7 +1,7 @@
 'use client';
 
 import type { ClientConfig } from '@handoff/types/config';
-import { ArrowLeft, ExternalLink, Link2Icon, Loader2Icon, RefreshCwIcon } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Link2Icon, Loader2Icon, RefreshCwIcon, SparklesIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Layout from '@/components/Layout/Main';
@@ -9,8 +9,8 @@ import { handoffApiUrl } from '@/lib/api-path';
 import type { Metadata, SectionLink } from '@/components/util';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { GenerateComponentModal } from './GenerateComponentModal';
+import { Textarea } from '@/components/ui/textarea';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 export type SavedDesignArtifactDetail = {
   id: string;
@@ -24,9 +24,12 @@ export type SavedDesignArtifactDetail = {
   foundationContext: unknown;
   conversationHistory: unknown;
   metadata: unknown;
-  assets?: { label: string; imageUrl: string; prompt?: string }[];
+  assets?: { key?: string; label: string; imageUrl: string; prompt?: string }[];
   assetsStatus?: string;
   publicAccess?: boolean;
+  componentSpec?: unknown;
+  componentSpecMd?: string;
+  specStatus?: string;
   createdAt: string | Date;
   updatedAt: string | Date;
 };
@@ -62,119 +65,58 @@ function extractionErrorFromMetadata(metadata: unknown): string | null {
   return typeof e === 'string' && e.trim() ? e.trim() : null;
 }
 
-/** Normalize API row (camelCase or rare snake_case) for client state. */
 function normalizeArtifactDetail(raw: SavedDesignArtifactDetail | Record<string, unknown>): SavedDesignArtifactDetail {
   const r = raw as Record<string, unknown>;
   const base = raw as SavedDesignArtifactDetail;
   const assetsStatusRaw = r.assetsStatus ?? r.assets_status;
   const publicRaw = r.publicAccess ?? r.public_access;
   const assetsRaw = r.assets;
+  const specStatusRaw = r.specStatus ?? r.spec_status;
+  const componentSpecMdRaw = r.componentSpecMd ?? r.component_spec_md;
+  const componentSpecRaw = r.componentSpec ?? r.component_spec;
   return {
     ...base,
     assetsStatus: typeof assetsStatusRaw === 'string' ? assetsStatusRaw : base.assetsStatus,
     publicAccess: typeof publicRaw === 'boolean' ? publicRaw : Boolean(publicRaw),
     assets: Array.isArray(assetsRaw) ? (assetsRaw as SavedDesignArtifactDetail['assets']) : base.assets,
+    specStatus: typeof specStatusRaw === 'string' ? specStatusRaw : base.specStatus,
+    componentSpecMd: typeof componentSpecMdRaw === 'string' ? componentSpecMdRaw : base.componentSpecMd,
+    componentSpec: componentSpecRaw ?? base.componentSpec,
   };
 }
 
-const POLL_MS = 5000;
-const POLL_MAX = 48;
-
-const GEN_POLL_MS = 4000;
-
-export type ComponentGenerationJobRow = {
-  id: number;
-  artifactId: string;
+type ComponentMatch = {
   componentId: string;
-  renderer: string;
-  status: string;
-  iteration: number | null;
-  maxIterations: number | null;
-  visualScore: string | number | null;
-  error: string | null;
-  generationLog?: unknown;
-  validationResults?: unknown;
-  createdAt?: string | Date | null;
-  completedAt?: string | Date | null;
+  componentTitle: string;
+  matchLevel: string;
+  confidence: number;
+  recommendation: string;
+  sampleConfig?: Record<string, unknown>;
 };
 
-function isGenJobTerminal(status: string): boolean {
-  return status === 'complete' || status === 'failed';
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  queued: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  generating: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-  building: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
-  validating: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
-  iterating: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300',
-  complete: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
-  failed: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-};
-
-function GenStatusBadge({ status }: { status: string }) {
-  const cls = STATUS_STYLES[status] ?? 'bg-gray-100 text-gray-600';
-  return <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}>{status}</span>;
-}
-
-type LogEntry = { action?: string; iter?: number; error?: string; msg?: string; score?: number; differences?: string[]; a11yPassed?: boolean; buildJobId?: number; t?: string };
-
-const ACTION_LABELS: Record<string, string> = {
-  llm_generated: 'LLM generated component code',
-  build_ok: 'Vite build succeeded',
-  build_failed: 'Vite build failed',
-  screenshot_failed: 'Preview screenshot failed',
-  compare: 'Visual comparison',
-};
-
-function GenerationLog({ log, status }: { log?: unknown; status: string }) {
-  const entries = Array.isArray(log) ? (log as LogEntry[]) : [];
-  if (entries.length === 0 && isGenJobTerminal(status)) return null;
-
-  return (
-    <Collapsible defaultOpen={!isGenJobTerminal(status)} className="mt-2 rounded-md border">
-      <CollapsibleTrigger className="flex w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-muted-foreground hover:bg-muted/50">
-        Build log ({entries.length} {entries.length === 1 ? 'step' : 'steps'})
-        {!isGenJobTerminal(status) && entries.length > 0 ? <Loader2Icon className="h-3 w-3 animate-spin" /> : null}
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="max-h-64 overflow-y-auto border-t px-3 py-2">
-          {entries.length === 0 ? (
-            <p className="py-2 text-xs text-muted-foreground">Waiting for first step…</p>
-          ) : (
-            <ol className="space-y-1.5">
-              {entries.map((e, i) => (
-                <li key={i} className="text-xs leading-relaxed">
-                  <span className="font-mono text-muted-foreground">{e.iter ? `[${e.iter}]` : '   '}</span>{' '}
-                  <span className={e.action === 'build_failed' || e.action === 'screenshot_failed' ? 'text-destructive' : ''}>
-                    {ACTION_LABELS[e.action ?? ''] ?? e.action ?? 'step'}
-                  </span>
-                  {e.action === 'compare' && e.score != null ? (
-                    <span className="ml-1 text-muted-foreground">
-                      — score {e.score.toFixed(2)}{e.a11yPassed === false ? ', a11y issues' : ''}
-                    </span>
-                  ) : null}
-                  {e.action === 'compare' && e.differences && e.differences.length > 0 ? (
-                    <ul className="ml-6 mt-0.5 list-disc text-muted-foreground">
-                      {e.differences.slice(0, 5).map((d, j) => <li key={j}>{d}</li>)}
-                      {e.differences.length > 5 ? <li>…and {e.differences.length - 5} more</li> : null}
-                    </ul>
-                  ) : null}
-                  {e.action === 'build_ok' && e.buildJobId ? (
-                    <span className="ml-1 text-muted-foreground">— build #{e.buildJobId}</span>
-                  ) : null}
-                  {(e.error || e.msg) ? (
-                    <span className="ml-1 text-destructive">— {e.error || e.msg}</span>
-                  ) : null}
-                  {e.t ? <span className="ml-2 text-muted-foreground/60">{new Date(e.t).toLocaleTimeString()}</span> : null}
-                </li>
-              ))}
-            </ol>
-          )}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
-  );
+function bestComponentMatch(spec: unknown): ComponentMatch | null {
+  if (!spec || typeof spec !== 'object') return null;
+  const s = spec as Record<string, unknown>;
+  const impl = s.implementation as Record<string, unknown> | undefined;
+  if (!impl) return null;
+  const matches = impl.existingComponentMatches;
+  if (!Array.isArray(matches) || matches.length === 0) return null;
+  const sorted = [...matches].sort((a, b) => {
+    const ca = typeof (a as Record<string, unknown>).confidence === 'number' ? (a as Record<string, unknown>).confidence as number : 0;
+    const cb = typeof (b as Record<string, unknown>).confidence === 'number' ? (b as Record<string, unknown>).confidence as number : 0;
+    return cb - ca;
+  });
+  const best = sorted[0] as Record<string, unknown>;
+  const confidence = typeof best.confidence === 'number' ? best.confidence : 0;
+  if (confidence < 0.5) return null;
+  return {
+    componentId: typeof best.componentId === 'string' ? best.componentId : '',
+    componentTitle: typeof best.componentTitle === 'string' ? best.componentTitle : '',
+    matchLevel: typeof best.matchLevel === 'string' ? best.matchLevel : '',
+    confidence,
+    recommendation: typeof best.recommendation === 'string' ? best.recommendation : '',
+    sampleConfig: typeof best.sampleConfig === 'object' && best.sampleConfig !== null ? best.sampleConfig as Record<string, unknown> : undefined,
+  };
 }
 
 function assetsStatusOf(a: SavedDesignArtifactDetail | null): string {
@@ -183,6 +125,26 @@ function assetsStatusOf(a: SavedDesignArtifactDetail | null): string {
   const s = a.assetsStatus ?? r.assets_status;
   return typeof s === 'string' && s.trim() ? s.trim() : 'none';
 }
+
+function specStatusOf(a: SavedDesignArtifactDetail | null): string {
+  if (!a) return 'none';
+  const r = a as Record<string, unknown>;
+  const s = a.specStatus ?? r.spec_status;
+  return typeof s === 'string' && s.trim() ? s.trim() : 'none';
+}
+
+const POLL_MS = 5000;
+const POLL_MAX = 48;
+const SPEC_POLL_MS = 4000;
+const SPEC_POLL_MAX = 60;
+
+type Tab = 'overview' | 'spec';
+
+const MATCH_LEVEL_LABELS: Record<string, string> = {
+  exact: 'Exact match',
+  variation: 'Close variation',
+  similar: 'Similar',
+};
 
 export default function SavedDesignDetailClient({ config, menu, metadata, artifactId, message }: Props) {
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
@@ -194,8 +156,14 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
   const [notice, setNotice] = useState<string | null>(null);
   const [extractionTimedOut, setExtractionTimedOut] = useState(false);
   const pollTicksRef = useRef(0);
-  const [genModalOpen, setGenModalOpen] = useState(false);
-  const [genJob, setGenJob] = useState<ComponentGenerationJobRow | null>(null);
+  const specPollTicksRef = useRef(0);
+
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [specMd, setSpecMd] = useState('');
+  const [specDirty, setSpecDirty] = useState(false);
+  const [specSaving, setSpecSaving] = useState(false);
+  const [specBusy, setSpecBusy] = useState(false);
+  const [specTimedOut, setSpecTimedOut] = useState(false);
 
   const fetchArtifact = useCallback(async () => {
     if (message || !artifactId) return null;
@@ -219,54 +187,28 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
       setError(null);
       try {
         const a = await fetchArtifact();
-        if (!cancelled) setArtifact(a);
+        if (!cancelled && a) {
+          setArtifact(a);
+          setSpecMd(a.componentSpecMd ?? '');
+          setSpecDirty(false);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
         if (!cancelled) setLoaded(true);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [artifactId, message, fetchArtifact]);
 
-  const fetchGenJob = useCallback(
-    async (opts?: { jobId?: number }) => {
-      if (message || !artifactId) return;
-      const q =
-        typeof opts?.jobId === 'number' && opts.jobId > 0
-          ? `jobId=${encodeURIComponent(String(opts.jobId))}`
-          : `artifactId=${encodeURIComponent(artifactId)}`;
-      const res = await fetch(handoffApiUrl(`/api/handoff/ai/generate-component?${q}`), { credentials: 'include' });
-      const json = (await res.json().catch(() => ({}))) as { job?: ComponentGenerationJobRow | null; error?: string };
-      if (!res.ok) return;
-      setGenJob(json.job ?? null);
-    },
-    [artifactId, message]
-  );
-
-  useEffect(() => {
-    if (message || !artifactId) return;
-    void fetchGenJob();
-  }, [artifactId, message, fetchGenJob]);
-
-  const genNeedsPoll = Boolean(genJob && !isGenJobTerminal(genJob.status));
-  useEffect(() => {
-    if (!genNeedsPoll) return;
-    const id = window.setInterval(() => {
-      void fetchGenJob({ jobId: genJob?.id });
-    }, GEN_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [genNeedsPoll, genJob?.id, fetchGenJob]);
-
+  // Assets extraction polling
   const assetsStatus = assetsStatusOf(artifact);
-  const shouldPoll = Boolean(
+  const shouldPollAssets = Boolean(
     artifact && (assetsStatus === 'pending' || assetsStatus === 'extracting') && !extractionTimedOut
   );
 
   useEffect(() => {
-    if (!shouldPoll) {
+    if (!shouldPollAssets) {
       pollTicksRef.current = 0;
       return;
     }
@@ -280,13 +222,11 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
         try {
           const a = await fetchArtifact();
           if (a) setArtifact(a);
-        } catch {
-          /* keep last artifact */
-        }
+        } catch { /* keep last artifact */ }
       })();
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [shouldPoll, fetchArtifact]);
+  }, [shouldPollAssets, fetchArtifact]);
 
   useEffect(() => {
     if (assetsStatus === 'done' || assetsStatus === 'failed' || assetsStatus === 'none') {
@@ -294,6 +234,44 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
       pollTicksRef.current = 0;
     }
   }, [assetsStatus]);
+
+  // Spec generation polling
+  const specStatus = specStatusOf(artifact);
+  const shouldPollSpec = Boolean(
+    artifact && (specStatus === 'pending' || specStatus === 'generating') && !specTimedOut
+  );
+
+  useEffect(() => {
+    if (!shouldPollSpec) {
+      specPollTicksRef.current = 0;
+      return;
+    }
+    const id = window.setInterval(() => {
+      void (async () => {
+        specPollTicksRef.current += 1;
+        if (specPollTicksRef.current > SPEC_POLL_MAX) {
+          setSpecTimedOut(true);
+          return;
+        }
+        try {
+          const a = await fetchArtifact();
+          if (a) {
+            setArtifact(a);
+            // Only update editor if the user hasn't made edits
+            if (!specDirty) setSpecMd(a.componentSpecMd ?? '');
+          }
+        } catch { /* keep last */ }
+      })();
+    }, SPEC_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [shouldPollSpec, fetchArtifact, specDirty]);
+
+  useEffect(() => {
+    if (specStatus === 'done' || specStatus === 'failed' || specStatus === 'none') {
+      setSpecTimedOut(false);
+      specPollTicksRef.current = 0;
+    }
+  }, [specStatus]);
 
   const shareUrl = useMemo(() => {
     if (typeof window === 'undefined' || !artifactId) return '';
@@ -370,13 +348,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
       if (!res.ok) throw new Error(json.error || 'Could not queue extraction.');
       if (json.extractionImmediate && Array.isArray(json.assets)) {
         setArtifact((prev) =>
-          prev
-            ? {
-                ...prev,
-                assetsStatus: typeof json.assetsStatus === 'string' ? json.assetsStatus : 'done',
-                assets: json.assets,
-              }
-            : prev
+          prev ? { ...prev, assetsStatus: typeof json.assetsStatus === 'string' ? json.assetsStatus : 'done', assets: json.assets } : prev
         );
         setNotice('Asset extraction finished.');
       } else {
@@ -390,9 +362,58 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
     }
   };
 
+  const handleRegenerateSpec = async () => {
+    if (!artifactId) return;
+    setSpecBusy(true);
+    setSpecTimedOut(false);
+    specPollTicksRef.current = 0;
+    setNotice(null);
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact'), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: artifactId, regenerateSpec: true }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string; specQueued?: boolean };
+      if (!res.ok) throw new Error(json.error || 'Could not queue spec generation.');
+      setArtifact((prev) => (prev ? { ...prev, specStatus: 'pending' } : prev));
+      setNotice('Spec generation queued. This tab will update when ready.');
+      if (activeTab !== 'spec') setActiveTab('spec');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Spec generation failed.');
+    } finally {
+      setSpecBusy(false);
+    }
+  };
+
+  const handleSaveSpec = async () => {
+    if (!artifactId) return;
+    setSpecSaving(true);
+    setNotice(null);
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact'), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: artifactId, componentSpecMd: specMd }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || 'Could not save spec.');
+      setArtifact((prev) => (prev ? { ...prev, componentSpecMd: specMd } : prev));
+      setSpecDirty(false);
+      setNotice('Spec saved.');
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Save failed.');
+    } finally {
+      setSpecSaving(false);
+    }
+  };
+
   const lastPrompt = artifact ? lastUserPrompt(artifact.conversationHistory) : null;
   const assets = Array.isArray(artifact?.assets) ? artifact!.assets! : [];
   const extractErr = artifact ? extractionErrorFromMetadata(artifact.metadata) : null;
+  const match = artifact ? bestComponentMatch(artifact.componentSpec) : null;
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -453,168 +474,227 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                       Open in workbench
                     </Link>
                   </Button>
-                  <Button type="button" variant="secondary" size="sm" onClick={() => setGenModalOpen(true)}>
-                    Generate component
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={specBusy || specStatus === 'pending' || specStatus === 'generating'}
+                    onClick={() => void handleRegenerateSpec()}
+                  >
+                    {specBusy || specStatus === 'pending' || specStatus === 'generating' ? (
+                      <Loader2Icon className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <SparklesIcon className="mr-1 h-4 w-4" />
+                    )}
+                    {specStatus === 'done' ? 'Regenerate spec' : 'Generate spec'}
                   </Button>
                 </div>
               </div>
 
-              <GenerateComponentModal
-                open={genModalOpen}
-                onOpenChange={setGenModalOpen}
-                artifactId={artifactId}
-                hasExtractedAssets={assetsStatus === 'done' && assets.length > 0}
-                onJobStarted={(jobId) => {
-                  void fetchGenJob({ jobId });
-                }}
-              />
-
-              {artifact.description ? (
-                <div className="rounded-lg border bg-muted/30 px-4 py-3">
-                  <p className="text-sm whitespace-pre-wrap text-foreground/90">{artifact.description}</p>
-                </div>
-              ) : null}
-
-              {lastPrompt ? (
-                <div className="rounded-lg border bg-background px-4 py-3">
-                  <p className="text-xs font-medium uppercase text-muted-foreground">Last prompt</p>
-                  <p className="mt-1 text-sm whitespace-pre-wrap text-foreground/90">{lastPrompt}</p>
-                </div>
-              ) : null}
-
-              <div className="overflow-hidden rounded-xl border bg-muted/20">
-                {artifact.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={artifact.imageUrl} alt={artifact.title || 'Design'} className="mx-auto max-h-[min(85vh,1200px)] w-full object-contain" />
-                ) : (
-                  <p className="p-8 text-center text-sm text-muted-foreground">No image stored.</p>
-                )}
+              {/* Tabs */}
+              <div className="flex gap-0 border-b">
+                {(['overview', 'spec'] as Tab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
+                      activeTab === tab
+                        ? 'border-b-2 border-primary text-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {tab}
+                    {tab === 'spec' && (specStatus === 'pending' || specStatus === 'generating') ? (
+                      <Loader2Icon className="ml-1.5 inline h-3 w-3 animate-spin" />
+                    ) : null}
+                  </button>
+                ))}
               </div>
 
-              <section className="space-y-3 rounded-lg border p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="text-sm font-semibold">Extracted assets</h2>
-                  {assetsStatus === 'failed' || assetsStatus === 'none' || assetsStatus === 'done' || extractionTimedOut ? (
-                    <Button type="button" variant="outline" size="sm" disabled={reextractBusy} onClick={() => void handleRetryExtraction()}>
-                      {reextractBusy ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <RefreshCwIcon className="mr-1 h-4 w-4" />}
-                      {assetsStatus === 'none' ? 'Extract assets' : 'Retry extraction'}
-                    </Button>
-                  ) : null}
-                </div>
-                {assetsStatus === 'pending' || assetsStatus === 'extracting' ? (
-                  <div className="space-y-2 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <Loader2Icon className="h-4 w-4 animate-spin" />
-                      Extracting assets… This can take a minute.
+              {/* Overview tab */}
+              {activeTab === 'overview' ? (
+                <div className="space-y-6">
+                  {artifact.description ? (
+                    <div className="rounded-lg border bg-muted/30 px-4 py-3">
+                      <p className="text-sm whitespace-pre-wrap text-foreground/90">{artifact.description}</p>
                     </div>
-                    {extractionTimedOut ? (
-                      <p className="text-destructive">
-                        Extraction is taking longer than expected. Click <strong>Retry extraction</strong> above, or save again from the workbench.
-                      </p>
-                    ) : null}
+                  ) : null}
+
+                  {lastPrompt ? (
+                    <div className="rounded-lg border bg-background px-4 py-3">
+                      <p className="text-xs font-medium uppercase text-muted-foreground">Last prompt</p>
+                      <p className="mt-1 text-sm whitespace-pre-wrap text-foreground/90">{lastPrompt}</p>
+                    </div>
+                  ) : null}
+
+                  <div className="overflow-hidden rounded-xl border bg-muted/20">
+                    {artifact.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={artifact.imageUrl} alt={artifact.title || 'Design'} className="mx-auto max-h-[min(85vh,1200px)] w-full object-contain" />
+                    ) : (
+                      <p className="p-8 text-center text-sm text-muted-foreground">No image stored.</p>
+                    )}
                   </div>
-                ) : null}
-                {assetsStatus === 'failed' ? (
-                  <p className="text-sm text-destructive">{extractErr || 'Extraction failed.'}</p>
-                ) : null}
-                {assetsStatus === 'none' ? (
-                  <p className="text-sm text-muted-foreground">No extraction has run for this design yet. Click the button above to extract background assets.</p>
-                ) : null}
-                {assetsStatus === 'done' && assets.length > 0 ? (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {assets.map((a, i) => (
-                      <div key={`${a.label}-${i}`} className="overflow-hidden rounded-md border bg-card">
-                        <p className="border-b px-3 py-2 text-xs font-medium">{a.label}</p>
-                        <div className="bg-muted/20 p-2">
-                          {a.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={a.imageUrl} alt={a.label} className="mx-auto max-h-72 w-full object-contain" />
-                          ) : null}
+
+                  <section className="space-y-3 rounded-lg border p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h2 className="text-sm font-semibold">Extracted assets</h2>
+                      {assetsStatus === 'failed' || assetsStatus === 'none' || assetsStatus === 'done' || extractionTimedOut ? (
+                        <Button type="button" variant="outline" size="sm" disabled={reextractBusy} onClick={() => void handleRetryExtraction()}>
+                          {reextractBusy ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <RefreshCwIcon className="mr-1 h-4 w-4" />}
+                          {assetsStatus === 'none' ? 'Extract assets' : 'Retry extraction'}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {assetsStatus === 'pending' || assetsStatus === 'extracting' ? (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2Icon className="h-4 w-4 animate-spin" />
+                        Extracting assets… This can take a minute.
+                      </div>
+                    ) : null}
+                    {assetsStatus === 'failed' ? (
+                      <p className="text-sm text-destructive">{extractErr || 'Extraction failed.'}</p>
+                    ) : null}
+                    {assetsStatus === 'none' ? (
+                      <p className="text-sm text-muted-foreground">No extraction has run yet. Click Extract assets to start.</p>
+                    ) : null}
+                    {assetsStatus === 'done' && assets.length > 0 ? (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {assets.map((a, i) => (
+                          <div key={`${a.label}-${i}`} className="overflow-hidden rounded-md border bg-card">
+                            <p className="border-b px-3 py-2 text-xs font-medium">{a.label}</p>
+                            <div className="bg-muted/20 p-2">
+                              {a.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={a.imageUrl} alt={a.label} className="mx-auto max-h-72 w-full object-contain" />
+                              ) : null}
+                            </div>
+                            {a.prompt ? (
+                              <Collapsible className="border-t">
+                                <CollapsibleTrigger className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50">
+                                  Extraction prompt
+                                </CollapsibleTrigger>
+                                <CollapsibleContent className="px-3 pb-2">
+                                  <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-[10px] leading-snug">{a.prompt}</pre>
+                                </CollapsibleContent>
+                              </Collapsible>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {assetsStatus === 'done' && assets.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No separate assets were returned.</p>
+                    ) : null}
+                  </section>
+
+                  <Collapsible className="rounded-lg border">
+                    <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium hover:bg-muted/50">
+                      Saved context (JSON)
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="border-t px-4 py-3">
+                      <pre className="max-h-[50vh] overflow-auto rounded-md bg-muted/50 p-3 text-xs leading-relaxed">
+                        {JSON.stringify(
+                          {
+                            componentGuides: artifact.componentGuides,
+                            foundationContext: artifact.foundationContext,
+                            conversationHistory: artifact.conversationHistory,
+                            sourceImages: artifact.sourceImages,
+                            metadata: artifact.metadata,
+                            assets: artifact.assets,
+                            assetsStatus: artifact.assetsStatus,
+                            publicAccess: artifact.publicAccess,
+                          },
+                          null,
+                          2
+                        )}
+                      </pre>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              ) : null}
+
+              {/* Spec tab */}
+              {activeTab === 'spec' ? (
+                <div className="space-y-4">
+                  {specStatus === 'pending' || specStatus === 'generating' ? (
+                    <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                      <Loader2Icon className="h-4 w-4 animate-spin" />
+                      {specStatus === 'generating' ? 'Generating component spec…' : 'Spec generation queued…'}
+                    </div>
+                  ) : null}
+
+                  {specStatus === 'failed' ? (
+                    <p className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                      Spec generation failed. Click <strong>Regenerate spec</strong> to try again.
+                    </p>
+                  ) : null}
+
+                  {specStatus === 'none' && !specMd ? (
+                    <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+                      <SparklesIcon className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                      <p>No spec yet. Click <strong>Generate spec</strong> to create one from the design image.</p>
+                    </div>
+                  ) : null}
+
+                  {match ? (
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+                            {MATCH_LEVEL_LABELS[match.matchLevel] ?? match.matchLevel} · {Math.round(match.confidence * 100)}% confidence
+                          </p>
+                          <p className="mt-1 text-sm font-medium text-emerald-900 dark:text-emerald-100">{match.componentTitle}</p>
+                          <p className="mt-0.5 text-sm text-emerald-800 dark:text-emerald-200">{match.recommendation}</p>
                         </div>
-                        {a.prompt ? (
-                          <Collapsible className="border-t">
-                            <CollapsibleTrigger className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50">
-                              Extraction prompt
-                            </CollapsibleTrigger>
-                            <CollapsibleContent className="px-3 pb-2">
-                              <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-[10px] leading-snug">{a.prompt}</pre>
-                            </CollapsibleContent>
-                          </Collapsible>
+                        {match.componentId ? (
+                          <Button variant="outline" size="sm" className="border-emerald-300 dark:border-emerald-700" asChild>
+                            <Link href={`${basePath}/system/component/${encodeURIComponent(match.componentId)}/`}>
+                              View component
+                            </Link>
+                          </Button>
                         ) : null}
                       </div>
-                    ))}
-                  </div>
-                ) : null}
-                {assetsStatus === 'done' && assets.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No separate assets were returned.</p>
-                ) : null}
-              </section>
+                      {match.sampleConfig && Object.keys(match.sampleConfig).length > 0 ? (
+                        <Collapsible className="mt-3">
+                          <CollapsibleTrigger className="text-xs text-emerald-700 underline-offset-2 hover:underline dark:text-emerald-400">
+                            Sample config
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <pre className="mt-2 rounded bg-emerald-100 p-2 text-[11px] leading-snug dark:bg-emerald-900">
+                              {JSON.stringify(match.sampleConfig, null, 2)}
+                            </pre>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      ) : null}
+                    </div>
+                  ) : null}
 
-              <section className="space-y-2 rounded-lg border p-4">
-                <h2 className="text-sm font-semibold">Component generation</h2>
-                {!genJob ? (
-                  <p className="text-sm text-muted-foreground">No generation job yet. Use Generate component above to create one.</p>
-                ) : (
-                  <div className="space-y-2 text-sm">
-                    <p>
-                      <span className="text-muted-foreground">Job</span> #{genJob.id} ·{' '}
-                      <span className="font-mono">{genJob.componentId}</span> · {genJob.renderer}
-                    </p>
-                    <p>
-                      <span className="text-muted-foreground">Status</span>{' '}
-                      <GenStatusBadge status={genJob.status} />
-                      {typeof genJob.iteration === 'number' ? ` · iteration ${genJob.iteration}/${genJob.maxIterations ?? 3}` : null}
-                    </p>
-                    {genJob.visualScore != null && genJob.visualScore !== '' ? (
-                      <p>
-                        <span className="text-muted-foreground">Visual score</span> {Number(genJob.visualScore).toFixed(2)}
-                      </p>
-                    ) : null}
-                    {genJob.error ? (
-                      <p className="text-destructive">
-                        {genJob.status === 'complete' ? 'Note: ' : ''}
-                        {genJob.error}
-                      </p>
-                    ) : null}
-                    {genJob.status === 'complete' ? (
-                      <Button variant="outline" size="sm" asChild>
-                        <Link href={`${basePath}/system/component/${encodeURIComponent(genJob.componentId)}/`}>Open component</Link>
-                      </Button>
-                    ) : null}
-                    {!isGenJobTerminal(genJob.status) ? (
-                      <p className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2Icon className="h-4 w-4 animate-spin" />
-                        Generation in progress…
-                      </p>
-                    ) : null}
-                    <GenerationLog log={genJob.generationLog} status={genJob.status} />
-                  </div>
-                )}
-              </section>
-
-              <Collapsible className="rounded-lg border">
-                <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium hover:bg-muted/50">
-                  Saved context (JSON)
-                </CollapsibleTrigger>
-                <CollapsibleContent className="border-t px-4 py-3">
-                  <pre className="max-h-[50vh] overflow-auto rounded-md bg-muted/50 p-3 text-xs leading-relaxed">
-                    {JSON.stringify(
-                      {
-                        componentGuides: artifact.componentGuides,
-                        foundationContext: artifact.foundationContext,
-                        conversationHistory: artifact.conversationHistory,
-                        sourceImages: artifact.sourceImages,
-                        metadata: artifact.metadata,
-                        assets: artifact.assets,
-                        assetsStatus: artifact.assetsStatus,
-                        publicAccess: artifact.publicAccess,
-                      },
-                      null,
-                      2
-                    )}
-                  </pre>
-                </CollapsibleContent>
-              </Collapsible>
+                  {specMd || specStatus === 'done' ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-muted-foreground">Component spec (editable)</p>
+                        {specDirty ? (
+                          <Button size="sm" variant="default" disabled={specSaving} onClick={() => void handleSaveSpec()}>
+                            {specSaving ? <Loader2Icon className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                            Save
+                          </Button>
+                        ) : null}
+                      </div>
+                      <Textarea
+                        value={specMd}
+                        onChange={(e) => {
+                          setSpecMd(e.target.value);
+                          setSpecDirty(e.target.value !== (artifact.componentSpecMd ?? ''));
+                        }}
+                        className="min-h-[60vh] font-mono text-xs leading-relaxed"
+                        spellCheck={false}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           ) : null}
         </div>

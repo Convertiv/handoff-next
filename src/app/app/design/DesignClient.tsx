@@ -54,6 +54,7 @@ type GeneratedImage = {
   prompt: string;
   status: 'pending' | 'completed' | 'error';
   error?: string;
+  stage?: string;
 };
 
 type AnnotationRect = {
@@ -81,6 +82,12 @@ type DesignClientProps = DocumentationProps & {
   initialComponentIds?: string[];
   /** Pre-fill the prompt textarea (from chat assistant hand-off) */
   initialPrompt?: string;
+};
+
+const STAGE_LABELS: Record<string, string> = {
+  preparing: 'Preparing…',
+  building_prompt: 'Building prompt…',
+  generating: 'Generating…',
 };
 
 const DESIGN_CLIENTS = ['ssc', '8x8'] as const;
@@ -602,29 +609,68 @@ const DesignWorkbenchPage = ({
         credentials: 'include',
       });
 
-      const json = (await response.json().catch(() => ({}))) as { image?: string; error?: string };
-      if (!response.ok) throw new Error(json.error || `Design API error (${response.status})`);
-      if (!json.image) throw new Error('No image returned.');
+      // Non-SSE error (auth, rate limit, config — returned before stream opens)
+      if (!response.ok || response.headers.get('content-type')?.includes('application/json')) {
+        const json = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error || `Design API error (${response.status})`);
+      }
 
-      const now = new Date().toISOString();
+      // Consume the SSE stream
+      if (!response.body) throw new Error('No response body.');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let imageUrl: string | null = null;
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+        for (const part of parts) {
+          const line = part.replace(/^data:\s*/, '').trim();
+          if (!line) continue;
+          try {
+            const evt = JSON.parse(line) as { stage?: string; imageUrl?: string; error?: string };
+            const stage = evt.stage ?? '';
+            if (stage === 'error') throw new Error(evt.error || 'Generation failed.');
+            if (stage === 'done') {
+              imageUrl = evt.imageUrl ?? null;
+              break outer;
+            }
+            // Update stage label on the pending thumbnail
+            setGeneratedImages((current) =>
+              current.map((img) => (img.id === requestId ? { ...img, stage } : img))
+            );
+          } catch (parseErr) {
+            if (parseErr instanceof SyntaxError) continue;
+            throw parseErr;
+          }
+        }
+      }
+
+      if (!imageUrl) throw new Error('No image returned.');
+
+      const ts = new Date().toISOString();
       setConversationHistory((h) => [
         ...h,
-        { role: 'user', prompt: submittedPrompt, timestamp: now },
-        { role: 'assistant', prompt: 'Generated image', imageUrl: json.image!, timestamp: now },
+        { role: 'user', prompt: submittedPrompt, timestamp: ts },
+        { role: 'assistant', prompt: 'Generated image', imageUrl, timestamp: ts },
       ]);
 
       if (selectedGeneratedImageIdRef.current === requestId) {
-        setImageSrc(json.image);
+        setImageSrc(imageUrl);
         setAnnotations([]);
       }
       setGeneratedImages((current) =>
-        current.map((image) => (image.id === requestId ? { ...image, src: json.image, status: 'completed' } : image))
+        current.map((img) => (img.id === requestId ? { ...img, src: imageUrl!, status: 'completed', stage: undefined } : img))
       );
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to generate.';
       setError(message);
       setGeneratedImages((current) =>
-        current.map((image) => (image.id === requestId ? { ...image, status: 'error', error: message } : image))
+        current.map((img) => (img.id === requestId ? { ...img, status: 'error', error: message, stage: undefined } : img))
       );
     }
   };
@@ -1040,8 +1086,14 @@ const DesignWorkbenchPage = ({
                           />
                         ) : (
                           <div
-                            className={`aspect-square w-full rounded ${img.status === 'error' ? 'bg-destructive/10' : 'animate-pulse bg-muted'}`}
-                          />
+                            className={`relative aspect-square w-full overflow-hidden rounded ${img.status === 'error' ? 'bg-destructive/10' : 'animate-pulse bg-muted'}`}
+                          >
+                            {img.stage ? (
+                              <span className="absolute inset-x-0 bottom-1 px-1 text-center text-[9px] leading-tight text-muted-foreground">
+                                {STAGE_LABELS[img.stage] ?? img.stage}
+                              </span>
+                            ) : null}
+                          </div>
                         )}
                       </button>
                       <Button

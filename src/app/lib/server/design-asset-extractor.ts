@@ -3,288 +3,13 @@ import {
   finalizeDesignArtifactExtraction,
   getDesignArtifactById,
 } from '@/lib/db/queries';
-import { sanitizeDesignAssetsForStorage } from '@/lib/server/design-artifact-persist';
 import { openAiChatJson, openAiImageEdit, type ImageEditInput } from '@/lib/server/ai-client';
 import { imageUrlToVisionPart } from '@/lib/server/component-generation-images';
+import type { DesignClassification, ExtractedAssetV2 } from '@/lib/server/design-spec-types';
 
 const ASSET_VISION_MODEL = () => process.env.HANDOFF_ASSET_VISION_MODEL?.trim() || 'gpt-4o-mini';
 
-const MAX_DECOMPOSED_LAYERS = 5;
-
-/** Layer plan from vision decomposition (before image edit). */
-export type DecomposedLayer = {
-  role: string;
-  label: string;
-  description: string;
-  extract: boolean;
-  usage: string;
-  include: string[];
-  exclude: string[];
-  preserveFrame: boolean;
-};
-
-/** One extracted asset row stored on the artifact and passed to generation. */
-export type ExtractedDesignAsset = {
-  label: string;
-  imageUrl: string;
-  prompt: string;
-  role?: string;
-  usage?: string;
-  description?: string;
-  preserveFrame?: boolean;
-};
-
-function defaultFallbackLayers(): DecomposedLayer[] {
-  return [
-    {
-      role: 'background',
-      label: 'Background layer',
-      description: 'Full-bleed background fill, gradients, and backdrop textures behind content',
-      extract: true,
-      usage: 'backgroundImage',
-      include: [],
-      exclude: ['text', 'buttons', 'foreground photography', 'UI chrome'],
-      preserveFrame: true,
-    },
-    {
-      role: 'foreground',
-      label: 'Foreground subject',
-      description: 'Main photographic subject or hero product as a separate layer',
-      extract: true,
-      usage: 'image',
-      include: [],
-      exclude: ['background', 'text', 'buttons'],
-      preserveFrame: true,
-    },
-  ];
-}
-
-function parseDecomposeJson(raw: string): DecomposedLayer[] {
-  try {
-    const o = JSON.parse(raw) as { layers?: unknown };
-    if (!Array.isArray(o.layers)) return [];
-    const out: DecomposedLayer[] = [];
-    for (const item of o.layers) {
-      if (!item || typeof item !== 'object') continue;
-      const L = item as Record<string, unknown>;
-      const role = typeof L.role === 'string' ? L.role.trim() : 'foreground';
-      if (role.toLowerCase() === 'ui') continue;
-      if (L.extract === false) continue;
-      const label = typeof L.label === 'string' && L.label.trim() ? L.label.trim() : `Layer ${out.length + 1}`;
-      out.push({
-        role,
-        label,
-        description: typeof L.description === 'string' ? L.description.trim() : '',
-        extract: L.extract !== false,
-        usage: typeof L.usage === 'string' ? L.usage.trim() : '',
-        include: Array.isArray(L.include) ? L.include.filter((x): x is string => typeof x === 'string') : [],
-        exclude: Array.isArray(L.exclude) ? L.exclude.filter((x): x is string => typeof x === 'string') : [],
-        preserveFrame: L.preserveFrame === true,
-      });
-      if (out.length >= MAX_DECOMPOSED_LAYERS) break;
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-async function decomposeDesignIntoLayers(imageUrl: string, actorUserId: string | null): Promise<DecomposedLayer[]> {
-  const part = await imageUrlToVisionPart(imageUrl, 'low');
-  if (!part) return defaultFallbackLayers();
-
-  const system = `You are preparing raster assets to rebuild a UI or marketing screenshot as a web component.
-
-Identify ONLY visual layers that should become separate image files in code (e.g. background texture, hero photo, logo bitmap, decorative illustration).
-
-Do NOT list as extractable layers: plain text, headings, breadcrumbs, buttons, CTAs, layout boxes, icons that should be SVG/CSS, or anything that should be implemented as HTML/CSS instead of a bitmap.
-
-Return JSON only with this exact shape:
-{"layers":[{"role":"background|foreground|decorative|media|logo|icon","label":"short developer label","description":"what this bitmap contains","extract":true,"usage":"backgroundImage|image|logo|icon|","include":["optional specifics to keep"],"exclude":["optional specifics to remove"],"preserveFrame":true}]}
-
-Rules:
-- At most ${MAX_DECOMPOSED_LAYERS} entries with "extract": true.
-- Order layers back-to-front when stacking matters (background first).
-- "preserveFrame": true when the crop/masking in the design should be preserved for implementation (e.g. rounded image card).
-- "usage" hints how Handoff properties might map: backgroundImage vs image vs logo.`;
-
-  try {
-    const raw = await openAiChatJson(
-      [
-        { role: 'system', content: system },
-        {
-          role: 'user',
-          content: [{ type: 'text', text: 'Decompose this design into code-relevant image layers:' }, part],
-        },
-      ],
-      {
-        actorUserId,
-        route: 'design-asset-extract',
-        eventType: 'ai.design_asset_decompose',
-        model: ASSET_VISION_MODEL(),
-        maxTokens: 1200,
-      }
-    );
-    const parsed = parseDecomposeJson(raw);
-    return parsed.length > 0 ? parsed : defaultFallbackLayers();
-  } catch (e) {
-    console.warn('[design-asset-extractor] decompose failed, using fallback layers:', e);
-    return defaultFallbackLayers();
-  }
-}
-
-function buildImageEditPromptFromLayer(layer: DecomposedLayer): string {
-  const desc = layer.description || layer.label;
-  const inc = layer.include.length ? layer.include.join('; ') : '';
-  const exc = layer.exclude.length ? layer.exclude.join('; ') : '';
-  const frame = layer.preserveFrame
-    ? 'Preserve the framing, crop, and rounded corners as they appear in the original composition.'
-    : '';
-
-  const role = layer.role.toLowerCase();
-
-  if (role === 'background') {
-    return `Extract ONE reusable background bitmap for web code from this composition.
-
-Target layer: ${desc}
-${inc ? `Must include: ${inc}` : 'Include: background fill, gradients, textures, and decorative backdrop patterns that sit behind foreground content.'}
-${exc ? `Must remove: ${exc}` : 'Remove: all text, buttons, links, icons, UI chrome, and separate foreground photography or product cards that belong in their own asset.'}
-${frame}
-Do not invent scenery, charts, or objects not visible in the original. Preserve aspect ratio. Output a single image suitable as CSS background-image.`;
-  }
-
-  if (role === 'decorative') {
-    return `Extract ONE reusable decorative bitmap (illustration, pattern, or non-photo graphic) for web code.
-
-Target layer: ${desc}
-${inc ? `Must include: ${inc}` : 'Include only the decorative graphic elements described.'}
-${exc ? `Must remove: ${exc}` : 'Remove: text, buttons, unrelated photography, and large background fills not part of this graphic.'}
-${frame}
-Do not invent new shapes. Preserve aspect ratio.`;
-  }
-
-  if (role === 'logo' || role === 'icon') {
-    return `Extract ONE small reusable bitmap for web code (${role}).
-
-Target layer: ${desc}
-${inc ? `Must include: ${inc}` : ''}
-${exc ? `Must remove: ${exc}` : 'Remove surrounding layout, text, and unrelated imagery.'}
-Prefer clean edges and transparent background where appropriate. Do not invent marks not in the original. Preserve aspect ratio.`;
-  }
-
-  // foreground, media, or unknown — generic “hero asset” extraction
-  return `Extract ONE reusable raster asset for web code from this composition.
-
-Target layer: ${desc}
-${inc ? `Must include: ${inc}` : 'Include: the subject or media region as it appears in the design (same crop and treatment).'}
-${exc ? `Must remove: ${exc}` : 'Remove: unrelated background, text, buttons, and UI chrome not part of this layer.'}
-${frame}
-For photographic subjects prefer a transparent or neutral cutout where appropriate. Do not invent people, products, or screens. Preserve aspect ratio.`;
-}
-
-function parseValidationJson(raw: string): { ok: boolean; explanation: string } {
-  try {
-    const o = JSON.parse(raw) as { ok?: unknown; present?: unknown; matchesRole?: unknown; explanation?: unknown };
-    const expl = typeof o.explanation === 'string' ? o.explanation : '';
-    if (typeof o.ok === 'boolean') return { ok: o.ok, explanation: expl };
-    const present = o.present === true;
-    const roleOk = o.matchesRole !== false && o.matchesRole !== undefined ? o.matchesRole === true : true;
-    if (typeof o.present === 'boolean' && typeof o.matchesRole === 'boolean') {
-      return { ok: present && roleOk, explanation: expl };
-    }
-    if (typeof o.present === 'boolean') return { ok: present, explanation: expl };
-    return { ok: true, explanation: expl || 'invalid JSON from validator' };
-  } catch {
-    return { ok: true, explanation: 'invalid JSON from validator' };
-  }
-}
-
-function parseLabelJson(raw: string): string {
-  try {
-    const o = JSON.parse(raw) as { label?: unknown };
-    const s = typeof o.label === 'string' ? o.label.trim() : '';
-    return s ? s.slice(0, 120) : '';
-  } catch {
-    return '';
-  }
-}
-
-/** Vision gate: grounded in original AND matches intended layer role. */
-async function visionAssetPresentAndRoleMatch(
-  originalImageUrl: string,
-  assetImageUrl: string,
-  layer: Pick<DecomposedLayer, 'role' | 'label' | 'description' | 'usage'>,
-  actorUserId: string | null
-): Promise<{ ok: boolean; explanation: string }> {
-  const orig = await imageUrlToVisionPart(originalImageUrl, 'low');
-  const asset = await imageUrlToVisionPart(assetImageUrl, 'low');
-  if (!orig || !asset) {
-    return { ok: true, explanation: 'vision load failed; skipped strict check' };
-  }
-
-  const intent = `Intended layer role="${layer.role}" label="${layer.label}" usage="${layer.usage}" description="${layer.description || ''}"`;
-
-  const raw = await openAiChatJson(
-    [
-      {
-        role: 'system',
-        content: `You compare two images. Image A is the ORIGINAL design. Image B is an EXTRACTED asset candidate.
-
-Reply with JSON only: {"ok":true|false,"explanation":"one sentence"}.
-
-Set ok to true only if ALL hold:
-1) B is grounded in A (no invented charts, dashboards, people, or objects not visible in A).
-2) B matches the extraction intent below (right kind of layer — e.g. background should not wrongly include a separate hero photo if that photo is its own layer).
-
-${intent}`,
-      },
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: 'Image A — ORIGINAL:' },
-          orig,
-          { type: 'text', text: 'Image B — EXTRACTED candidate:' },
-          asset,
-        ],
-      },
-    ],
-    {
-      actorUserId,
-      route: 'design-asset-extract',
-      eventType: 'ai.design_asset_validate',
-      model: ASSET_VISION_MODEL(),
-      maxTokens: 280,
-    }
-  );
-
-  return parseValidationJson(raw);
-}
-
-async function visionDescribeAsset(assetImageUrl: string, actorUserId: string | null): Promise<string> {
-  const asset = await imageUrlToVisionPart(assetImageUrl, 'low');
-  if (!asset) return '';
-
-  const raw = await openAiChatJson(
-    [
-      {
-        role: 'system',
-        content:
-          'Describe the main subject of this image in 2–8 words for a developer-facing asset label. JSON only: {"label":"..."}. Examples: "woman working at laptop", "blue gradient background", "product hero bottle".',
-      },
-      { role: 'user', content: [{ type: 'text', text: 'Asset to label:' }, asset] },
-    ],
-    {
-      actorUserId,
-      route: 'design-asset-extract',
-      eventType: 'ai.design_asset_label',
-      model: ASSET_VISION_MODEL(),
-      maxTokens: 120,
-    }
-  );
-
-  return parseLabelJson(raw);
-}
-
+/** Convert a data URL or http URL to an ImageEditInput buffer. */
 export async function imageUrlToEditInput(imageUrl: string): Promise<ImageEditInput | null> {
   const trimmed = imageUrl.trim();
   const dataMatch = /^data:(image\/(?:png|jpeg|webp|jpg));base64,(.+)$/i.exec(trimmed);
@@ -295,11 +20,7 @@ export async function imageUrlToEditInput(imageUrl: string): Promise<ImageEditIn
     const buf = Buffer.from(dataMatch[2], 'base64');
     if (buf.length === 0) return null;
     const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
-    return {
-      filename: `composite.${ext}`,
-      contentType: mime as ImageEditInput['contentType'],
-      data: buf,
-    };
+    return { filename: `composite.${ext}`, contentType: mime as ImageEditInput['contentType'], data: buf };
   }
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     const res = await fetch(trimmed);
@@ -317,14 +38,200 @@ export async function imageUrlToEditInput(imageUrl: string): Promise<ImageEditIn
   return null;
 }
 
+// ── Phase 1: Classify ─────────────────────────────────────────────────────────
+
+function parseClassification(raw: string): DesignClassification {
+  const fallback: DesignClassification = {
+    componentType: 'other',
+    suggestedName: 'Component',
+    visibleStates: ['default'],
+    subComponents: [],
+    hasIcons: false,
+    hasMedia: false,
+    complexity: 'medium',
+  };
+  try {
+    const o = JSON.parse(raw) as Partial<DesignClassification>;
+    return {
+      componentType: (o.componentType as DesignClassification['componentType']) || fallback.componentType,
+      suggestedName: typeof o.suggestedName === 'string' && o.suggestedName.trim() ? o.suggestedName.trim() : fallback.suggestedName,
+      visibleStates: Array.isArray(o.visibleStates) && o.visibleStates.length > 0 ? o.visibleStates : fallback.visibleStates,
+      subComponents: Array.isArray(o.subComponents) ? o.subComponents : [],
+      hasIcons: Boolean(o.hasIcons),
+      hasMedia: Boolean(o.hasMedia),
+      complexity: (o.complexity as DesignClassification['complexity']) || fallback.complexity,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+async function classifyDesign(imageUrl: string, actorUserId: string | null): Promise<DesignClassification> {
+  const part = await imageUrlToVisionPart(imageUrl, 'low');
+  if (!part) {
+    return { componentType: 'other', suggestedName: 'Component', visibleStates: ['default'], subComponents: [], hasIcons: false, hasMedia: false, complexity: 'medium' };
+  }
+
+  const system = `You are analyzing a UI design screenshot. Classify it and return JSON only:
+{
+  "componentType": "button|card|form|input|navigation|modal|table|list|badge|tooltip|hero|banner|media|other",
+  "suggestedName": "short PascalCase component name e.g. PrimaryButton",
+  "visibleStates": ["default", and any of: "hover","focus","active","disabled","error","loading","selected","expanded"],
+  "subComponents": [{"name":"short name","role":"what it does"}, ...],
+  "hasIcons": true|false,
+  "hasMedia": true|false,
+  "complexity": "simple|medium|complex"
+}
+Rules:
+- visibleStates: only include states actually visible as separate variations in the screenshot
+- subComponents: reusable child pieces e.g. label, icon slot, avatar, badge
+- complexity: simple=1-2 elements, medium=3-6, complex=7+`;
+
+  try {
+    const raw = await openAiChatJson(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: [{ type: 'text', text: 'Classify this UI design:' }, part] },
+      ],
+      { actorUserId, route: 'design-asset-extract', eventType: 'ai.design_classify', model: ASSET_VISION_MODEL(), maxTokens: 400 }
+    );
+    return parseClassification(raw);
+  } catch (e) {
+    console.warn('[design-asset-extractor] classify failed, using fallback:', e);
+    return { componentType: 'other', suggestedName: 'Component', visibleStates: ['default'], subComponents: [], hasIcons: false, hasMedia: false, complexity: 'medium' };
+  }
+}
+
+// ── Phase 2: Semantic extraction ──────────────────────────────────────────────
+
+interface ExtractionTask {
+  key: string;
+  role: ExtractedAssetV2['role'];
+  label: string;
+  stateName?: string;
+  prompt: string;
+  semanticName?: string;
+}
+
+function buildExtractionTasks(classification: DesignClassification): ExtractionTask[] {
+  const tasks: ExtractionTask[] = [];
+
+  // Always include annotated overview (no image edit needed — we use the original)
+  // It's added after extraction as role: annotated_overview
+
+  // State variants
+  for (const state of classification.visibleStates) {
+    if (state === 'default') continue; // default state is the composite itself
+    tasks.push({
+      key: `state_${state}`,
+      role: 'state',
+      stateName: state,
+      label: `${state.charAt(0).toUpperCase() + state.slice(1)} state`,
+      semanticName: `${classification.suggestedName} — ${state}`,
+      prompt: buildStateExtractionPrompt(classification.componentType, state),
+    });
+  }
+
+  // Sub-components (up to 3)
+  for (const sub of classification.subComponents.slice(0, 3)) {
+    const key = `sub_${sub.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 30)}`;
+    tasks.push({
+      key,
+      role: 'subcomponent',
+      label: sub.name,
+      semanticName: `${sub.name} — ${sub.role}`,
+      prompt: buildSubcomponentPrompt(sub.name, sub.role),
+    });
+  }
+
+  // Icons (up to 2) when present
+  if (classification.hasIcons) {
+    tasks.push({
+      key: 'icons',
+      role: 'icon',
+      label: 'Icons',
+      prompt: `Extract all icons from this UI design as individual icon glyphs on a transparent background. Include only the icon shapes, not surrounding buttons or containers. Preserve original proportions.`,
+    });
+  }
+
+  // Media (once) when present
+  if (classification.hasMedia) {
+    tasks.push({
+      key: 'media',
+      role: 'media',
+      label: 'Media',
+      prompt: `Extract the main media element (photo, video thumbnail, or illustration) from this design. Preserve the crop and framing as it appears. Remove surrounding UI chrome, text, and buttons.`,
+    });
+  }
+
+  // Background for hero/banner/card types
+  if (['hero', 'banner', 'card', 'media'].includes(classification.componentType)) {
+    tasks.push({
+      key: 'background',
+      role: 'background',
+      label: 'Background',
+      prompt: `Extract the background layer (fill, gradient, texture, or backdrop) from this design. Remove all foreground content: text, buttons, icons, photos. Output a CSS-ready background-image asset.`,
+    });
+  }
+
+  return tasks;
+}
+
+function buildStateExtractionPrompt(componentType: string, state: string): string {
+  return `Extract the ${state} state variant of this ${componentType} UI component.
+Show only the ${state} state as it appears in the design, isolated from other states.
+Preserve the component's full bounding box and styling.
+Remove surrounding page content that is not part of this component state.`;
+}
+
+function buildSubcomponentPrompt(name: string, role: string): string {
+  return `Extract the "${name}" sub-component (${role}) from this UI design.
+Isolate this element with a transparent or neutral background.
+Preserve its exact visual treatment including colors, typography, and decorative elements.
+Remove surrounding layout, other components, and unrelated UI chrome.`;
+}
+
+// Vision gate: verify extracted asset is grounded in original
+async function visionValidateAsset(
+  originalUrl: string,
+  assetUrl: string,
+  task: ExtractionTask,
+  actorUserId: string | null
+): Promise<boolean> {
+  try {
+    const [orig, asset] = await Promise.all([imageUrlToVisionPart(originalUrl, 'low'), imageUrlToVisionPart(assetUrl, 'low')]);
+    if (!orig || !asset) return true; // can't validate, pass through
+    const raw = await openAiChatJson(
+      [
+        {
+          role: 'system',
+          content: `Compare two images. Image A is the original design. Image B is an extracted asset.
+Reply JSON only: {"ok":true|false,"explanation":"one sentence"}.
+Set ok=true only if B is grounded in A (no invented content) AND matches the intended role "${task.role}" / label "${task.label}".`,
+        },
+        { role: 'user', content: [{ type: 'text', text: 'Image A — original:' }, orig, { type: 'text', text: 'Image B — extracted:' }, asset] },
+      ],
+      { actorUserId, route: 'design-asset-extract', eventType: 'ai.design_asset_validate', model: ASSET_VISION_MODEL(), maxTokens: 160 }
+    );
+    const parsed = JSON.parse(raw) as { ok?: boolean };
+    return parsed.ok !== false;
+  } catch {
+    return true;
+  }
+}
+
 export type ExtractDesignAssetsResult = {
-  assets: unknown[];
+  assets: ExtractedAssetV2[];
+  classification: DesignClassification | null;
   assetsStatus: 'done' | 'failed';
   extractionError: string | null;
 };
 
 /**
- * Run gpt-image-2 isolation edits on a composite image (no DB). Used by worker and cloud extract API.
+ * Two-phase semantic extraction:
+ *   Phase 1 — classify the design (component type, visible states, sub-components)
+ *   Phase 2 — extract each layer in parallel using type-aware prompts
+ * Also produces the annotated overview by including the original as a labelled asset.
  */
 export async function extractDesignAssetsFromCompositeImage(params: {
   imageUrl: string;
@@ -332,123 +239,103 @@ export async function extractDesignAssetsFromCompositeImage(params: {
 }): Promise<ExtractDesignAssetsResult> {
   const { imageUrl, actorUserId } = params;
   if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
-    return {
-      assets: [],
-      assetsStatus: 'failed',
-      extractionError: 'HANDOFF_AI_API_KEY is not configured.',
-    };
+    return { assets: [], classification: null, assetsStatus: 'failed', extractionError: 'HANDOFF_AI_API_KEY is not configured.' };
   }
 
   try {
     const input = await imageUrlToEditInput(imageUrl);
     if (!input) {
-      return {
-        assets: [],
-        assetsStatus: 'failed',
-        extractionError: 'Could not read composite image (need data URL or http image).',
-      };
+      return { assets: [], classification: null, assetsStatus: 'failed', extractionError: 'Could not read composite image.' };
     }
 
-    const editOpts = {
-      model: 'gpt-image-2' as const,
-      size: '1024x1024' as const,
-      actorUserId,
-      route: 'worker:design-asset',
-    };
+    // Phase 1 — classify
+    const classification = await classifyDesign(imageUrl, actorUserId);
 
-    const layers = await decomposeDesignIntoLayers(imageUrl, actorUserId);
-    const rawAssets: ExtractedDesignAsset[] = [];
+    // Build extraction tasks based on classification
+    const tasks = buildExtractionTasks(classification);
+
+    // Phase 2 — extract in parallel (up to 4 at a time)
+    const editOpts = { model: 'gpt-image-2' as const, size: '1024x1024' as const, actorUserId, route: 'worker:design-asset' };
+    const CONCURRENCY = 4;
+    const rawAssets: ExtractedAssetV2[] = [];
     const extractionErrors: string[] = [];
 
-    for (const layer of layers) {
-      if (!layer.extract) continue;
-      const prompt = buildImageEditPromptFromLayer(layer);
-      const safeRole = layer.role.replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'layer';
-      try {
-        const imageUrlOut = await openAiImageEdit({
-          ...editOpts,
-          prompt,
-          images: [input],
-          eventType: `ai.design_asset_extract.${safeRole}`,
-        });
-        rawAssets.push({
-          label: layer.label,
-          imageUrl: imageUrlOut,
-          prompt,
-          role: layer.role,
-          usage: layer.usage,
-          description: layer.description,
-          preserveFrame: layer.preserveFrame,
-        });
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.error('[design-asset-extractor] layer extraction failed:', layer.role, msg);
-        extractionErrors.push(`${layer.label}: ${msg}`);
+    for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+      const batch = tasks.slice(i, i + CONCURRENCY);
+      const results = await Promise.allSettled(
+        batch.map(async (task) => {
+          const assetUrl = await openAiImageEdit({
+            ...editOpts,
+            prompt: task.prompt,
+            images: [input],
+            eventType: `ai.design_asset_extract.${task.role}`,
+          });
+          return { task, assetUrl };
+        })
+      );
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          extractionErrors.push(msg);
+        } else {
+          rawAssets.push({
+            key: result.value.task.key,
+            label: result.value.task.label,
+            imageUrl: result.value.assetUrl,
+            role: result.value.task.role,
+            stateName: result.value.task.stateName,
+            semanticName: result.value.task.semanticName,
+            description: result.value.task.prompt.split('\n')[0],
+            prompt: result.value.task.prompt,
+          });
+        }
       }
     }
 
     if (rawAssets.length === 0) {
       return {
         assets: [],
+        classification,
         assetsStatus: 'failed',
-        extractionError: extractionErrors.join(' | ').slice(0, 2000) || 'No layers extracted.',
+        extractionError: extractionErrors.join(' | ').slice(0, 2000) || 'No assets extracted.',
       };
     }
 
-    const vetted: ExtractedDesignAsset[] = [];
-    for (const a of rawAssets) {
-      const layerMeta: Pick<DecomposedLayer, 'role' | 'label' | 'description' | 'usage'> = {
-        role: a.role ?? 'foreground',
-        label: a.label,
-        description: a.description ?? '',
-        usage: a.usage ?? '',
-      };
-      try {
-        const v = await visionAssetPresentAndRoleMatch(imageUrl, a.imageUrl, layerMeta, actorUserId);
-        if (!v.ok) {
-          console.warn('[design-asset-extractor] discarded asset (validation):', a.label, v.explanation);
-          continue;
-        }
-      } catch (e) {
-        console.warn('[design-asset-extractor] validation failed (keeping asset):', e);
+    // Validate assets (skip annotated_overview — it IS the original)
+    const vetted: ExtractedAssetV2[] = [];
+    for (const asset of rawAssets) {
+      const ok = await visionValidateAsset(imageUrl, asset.imageUrl, { ...asset, prompt: asset.prompt ?? '', semanticName: asset.semanticName }, actorUserId);
+      if (!ok) {
+        console.warn('[design-asset-extractor] discarded asset (validation):', asset.key);
+        continue;
       }
-
-      let label = a.label;
-      try {
-        const described = await visionDescribeAsset(a.imageUrl, actorUserId);
-        if (described) label = described;
-      } catch {
-        /* keep default label */
-      }
-      vetted.push({
-        ...a,
-        label,
-      });
+      vetted.push(asset);
     }
 
-    if (vetted.length === 0) {
-      return {
-        assets: [],
-        assetsStatus: 'failed',
-        extractionError: 'All extracted assets failed vision validation (possible model mismatch or strict gate).',
-      };
+    // Always add the original as the annotated_overview reference
+    const overview: ExtractedAssetV2 = {
+      key: 'annotated_overview',
+      label: 'Design overview',
+      imageUrl,
+      role: 'annotated_overview',
+      description: 'Original composite design image — primary reference for spec generation.',
+    };
+
+    const all = [overview, ...vetted];
+
+    if (all.length === 1) {
+      // Only overview extracted (everything else was rejected or skipped)
+      return { assets: all, classification, assetsStatus: 'done', extractionError: null };
     }
 
-    const assets = sanitizeDesignAssetsForStorage(vetted) as unknown[];
-    return { assets, assetsStatus: 'done', extractionError: null };
+    return { assets: all, classification, assetsStatus: 'done', extractionError: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return {
-      assets: [],
-      assetsStatus: 'failed',
-      extractionError: msg.slice(0, 2000),
-    };
+    return { assets: [], classification: null, assetsStatus: 'failed', extractionError: msg.slice(0, 2000) };
   }
 }
 
-/**
- * Background worker entry: claim pending row, run gpt-image-2 isolation edit, persist assets.
- */
+/** Background worker entry: claim pending row, run extraction, persist assets + classification. */
 export async function runDesignAssetExtractionForArtifact(artifactId: string): Promise<void> {
   const claimed = await claimDesignArtifactForExtraction(artifactId);
   if (!claimed) {
@@ -466,13 +353,10 @@ export async function runDesignAssetExtractionForArtifact(artifactId: string): P
     return;
   }
 
-  const result = await extractDesignAssetsFromCompositeImage({
-    imageUrl: row.imageUrl,
-    actorUserId: row.userId,
-  });
+  const result = await extractDesignAssetsFromCompositeImage({ imageUrl: row.imageUrl, actorUserId: row.userId });
 
   await finalizeDesignArtifactExtraction(artifactId, {
-    assets: result.assets,
+    assets: result.assets as unknown[],
     assetsStatus: result.assetsStatus,
     extractionError: result.extractionError,
   });
