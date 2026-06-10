@@ -1,8 +1,21 @@
 import { Resend } from 'resend';
 
 function appBaseUrl(): string {
-  const u = process.env.HANDOFF_APP_URL?.replace(/\/+$/, '');
-  return u || 'http://localhost:3000';
+  // Check in priority order:
+  //   1. HANDOFF_APP_URL — explicit override (recommended in .env.example)
+  //   2. AUTH_URL — set by Next-Auth v5 on Vercel and most hosting platforms
+  //   3. NEXTAUTH_URL — legacy Next-Auth v4 name, still common in older deploys
+  // Fall back to localhost only in development.
+  const candidates = [
+    process.env.HANDOFF_APP_URL,
+    process.env.AUTH_URL,
+    process.env.NEXTAUTH_URL,
+  ];
+  for (const c of candidates) {
+    const u = c?.trim().replace(/\/+$/, '');
+    if (u) return u;
+  }
+  return 'http://localhost:3000';
 }
 
 function fromAddress(): string {

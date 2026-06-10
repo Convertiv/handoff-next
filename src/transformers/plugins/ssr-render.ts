@@ -127,16 +127,30 @@ function generateClientHydrationSource(componentPath: string): string {
  * @param previewTitle - Title for the preview
  * @param renderedHtml - Server-rendered HTML content
  * @param props - Component props as JSON
+ * @param componentCssFilename - Actual CSS filename emitted by the Vite build.
+ *   For React/Tailwind workspaces this is often project-named (e.g. `8x8-handoff.css`)
+ *   rather than component-named (`button.css`).  Defaults to `${componentId}.css`
+ *   for workspaces that generate a per-component CSS file via SCSS.
  * @returns Complete HTML document
  */
-function generateHtmlDocument(componentId: string, previewTitle: string, renderedHtml: string, props: any): string {
+function generateHtmlDocument(
+  componentId: string,
+  previewTitle: string,
+  renderedHtml: string,
+  props: any,
+  componentCssFilename = `${componentId}.css`,
+): string {
   const base = process.env.HANDOFF_APP_BASE_PATH ?? '';
+  // Component CSS uses a two-segment path so the registry resolves it by
+  // (componentId, filename) rather than filename-only across all components.
+  // This is required when the CSS is named after the project rather than the
+  // component (e.g. `8x8-handoff.css` instead of `button.css`).
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="${base}/api/component/${MAIN_COMPONENT_CSS_FILE}" />
-    <link rel="stylesheet" href="${base}/api/component/${componentId}.css" />
+    <link rel="stylesheet" href="${base}/api/component/${componentId}/${componentCssFilename}" />
     <link rel="stylesheet" href="${base}/assets/css/preview.css" />
     <script id="${PLUGIN_CONSTANTS.PROPS_SCRIPT_ID}" type="application/json">${JSON.stringify(props)}</script>
     <script type="module" src="${base}/api/component/${componentId}/${componentId}-client.mjs"></script>
@@ -187,6 +201,13 @@ export function ssrRenderPlugin(
       }
 
       const componentId = componentData.id;
+      // CSS filename placeholder — always use the default here.  The actual
+      // CSS file may be named differently (e.g. `8x8-handoff.css`) when the
+      // workspace's Vite config names the bundle after the project.  The
+      // `writeBundle` hook below patches all HTML files on disk once Vite has
+      // finished writing all assets (including the CSS produced by vite:css-post,
+      // which runs its own generateBundle AFTER ours).
+      const componentCssFilename = `${componentId}.css`;
       const componentPath = path.resolve(componentData.entries.template);
       const componentSourceCode = fs.readFileSync(componentPath, 'utf8');
 
@@ -287,7 +308,8 @@ export function ssrRenderPlugin(
           componentId,
           componentData.previews[previewKey].title,
           formattedHtml,
-          previewProps
+          previewProps,
+          componentCssFilename,
         );
 
         // Emit preview files
@@ -330,6 +352,64 @@ export function ssrRenderPlugin(
         previewValues: firstPreviewValues,
         templateFileName: path.basename(componentPath),
       });
+    },
+
+    // ── Patch HTML CSS references after all files are written ─────────────────
+    //
+    // `vite:css-post` (a built-in Vite plugin) adds the extracted CSS asset to
+    // the bundle in its own `generateBundle` hook, which fires AFTER ours.  So
+    // when we generate HTML we don't yet know the real CSS filename — we write a
+    // placeholder (`${componentId}.css`).
+    //
+    // `writeBundle` is called after ALL plugins have run `generateBundle` and
+    // Vite has written every file to disk.  At this point we can scan the output
+    // directory, find the actual CSS file (e.g. `8x8-handoff.css`), and patch
+    // all HTML preview files in-place.
+    //
+    // For workspaces that DO produce `${componentId}.css` (e.g. SSC with SCSS),
+    // the placeholder already matches — no patching needed.
+    async writeBundle(opts) {
+      const outDir = opts.dir;
+      if (!outDir) return;
+
+      const componentId = componentData.id;
+      const expectedCssName = `${componentId}.css`;
+      const placeholder = `/api/component/${componentId}/${expectedCssName}`;
+
+      // Find any CSS file in the output dir that isn't the placeholder name.
+      let actualCssFile: string | null = null;
+      try {
+        const entries = await fs.readdir(outDir);
+        const candidates = entries.filter(
+          (n) => n.endsWith('.css') && n !== MAIN_COMPONENT_CSS_FILE && n !== 'shared.css' && n !== expectedCssName
+        );
+        if (candidates.length > 0) actualCssFile = candidates[0];
+      } catch {
+        return; // not fatal
+      }
+
+      if (!actualCssFile) return; // placeholder name matches reality — nothing to do
+
+      const replacement = `/api/component/${componentId}/${actualCssFile}`;
+
+      // Patch every HTML file that still contains the placeholder reference.
+      try {
+        const entries = await fs.readdir(outDir);
+        const htmlFiles = entries.filter((n) => n.endsWith('.html'));
+        for (const htmlFile of htmlFiles) {
+          const htmlPath = path.join(outDir, htmlFile);
+          try {
+            const content = await fs.readFile(htmlPath, 'utf8');
+            if (!content.includes(placeholder)) continue;
+            await fs.writeFile(htmlPath, content.replace(placeholder, replacement), 'utf8');
+          } catch {
+            // skip unreadable/unwritable files
+          }
+        }
+        Logger.debug(`CSS patch applied to ${htmlFiles.length} HTML preview(s): ${expectedCssName} → ${actualCssFile}`);
+      } catch {
+        // non-fatal — preview renders without CSS if patch fails
+      }
     },
   };
 }

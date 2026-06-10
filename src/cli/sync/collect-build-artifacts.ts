@@ -35,6 +35,11 @@ async function collectMatchingFiles(dir: string, prefix: string): Promise<string
   return entries.filter((name) => {
     if (name.startsWith('.')) return false; // skip Vite temp dirs
     if (COMMON_DIST_FILENAMES.has(name)) return true;
+    // Always collect CSS files from the component's isolated dist directory.
+    // React/Tailwind workspaces emit CSS under the project's own name
+    // (e.g. `8x8-handoff.css`) rather than the component prefix (`button.css`).
+    // Since this is a per-component dist dir, every CSS file here is relevant.
+    if (name.endsWith('.css')) return true;
     return name === `${prefix}.json` || name.startsWith(`${prefix}.`) || name.startsWith(`${prefix}-`);
   });
 }
