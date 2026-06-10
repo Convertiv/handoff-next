@@ -1,25 +1,28 @@
-import { Suspense } from 'react';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '@/components/util';
+import Layout from '@handoff/app/components/Layout/Main';
 import HeadersType from '@/components/Typography/Headers';
 import { ChangelogClient } from './ChangelogClient';
+import type { Metadata as DocMetadata } from '@/components/util';
 
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata() {
   return {
-    title: 'Component Changelog',
-    description: 'History of component pushes and updates across the design system.',
+    title: 'Changelog',
+    description: 'History of component, token, and page changes across the design system.',
   };
 }
 
 export default async function ChangelogPage() {
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'system', '/system');
+  const config = getClientRuntimeConfig();
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
+    <Layout config={config} menu={props.menu} current={props.current} metadata={props.metadata as DocMetadata}>
+      <div className="space-y-6">
         <HeadersType.H1>Changelog</HeadersType.H1>
-      </div>
-      <Suspense fallback={<div className="text-sm text-muted-foreground">Loading changelog…</div>}>
         <ChangelogClient />
-      </Suspense>
-    </div>
+      </div>
+    </Layout>
   );
 }

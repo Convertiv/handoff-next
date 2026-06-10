@@ -1,10 +1,12 @@
 import 'server-only';
-import { eq } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { desc, eq } from 'drizzle-orm';
 import { getDb } from './index';
 import {
   handoffRegistryConfig,
   handoffRegistryTheme,
   handoffRegistryNavigation,
+  handoffTokenChanges,
   handoffTokensSnapshots,
 } from './schema-pg';
 
@@ -92,9 +94,71 @@ export async function upsertRegistryNavigation(tree: NavigationNode[], userId: s
 
 // ─── Tokens snapshot ───────────────────────────────────────────────────────────
 // Existing handoff_tokens_snapshot table is append-only — each push inserts a row.
-// Latest row wins for reads.
+// Latest row wins for reads. Each push also writes a handoff_token_change diff row.
 
-export async function insertTokensSnapshot(payload: unknown): Promise<void> {
+/**
+ * Flatten a token payload into a map of { "<category>/<name>": fingerprint }.
+ * Arrays of objects with a `name` field are walked; other shapes are treated
+ * as a single entry keyed by the category name.
+ */
+function flattenTokenPayload(payload: unknown): Record<string, string> {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
+  const flat: Record<string, string> = {};
+  for (const [category, items] of Object.entries(payload as Record<string, unknown>)) {
+    if (Array.isArray(items)) {
+      items.forEach((item, idx) => {
+        const name =
+          item && typeof item === 'object' && 'name' in item
+            ? String((item as Record<string, unknown>).name)
+            : String(idx);
+        const key = `${category}/${name}`;
+        flat[key] = createHash('sha256').update(JSON.stringify(item)).digest('hex').slice(0, 12);
+      });
+    } else if (items !== null && typeof items === 'object') {
+      flat[category] = createHash('sha256').update(JSON.stringify(items)).digest('hex').slice(0, 12);
+    }
+  }
+  return flat;
+}
+
+export async function insertTokensSnapshot(payload: unknown, trigger = 'push'): Promise<void> {
   const db = getDb();
-  await db.insert(handoffTokensSnapshots).values({ payload });
+
+  // ── 1. Read the previous snapshot for diffing ──────────────────────────────
+  const [prev] = await db
+    .select({ id: handoffTokensSnapshots.id, payload: handoffTokensSnapshots.payload })
+    .from(handoffTokensSnapshots)
+    .orderBy(desc(handoffTokensSnapshots.id))
+    .limit(1);
+
+  // ── 2. Insert the new snapshot ─────────────────────────────────────────────
+  const [inserted] = await db
+    .insert(handoffTokensSnapshots)
+    .values({ payload })
+    .returning({ id: handoffTokensSnapshots.id });
+  const snapshotId = inserted?.id ?? null;
+
+  // ── 3. Compute diff ────────────────────────────────────────────────────────
+  const newFlat = flattenTokenPayload(payload);
+  const prevFlat = prev ? flattenTokenPayload(prev.payload as unknown) : {};
+
+  const newKeys = new Set(Object.keys(newFlat));
+  const prevKeys = new Set(Object.keys(prevFlat));
+
+  const addedKeys = [...newKeys].filter((k) => !prevKeys.has(k));
+  const removedKeys = [...prevKeys].filter((k) => !newKeys.has(k));
+  const modifiedKeys = [...newKeys].filter((k) => prevKeys.has(k) && newFlat[k] !== prevFlat[k]);
+
+  // ── 4. Insert change record (fire-and-forget — never surface to caller) ───
+  await db.insert(handoffTokenChanges).values({
+    trigger,
+    addedCount: addedKeys.length,
+    removedCount: removedKeys.length,
+    modifiedCount: modifiedKeys.length,
+    totalCount: newKeys.size,
+    addedKeys,
+    removedKeys,
+    modifiedKeys,
+    snapshotId,
+  });
 }

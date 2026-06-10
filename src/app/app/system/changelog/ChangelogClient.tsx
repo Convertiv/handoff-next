@@ -1,11 +1,14 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { GitCommit, User } from 'lucide-react';
+import { GitCommit, FileText, Palette, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { handoffApiUrl } from '@/lib/api-path';
+import type { UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
+
+// ─── Local type aliases for the three entry kinds ───────────────────────────
 
 interface ChangeSummary {
   firstVersion: boolean;
@@ -17,26 +20,16 @@ interface ChangeSummary {
   artifactsChanged: boolean;
 }
 
-interface ChangeEntry {
-  id: number;
-  componentId: string;
-  componentTitle: string;
-  componentGroup: string;
-  versionNumber: number;
-  pushedAt: string;
-  pushedByName: string | null;
-  pushedByEmail: string | null;
-  trigger: string;
-  changeSummary: ChangeSummary;
-}
+// ─── Date grouping ────────────────────────────────────────────────────────────
 
 interface DateGroup {
   label: string;
   date: string;
-  entries: ChangeEntry[];
+  entries: UnifiedChangelogEntry[];
 }
 
 type TimeRange = '7d' | '30d' | '90d' | 'all';
+type EntityFilter = 'all' | 'component' | 'token' | 'page';
 
 const TIME_RANGES: { value: TimeRange; label: string; days?: number }[] = [
   { value: '7d', label: 'Last 7 days', days: 7 },
@@ -44,6 +37,17 @@ const TIME_RANGES: { value: TimeRange; label: string; days?: number }[] = [
   { value: '90d', label: 'Last 90 days', days: 90 },
   { value: 'all', label: 'All time' },
 ];
+
+const ENTITY_FILTERS: { value: EntityFilter; label: string }[] = [
+  { value: 'all', label: 'All changes' },
+  { value: 'component', label: 'Components' },
+  { value: 'token', label: 'Tokens' },
+  { value: 'page', label: 'Pages' },
+];
+
+function getPushedAt(e: UnifiedChangelogEntry): string {
+  return e.pushedAt;
+}
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -67,10 +71,10 @@ function relativeTime(iso: string): string {
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-function groupByDate(entries: ChangeEntry[]): DateGroup[] {
-  const map = new Map<string, ChangeEntry[]>();
+function groupByDate(entries: UnifiedChangelogEntry[]): DateGroup[] {
+  const map = new Map<string, UnifiedChangelogEntry[]>();
   for (const e of entries) {
-    const d = new Date(e.pushedAt); d.setHours(0, 0, 0, 0);
+    const d = new Date(getPushedAt(e)); d.setHours(0, 0, 0, 0);
     const key = d.toISOString();
     if (!map.has(key)) map.set(key, []);
     map.get(key)!.push(e);
@@ -80,7 +84,9 @@ function groupByDate(entries: ChangeEntry[]): DateGroup[] {
     .map(([date, entries]) => ({ label: formatDate(entries[0].pushedAt), date, entries }));
 }
 
-function ChangeTags({ s }: { s: ChangeSummary }) {
+// ─── Change tags per entity type ─────────────────────────────────────────────
+
+function ComponentChangeTags({ s }: { s: ChangeSummary }) {
   const tags: React.ReactNode[] = [];
   if (s.firstVersion) {
     return (
@@ -125,30 +131,180 @@ function ChangeTags({ s }: { s: ChangeSummary }) {
   return tags.length > 0 ? <div className="flex flex-wrap gap-1">{tags}</div> : null;
 }
 
+function TokenChangeTags({ entry }: { entry: Extract<UnifiedChangelogEntry, { entityType: 'token' }> }) {
+  const tags: React.ReactNode[] = [];
+  if (entry.addedCount > 0) {
+    tags.push(
+      <Badge key="added" variant="outline" className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 text-xs">
+        +{entry.addedCount} added
+      </Badge>
+    );
+  }
+  if (entry.modifiedCount > 0) {
+    tags.push(
+      <Badge key="mod" variant="outline" className="border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400 text-xs">
+        ~{entry.modifiedCount} modified
+      </Badge>
+    );
+  }
+  if (entry.removedCount > 0) {
+    tags.push(
+      <Badge key="rem" variant="outline" className="border-red-300 text-red-700 dark:border-red-700 dark:text-red-400 text-xs">
+        -{entry.removedCount} removed
+      </Badge>
+    );
+  }
+  if (tags.length === 0) {
+    tags.push(
+      <Badge key="nc" variant="secondary" className="text-xs">
+        no changes
+      </Badge>
+    );
+  }
+  return <div className="flex flex-wrap gap-1">{tags}</div>;
+}
+
+function PageChangeTags({ entry }: { entry: Extract<UnifiedChangelogEntry, { entityType: 'page' }> }) {
+  const actionColors: Record<string, string> = {
+    created: 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400',
+    updated: 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400',
+    deleted: 'border-red-300 text-red-700 dark:border-red-700 dark:text-red-400',
+  };
+  const color = actionColors[entry.pageAction] ?? actionColors.updated;
+  const tags: React.ReactNode[] = [
+    <Badge key="action" variant="outline" className={`${color} text-xs`}>
+      {entry.pageAction}
+    </Badge>,
+  ];
+  if (entry.pageAction === 'updated' && entry.markdownLengthBefore != null && entry.markdownLengthAfter != null) {
+    const delta = entry.markdownLengthAfter - entry.markdownLengthBefore;
+    if (delta !== 0) {
+      tags.push(
+        <Badge key="delta" variant="outline" className="text-xs text-muted-foreground">
+          {delta > 0 ? `+${delta}` : delta} chars
+        </Badge>
+      );
+    }
+  }
+  return <div className="flex flex-wrap gap-1">{tags}</div>;
+}
+
+// ─── Entry row ────────────────────────────────────────────────────────────────
+
+function EntryRow({ entry }: { entry: UnifiedChangelogEntry }) {
+  if (entry.entityType === 'component') {
+    return (
+      <div className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/40">
+        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10">
+          <GitCommit className="h-3.5 w-3.5 text-primary" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href={`/system/component/${encodeURIComponent(entry.componentId)}`}
+              className="text-sm font-medium hover:underline"
+            >
+              {entry.componentTitle}
+            </Link>
+            {entry.componentGroup && (
+              <span className="text-xs text-muted-foreground">· {entry.componentGroup}</span>
+            )}
+            <span className="font-mono text-xs text-muted-foreground">v{entry.versionNumber}</span>
+          </div>
+          <ComponentChangeTags s={entry.changeSummary as ChangeSummary} />
+        </div>
+        <div className="shrink-0 text-right space-y-0.5">
+          {entry.pushedByName && (
+            <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
+              <User className="h-3 w-3" />
+              <span>{entry.pushedByName}</span>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{relativeTime(entry.pushedAt)}</p>
+          <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            {entry.trigger}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.entityType === 'token') {
+    return (
+      <div className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/40">
+        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
+          <Palette className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">Token push</span>
+            <span className="text-xs text-muted-foreground">· {entry.totalCount} total tokens</span>
+          </div>
+          <TokenChangeTags entry={entry} />
+        </div>
+        <div className="shrink-0 text-right space-y-0.5">
+          <p className="text-xs text-muted-foreground">{relativeTime(entry.pushedAt)}</p>
+          <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            {entry.trigger}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // page
+  const displayTitle = entry.titleAfter ?? entry.titleBefore ?? entry.slug;
+  return (
+    <div className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/40">
+      <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-500/10">
+        <FileText className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+      </div>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{displayTitle}</span>
+          <span className="font-mono text-xs text-muted-foreground">· {entry.slug}</span>
+        </div>
+        <PageChangeTags entry={entry} />
+      </div>
+      <div className="shrink-0 text-right space-y-0.5">
+        {entry.pushedByName && (
+          <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
+            <User className="h-3 w-3" />
+            <span>{entry.pushedByName}</span>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">{relativeTime(entry.pushedAt)}</p>
+        <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+          {entry.trigger}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
 export function ChangelogClient() {
-  // Raw data — all entries for the selected time range
-  const [allEntries, setAllEntries] = useState<ChangeEntry[]>([]);
+  const [allEntries, setAllEntries] = useState<UnifiedChangelogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
-  const [groupFilter, setGroupFilter] = useState<string>('');
-
-  // Derived: unique groups from loaded data
-  const availableGroups = Array.from(
-    new Set(allEntries.map((e) => e.componentGroup).filter(Boolean))
-  ).sort();
+  const [entityFilter, setEntityFilter] = useState<EntityFilter>('all');
 
   // Derived: filtered + grouped for display
-  const filteredEntries = groupFilter
-    ? allEntries.filter((e) => e.componentGroup === groupFilter)
-    : allEntries;
+  const filteredEntries = entityFilter === 'all'
+    ? allEntries
+    : allEntries.filter((e) => e.entityType === entityFilter);
   const groups = groupByDate(filteredEntries);
   const total = filteredEntries.length;
+
+  // Check which entity types have data (to only show relevant filter chips)
+  const presentTypes = new Set(allEntries.map((e) => e.entityType));
 
   const load = useCallback((range: TimeRange) => {
     setLoading(true);
     setError(null);
-    setGroupFilter('');
+    setEntityFilter('all');
     const rangeDef = TIME_RANGES.find((r) => r.value === range);
     const params = new URLSearchParams({ limit: '200' });
     if (rangeDef?.days) {
@@ -159,7 +315,7 @@ export function ChangelogClient() {
     fetch(handoffApiUrl(`/api/handoff/changelog?${params.toString()}`), { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { changes: ChangeEntry[]; total: number };
+        const data = (await res.json()) as { changes: UnifiedChangelogEntry[]; total: number };
         setAllEntries(data.changes ?? []);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load changelog'))
@@ -184,25 +340,20 @@ export function ChangelogClient() {
           </Button>
         ))}
 
-        {/* Group filter — only shown when there are 2+ groups */}
-        {!loading && availableGroups.length > 1 && (
+        {/* Entity type filter — only shown when 2+ types present */}
+        {!loading && presentTypes.size > 1 && (
           <>
             <div className="mx-1 h-5 w-px bg-border" />
-            <Button
-              variant={groupFilter === '' ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={() => setGroupFilter('')}
-            >
-              All groups
-            </Button>
-            {availableGroups.map((g) => (
+            {ENTITY_FILTERS.filter(
+              (f) => f.value === 'all' || presentTypes.has(f.value as 'component' | 'token' | 'page')
+            ).map((f) => (
               <Button
-                key={g}
-                variant={groupFilter === g ? 'secondary' : 'outline'}
+                key={f.value}
+                variant={entityFilter === f.value ? 'secondary' : 'outline'}
                 size="sm"
-                onClick={() => setGroupFilter(groupFilter === g ? '' : g)}
+                onClick={() => setEntityFilter(entityFilter === f.value && f.value !== 'all' ? 'all' : f.value)}
               >
-                {g}
+                {f.label}
               </Button>
             ))}
           </>
@@ -210,7 +361,7 @@ export function ChangelogClient() {
 
         {!loading && total > 0 && (
           <span className="ml-auto text-sm text-muted-foreground">
-            {total} {total === 1 ? 'push' : 'pushes'}
+            {total} {total === 1 ? 'change' : 'changes'}
           </span>
         )}
       </div>
@@ -240,7 +391,7 @@ export function ChangelogClient() {
       {!loading && !error && groups.length === 0 && (
         <div className="flex flex-col items-center gap-3 py-20 text-center text-muted-foreground">
           <GitCommit className="h-10 w-10 opacity-20" />
-          <p className="text-sm">No component pushes found for this time range.</p>
+          <p className="text-sm">No changes found for this time range.</p>
         </div>
       )}
 
@@ -259,46 +410,7 @@ export function ChangelogClient() {
               {/* Entries */}
               <div className="space-y-2">
                 {group.entries.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/40"
-                  >
-                    {/* Timeline dot */}
-                    <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                      <GitCommit className="h-3.5 w-3.5 text-primary" />
-                    </div>
-
-                    {/* Content */}
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link
-                          href={`/system/component/${encodeURIComponent(entry.componentId)}`}
-                          className="text-sm font-medium hover:underline"
-                        >
-                          {entry.componentTitle}
-                        </Link>
-                        {entry.componentGroup && (
-                          <span className="text-xs text-muted-foreground">· {entry.componentGroup}</span>
-                        )}
-                        <span className="font-mono text-xs text-muted-foreground">v{entry.versionNumber}</span>
-                      </div>
-                      <ChangeTags s={entry.changeSummary} />
-                    </div>
-
-                    {/* Right meta */}
-                    <div className="shrink-0 text-right space-y-0.5">
-                      {entry.pushedByName && (
-                        <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
-                          <User className="h-3 w-3" />
-                          <span>{entry.pushedByName}</span>
-                        </div>
-                      )}
-                      <p className="text-xs text-muted-foreground">{relativeTime(entry.pushedAt)}</p>
-                      <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                        {entry.trigger}
-                      </span>
-                    </div>
-                  </div>
+                  <EntryRow key={`${entry.entityType}-${entry.id}`} entry={entry} />
                 ))}
               </div>
             </div>

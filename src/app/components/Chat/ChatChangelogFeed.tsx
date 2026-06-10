@@ -2,35 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, GitCommit } from 'lucide-react';
+import { ArrowRight, GitCommit, FileText, Palette } from 'lucide-react';
 import { Badge } from '@handoff/app/components/ui/badge';
 import { handoffApiUrl } from '@/lib/api-path';
-
-interface ChangeSummary {
-  firstVersion: boolean;
-  metadataChanged: boolean;
-  fieldsChanged: string[];
-  sourceAdded: string[];
-  sourceModified: string[];
-  sourceRemoved: string[];
-  artifactsChanged: boolean;
-}
-
-interface ChangeEntry {
-  id: number;
-  componentId: string;
-  componentTitle: string;
-  componentGroup: string;
-  versionNumber: number;
-  pushedAt: string;
-  pushedByName: string | null;
-  trigger: string;
-  changeSummary: ChangeSummary;
-}
+import type { UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
 
 interface DateGroup {
   label: string;
-  entries: ChangeEntry[];
+  entries: UnifiedChangelogEntry[];
 }
 
 interface Props {
@@ -65,8 +44,8 @@ function dateLabel(iso: string): string {
   return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function groupByDate(entries: ChangeEntry[]): DateGroup[] {
-  const map = new Map<string, ChangeEntry[]>();
+function groupByDate(entries: UnifiedChangelogEntry[]): DateGroup[] {
+  const map = new Map<string, UnifiedChangelogEntry[]>();
   for (const e of entries) {
     const label = dateLabel(e.pushedAt);
     if (!map.has(label)) map.set(label, []);
@@ -75,38 +54,76 @@ function groupByDate(entries: ChangeEntry[]): DateGroup[] {
   return Array.from(map.entries()).map(([label, entries]) => ({ label, entries }));
 }
 
-function ChangeBadges({ s }: { s: ChangeSummary }) {
-  const badges: React.ReactNode[] = [];
-  if (s.firstVersion) {
-    return <Badge variant="secondary" className="text-[10px] py-0">Initial push</Badge>;
+function EntryIcon({ entry }: { entry: UnifiedChangelogEntry }) {
+  if (entry.entityType === 'token') {
+    return <Palette className="h-3 w-3 shrink-0 text-amber-500" />;
   }
-  if (s.metadataChanged) {
-    badges.push(
-      <Badge key="meta" variant="outline" className="border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400 text-[10px] py-0">
-        metadata
-      </Badge>
-    );
+  if (entry.entityType === 'page') {
+    return <FileText className="h-3 w-3 shrink-0 text-violet-500" />;
   }
-  const srcTotal = (s.sourceAdded?.length ?? 0) + (s.sourceModified?.length ?? 0) + (s.sourceRemoved?.length ?? 0);
-  if (srcTotal > 0) {
+  return <GitCommit className="h-3 w-3 shrink-0 text-primary" />;
+}
+
+function EntryBadges({ entry }: { entry: UnifiedChangelogEntry }) {
+  if (entry.entityType === 'component') {
+    const s = entry.changeSummary as {
+      firstVersion?: boolean;
+      metadataChanged?: boolean;
+      sourceAdded?: string[];
+      sourceModified?: string[];
+      sourceRemoved?: string[];
+      artifactsChanged?: boolean;
+    };
+    if (s.firstVersion) {
+      return <Badge variant="secondary" className="text-[10px] py-0">Initial push</Badge>;
+    }
     const parts: string[] = [];
-    if (s.sourceAdded?.length) parts.push(`+${s.sourceAdded.length}`);
-    if (s.sourceModified?.length) parts.push(`~${s.sourceModified.length}`);
-    if (s.sourceRemoved?.length) parts.push(`-${s.sourceRemoved.length}`);
-    badges.push(
-      <Badge key="src" variant="outline" className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400 text-[10px] py-0">
-        {parts.join(' ')} {srcTotal === 1 ? 'file' : 'files'}
-      </Badge>
-    );
+    if (s.metadataChanged) parts.push('meta');
+    const srcTotal = (s.sourceAdded?.length ?? 0) + (s.sourceModified?.length ?? 0) + (s.sourceRemoved?.length ?? 0);
+    if (srcTotal > 0) parts.push(`${srcTotal} ${srcTotal === 1 ? 'file' : 'files'}`);
+    if (s.artifactsChanged) parts.push('artifacts');
+    return parts.length > 0 ? (
+      <Badge variant="outline" className="text-[10px] py-0">{parts.join(' · ')}</Badge>
+    ) : null;
   }
-  if (s.artifactsChanged) {
-    badges.push(
-      <Badge key="art" variant="outline" className="border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-400 text-[10px] py-0">
-        artifacts
+
+  if (entry.entityType === 'token') {
+    const parts: string[] = [];
+    if (entry.addedCount > 0) parts.push(`+${entry.addedCount}`);
+    if (entry.modifiedCount > 0) parts.push(`~${entry.modifiedCount}`);
+    if (entry.removedCount > 0) parts.push(`-${entry.removedCount}`);
+    return parts.length > 0 ? (
+      <Badge variant="outline" className="border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400 text-[10px] py-0">
+        {parts.join(' ')}
       </Badge>
-    );
+    ) : null;
   }
-  return badges.length > 0 ? <>{badges}</> : null;
+
+  // page
+  const colors: Record<string, string> = {
+    created: 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400',
+    updated: 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400',
+    deleted: 'border-red-300 text-red-700 dark:border-red-700 dark:text-red-400',
+  };
+  return (
+    <Badge variant="outline" className={`${colors[entry.pageAction] ?? ''} text-[10px] py-0`}>
+      {entry.pageAction}
+    </Badge>
+  );
+}
+
+function entryLabel(entry: UnifiedChangelogEntry): string {
+  if (entry.entityType === 'component') return entry.componentTitle;
+  if (entry.entityType === 'token') return 'Token push';
+  return entry.titleAfter ?? entry.titleBefore ?? entry.slug;
+}
+
+function entrySubLabel(entry: UnifiedChangelogEntry): string | null {
+  if (entry.entityType === 'component') {
+    return entry.componentGroup ? `v${entry.versionNumber} · ${entry.componentGroup}` : `v${entry.versionNumber}`;
+  }
+  if (entry.entityType === 'token') return `${entry.totalCount} total tokens`;
+  return entry.slug;
 }
 
 export function ChatChangelogFeed({ basePath = '', onClose, days, limit = 30 }: Props) {
@@ -125,7 +142,7 @@ export function ChatChangelogFeed({ basePath = '', onClose, days, limit = 30 }: 
     fetch(handoffApiUrl(`/api/handoff/changelog?${params.toString()}`), { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { changes: ChangeEntry[] };
+        const data = (await res.json()) as { changes: UnifiedChangelogEntry[] };
         setGroups(groupByDate(data.changes ?? []));
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load changelog'))
@@ -155,10 +172,20 @@ export function ChatChangelogFeed({ basePath = '', onClose, days, limit = 30 }: 
     );
   }
 
+  function handleEntryClick(entry: UnifiedChangelogEntry) {
+    if (entry.entityType === 'component') {
+      router.push(`${basePath}/system/component/${encodeURIComponent(entry.componentId)}`);
+    } else if (entry.entityType === 'token') {
+      router.push(`${basePath}/system/changelog`);
+    } else {
+      router.push(`${basePath}/system/changelog`);
+    }
+    onClose?.();
+  }
+
   return (
     <div className="mt-2 w-full space-y-3">
       {groups.map((group) => (
-
         <div key={group.label}>
           {/* Date divider */}
           <div className="mb-1.5 flex items-center gap-2">
@@ -172,20 +199,18 @@ export function ChatChangelogFeed({ basePath = '', onClose, days, limit = 30 }: 
           <div className="space-y-0.5">
             {group.entries.map((entry) => (
               <button
-                key={entry.id}
+                key={`${entry.entityType}-${entry.id}`}
                 type="button"
-                onClick={() => {
-                  router.push(`${basePath}/system/component/${encodeURIComponent(entry.componentId)}`);
-                  onClose?.();
-                }}
+                onClick={() => handleEntryClick(entry)}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left hover:bg-muted/60 transition-colors"
               >
-                <span className="shrink-0 font-mono text-[10px] text-muted-foreground w-6">
-                  v{entry.versionNumber}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-xs font-medium">{entry.componentTitle}</span>
+                <EntryIcon entry={entry} />
+                <span className="min-w-0 flex-1 truncate text-xs font-medium">{entryLabel(entry)}</span>
+                {entrySubLabel(entry) && (
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{entrySubLabel(entry)}</span>
+                )}
                 <div className="flex shrink-0 items-center gap-1">
-                  <ChangeBadges s={entry.changeSummary} />
+                  <EntryBadges entry={entry} />
                 </div>
                 <span className="shrink-0 text-[10px] text-muted-foreground">
                   {relativeTime(entry.pushedAt)}

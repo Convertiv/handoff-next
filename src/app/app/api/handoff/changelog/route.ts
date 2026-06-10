@@ -14,8 +14,8 @@ export async function GET(request: Request) {
     if (!isNaN(d.getTime())) since = d;
   }
   try {
-    const { getRecentComponentChanges } = await import('@/lib/db/component-version-queries');
-    const changes = await getRecentComponentChanges(limit, since);
+    const { getUnifiedChangelog } = await import('@/lib/db/changelog-queries');
+    const changes = await getUnifiedChangelog(limit, since);
     return NextResponse.json({ changes, total: changes.length });
   } catch (e: unknown) {
     return NextResponse.json(

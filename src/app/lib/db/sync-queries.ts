@@ -6,6 +6,7 @@ import { getDb } from './index';
 import {
   handoffComponents,
   handoffComponentSources,
+  handoffPageChanges,
   handoffPages,
   handoffPatterns,
   syncEvents,
@@ -266,7 +267,25 @@ export async function applyUploadedChange(input: {
 
   if (entityType === 'page') {
     if (action === 'delete') {
+      // Read the existing page for the change record before deleting
+      const [existing] = await db
+        .select({ frontmatter: handoffPages.frontmatter, markdown: handoffPages.markdown })
+        .from(handoffPages)
+        .where(eq(handoffPages.slug, entityId))
+        .limit(1);
+      const existingFm = (existing?.frontmatter ?? {}) as Record<string, unknown>;
       await db.delete(handoffPages).where(eq(handoffPages.slug, entityId));
+      // Record the page change
+      await db.insert(handoffPageChanges).values({
+        slug: entityId,
+        action: 'deleted',
+        pushedByUserId: userId ?? null,
+        trigger: 'push',
+        titleBefore: existingFm.title != null ? String(existingFm.title) : null,
+        titleAfter: null,
+        markdownLengthBefore: existing?.markdown != null ? existing.markdown.length : null,
+        markdownLengthAfter: null,
+      }).catch(() => {});
       await insertSyncEvent({
         entityType,
         entityId,
@@ -280,6 +299,16 @@ export async function applyUploadedChange(input: {
     const slug = String(d.slug ?? entityId);
     const frontmatter = (d.frontmatter as Record<string, unknown>) ?? {};
     const markdown = String(d.markdown ?? '');
+
+    // Read the existing page (if any) to determine created vs updated and compute diff
+    const [existing] = await db
+      .select({ frontmatter: handoffPages.frontmatter, markdown: handoffPages.markdown })
+      .from(handoffPages)
+      .where(eq(handoffPages.slug, slug))
+      .limit(1);
+    const isNew = !existing;
+    const existingFm = (existing?.frontmatter ?? {}) as Record<string, unknown>;
+
     await db
       .insert(handoffPages)
       .values({
@@ -296,6 +325,20 @@ export async function applyUploadedChange(input: {
           updatedAt: new Date(),
         },
       });
+
+    // Record the page change (fire-and-forget — never surface to push caller)
+    const trigger = typeof d.trigger === 'string' ? d.trigger : 'push';
+    db.insert(handoffPageChanges).values({
+      slug,
+      action: isNew ? 'created' : 'updated',
+      pushedByUserId: userId ?? null,
+      trigger,
+      titleBefore: isNew ? null : (existingFm.title != null ? String(existingFm.title) : null),
+      titleAfter: frontmatter.title != null ? String(frontmatter.title) : null,
+      markdownLengthBefore: isNew ? null : (existing?.markdown != null ? existing.markdown.length : null),
+      markdownLengthAfter: markdown.length,
+    }).catch(() => {});
+
     await insertSyncEvent({
       entityType,
       entityId: slug,

@@ -176,6 +176,44 @@ export const handoffTokensSnapshots = pgTable('handoff_tokens_snapshot', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+/**
+ * Append-only record of each tokens push and the diff from the previous snapshot.
+ * One row per push, computed at push time by comparing consecutive snapshots.
+ * Token keys follow the format "<category>/<name>", e.g. "colors/primary".
+ */
+export const handoffTokenChanges = pgTable('handoff_token_change', {
+  id: serial('id').primaryKey(),
+  pushedAt: timestamp('pushed_at').defaultNow(),
+  trigger: text('trigger').notNull().default('push'),
+  addedCount: integer('added_count').notNull().default(0),
+  removedCount: integer('removed_count').notNull().default(0),
+  modifiedCount: integer('modified_count').notNull().default(0),
+  totalCount: integer('total_count').notNull().default(0),
+  addedKeys: jsonb('added_keys').notNull().default([]),
+  removedKeys: jsonb('removed_keys').notNull().default([]),
+  modifiedKeys: jsonb('modified_keys').notNull().default([]),
+  /** FK to the snapshot that triggered this record (nullable for safety). */
+  snapshotId: integer('snapshot_id').references(() => handoffTokensSnapshots.id, { onDelete: 'set null' }),
+});
+
+/**
+ * Append-only record of each page push.
+ * Captures action (created/updated/deleted), who pushed, and basic content diff.
+ */
+export const handoffPageChanges = pgTable('handoff_page_change', {
+  id: serial('id').primaryKey(),
+  slug: text('slug').notNull(),
+  action: text('action').notNull(), // 'created' | 'updated' | 'deleted'
+  pushedAt: timestamp('pushed_at').defaultNow(),
+  pushedByUserId: text('pushed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  pushedByName: text('pushed_by_name'),
+  trigger: text('trigger').notNull().default('push'),
+  titleBefore: text('title_before'),
+  titleAfter: text('title_after'),
+  markdownLengthBefore: integer('markdown_length_before'),
+  markdownLengthAfter: integer('markdown_length_after'),
+});
+
 export const editHistory = pgTable('edit_history', {
   id: serial('id').primaryKey(),
   entityType: text('entity_type').notNull(),
