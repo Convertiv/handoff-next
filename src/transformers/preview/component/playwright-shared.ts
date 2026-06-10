@@ -160,12 +160,13 @@ export async function handleInterceptedRoute(route: Route, workingPath: string):
     }
   }
 
-  // Last-resort fallback for CSS/JS: pick any matching-extension file in the
+  // Last-resort fallback for CSS/JS/MJS: pick any matching-extension file in the
   // component's dist directory. Projects whose vite config renames the
   // per-component bundle (project-wide name like ssc-handoff.css) would
-  // otherwise render unstyled previews.
+  // otherwise render unstyled previews. .mjs is included to cover the
+  // externalized client hydration bundle emitted by the SSR render plugin.
   const ext = path.extname(pathname).toLowerCase();
-  if ((ext === '.css' || ext === '.js') && distDirsToScan.length > 0) {
+  if ((ext === '.css' || ext === '.js' || ext === '.mjs') && distDirsToScan.length > 0) {
     for (const dir of distDirsToScan) {
       try {
         if (!(await fs.pathExists(dir))) continue;

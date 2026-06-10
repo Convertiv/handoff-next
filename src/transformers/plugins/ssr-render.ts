@@ -111,26 +111,35 @@ function generateClientHydrationSource(componentPath: string): string {
 }
 
 /**
- * Generates complete HTML document with SSR content and hydration
+ * Generates complete HTML document with SSR content and hydration.
+ *
+ * The client-side JS bundle is NOT inlined in the HTML — it is emitted as a
+ * separate `${componentId}-client.mjs` artifact and referenced via an external
+ * `<script type="module" src="...">` tag.  This keeps each HTML preview file
+ * small (~1-2 KB) regardless of component-library size, which is critical for
+ * React workspaces where the bundled JS can exceed 3 MB per component.
+ *
+ * The SSR-rendered HTML body is still present, so the preview renders visually
+ * in the registry even if the `.mjs` artifact was too large to push and the
+ * script tag 404s.
+ *
  * @param componentId - Component identifier
  * @param previewTitle - Title for the preview
  * @param renderedHtml - Server-rendered HTML content
- * @param clientJs - Client-side JavaScript bundle
  * @param props - Component props as JSON
  * @returns Complete HTML document
  */
-function generateHtmlDocument(componentId: string, previewTitle: string, renderedHtml: string, clientJs: string, props: any): string {
+function generateHtmlDocument(componentId: string, previewTitle: string, renderedHtml: string, props: any): string {
+  const base = process.env.HANDOFF_APP_BASE_PATH ?? '';
   return `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${MAIN_COMPONENT_CSS_FILE}" />
-    <link rel="stylesheet" href="${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${componentId}.css" />
-    <link rel="stylesheet" href="${process.env.HANDOFF_APP_BASE_PATH ?? ''}/assets/css/preview.css" />
+    <link rel="stylesheet" href="${base}/api/component/${MAIN_COMPONENT_CSS_FILE}" />
+    <link rel="stylesheet" href="${base}/api/component/${componentId}.css" />
+    <link rel="stylesheet" href="${base}/assets/css/preview.css" />
     <script id="${PLUGIN_CONSTANTS.PROPS_SCRIPT_ID}" type="application/json">${JSON.stringify(props)}</script>
-    <script type="module">
-      ${clientJs}
-    </script>
+    <script type="module" src="${base}/api/component/${componentId}/${componentId}-client.mjs"></script>
     <title>${previewTitle}</title>
   </head>
   <body>
@@ -206,6 +215,63 @@ export function ssrRenderPlugin(
         documentationComponents = {};
       }
 
+      // ── Build the client-side hydration bundle ONCE for all variants ──────────
+      //
+      // The hydration source is identical for every preview variant of a component
+      // (same component file, same imports). Building it once saves significant
+      // time on components with many variants (e.g. 50+ previews) and produces a
+      // single `${componentId}-client.mjs` artifact that is shared by all HTML
+      // preview files instead of being inlined in each one.
+      //
+      // This keeps individual HTML preview files at ~1-2 KB regardless of how
+      // large the component library bundle is — critical for React workspaces
+      // where the JS can exceed 3 MB.
+      const clientHydrationSource = generateClientHydrationSource(componentPath);
+      const clientBuildConfig = {
+        ...DEFAULT_CLIENT_BUILD_CONFIG,
+        logLevel: 'silent' as const,
+        stdin: {
+          contents: clientHydrationSource,
+          resolveDir: process.cwd(),
+          loader: 'tsx' as const,
+        },
+        plugins: [createReactResolvePlugin(handoff.workingPath, handoff.modulePath)],
+      };
+
+      // Apply user's client build config hook if provided
+      const finalClientBuildConfig = handoff.config?.hooks?.clientBuildConfig
+        ? handoff.config.hooks.clientBuildConfig(clientBuildConfig)
+        : clientBuildConfig;
+
+      let clientBundleJs: string | null = null;
+      try {
+        const bundledClient = await esbuild.build(finalClientBuildConfig);
+        if (bundledClient.warnings.length > 0) {
+          const messages = await esbuild.formatMessages(bundledClient.warnings, { kind: 'warning', color: true });
+          messages.forEach((msg) => Logger.warn(msg));
+        }
+        clientBundleJs = bundledClient.outputFiles[0].text;
+      } catch (error: any) {
+        Logger.error(`Failed to build client bundle for ${componentId}`);
+        if (error.errors) {
+          const messages = await esbuild.formatMessages(error.errors, { kind: 'error', color: true });
+          messages.forEach((msg) => Logger.error(msg));
+        }
+        // We continue without hydration — SSR HTML is still emitted for previews.
+      }
+
+      // Emit the shared client bundle as a named artifact.
+      // The HTML files reference it as /api/component/${componentId}/${componentId}-client.mjs,
+      // so the Playwright route interceptor resolves it to components/${id}/dist/${id}-client.mjs
+      // during local screenshot generation. On the registry, the file is served from DB artifacts.
+      if (clientBundleJs) {
+        this.emitFile({
+          type: 'asset',
+          fileName: `${componentId}-client.mjs`,
+          source: clientBundleJs,
+        });
+      }
+
       let finalHtml = '';
 
       // Generate previews for each variation
@@ -216,49 +282,11 @@ export function ssrRenderPlugin(
         const serverRenderedHtml = ReactDOMServer.renderToString(React.createElement(ReactComponent, previewProps));
         const formattedHtml = await formatHtml(serverRenderedHtml);
 
-        // Generate client-side hydration code
-        const clientHydrationSource = generateClientHydrationSource(componentPath);
-
-        // Build client-side bundle
-        const clientBuildConfig = {
-          ...DEFAULT_CLIENT_BUILD_CONFIG,
-          logLevel: 'silent' as const,
-          stdin: {
-            contents: clientHydrationSource,
-            resolveDir: process.cwd(),
-            loader: 'tsx' as const,
-          },
-          plugins: [createReactResolvePlugin(handoff.workingPath, handoff.modulePath)],
-        };
-
-        // Apply user's client build config hook if provided
-        const finalClientBuildConfig = handoff.config?.hooks?.clientBuildConfig
-          ? handoff.config.hooks.clientBuildConfig(clientBuildConfig)
-          : clientBuildConfig;
-
-        let clientBundleJs: string;
-        try {
-          const bundledClient = await esbuild.build(finalClientBuildConfig);
-          if (bundledClient.warnings.length > 0) {
-            const messages = await esbuild.formatMessages(bundledClient.warnings, { kind: 'warning', color: true });
-            messages.forEach((msg) => Logger.warn(msg));
-          }
-          clientBundleJs = bundledClient.outputFiles[0].text;
-        } catch (error: any) {
-          Logger.error(`Failed to build client bundle for ${componentId}`);
-          if (error.errors) {
-            const messages = await esbuild.formatMessages(error.errors, { kind: 'error', color: true });
-            messages.forEach((msg) => Logger.error(msg));
-          }
-          continue;
-        }
-
-        // Generate complete HTML document
+        // Generate complete HTML document (external JS reference — keeps file small)
         finalHtml = generateHtmlDocument(
           componentId,
           componentData.previews[previewKey].title,
           formattedHtml,
-          clientBundleJs,
           previewProps
         );
 

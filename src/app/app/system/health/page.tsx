@@ -1,6 +1,8 @@
 import React from 'react';
 import { getDataProvider } from '@/lib/data/index';
-import { getClientRuntimeConfig } from '@/components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '@/components/util';
+import Layout from '@handoff/app/components/Layout/Main';
+import type { Metadata as DocMetadata } from '@/components/util';
 import type { ComponentInput } from './health-types';
 import { computeHealthSummary } from './health-types';
 import { HealthDashboardClient } from './HealthDashboardClient';
@@ -13,7 +15,11 @@ export async function generateMetadata() {
 }
 
 export default async function HealthPage() {
-  const provider = await getDataProvider();
+  const [{ props }, provider] = await Promise.all([
+    fetchDocPageMarkdownAsync('docs/', 'system', '/system'),
+    getDataProvider(),
+  ]);
+  const config = getClientRuntimeConfig();
 
   // Manifest tells us whether validators are configured and which ones to expect.
   // Use the provider method we added; fall back gracefully if it doesn't exist yet.
@@ -24,15 +30,16 @@ export default async function HealthPage() {
   // Only show the health dashboard when validation is explicitly configured.
   if (!manifest?.configured) {
     return (
-      <div className="mx-auto max-w-2xl py-24 text-center space-y-4">
-        <HeadersType.H1>System Health</HeadersType.H1>
-        <p className="text-muted-foreground text-sm leading-relaxed">
-          Validation isn't configured for this workspace yet. Add a{' '}
-          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">validation</code> block to your{' '}
-          <code className="rounded bg-muted px-1.5 py-0.5 text-xs">handoff.config.js</code> to start
-          tracking component health here.
-        </p>
-        <pre className="mx-auto w-fit rounded-lg bg-muted p-4 text-left text-xs leading-relaxed">
+      <Layout config={config} menu={props.menu} current={props.current} metadata={props.metadata as DocMetadata}>
+        <div className="mx-auto max-w-2xl py-24 text-center space-y-4">
+          <HeadersType.H1>System Health</HeadersType.H1>
+          <p className="text-muted-foreground text-sm leading-relaxed">
+            Validation isn't configured for this workspace yet. Add a{' '}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">validation</code> block to your{' '}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs">handoff.config.js</code> to start
+            tracking component health here.
+          </p>
+          <pre className="mx-auto w-fit rounded-lg bg-muted p-4 text-left text-xs leading-relaxed">
 {`const { schema, axe, contrast } = require('handoff-app/validators');
 
 module.exports = {
@@ -45,11 +52,12 @@ module.exports = {
     ],
   },
 };`}
-        </pre>
-        <p className="text-xs text-muted-foreground">
-          Then run <code className="rounded bg-muted px-1 py-0.5">handoff-app push:all</code> — results appear here automatically.
-        </p>
-      </div>
+          </pre>
+          <p className="text-xs text-muted-foreground">
+            Then run <code className="rounded bg-muted px-1 py-0.5">handoff-app push:all</code> — results appear here automatically.
+          </p>
+        </div>
+      </Layout>
     );
   }
 
@@ -73,16 +81,18 @@ module.exports = {
   const summary = computeHealthSummary(inputs, manifest);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
-        <HeadersType.H1>System Health</HeadersType.H1>
-        {summary.lastRunAt && (
-          <p className="text-xs text-muted-foreground">
-            Last checked {new Date(summary.lastRunAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-          </p>
-        )}
+    <Layout config={config} menu={props.menu} current={props.current} metadata={props.metadata as DocMetadata}>
+      <div className="space-y-6">
+        <div className="flex items-baseline justify-between">
+          <HeadersType.H1>System Health</HeadersType.H1>
+          {summary.lastRunAt && (
+            <p className="text-xs text-muted-foreground">
+              Last checked {new Date(summary.lastRunAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+            </p>
+          )}
+        </div>
+        <HealthDashboardClient summary={summary} manifest={manifest} history={history} />
       </div>
-      <HealthDashboardClient summary={summary} manifest={manifest} history={history} />
-    </div>
+    </Layout>
   );
 }

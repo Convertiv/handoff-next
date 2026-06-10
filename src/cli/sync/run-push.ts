@@ -270,17 +270,25 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
   // serverless-function body limit. We target 3MB per batch (with comfortable
   // headroom for the JSON wrapper and HTTP headers).
   //
-  // Individual components can still exceed the batch limit when they carry many
-  // HTML preview variants. We handle this with a two-level safeguard:
-  //   1. If a single item's serialized size exceeds MAX_ITEM_BYTES we strip its
-  //      buildArtifacts (the HTML previews) and log a warning — the component
-  //      metadata + source files still get pushed.
-  //   2. After any stripping, if the item is still over MAX_ITEM_BYTES (rare —
-  //      e.g. very large source files), we log an error and skip it entirely so
-  //      one bad component never blocks the rest of the push.
+  // Individual components can still exceed the batch limit when they carry
+  // large artifact files (e.g. a React component-library JS bundle).  We
+  // handle this with a three-level safeguard:
+  //
+  //   1. (Selective strip) Strip individual artifact files that exceed
+  //      MAX_ARTIFACT_FILE_BYTES from buildArtifacts, keeping small files
+  //      (CSS, screenshots, HTML previews, JSON).  This lets metadata +
+  //      previews push even when the JS bundle alone is 3+ MB.
+  //
+  //   2. (Full strip) If the item is still over MAX_ITEM_BYTES after selective
+  //      stripping, strip ALL buildArtifacts.  Metadata + source files still push.
+  //
+  //   3. (Skip) If the item is still over MAX_ITEM_BYTES after full stripping
+  //      (e.g. enormous source files), skip it entirely so one bad component
+  //      never blocks the rest of the push.
   const url = `${baseUrl}/api/sync/upload`;
-  const MAX_BATCH_BYTES = 3 * 1024 * 1024;   // 3 MB per batch
-  const MAX_ITEM_BYTES  = 3 * 1024 * 1024;   // 3 MB per single change (must fit in one batch)
+  const MAX_BATCH_BYTES        = 3 * 1024 * 1024;  // 3 MB per batch
+  const MAX_ITEM_BYTES         = 3 * 1024 * 1024;  // 3 MB per single change (must fit in one batch)
+  const MAX_ARTIFACT_FILE_BYTES = 1 * 1024 * 1024; // 1 MB per individual artifact file
   const batches: SyncUploadBody['changes'][] = [];
   let current: SyncUploadBody['changes'] = [];
   let currentBytes = 0;
@@ -290,26 +298,55 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
 
     // ── Per-item oversize guard ──────────────────────────────────────────────
     if (changeBytes > MAX_ITEM_BYTES) {
-      const sizeMb = (changeBytes / (1024 * 1024)).toFixed(1);
-      const hasArtifacts =
-        change.entityType === 'component' &&
-        !!(change.data as Record<string, unknown>)?.buildArtifacts;
+      const dataObj = change.data as Record<string, unknown>;
+      const artifacts = dataObj?.buildArtifacts;
 
-      if (hasArtifacts) {
-        // Strip build artifacts and retry — metadata + source files still push.
-        Logger.warn(
-          `Component "${change.entityId}" payload is ${sizeMb}MB (limit 3MB). ` +
-          `Stripping buildArtifacts from this push — HTML previews will not update on the registry ` +
-          `until a subsequent push where artifact sizes are smaller. ` +
-          `To avoid this, run \`handoff-app push --skip-build\` after reducing preview variant count.`
-        );
-        const { buildArtifacts: _dropped, ...dataWithout } = change.data as Record<string, unknown>;
-        change = { ...change, data: dataWithout };
-        changeBytes = Buffer.byteLength(JSON.stringify(change), 'utf8');
+      // Level 1: Selectively strip oversized individual artifact files.
+      // Keeps small files (HTML previews, screenshots, CSS) while dropping
+      // large JS bundles (e.g. a 3 MB React component-library bundle).
+      if (artifacts && typeof artifacts === 'object' && !Array.isArray(artifacts)) {
+        const slimArtifacts: Record<string, string> = {};
+        const strippedFiles: string[] = [];
+        for (const [filename, content] of Object.entries(artifacts as Record<string, string>)) {
+          const fileBytes = Buffer.byteLength(content, 'utf8');
+          if (fileBytes > MAX_ARTIFACT_FILE_BYTES) {
+            strippedFiles.push(`${filename} (${(fileBytes / (1024 * 1024)).toFixed(1)}MB)`);
+          } else {
+            slimArtifacts[filename] = content;
+          }
+        }
+        if (strippedFiles.length > 0) {
+          Logger.warn(
+            `Component "${change.entityId}": stripping ${strippedFiles.length} oversized artifact(s) ` +
+            `(>${(MAX_ARTIFACT_FILE_BYTES / (1024 * 1024)).toFixed(0)}MB each): ${strippedFiles.join(', ')}. ` +
+            `Metadata, HTML previews, screenshots and CSS will still push.`
+          );
+          change = { ...change, data: { ...dataObj, buildArtifacts: slimArtifacts } };
+          changeBytes = Buffer.byteLength(JSON.stringify(change), 'utf8');
+        }
       }
 
+      // Level 2: Still over limit — drop ALL buildArtifacts.
       if (changeBytes > MAX_ITEM_BYTES) {
-        // Still too large even after stripping — skip to avoid a guaranteed 413.
+        const sizeMb = (changeBytes / (1024 * 1024)).toFixed(1);
+        const hasArtifacts =
+          change.entityType === 'component' &&
+          !!(change.data as Record<string, unknown>)?.buildArtifacts;
+
+        if (hasArtifacts) {
+          Logger.warn(
+            `Component "${change.entityId}" payload is ${sizeMb}MB even after selective artifact stripping. ` +
+            `Stripping all buildArtifacts — metadata + source files still push. ` +
+            `To avoid this, reduce preview variant count or set \`metadataOnly: true\`.`
+          );
+          const { buildArtifacts: _dropped, ...dataWithout } = change.data as Record<string, unknown>;
+          change = { ...change, data: dataWithout };
+          changeBytes = Buffer.byteLength(JSON.stringify(change), 'utf8');
+        }
+      }
+
+      // Level 3: Still too large — skip to avoid a guaranteed 413.
+      if (changeBytes > MAX_ITEM_BYTES) {
         const sizeMb2 = (changeBytes / (1024 * 1024)).toFixed(1);
         Logger.error(
           `Component "${change.entityId}" payload is ${sizeMb2}MB even after stripping buildArtifacts. ` +
