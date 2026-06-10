@@ -88,6 +88,19 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
   trailingSlash: true,
+  // Map legacy .json-suffixed API URLs to their App Router equivalents.
+  // In workspace mode these were real public/ files; in the DB-backed registry
+  // there are no public files — only API routes. beforeFiles runs before static
+  // file serving, so both modes route through the same provider.getComponents()
+  // call regardless of whether a public/api/components.json file exists.
+  async rewrites() {
+    return {
+      beforeFiles: [
+        { source: '/api/components.json', destination: '/api/components' },
+        { source: '/api/patterns.json', destination: '/api/patterns' },
+      ],
+    };
+  },
   // Standalone output: Next.js writes a self-contained bundle to .next/standalone/
   // with only the traced node_modules deps copied in. Required for Vercel registry
   // deploys because our prepare-runtime symlinks node_modules from the repo root
