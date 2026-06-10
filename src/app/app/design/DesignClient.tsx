@@ -5,6 +5,7 @@ import {
   DownloadIcon,
   Eye,
   ImageIcon,
+  InfoIcon,
   Loader2Icon,
   PaperclipIcon,
   RotateCcwIcon,
@@ -36,6 +37,7 @@ import type {
   DesignWorkbenchComponentGuide,
   DesignWorkbenchComponentRow,
   DesignWorkbenchFoundationContext,
+  GeneratedImage,
 } from './workbench-types';
 import {
   applyWorkspaceToState,
@@ -47,15 +49,14 @@ import {
   COMPONENT_REFERENCE_SETTINGS,
   CUSTOM_FOUNDATION_IMAGE_FILENAME,
 } from './settings/settings-constants';
-
-type GeneratedImage = {
-  id: string;
-  src?: string;
-  prompt: string;
-  status: 'pending' | 'completed' | 'error';
-  error?: string;
-  stage?: string;
-};
+import {
+  clearWorkbenchSession,
+  loadWorkbenchSession,
+  saveWorkbenchSession,
+  MAX_RECENT,
+  type WorkbenchSession,
+} from './workbench-session';
+import SessionHistoryPanel from './SessionHistoryPanel';
 
 type AnnotationRect = {
   id: string;
@@ -173,13 +174,89 @@ const DesignWorkbenchPage = ({
   const [brandVoice, setBrandVoice] = useState<Record<string, string>>({});
   const [effectiveFoundations, setEffectiveFoundations] = useState<DesignWorkbenchFoundationContext>(foundations);
 
+  const [draftArtifactId, setDraftArtifactId] = useState<string | null>(null);
+  const [resumeSession, setResumeSession] = useState<WorkbenchSession | null>(null);
+  const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
+
   const selectedGeneratedImageIdRef = useRef<string | null>(null);
+  const draftArtifactIdRef = useRef<string | null>(null);
   /** True when the page was opened from the chat assistant with a pre-built prompt. Reset after first fire. */
   const autoGenerateRef = useRef(Boolean(initialPrompt));
 
   useEffect(() => {
     selectedGeneratedImageIdRef.current = selectedGeneratedImageId;
   }, [selectedGeneratedImageId]);
+
+  useEffect(() => {
+    draftArtifactIdRef.current = draftArtifactId;
+  }, [draftArtifactId]);
+
+  // ── Session restore on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    if (loadArtifactId?.trim()) return; // explicit artifact load takes priority
+    const saved = loadWorkbenchSession();
+    if (!saved) return;
+    // Show banner; don't auto-restore — let user confirm
+    setResumeSession(saved);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Restore in-flight server jobs on mount ────────────────────────────────
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(handoffApiUrl('/api/handoff/ai/design-generation-jobs'), { credentials: 'include' });
+        if (!res.ok || cancelled) return;
+        const json = (await res.json().catch(() => ({}))) as {
+          jobs?: { id: number; status: string; stage: string; imageUrl?: string; error?: string; artifactId?: string; createdAt?: string }[];
+        };
+        if (cancelled) return;
+        const jobs = json.jobs ?? [];
+        if (jobs.length === 0) return;
+        setGeneratedImages((current) => {
+          const existingJobIds = new Set(current.map((img) => img.jobId).filter(Boolean));
+          const toAdd: GeneratedImage[] = jobs
+            .filter((j) => !existingJobIds.has(j.id))
+            .map((j) => ({
+              id: `job-${j.id}`,
+              prompt: '(in-progress from previous session)',
+              status: j.status === 'done' ? 'completed' : j.status === 'failed' ? 'error' : 'pending',
+              src: j.imageUrl ?? undefined,
+              stage: j.stage,
+              jobId: j.id,
+              artifactId: j.artifactId ?? undefined,
+              ts: j.createdAt,
+            }));
+          if (toAdd.length === 0) return current;
+          return [...toAdd, ...current];
+        });
+        // Poll each active job until it completes
+        for (const j of jobs.filter((j) => j.status === 'pending' || j.status === 'running')) {
+          void pollJobUntilDone(j.id);
+        }
+      } catch { /* non-fatal */ }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoggedIn]);
+
+  // ── Persist session to localStorage on relevant state changes ─────────────
+  useEffect(() => {
+    const recentImages = generatedImages
+      .filter((img) => img.status === 'completed' && img.src)
+      .slice(0, MAX_RECENT)
+      .map((img) => ({ id: img.id, src: img.src!, prompt: img.prompt, ts: img.ts ?? '' }));
+    saveWorkbenchSession({
+      draftArtifactId: draftArtifactIdRef.current,
+      imageSrc,
+      selectedIds,
+      conversationHistory,
+      recentImages,
+      activeJobIds: generatedImages.filter((img) => img.status === 'pending' && img.jobId).map((img) => img.jobId!),
+    });
+  }, [generatedImages, conversationHistory, imageSrc, selectedIds]);
 
   useEffect(() => {
     setEffectiveFoundations(foundations);
@@ -525,6 +602,39 @@ const DesignWorkbenchPage = ({
     }
   };
 
+  const pollJobUntilDone = async (jobId: number) => {
+    const POLL_MS = 2000;
+    const TIMEOUT_MS = 300_000;
+    const start = Date.now();
+    while (Date.now() - start < TIMEOUT_MS) {
+      await new Promise((r) => setTimeout(r, POLL_MS));
+      try {
+        const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-generation-job/${jobId}`), { credentials: 'include' });
+        if (!res.ok) break;
+        const json = (await res.json()) as {
+          job?: { id: number; status: string; stage: string; imageUrl?: string; error?: string; artifactId?: string };
+        };
+        const job = json.job;
+        if (!job) break;
+        setGeneratedImages((current) =>
+          current.map((img) =>
+            img.jobId === jobId
+              ? {
+                  ...img,
+                  stage: job.stage,
+                  status: job.status === 'done' ? 'completed' : job.status === 'failed' ? 'error' : 'pending',
+                  src: job.imageUrl ?? img.src,
+                  artifactId: job.artifactId ?? img.artifactId,
+                  error: job.status === 'failed' ? (job.error ?? 'Generation failed.') : img.error,
+                }
+              : img
+          )
+        );
+        if (job.status === 'done' || job.status === 'failed') break;
+      } catch { /* ignore poll errors */ }
+    }
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     if (!isLoggedIn) {
@@ -559,7 +669,7 @@ const DesignWorkbenchPage = ({
     setSelectedAssetName(null);
     setImageSrc(null);
     setAnnotations([]);
-    setGeneratedImages((current) => [{ id: requestId, prompt: submittedPrompt, status: 'pending' }, ...current]);
+    setGeneratedImages((current) => [{ id: requestId, prompt: submittedPrompt, status: 'pending', ts: new Date().toISOString() }, ...current]);
     setPrompt('');
     setPromptImages([]);
     if (promptImageInputRef.current) promptImageInputRef.current.value = '';
@@ -575,6 +685,7 @@ const DesignWorkbenchPage = ({
       formData.append('brandVoiceGuidelines', brandVoiceGuidelines);
       formData.append('quality', imageQuality);
       formData.append('promptImageCount', String(submittedPromptImages.length));
+      if (draftArtifactIdRef.current) formData.append('artifactId', draftArtifactIdRef.current);
 
       if (refining && imageSrc) {
         let canvasFile: File;
@@ -621,6 +732,8 @@ const DesignWorkbenchPage = ({
       const decoder = new TextDecoder();
       let buffer = '';
       let imageUrl: string | null = null;
+      let doneJobId: number | undefined;
+      let doneArtifactId: string | undefined;
 
       outer: while (true) {
         const { done, value } = await reader.read();
@@ -632,11 +745,13 @@ const DesignWorkbenchPage = ({
           const line = part.replace(/^data:\s*/, '').trim();
           if (!line) continue;
           try {
-            const evt = JSON.parse(line) as { stage?: string; imageUrl?: string; error?: string };
+            const evt = JSON.parse(line) as { stage?: string; imageUrl?: string; error?: string; jobId?: number; artifactId?: string };
             const stage = evt.stage ?? '';
             if (stage === 'error') throw new Error(evt.error || 'Generation failed.');
             if (stage === 'done') {
               imageUrl = evt.imageUrl ?? null;
+              doneJobId = evt.jobId;
+              doneArtifactId = evt.artifactId;
               break outer;
             }
             // Update stage label on the pending thumbnail
@@ -652,6 +767,12 @@ const DesignWorkbenchPage = ({
 
       if (!imageUrl) throw new Error('No image returned.');
 
+      // Track the draft artifact for subsequent iterations
+      if (doneArtifactId) {
+        setDraftArtifactId(doneArtifactId);
+        draftArtifactIdRef.current = doneArtifactId;
+      }
+
       const ts = new Date().toISOString();
       setConversationHistory((h) => [
         ...h,
@@ -664,7 +785,11 @@ const DesignWorkbenchPage = ({
         setAnnotations([]);
       }
       setGeneratedImages((current) =>
-        current.map((img) => (img.id === requestId ? { ...img, src: imageUrl!, status: 'completed', stage: undefined } : img))
+        current.map((img) =>
+          img.id === requestId
+            ? { ...img, src: imageUrl!, status: 'completed', stage: undefined, ts, jobId: doneJobId, artifactId: doneArtifactId }
+            : img
+        )
       );
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to generate.';
@@ -710,6 +835,48 @@ const DesignWorkbenchPage = ({
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <>
+        {resumeSession ? (
+          <div className="flex shrink-0 items-center justify-between border-b bg-amber-50 px-4 py-2 text-sm dark:bg-amber-950/30">
+            <span className="text-amber-800 dark:text-amber-300">
+              You have an unsaved session from {new Date(resumeSession.savedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })} — restore it?
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => {
+                  if (resumeSession.imageSrc) setImageSrc(resumeSession.imageSrc);
+                  if (resumeSession.selectedIds.length) setSelectedIds(resumeSession.selectedIds);
+                  if (resumeSession.conversationHistory.length) setConversationHistory(resumeSession.conversationHistory as typeof conversationHistory);
+                  if (resumeSession.draftArtifactId) {
+                    setDraftArtifactId(resumeSession.draftArtifactId);
+                    draftArtifactIdRef.current = resumeSession.draftArtifactId;
+                  }
+                  const restored: GeneratedImage[] = resumeSession.recentImages.map((r) => ({
+                    id: r.id,
+                    src: r.src,
+                    prompt: r.prompt,
+                    status: 'completed' as const,
+                    ts: r.ts,
+                  }));
+                  if (restored.length) setGeneratedImages(restored);
+                  setResumeSession(null);
+                }}
+              >
+                Restore
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                onClick={() => { clearWorkbenchSession(); setResumeSession(null); }}
+              >
+                Start fresh
+              </Button>
+            </div>
+          </div>
+        ) : null}
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
             <div className="flex items-center gap-1">
@@ -1105,6 +1272,15 @@ const DesignWorkbenchPage = ({
                       >
                         <Trash2Icon className="h-3.5 w-3.5" />
                       </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="absolute left-1.5 top-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                        onClick={() => setPanelImage(img)}
+                        aria-label="View generation details"
+                      >
+                        <InfoIcon className="h-3.5 w-3.5" />
+                      </Button>
                       {img.src ? (
                         <Button
                           variant="secondary"
@@ -1182,6 +1358,22 @@ const DesignWorkbenchPage = ({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <SessionHistoryPanel
+          image={panelImage}
+          onClose={() => setPanelImage(null)}
+          basePath={basePath}
+          onSetAsCanvas={(img) => {
+            if (!img.src) return;
+            selectedGeneratedImageIdRef.current = img.id;
+            setSelectedGeneratedImageId(img.id);
+            setImageSrc(img.src);
+            setAnnotations([]);
+            setSelectedAssetName(null);
+          }}
+          onSaveForReview={() => setSaveOpen(true)}
+          onDownload={(src) => void handleDownloadImage(src)}
+        />
       </>
     </Layout>
   );

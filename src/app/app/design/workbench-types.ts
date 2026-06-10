@@ -41,6 +41,22 @@ export type DesignAsset = {
   prompt: string;
 };
 
+export type GeneratedImage = {
+  id: string;
+  src?: string;
+  prompt: string;
+  status: 'pending' | 'completed' | 'error';
+  error?: string;
+  /** Current SSE stage label while pending */
+  stage?: string;
+  /** Server-side job ID for restoring on mount */
+  jobId?: number;
+  /** Draft artifact ID if auto-saved */
+  artifactId?: string;
+  /** ISO timestamp when the generation was kicked off */
+  ts?: string;
+};
+
 export type DesignWorkbenchComponentRow = {
   id: string;
   title: string;

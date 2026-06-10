@@ -377,6 +377,28 @@ export const componentGenerationJobs = pgTable('component_generation_job', {
 });
 
 /**
+ * Server-side background jobs for the design generation pipeline.
+ * Stores serialized request params so jobs survive browser navigation.
+ * Status: pending | running | done | failed
+ * Stage:  preparing | building_prompt | generating | done
+ */
+export const handoffDesignGenerationJobs = pgTable('handoff_design_generation_job', {
+  id: serial('id').primaryKey(),
+  artifactId: text('artifact_id').references(() => handoffDesignArtifacts.id, { onDelete: 'set null' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status').notNull().default('pending'),
+  stage: text('stage').notNull().default('preparing'),
+  imageUrl: text('image_url'),
+  error: text('error'),
+  /** Serialized FormData-like payload: { prompt, quality, iterationBaseUrl, conversationHistory, componentGuideIds, foundationContext, designGuidelines, brandVoiceGuidelines, attachedImages } */
+  requestParams: jsonb('request_params').notNull().default({}),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
+/**
  * Per-project registry config — singleton row (id='default' until ADR-001 §7+
  * adds multi-tenancy). Stores project metadata that today comes from
  * handoff.config.js at build time and gets pushed via /api/registry/config

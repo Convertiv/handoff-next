@@ -8,6 +8,7 @@ import {
   figmaFetchJobs,
   handoffComponents,
   handoffDesignArtifacts,
+  handoffDesignGenerationJobs,
   handoffEventLog,
   handoffPatterns,
   handoffDesignWorkspace,
@@ -756,4 +757,69 @@ export async function getAiCostByUser({ from, to }: { from: Date; to: Date }): P
     failedCalls: Number(r.failedCalls ?? 0),
     totalCostUsd: Number(r.totalCostUsd ?? 0),
   }));
+}
+
+// ── Design generation jobs ────────────────────────────────────────────────────
+
+export type DesignGenerationJobInsert = {
+  artifactId?: string | null;
+  userId: string;
+  requestParams: Record<string, unknown>;
+};
+
+export type DesignGenerationJobRow = typeof handoffDesignGenerationJobs.$inferSelect;
+
+export async function insertDesignGenerationJob(input: DesignGenerationJobInsert): Promise<number> {
+  const db = getDb();
+  const [row] = await db
+    .insert(handoffDesignGenerationJobs)
+    .values({
+      artifactId: input.artifactId ?? null,
+      userId: input.userId,
+      requestParams: input.requestParams,
+    })
+    .returning({ id: handoffDesignGenerationJobs.id });
+  return row.id;
+}
+
+export async function getDesignGenerationJob(id: number): Promise<DesignGenerationJobRow | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(handoffDesignGenerationJobs)
+    .where(eq(handoffDesignGenerationJobs.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function updateDesignGenerationJob(
+  id: number,
+  patch: Partial<Pick<DesignGenerationJobRow, 'status' | 'stage' | 'imageUrl' | 'error' | 'artifactId'>>
+): Promise<void> {
+  const db = getDb();
+  const values: Partial<typeof handoffDesignGenerationJobs.$inferInsert> = { updatedAt: new Date() };
+  if (patch.status !== undefined) values.status = patch.status;
+  if (patch.stage !== undefined) values.stage = patch.stage;
+  if (patch.imageUrl !== undefined) values.imageUrl = patch.imageUrl;
+  if (patch.error !== undefined) values.error = patch.error;
+  if (patch.artifactId !== undefined) values.artifactId = patch.artifactId;
+  await db.update(handoffDesignGenerationJobs).set(values).where(eq(handoffDesignGenerationJobs.id, id));
+}
+
+export async function getActiveDesignGenerationJobsForUser(userId: string): Promise<DesignGenerationJobRow[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(handoffDesignGenerationJobs)
+    .where(
+      and(
+        eq(handoffDesignGenerationJobs.userId, userId),
+        or(
+          eq(handoffDesignGenerationJobs.status, 'pending'),
+          eq(handoffDesignGenerationJobs.status, 'running')
+        )
+      )
+    )
+    .orderBy(desc(handoffDesignGenerationJobs.createdAt))
+    .limit(20);
 }
