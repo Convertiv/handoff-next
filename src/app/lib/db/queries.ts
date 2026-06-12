@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, ilike, lte, ne, or, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, ilike, like, lte, ne, or, sql } from 'drizzle-orm';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
@@ -6,6 +6,10 @@ import {
   componentBuildJobs,
   componentGenerationJobs,
   figmaFetchJobs,
+  handoffAssetCollections,
+  handoffAssets,
+  handoffAssetUsages,
+  handoffIconSets,
   handoffComponents,
   handoffDesignArtifacts,
   handoffDesignGenerationJobs,
@@ -822,4 +826,343 @@ export async function getActiveDesignGenerationJobsForUser(userId: string): Prom
     )
     .orderBy(desc(handoffDesignGenerationJobs.createdAt))
     .limit(20);
+}
+
+// ── Kill / force-fail stuck build tasks ──────────────────────────────────────
+
+/** Mark a component Vite build job as failed (admin kill). Only affects queued/building rows. */
+export async function killComponentBuildJob(id: number): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .update(componentBuildJobs)
+    .set({ status: 'failed', error: 'Killed by admin', completedAt: new Date() })
+    .where(and(eq(componentBuildJobs.id, id), or(eq(componentBuildJobs.status, 'queued'), eq(componentBuildJobs.status, 'building'))))
+    .returning({ id: componentBuildJobs.id });
+  return rows.length > 0;
+}
+
+/** Mark a component generation job as failed (admin kill). Only affects non-terminal rows. */
+export async function killComponentGenerationJob(id: number): Promise<boolean> {
+  const db = getDb();
+  const TERMINAL = ['complete', 'failed'];
+  const [row] = await db.select({ status: componentGenerationJobs.status }).from(componentGenerationJobs).where(eq(componentGenerationJobs.id, id));
+  if (!row || TERMINAL.includes(row.status)) return false;
+  await updateComponentGenerationJob(id, { status: 'failed', error: 'Killed by admin', completedAt: new Date() });
+  return true;
+}
+
+/** Mark a design asset extraction job as failed (admin kill). Only affects pending/extracting rows. */
+export async function killDesignAssetExtractionJob(artifactId: string): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db
+    .select({ assetsStatus: handoffDesignArtifacts.assetsStatus, metadata: handoffDesignArtifacts.metadata })
+    .from(handoffDesignArtifacts)
+    .where(
+      and(
+        eq(handoffDesignArtifacts.id, artifactId),
+        or(eq(handoffDesignArtifacts.assetsStatus, 'pending'), eq(handoffDesignArtifacts.assetsStatus, 'extracting'))
+      )
+    );
+  if (!row) return false;
+  const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+  await updateDesignArtifactById(artifactId, {
+    assetsStatus: 'failed',
+    metadata: { ...meta, assetsError: 'Killed by admin' },
+  });
+  return true;
+}
+
+// ── Asset Inventory ───────────────────────────────────────────────────────────
+
+// Collections
+
+export async function listAssetCollections() {
+  const db = getDb();
+  return db.select().from(handoffAssetCollections).orderBy(handoffAssetCollections.name);
+}
+
+export async function getAssetCollection(id: string) {
+  const db = getDb();
+  const [row] = await db.select().from(handoffAssetCollections).where(eq(handoffAssetCollections.id, id));
+  return row ?? null;
+}
+
+export async function insertAssetCollection(input: {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  sourceType?: string;
+  figmaSectionId?: string | null;
+  figmaFileKey?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  const db = getDb();
+  const [row] = await db
+    .insert(handoffAssetCollections)
+    .values({ ...input, updatedAt: new Date() })
+    .returning({ id: handoffAssetCollections.id });
+  return row?.id ?? null;
+}
+
+export async function updateAssetCollection(
+  id: string,
+  patch: Partial<{ name: string; slug: string; description: string | null; metadata: Record<string, unknown> }>
+) {
+  const db = getDb();
+  await db.update(handoffAssetCollections).set({ ...patch, updatedAt: new Date() }).where(eq(handoffAssetCollections.id, id));
+}
+
+// Icon Sets
+
+export async function listIconSets() {
+  const db = getDb();
+  return db.select().from(handoffIconSets).orderBy(handoffIconSets.name);
+}
+
+export async function getIconSet(id: string) {
+  const db = getDb();
+  const [row] = await db.select().from(handoffIconSets).where(eq(handoffIconSets.id, id));
+  return row ?? null;
+}
+
+export async function insertIconSet(input: {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  figmaComponentSetId?: string | null;
+  figmaFileKey?: string | null;
+}) {
+  const db = getDb();
+  const [row] = await db
+    .insert(handoffIconSets)
+    .values({ ...input, updatedAt: new Date() })
+    .returning({ id: handoffIconSets.id });
+  return row?.id ?? null;
+}
+
+// Assets
+
+export type AssetInsert = {
+  id: string;
+  title: string;
+  description?: string | null;
+  altText?: string | null;
+  assetType: string;
+  mimeType?: string | null;
+  fileSizeBytes?: number | null;
+  nativeWidth?: number | null;
+  nativeHeight?: number | null;
+  storageUrl: string;
+  storageKey?: string | null;
+  thumbnailUrl?: string | null;
+  svgContent?: string | null;
+  iconSetId?: string | null;
+  iconVariant?: string | null;
+  collectionId?: string | null;
+  sourceType?: string;
+  sourceUrl?: string | null;
+  sourceMetadata?: Record<string, unknown>;
+  tags?: string[];
+  status?: string;
+  createdBy?: string | null;
+};
+
+export async function insertAsset(input: AssetInsert): Promise<string> {
+  const db = getDb();
+  const [row] = await db
+    .insert(handoffAssets)
+    .values({
+      ...input,
+      sourceMetadata: (input.sourceMetadata ?? {}) as typeof handoffAssets.$inferInsert.sourceMetadata,
+      tags: (input.tags ?? []) as typeof handoffAssets.$inferInsert.tags,
+      updatedAt: new Date(),
+    })
+    .returning({ id: handoffAssets.id });
+  return row!.id;
+}
+
+export async function getAsset(id: string) {
+  const db = getDb();
+  const [row] = await db.select().from(handoffAssets).where(eq(handoffAssets.id, id));
+  return row ?? null;
+}
+
+export async function getAssetWithUsages(id: string) {
+  const db = getDb();
+  const [asset] = await db.select().from(handoffAssets).where(eq(handoffAssets.id, id));
+  if (!asset) return null;
+  const usages = await db.select().from(handoffAssetUsages).where(eq(handoffAssetUsages.assetId, id));
+  const collection = asset.collectionId
+    ? await getAssetCollection(asset.collectionId)
+    : null;
+  const iconSet = asset.iconSetId ? await getIconSet(asset.iconSetId) : null;
+  return { ...asset, usages, collection, iconSet };
+}
+
+export type AssetListFilter = {
+  assetType?: string;
+  collectionId?: string;
+  iconSetId?: string;
+  status?: string;
+  search?: string;
+  tags?: string[];
+  limit?: number;
+  offset?: number;
+};
+
+export async function listAssets(filter: AssetListFilter = {}) {
+  const db = getDb();
+  const conditions = [];
+  if (filter.assetType) conditions.push(eq(handoffAssets.assetType, filter.assetType));
+  if (filter.collectionId) conditions.push(eq(handoffAssets.collectionId, filter.collectionId));
+  if (filter.iconSetId) conditions.push(eq(handoffAssets.iconSetId, filter.iconSetId));
+  if (filter.status) conditions.push(eq(handoffAssets.status, filter.status));
+  if (filter.search) conditions.push(ilike(handoffAssets.title, `%${filter.search}%`));
+
+  const limit = Math.min(filter.limit ?? 100, 500);
+  const offset = filter.offset ?? 0;
+
+  const rows = await db
+    .select()
+    .from(handoffAssets)
+    .leftJoin(handoffAssetCollections, eq(handoffAssets.collectionId, handoffAssetCollections.id))
+    .leftJoin(handoffIconSets, eq(handoffAssets.iconSetId, handoffIconSets.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(handoffAssets.updatedAt))
+    .limit(limit)
+    .offset(offset);
+
+  let results = rows.map((r) => ({
+    ...r.handoff_asset,
+    collectionName: r.handoff_asset_collection?.name ?? null,
+    iconSetName: r.handoff_icon_set?.name ?? null,
+  }));
+
+  if (filter.tags && filter.tags.length > 0) {
+    const required = filter.tags;
+    results = results.filter((r) => {
+      const t = Array.isArray(r.tags) ? (r.tags as string[]) : [];
+      return required.every((tag) => t.includes(tag));
+    });
+  }
+
+  return results;
+}
+
+export async function updateAsset(
+  id: string,
+  patch: Partial<{
+    title: string;
+    description: string | null;
+    altText: string | null;
+    thumbnailUrl: string | null;
+    storageUrl: string;
+    fileSizeBytes: number | null;
+    nativeWidth: number | null;
+    nativeHeight: number | null;
+    collectionId: string | null;
+    iconSetId: string | null;
+    iconVariant: string | null;
+    tags: string[];
+    status: string;
+    sourceMetadata: Record<string, unknown>;
+  }>
+): Promise<boolean> {
+  const db = getDb();
+  const set: Partial<typeof handoffAssets.$inferInsert> = { updatedAt: new Date() };
+  if (patch.title !== undefined) set.title = patch.title;
+  if (patch.description !== undefined) set.description = patch.description;
+  if (patch.altText !== undefined) set.altText = patch.altText;
+  if (patch.thumbnailUrl !== undefined) set.thumbnailUrl = patch.thumbnailUrl;
+  if (patch.storageUrl !== undefined) set.storageUrl = patch.storageUrl;
+  if (patch.fileSizeBytes !== undefined) set.fileSizeBytes = patch.fileSizeBytes;
+  if (patch.nativeWidth !== undefined) set.nativeWidth = patch.nativeWidth;
+  if (patch.nativeHeight !== undefined) set.nativeHeight = patch.nativeHeight;
+  if (patch.collectionId !== undefined) set.collectionId = patch.collectionId;
+  if (patch.iconSetId !== undefined) set.iconSetId = patch.iconSetId;
+  if (patch.iconVariant !== undefined) set.iconVariant = patch.iconVariant;
+  if (patch.tags !== undefined) set.tags = patch.tags as typeof handoffAssets.$inferInsert.tags;
+  if (patch.status !== undefined) set.status = patch.status;
+  if (patch.sourceMetadata !== undefined) set.sourceMetadata = patch.sourceMetadata as typeof handoffAssets.$inferInsert.sourceMetadata;
+  const rows = await db.update(handoffAssets).set(set).where(eq(handoffAssets.id, id)).returning({ id: handoffAssets.id });
+  return rows.length > 0;
+}
+
+export async function deleteAsset(id: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db.select({ storageKey: handoffAssets.storageKey }).from(handoffAssets).where(eq(handoffAssets.id, id));
+  if (!row) return null;
+  await db.delete(handoffAssets).where(eq(handoffAssets.id, id));
+  return row.storageKey;
+}
+
+// Asset usages
+
+export type AssetUsageInsert = {
+  assetId: string;
+  componentId: string;
+  usageType: string;
+  propKey?: string | null;
+  figmaContainerWidth?: number | null;
+  figmaContainerHeight?: number | null;
+  recommendedWidth?: number | null;
+  recommendedHeight?: number | null;
+  notes?: string | null;
+};
+
+export async function upsertAssetUsage(input: AssetUsageInsert): Promise<number> {
+  const db = getDb();
+  // Check for existing matching usage
+  const [existing] = await db
+    .select({ id: handoffAssetUsages.id })
+    .from(handoffAssetUsages)
+    .where(
+      and(
+        eq(handoffAssetUsages.assetId, input.assetId),
+        eq(handoffAssetUsages.componentId, input.componentId),
+        input.propKey ? eq(handoffAssetUsages.propKey, input.propKey) : sql`prop_key IS NULL`
+      )
+    );
+  if (existing) {
+    await db
+      .update(handoffAssetUsages)
+      .set({
+        usageType: input.usageType,
+        figmaContainerWidth: input.figmaContainerWidth ?? null,
+        figmaContainerHeight: input.figmaContainerHeight ?? null,
+        recommendedWidth: input.recommendedWidth ?? null,
+        recommendedHeight: input.recommendedHeight ?? null,
+        notes: input.notes ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(handoffAssetUsages.id, existing.id));
+    return existing.id;
+  }
+  const [row] = await db
+    .insert(handoffAssetUsages)
+    .values({ ...input, updatedAt: new Date() })
+    .returning({ id: handoffAssetUsages.id });
+  return row!.id;
+}
+
+export async function getAssetUsages(assetId: string) {
+  const db = getDb();
+  return db.select().from(handoffAssetUsages).where(eq(handoffAssetUsages.assetId, assetId));
+}
+
+export async function getComponentAssetUsages(componentId: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(handoffAssetUsages)
+    .leftJoin(handoffAssets, eq(handoffAssetUsages.assetId, handoffAssets.id))
+    .where(eq(handoffAssetUsages.componentId, componentId));
+}
+
+export async function deleteAssetUsage(id: number): Promise<boolean> {
+  const db = getDb();
+  const rows = await db.delete(handoffAssetUsages).where(eq(handoffAssetUsages.id, id)).returning({ id: handoffAssetUsages.id });
+  return rows.length > 0;
 }

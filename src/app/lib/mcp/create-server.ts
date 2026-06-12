@@ -20,6 +20,13 @@ import {
   getDesignWorkspace,
 } from '@/lib/server/design-workspace';
 import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
+import {
+  getAsset,
+  getAssetWithUsages,
+  listAssetCollections,
+  listAssets,
+  listIconSets,
+} from '@/lib/db/queries';
 
 const WORKSPACE_MODE_RESPONSE = {
   mode: 'workspace',
@@ -434,6 +441,90 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       return textResult(
         rows.map((r) => ({ id: r.id, contentLength: r.content.length, generatedAt: r.generatedAt }))
       );
+    }
+  );
+
+  // ── Asset inventory tools ──────────────────────────────────────────────────
+
+  server.registerTool(
+    'handoff_search_assets',
+    {
+      description: 'Search the asset library. Returns logos, icons, and images with URLs and metadata.',
+      inputSchema: {
+        query: z.string().optional().describe('Free-text search against title and tags'),
+        type: z.enum(['logo', 'icon', 'image', 'video']).optional().describe('Filter by asset type'),
+        collection_id: z.string().optional().describe('Filter by collection ID'),
+        icon_set_id: z.string().optional().describe('Filter by icon set ID'),
+        tags: z.array(z.string()).optional().describe('Filter to assets with all of these tags'),
+        limit: z.number().int().min(1).max(200).optional().describe('Max results (default 50)'),
+      },
+    },
+    async ({ query, type, collection_id, icon_set_id, tags, limit }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const assets = await listAssets({
+        search: query,
+        assetType: type,
+        collectionId: collection_id,
+        iconSetId: icon_set_id,
+        tags,
+        limit: limit ?? 50,
+        status: 'active',
+      });
+      return textResult(assets);
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_asset',
+    {
+      description: 'Get full details for a single asset including component usages and size info.',
+      inputSchema: { id: z.string() },
+    },
+    async ({ id }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const asset = await getAssetWithUsages(id);
+      if (!asset) return textResult({ error: 'Not found' });
+      return textResult(asset);
+    }
+  );
+
+  server.registerTool(
+    'handoff_list_asset_collections',
+    {
+      description: 'List all asset collections (Figma sections or manually created groups).',
+      inputSchema: {},
+    },
+    async () => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const collections = await listAssetCollections();
+      return textResult(collections);
+    }
+  );
+
+  server.registerTool(
+    'handoff_search_icons',
+    {
+      description: 'Search icons. Returns SVG content when available for direct use.',
+      inputSchema: {
+        query: z.string().optional().describe('Search by icon name'),
+        set_id: z.string().optional().describe('Limit to a specific icon set'),
+        variant: z.string().optional().describe('Filter by icon variant (e.g. "outline", "filled")'),
+        limit: z.number().int().min(1).max(500).optional().describe('Max results (default 100)'),
+      },
+    },
+    async ({ query, set_id, variant, limit }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const icons = await listAssets({
+        assetType: 'icon',
+        search: query,
+        iconSetId: set_id,
+        limit: limit ?? 100,
+        status: 'active',
+      });
+      const filtered = variant
+        ? icons.filter((i) => i.iconVariant === variant)
+        : icons;
+      return textResult(filtered);
     }
   );
 

@@ -32,6 +32,7 @@ export function MainNav() {
     { title: 'Playground', path: '/playground' },
     ...(caps.designWorkbench ? [{ title: 'Design', path: '/design' }] : []),
     ...(caps.designLibrary ? [{ title: 'Library', path: '/design/library' }] : []),
+    ...(caps.designLibrary ? [{ title: 'Assets', path: '/design/assets' }] : []),
   ];
   const menuSections = (context.menu ?? []).filter((section) => Boolean(section?.path));
   const existingPaths = new Set(menuSections.map((s) => trimSlashes(s.path)));

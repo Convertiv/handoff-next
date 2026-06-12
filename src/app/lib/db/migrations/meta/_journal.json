@@ -64,6 +64,13 @@
       "when": 1781400000000,
       "tag": "0008_design_generation_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781500000000,
+      "tag": "0009_assets",
+      "breakpoints": true
     }
   ]
 }

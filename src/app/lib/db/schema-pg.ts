@@ -398,6 +398,96 @@ export const handoffDesignGenerationJobs = pgTable('handoff_design_generation_jo
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
 });
 
+// ── Asset Inventory ───────────────────────────────────────────────────────────
+
+/** Grouping of assets (e.g. a Figma page/section or a manual collection). */
+export const handoffAssetCollections = pgTable('handoff_asset_collection', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description'),
+  /** 'figma' | 'manual' */
+  sourceType: text('source_type').notNull().default('manual'),
+  figmaSectionId: text('figma_section_id'),
+  figmaFileKey: text('figma_file_key'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
+/** A named set of SVG icons (e.g. a Figma component set). */
+export const handoffIconSets = pgTable('handoff_icon_set', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  slug: text('slug').notNull().unique(),
+  description: text('description'),
+  figmaComponentSetId: text('figma_component_set_id'),
+  figmaFileKey: text('figma_file_key'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
+/** Core asset record — logos, icons, images (video deferred). */
+export const handoffAssets = pgTable('handoff_asset', {
+  id: text('id').primaryKey(),
+  title: text('title').notNull(),
+  description: text('description'),
+  altText: text('alt_text'),
+  /** 'logo' | 'icon' | 'image' | 'video' */
+  assetType: text('asset_type').notNull(),
+  mimeType: text('mime_type'),
+  fileSizeBytes: integer('file_size_bytes'),
+  nativeWidth: integer('native_width'),
+  nativeHeight: integer('native_height'),
+  /** Direct S3 or CDN URL — served without proxy */
+  storageUrl: text('storage_url').notNull(),
+  /** S3 object key — null for external-source assets */
+  storageKey: text('storage_key'),
+  /** Rasterized thumbnail for icons/SVG */
+  thumbnailUrl: text('thumbnail_url'),
+  /** Inline SVG string — icons only */
+  svgContent: text('svg_content'),
+  iconSetId: text('icon_set_id').references(() => handoffIconSets.id, { onDelete: 'set null' }),
+  /** e.g. 'outline' | 'filled' | '24' | '16' */
+  iconVariant: text('icon_variant'),
+  collectionId: text('collection_id').references(() => handoffAssetCollections.id, { onDelete: 'set null' }),
+  /** 'figma' | 'upload' | 'url' | 'wordpress' | 'cloudinary' */
+  sourceType: text('source_type').notNull().default('upload'),
+  /** Original external URL */
+  sourceUrl: text('source_url'),
+  /** Provider-specific metadata: figmaFileKey, figmaNodeId, figmaImageRef, wpMediaId, etc. */
+  sourceMetadata: jsonb('source_metadata').default({}),
+  tags: jsonb('tags').default([]),
+  /** 'pending' (upload URL generated, not confirmed) | 'active' */
+  status: text('status').notNull().default('active'),
+  createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
+/**
+ * Eager component↔asset usage records.
+ * One row per (asset, component, propKey) triplet — same asset used at different
+ * sizes in different components produces distinct rows.
+ */
+export const handoffAssetUsages = pgTable('handoff_asset_usage', {
+  id: serial('id').primaryKey(),
+  assetId: text('asset_id').notNull().references(() => handoffAssets.id, { onDelete: 'cascade' }),
+  /** References handoff_component.id — loose, components can be deleted on re-push */
+  componentId: text('component_id').notNull(),
+  /** 'thumbnail' | 'design_preview' | 'prop_default' | 'documentation' | 'icon' */
+  usageType: text('usage_type').notNull(),
+  propKey: text('prop_key'),
+  figmaContainerWidth: integer('figma_container_width'),
+  figmaContainerHeight: integer('figma_container_height'),
+  recommendedWidth: integer('recommended_width'),
+  recommendedHeight: integer('recommended_height'),
+  notes: text('notes'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
 /**
  * Per-project registry config — singleton row (id='default' until ADR-001 §7+
  * adds multi-tenancy). Stores project metadata that today comes from
