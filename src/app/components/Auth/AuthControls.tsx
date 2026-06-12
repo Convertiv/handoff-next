@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut, UserRound } from 'lucide-react';
+import { LogOut, Terminal, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
@@ -81,6 +81,12 @@ export function AuthControls() {
             </DropdownMenuItem>
           </>
         ) : null}
+        <DropdownMenuItem asChild>
+          <Link href="/dev/local-setup">
+            <Terminal className="mr-2 h-4 w-4" />
+            CLI docs
+          </Link>
+        </DropdownMenuItem>
         {!isLocal && (
           <DropdownMenuItem
             onSelect={(e) => {

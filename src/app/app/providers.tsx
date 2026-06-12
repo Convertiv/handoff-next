@@ -12,6 +12,7 @@ import { HandoffCapabilitiesProvider } from '../components/context/HandoffCapabi
 import type { HandoffCapabilities } from '../lib/handoff-capabilities';
 import { ChatProvider } from '../components/Chat/ChatContext';
 import { ChatDrawer } from '../components/Chat/ChatDrawer';
+import { ChatFab } from '../components/Chat/ChatFab';
 
 interface ProvidersProps {
   config: ClientConfig;
@@ -41,6 +42,7 @@ export default function Providers({
               <ChatProvider>
                 {children}
                 {capabilities.aiFeatures && <ChatDrawer basePath={basePath} />}
+                <ChatFab />
               </ChatProvider>
             </ThemeProvider>
           </ConfigContextProvider>
