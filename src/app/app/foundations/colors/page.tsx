@@ -10,17 +10,20 @@ import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown
 import AnchorNav from '../../../components/Navigation/AnchorNav';
 import PrevNextNav from '../../../components/Navigation/PrevNextNav';
 import HeadersType from '../../../components/Typography/Headers';
-import { fetchFoundationDocPageMarkdown, getClientRuntimeConfig, getTokens } from '../../../components/util';
+import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
 
 export async function generateMetadata() {
-  const { props } = fetchFoundationDocPageMarkdown('docs/foundations/', 'colors', '/foundations');
+  const { props } = await fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'colors', '/foundations');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function ColorsPage() {
-  const { props } = fetchFoundationDocPageMarkdown('docs/foundations/', 'colors', '/foundations');
+  const [{ props }, tokens] = await Promise.all([
+    fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'colors', '/foundations'),
+    getTokensForRuntime(),
+  ]);
   const config = getClientRuntimeConfig();
-  const design = getTokens().localStyles;
+  const design = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
 
   const colorGroups = Object.fromEntries(

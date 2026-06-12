@@ -11,7 +11,7 @@ import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import AnchorNav from '../../../components/Navigation/AnchorNav';
 import HeadersType from '../../../components/Typography/Headers';
-import { fetchFoundationDocPageMarkdown, getClientRuntimeConfig, getTokens } from '../../../components/util';
+import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
 
 type EffectParametersObject = CoreTypes.IEffectObject['effects'][number];
 
@@ -25,14 +25,17 @@ const applyEffectToCssProperties = (effect: EffectParametersObject, cssPropertie
 };
 
 export async function generateMetadata() {
-  const { props } = fetchFoundationDocPageMarkdown('docs/foundations/', 'effects', '/foundations');
+  const { props } = await fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'effects', '/foundations');
   return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
 }
 
 export default async function EffectsPage() {
-  const { props } = fetchFoundationDocPageMarkdown('docs/foundations/', 'effects', '/foundations');
+  const [{ props }, tokens] = await Promise.all([
+    fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'effects', '/foundations'),
+    getTokensForRuntime(),
+  ]);
   const config = getClientRuntimeConfig();
-  const design = getTokens().localStyles;
+  const design = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
 
   const effectGroups = Object.fromEntries(
