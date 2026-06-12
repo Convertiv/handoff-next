@@ -1,77 +1,31 @@
-import { File, FileArchive } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
-import remarkGfm from 'remark-gfm';
-import { ConfigContextProvider } from '@/components/context/ConfigContext';
-import Footer from '@/components/Footer';
-import { Header } from '@/components/Layout/Header';
-import { MarkdownComponents, remarkCodeMeta } from '@/components/Markdown/MarkdownComponents';
-import NavLink from '@/components/NavLink';
-import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '@/components/util';
+import Layout from '../../components/Layout/Main';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../components/util';
+import AssetsClient from './AssetsClient';
 
 export async function generateMetadata() {
-  const { props } = await fetchDocPageMarkdownAsync('docs/', 'assets', '/assets');
-  return { title: props.metadata.metaTitle, description: props.metadata.metaDescription };
+  return { title: 'Asset Library', description: 'Browse and manage design assets' };
 }
 
 export default async function AssetsPage() {
-  const { props } = await fetchDocPageMarkdownAsync('docs/', 'assets', '/assets');
+  const { props } = await fetchDocPageMarkdownAsync('docs/', 'foundations', '/foundations');
   const config = getClientRuntimeConfig();
-  const { content, menu, metadata } = props;
+  const { menu } = props;
+
+  const metadata = {
+    title: 'Asset Library',
+    metaTitle: 'Asset Library',
+    metaDescription: 'Browse and manage design assets',
+  };
+
+  const current = {
+    path: '/assets',
+    title: 'Assets',
+    subSections: [],
+  };
 
   return (
-    <ConfigContextProvider defaultConfig={config} defaultMenu={menu}>
-      <div className="c-page">
-        <Header />
-        <section className="c-content">
-          <div className="o-container-fluid">
-            <div className="c-hero c-hero--boxed c-hero--bg-red">
-              <div>
-                <h1 className="c-title--extra-large">{metadata.title}</h1>
-                <p>{metadata.description}</p>
-              </div>
-            </div>
-            <div className="o-row">
-              <div className="o-col-6@md">
-                <div className="c-card">
-                  <FileArchive />
-                  <h4>Logos</h4>
-                  <p>Official logo used for all digital and offline materials.</p>
-                  <p>
-                    <NavLink href="/assets/logos">View Logos</NavLink>
-                  </p>
-                </div>
-              </div>
-              <div className="o-col-6@md">
-                <div className="c-card">
-                  <FileArchive />
-                  <h4>Fonts</h4>
-                  <p>Font family and weights for all {config?.app?.client} visuals.</p>
-                  <p>
-                    <NavLink href="/assets/fonts">View Fonts</NavLink>
-                  </p>
-                </div>
-              </div>
-              <div className="o-col-6@md">
-                <div className="c-card">
-                  <File />
-                  <h4>Iconography</h4>
-                  <p>Library of approved vector iconography.</p>
-                  <p>
-                    <NavLink href="/assets/icons">View Icons</NavLink>
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="prose">
-              <ReactMarkdown components={MarkdownComponents} remarkPlugins={[remarkGfm, remarkCodeMeta]} rehypePlugins={[rehypeRaw]}>
-                {content}
-              </ReactMarkdown>
-            </div>
-          </div>
-        </section>
-        <Footer config={config} />
-      </div>
-    </ConfigContextProvider>
+    <Layout config={config} menu={menu} current={current} metadata={metadata}>
+      <AssetsClient />
+    </Layout>
   );
 }

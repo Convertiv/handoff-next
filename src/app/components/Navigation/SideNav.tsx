@@ -30,8 +30,11 @@ import {
   SidebarMenuSub,
   SidebarSeparator,
 } from '../../components/ui/sidebar';
-import { normalizePathForMatch, toAbsolutePath } from '../../lib/utils';
+import { cn, normalizePathForMatch, toAbsolutePath } from '../../lib/utils';
 import { SectionLink } from '../util';
+import { useHandoffCapabilities } from '../context/HandoffCapabilitiesContext';
+
+const TOOLS_PATHS = ['/design', '/patterns', '/playground'];
 
 const NormalMenuItem = ({ title, icon, path }) => {
   const pathname = usePathname();
@@ -172,7 +175,88 @@ const renderSubSection = (
   );
 };
 
-const SideNav = ({ menu }: { menu: SectionLink }) => {
+type SideNavProps = {
+  menu: SectionLink;
+  topNav?: SectionLink[];
+};
+
+const SideNav = ({ menu, topNav }: SideNavProps) => {
+  const pathname = usePathname();
+  const caps = useHandoffCapabilities();
+  const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
+
+  const isToolsSection = TOOLS_PATHS.some((p) =>
+    normalizePathForMatch(pathname).startsWith(normalizePathForMatch(p))
+  );
+
+  // Tools sidebar suppressed — navigation handled by ToolsSubNav in Header.
+
+  // ── Knowledge section: cross-section nav with current section expanded ───
+  if (!isToolsSection && topNav && topNav.length > 0) {
+    return (
+      <Sidebar className="sticky left-auto">
+        <SidebarContent className="px-4 pt-5">
+          {topNav.map((section, idx) => {
+            const isSectionActive = normalizePathForMatch(pathname).startsWith(
+              normalizePathForMatch(section.path)
+            );
+            const subSections = (section.subSections ?? []) as Array<
+              SectionLink['subSections'][number] & { menu?: unknown[] }
+            >;
+            const hasSubSections = subSections.length > 0;
+
+            return (
+              <React.Fragment key={section.path}>
+                <SidebarGroup>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {hasSubSections ? (
+                        <Collapsible defaultOpen={isSectionActive} className="group/collapsible">
+                          <SidebarMenuItem>
+                            {/* Custom trigger — avoids SidebarMenuButton's hardcoded [&>span:last-child]:truncate */}
+                            <CollapsibleTrigger className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
+                              <span
+                                className={cn(
+                                  'flex-1 text-left leading-snug',
+                                  isSectionActive
+                                    ? 'font-medium text-sidebar-accent-foreground'
+                                    : 'text-sidebar-foreground'
+                                )}
+                              >
+                                {section.title}
+                              </span>
+                              <ChevronRight className="size-[14px] shrink-0 stroke-[1.5] text-slate-700 opacity-50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <SidebarMenuSub className="pl-3">
+                                <SidebarMenu>
+                                  {subSections.map((sub, subIdx) => (
+                                    <MenuItem
+                                      key={`${idx}-${subIdx}`}
+                                      item={sub as Parameters<typeof MenuItem>[0]['item']}
+                                    />
+                                  ))}
+                                </SidebarMenu>
+                              </SidebarMenuSub>
+                            </CollapsibleContent>
+                          </SidebarMenuItem>
+                        </Collapsible>
+                      ) : (
+                        <NormalMenuItem title={section.title} path={section.path} icon={null} />
+                      )}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+                {idx < topNav.length - 1 && <SidebarSeparator className="mx-4" />}
+              </React.Fragment>
+            );
+          })}
+        </SidebarContent>
+      </Sidebar>
+    );
+  }
+
+  // ── Fallback: current section's own sub-sections only ────────────────────
   const subSections = (menu?.subSections ?? []) as Array<SectionLink['subSections'][number]>;
   return (
     <Sidebar className="sticky left-auto">

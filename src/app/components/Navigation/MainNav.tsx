@@ -33,7 +33,7 @@ export function MainNav() {
             className={cn(navigationMenuTriggerStyle(), isSystemActive && 'bg-accent text-accent-foreground')}
             asChild
           >
-            <Link href={`${basePath}/`}>System</Link>
+            <Link href={`${basePath}/foundations`}>Knowledge</Link>
           </NavigationMenuLink>
         </NavigationMenuItem>
         <NavigationMenuItem>

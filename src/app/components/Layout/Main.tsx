@@ -8,6 +8,8 @@ import { ConfigContextProvider } from '../context/ConfigContext';
 import { SidebarInset, SidebarProvider } from '../ui/sidebar';
 import { SectionLink } from '../util';
 
+const TOOLS_PATHS = ['/design', '/patterns', '/playground'];
+
 interface LayoutComponentProps {
   metadata: {
     [key: string]: any;
@@ -22,6 +24,11 @@ interface LayoutComponentProps {
   fullBleed?: boolean;
 }
 export default function Layout<LayoutComponentProps>({ children, config, menu, metadata, current, fullWidthHero = false, fullBleed = false }) {
+  // Sections that belong in the Knowledge sidebar (everything that isn't a tool).
+  const kbSections = ((menu ?? []) as SectionLink[]).filter(
+    (s) => !TOOLS_PATHS.some((p) => (s.path ?? '').startsWith(p))
+  );
+
   return (
     <div className={fullBleed ? 'flex h-screen flex-col overflow-hidden' : ''}>
       <ConfigContextProvider defaultConfig={config} defaultMenu={menu}>
@@ -45,10 +52,10 @@ export default function Layout<LayoutComponentProps>({ children, config, menu, m
                     <div className="mx-auto w-full">{children}</div>
                   </div>
                 </div>
-              ) : current ? (
-                <SidebarProvider>
+              ) : current && !TOOLS_PATHS.some((p) => (current?.path ?? '').startsWith(p)) ? (
+                <SidebarProvider style={{ '--sidebar-width': '20rem' } as React.CSSProperties}>
                   <div className="flex w-full">
-                    <SideNav menu={current} />
+                    <SideNav menu={current} topNav={kbSections} />
                     <SidebarInset className="relative bg-transparent py-8 pl-8 pr-8 md:pl-8 lg:gap-10 lg:py-16 lg:pl-16">
                       <div className="mx-auto w-full">{children}</div>
                     </SidebarInset>
