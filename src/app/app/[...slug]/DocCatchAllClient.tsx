@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { useRef } from 'react';
 import Layout from '../../components/Layout/Main';
+import { InlineEditHeader } from '../../components/InlineEdit/InlineEditHeader';
 import { MarkdownEditor } from '../../components/Markdown/MarkdownEditor';
 import { PageTOC } from '../../components/Navigation/AnchorNav';
 import { useAuthUi } from '../../components/context/AuthUiContext';
-import HeadersType from '../../components/Typography/Headers';
 
 export default function DocCatchAllClient({
   pageSlug,
@@ -79,10 +79,13 @@ export default function DocCatchAllClient({
 
   return (
     <Layout config={config} menu={menu} current={current} metadata={layoutMetadata}>
-      <div className="flex flex-col gap-2 pb-7">
-        <HeadersType.H1>{title}</HeadersType.H1>
-        {description ? <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{description}</p> : null}
-      </div>
+      <InlineEditHeader
+        slug={pageSlug}
+        initialTitle={title}
+        initialDescription={description}
+        initialFrontmatter={metadata}
+        markdown={content}
+      />
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div className="min-w-0">
           <MarkdownEditor

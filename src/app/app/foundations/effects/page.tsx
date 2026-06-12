@@ -7,10 +7,10 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { DownloadTokens } from '../../../components/DownloadTokens';
+import { InlineEditHeader } from '../../../components/InlineEdit/InlineEditHeader';
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import AnchorNav from '../../../components/Navigation/AnchorNav';
-import HeadersType from '../../../components/Typography/Headers';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
 
 type EffectParametersObject = CoreTypes.IEffectObject['effects'][number];
@@ -46,11 +46,15 @@ export default async function EffectsPage() {
 
   return (
     <Layout config={config} menu={menu} metadata={metadata} current={current}>
-      <div className="flex flex-col gap-2 pb-7">
-        <HeadersType.H1>{metadata.title}</HeadersType.H1>
-        <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{metadata.description}</p>
+      <InlineEditHeader
+        slug="foundations/effects"
+        initialTitle={String(metadata.title ?? '')}
+        initialDescription={String(metadata.description ?? '')}
+        initialFrontmatter={metadata as Record<string, unknown>}
+        markdown={content}
+      >
         <DownloadTokens componentId="colors" scss={scss} css={css} styleDictionary={styleDictionary} types={types} />
-      </div>
+      </InlineEditHeader>
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div>
           {Object.keys(effectGroups).map((group) => (
