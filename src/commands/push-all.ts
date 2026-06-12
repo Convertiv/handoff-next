@@ -5,6 +5,7 @@ import {
   pushRegistryConfig,
   pushRegistryTheme,
   pushRegistryNavigation,
+  pushRegistryPages,
   pushRegistryTokens,
 } from '@handoff/cli/sync/push-registry-content';
 import { Logger } from '@handoff/utils/logger';
@@ -29,7 +30,7 @@ const command: CommandModule<{}, PushAllArgs> = {
     getSharedOptions(yargs)
       .option('skip-build', { type: 'boolean', default: false, describe: 'Skip local component build before push (use existing artifacts).' })
       .option('skip-components', { type: 'boolean', default: false, describe: 'Skip the components+pages push step.' })
-      .option('skip-pages', { type: 'boolean', default: false, describe: 'Skip pages within the components+pages step (still pushes components).' })
+      .option('skip-pages', { type: 'boolean', default: false, describe: 'Skip all page-related pushes: component doc pages (in the components step) and pages/ markdown content.' })
       .option('skip-config', { type: 'boolean', default: false, describe: 'Skip /api/registry/config push.' })
       .option('skip-theme', { type: 'boolean', default: false, describe: 'Skip /api/registry/theme push.' })
       .option('skip-navigation', { type: 'boolean', default: false, describe: 'Skip /api/registry/navigation push.' })
@@ -75,7 +76,12 @@ const command: CommandModule<{}, PushAllArgs> = {
       await tryStep('navigation', () => pushRegistryNavigation(handoff));
     }
 
-    // 5. Tokens
+    // 5. Pages content — markdown bodies pushed after nav so nav tree is already in place
+    if (!args.skipPages) {
+      await tryStep('pages', () => pushRegistryPages(handoff));
+    }
+
+    // 6. Tokens
     if (!args.skipTokens) {
       await tryStep('tokens', () => pushRegistryTokens(handoff));
     }

@@ -258,6 +258,63 @@ export async function pushRegistryNavigation(handoff: Handoff): Promise<void> {
   Logger.success('Registry navigation pushed.');
 }
 
+// ─── Pages ─────────────────────────────────────────────────────────────────────
+
+/**
+ * Push every page markdown file from the workspace's `pages/` directory to the
+ * registry's `handoff_page` table. Navigation is pushed separately (see
+ * pushRegistryNavigation) so this step only carries content — frontmatter + body.
+ *
+ * Sending all pages in a single batched POST avoids per-file round-trips while
+ * staying within Vercel's 4.5 MB function payload limit in most workspaces.
+ */
+export async function pushRegistryPages(handoff: Handoff): Promise<void> {
+  const pagesDir = path.join(handoff.workingPath, 'pages');
+  if (!(await fs.pathExists(pagesDir))) {
+    Logger.warn('No pages/ directory found in workspace. Skipping pages content push.');
+    return;
+  }
+
+  const collected: Array<{ slug: string; frontmatter: Record<string, unknown>; markdown: string }> = [];
+
+  const walk = async (dir: string, slugParts: string[]): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const dirStems = new Set(entries.filter((e) => e.isDirectory()).map((e) => e.name));
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.name.startsWith('_')) continue;
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(abs, [...slugParts, entry.name]);
+      } else if (entry.isFile() && entry.name.endsWith('.md')) {
+        const stem = entry.name.replace(/\.md$/, '');
+        // Skip index files that represent directory sections — nav handles these
+        if (stem === 'index') continue;
+        // Skip sibling .md files that act as directory indexes (foo.md alongside foo/)
+        if (dirStems.has(stem)) continue;
+        const raw = await fs.readFile(abs, 'utf-8');
+        const { data: frontmatter, content: markdown } = matter(raw);
+        const slug = [...slugParts, stem].join('/');
+        collected.push({ slug, frontmatter: frontmatter as Record<string, unknown>, markdown });
+      }
+    }
+  };
+
+  await walk(pagesDir, []);
+
+  if (collected.length === 0) {
+    Logger.warn('No .md pages found in pages/ directory. Skipping pages content push.');
+    return;
+  }
+
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer = await getSyncBearerToken(handoff.workingPath);
+  const url = `${baseUrl}/api/registry/pages`;
+
+  Logger.info(`Pushing ${collected.length} page(s) to registry…`);
+  await postJson(url, bearer, { pages: collected });
+  Logger.success(`Registry pages pushed (${collected.length} page(s)).`);
+}
+
 // ─── Tokens ────────────────────────────────────────────────────────────────────
 
 /**

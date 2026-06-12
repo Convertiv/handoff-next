@@ -58,7 +58,14 @@ export function getDefaultDocsDir(env: NodeJS.ProcessEnv = process.env): string 
   const moduleDocs =
     mp && !mp.startsWith('%HANDOFF_') ? path.join(path.resolve(mp), 'config', 'docs') : null;
 
+  // Fallback: process.cwd()-relative path. In the Vercel Lambda runtime with
+  // standalone output, HANDOFF_APP_ROOT and HANDOFF_MODULE_PATH are baked in as
+  // absolute build-machine paths that no longer exist. The standalone bundle
+  // places config/docs/ relative to its root, which is process.cwd() at runtime.
+  const cwdDocs = path.join(process.cwd(), 'config', 'docs');
+
   if (fs.existsSync(materialized)) return materialized;
   if (moduleDocs && fs.existsSync(moduleDocs)) return moduleDocs;
+  if (fs.existsSync(cwdDocs)) return cwdDocs;
   return null;
 }

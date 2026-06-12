@@ -1,6 +1,6 @@
 'use client';
 
-import { LogOut, Terminal, UserRound } from 'lucide-react';
+import { FileText, LogOut, Terminal, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
@@ -82,6 +82,12 @@ export function AuthControls() {
           </>
         ) : null}
         <DropdownMenuItem asChild>
+          <Link href="/admin/pages">
+            <FileText className="mr-2 h-4 w-4" />
+            Page Manager
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
           <Link href="/dev/local-setup">
             <Terminal className="mr-2 h-4 w-4" />
             CLI docs
@@ -152,6 +158,9 @@ export function AuthControlsMobile() {
           </Link>
         </>
       ) : null}
+      <Link href="/admin/pages" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
+        Page Manager
+      </Link>
       {!isLocal && (
         <Button
           variant="ghost"

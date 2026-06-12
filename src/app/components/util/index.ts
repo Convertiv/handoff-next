@@ -848,11 +848,17 @@ export const fetchDocPageMetadataAndContent = (localPath: string, slug: string |
   const contentModuleFilePath = path.resolve(handoffModulePath, 'config', `${localPath}${slug}.md`);
   const contentBundledFilePath = path.resolve(getMaterializedAppRoot(), 'config', `${localPath}${slug}.md`);
   const contentWorkingFilePath = path.resolve(handoffWorkingPath, `${pagePath}${slug}.md`);
+  // Fallback for Vercel Lambda runtime: HANDOFF_APP_ROOT and HANDOFF_MODULE_PATH are baked
+  // in as absolute build-machine paths that no longer exist at request time. The standalone
+  // bundle places config/docs/ relative to its root, which equals process.cwd() at runtime.
+  const contentCwdFilePath = path.resolve(process.cwd(), 'config', `${localPath}${slug}.md`);
 
   if (fs.existsSync(contentWorkingFilePath)) {
     currentContents = fs.readFileSync(contentWorkingFilePath, 'utf-8');
   } else if (fs.existsSync(contentBundledFilePath)) {
     currentContents = fs.readFileSync(contentBundledFilePath, 'utf-8');
+  } else if (fs.existsSync(contentCwdFilePath)) {
+    currentContents = fs.readFileSync(contentCwdFilePath, 'utf-8');
   } else if (!fs.existsSync(contentModuleFilePath)) {
     return { metadata: {}, content: currentContents, options: {} };
   } else {
