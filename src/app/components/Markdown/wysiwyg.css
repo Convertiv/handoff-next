@@ -1,0 +1,48 @@
+/* TipTap WYSIWYG editor canvas */
+
+/* Placeholder */
+.wysiwyg-root .tiptap p.is-editor-empty:first-child::before {
+  color: hsl(var(--muted-foreground));
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Remove default focus ring — we provide our own layout focus */
+.wysiwyg-root .tiptap:focus {
+  outline: none;
+}
+
+/* Ensure headings inside the editor match prose scale */
+.wysiwyg-root .tiptap h1 { font-size: 1.875rem; font-weight: 700; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+.wysiwyg-root .tiptap h2 { font-size: 1.375rem; font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.5rem; }
+.wysiwyg-root .tiptap h3 { font-size: 1.125rem; font-weight: 600; margin-top: 1rem; margin-bottom: 0.375rem; }
+
+/* Inline code */
+.wysiwyg-root .tiptap code {
+  background: hsl(var(--muted));
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+}
+
+/* Blockquote */
+.wysiwyg-root .tiptap blockquote {
+  border-left: 3px solid hsl(var(--border));
+  margin-left: 0;
+  padding-left: 1rem;
+  color: hsl(var(--muted-foreground));
+}
+
+/* HR */
+.wysiwyg-root .tiptap hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1.5rem 0;
+}
+
+/* Lists */
+.wysiwyg-root .tiptap ul { list-style-type: disc; padding-left: 1.5rem; }
+.wysiwyg-root .tiptap ol { list-style-type: decimal; padding-left: 1.5rem; }
+.wysiwyg-root .tiptap li { margin: 0.2rem 0; }

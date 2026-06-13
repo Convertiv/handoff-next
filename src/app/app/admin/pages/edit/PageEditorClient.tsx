@@ -9,29 +9,7 @@ import type { HandoffPageRow } from '../../../../lib/server/doc-pages';
 import { Button } from '../../../../components/ui/button';
 import { Input } from '../../../../components/ui/input';
 import { Label } from '../../../../components/ui/label';
-import { Textarea } from '../../../../components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../../../components/ui/tabs';
-
-// ── markdown preview ───────────────────────────────────────────────────────────
-
-function MarkdownPreview({ markdown }: { markdown: string }) {
-  if (!markdown.trim()) {
-    return (
-      <div className="flex min-h-[200px] items-center justify-center text-sm text-muted-foreground">
-        Nothing to preview yet.
-      </div>
-    );
-  }
-  // Render raw markdown as pre-formatted text for now — no external dependency needed.
-  // Replace with a remark/react-markdown component if desired in a future iteration.
-  return (
-    <div className="prose prose-sm dark:prose-invert max-w-none rounded-md border bg-muted/30 p-4">
-      <pre className="whitespace-pre-wrap text-sm">{markdown}</pre>
-    </div>
-  );
-}
-
-// ── main client component ──────────────────────────────────────────────────────
+import { WysiwygEditor } from '../../../../components/Markdown/WysiwygEditor';
 
 export default function PageEditorClient({
   slug,
@@ -77,7 +55,7 @@ export default function PageEditorClient({
     });
   }, [slug, title, description, markdown]);
 
-  // Ctrl/Cmd+S shortcut
+  // ⌘S / Ctrl+S
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -99,11 +77,9 @@ export default function PageEditorClient({
     subSections: [],
   };
 
-  const liveUrl = `/${slug}`;
-
   return (
     <Layout config={config} menu={menu} current={current} metadata={layoutMeta}>
-      <div className="mx-auto max-w-4xl space-y-6" onKeyDown={handleKeyDown}>
+      <div className="mx-auto max-w-3xl space-y-6" onKeyDown={handleKeyDown}>
         {/* header row */}
         <div className="flex flex-wrap items-center gap-3">
           <Button asChild variant="ghost" size="sm" className="-ml-2 gap-1.5 text-muted-foreground">
@@ -114,7 +90,7 @@ export default function PageEditorClient({
           <div className="flex-1" />
           <code className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground">{slug}</code>
           <Button asChild variant="outline" size="sm" className="gap-1.5">
-            <a href={liveUrl} target="_blank" rel="noopener noreferrer">
+            <a href={`/${slug}`} target="_blank" rel="noopener noreferrer">
               <Eye className="h-4 w-4" /> Preview
             </a>
           </Button>
@@ -149,32 +125,27 @@ export default function PageEditorClient({
             <Label htmlFor="page-description">Description</Label>
             <Input
               id="page-description"
-              placeholder="Short description shown in search and meta"
+              placeholder="Short description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
           </div>
         </div>
 
-        {/* markdown editor / preview tabs */}
-        <Tabs defaultValue="write" className="w-full">
-          <TabsList className="mb-3">
-            <TabsTrigger value="write">Write</TabsTrigger>
-            <TabsTrigger value="preview">Preview</TabsTrigger>
-          </TabsList>
-          <TabsContent value="write">
-            <Textarea
-              className="min-h-[500px] resize-y font-mono text-sm"
-              placeholder="Write your page content in Markdown…"
-              value={markdown}
-              onChange={(e) => setMarkdown(e.target.value)}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">Supports Markdown. Press ⌘S / Ctrl+S to save.</p>
-          </TabsContent>
-          <TabsContent value="preview">
-            <MarkdownPreview markdown={markdown} />
-          </TabsContent>
-        </Tabs>
+        {/* WYSIWYG body editor */}
+        <div className="rounded-lg border bg-background px-6 py-5 focus-within:ring-1 focus-within:ring-primary/30">
+          <WysiwygEditor
+            content={markdown}
+            onChange={setMarkdown}
+            placeholder="Start writing your page content…"
+          />
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Select text to format. Type <kbd className="rounded bg-muted px-1 font-mono">##&nbsp;</kbd> for headings,{' '}
+          <kbd className="rounded bg-muted px-1 font-mono">-&nbsp;</kbd> for lists,{' '}
+          <kbd className="rounded bg-muted px-1 font-mono">**bold**</kbd> inline. Press ⌘S to save.
+        </p>
       </div>
     </Layout>
   );
