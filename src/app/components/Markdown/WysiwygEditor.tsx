@@ -6,8 +6,12 @@ import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import Typography from '@tiptap/extension-typography';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { TableCell } from '@tiptap/extension-table-cell';
 import { Markdown } from 'tiptap-markdown';
-import { Bold, Code, Italic, Link as LinkIcon } from 'lucide-react';
+import { Bold, Code, Italic, Link as LinkIcon, Table as TableIcon, Columns2, Rows2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import './wysiwyg.css';
 
@@ -36,6 +40,10 @@ export function WysiwygEditor({
       }),
       Placeholder.configure({ placeholder }),
       Typography,
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Markdown.configure({
         html: false,
         transformPastedText: true,
@@ -105,13 +113,17 @@ function SelectionToolbar({
       isItalic: ctx.editor.isActive('italic'),
       isCode: ctx.editor.isActive('code'),
       isLink: ctx.editor.isActive('link'),
+      isInTable: ctx.editor.isActive('table'),
       isEmpty: ctx.editor.state.selection.empty,
     }),
   });
 
-  // Position the toolbar above the current selection using native Selection API
+  // Position the toolbar above the current selection (or active table cell)
   useEffect(() => {
-    if (state.isEmpty) {
+    const hasSelection = !state.isEmpty;
+    const showForTable = state.isInTable;
+
+    if (!hasSelection && !showForTable) {
       setVisible(false);
       return;
     }
@@ -123,7 +135,7 @@ function SelectionToolbar({
     }
 
     const range = domSelection.getRangeAt(0);
-    if (range.collapsed) {
+    if (range.collapsed && !showForTable) {
       setVisible(false);
       return;
     }
@@ -133,7 +145,6 @@ function SelectionToolbar({
     const toolbar = toolbarRef.current;
     if (!toolbar) return;
 
-    // Use the selection's bounding rect as a virtual element
     const rect = range.getBoundingClientRect();
     const virtualEl = {
       getBoundingClientRect: () => rect,
@@ -147,7 +158,7 @@ function SelectionToolbar({
       toolbar.style.left = `${x}px`;
       toolbar.style.top = `${y}px`;
     });
-  }, [state.isEmpty, state.isBold, state.isItalic, state.isCode, state.isLink]);
+  }, [state.isEmpty, state.isInTable, state.isBold, state.isItalic, state.isCode, state.isLink]);
 
   if (!visible) return null;
 
@@ -185,6 +196,24 @@ function SelectionToolbar({
       </ToolbarButton>
       <div className="mx-0.5 h-4 w-px bg-border" />
       <HeadingPicker editor={editor} />
+      <div className="mx-0.5 h-4 w-px bg-border" />
+      {state.isInTable ? (
+        <TableControls editor={editor} />
+      ) : (
+        <ToolbarButton
+          active={false}
+          onClick={() =>
+            editor
+              .chain()
+              .focus()
+              .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+              .run()
+          }
+          title="Insert table"
+        >
+          <TableIcon className="h-3.5 w-3.5" />
+        </ToolbarButton>
+      )}
     </div>
   );
 }
@@ -214,6 +243,76 @@ function ToolbarButton({
     >
       {children}
     </button>
+  );
+}
+
+function TableControls({
+  editor,
+}: {
+  editor: NonNullable<ReturnType<typeof useEditor>>;
+}) {
+  return (
+    <>
+      <div className="group/tc relative">
+        <button
+          type="button"
+          className="flex h-7 min-w-[28px] items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="Column actions"
+        >
+          <Columns2 className="h-3.5 w-3.5" />
+        </button>
+        <div className="absolute left-0 top-full z-50 mt-1 hidden min-w-[140px] flex-col rounded-lg border bg-popover shadow-md group-hover/tc:flex group-focus-within/tc:flex">
+          {[
+            { label: 'Add column before', fn: () => editor.chain().focus().addColumnBefore().run() },
+            { label: 'Add column after', fn: () => editor.chain().focus().addColumnAfter().run() },
+            { label: 'Delete column', fn: () => editor.chain().focus().deleteColumn().run() },
+          ].map(({ label, fn }) => (
+            <button
+              key={label}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); fn(); }}
+              className="px-4 py-1.5 text-left text-sm text-muted-foreground first:rounded-t-lg last:rounded-b-lg hover:bg-muted hover:text-foreground"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="group/tr relative">
+        <button
+          type="button"
+          className="flex h-7 min-w-[28px] items-center justify-center rounded px-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          title="Row actions"
+        >
+          <Rows2 className="h-3.5 w-3.5" />
+        </button>
+        <div className="absolute left-0 top-full z-50 mt-1 hidden min-w-[140px] flex-col rounded-lg border bg-popover shadow-md group-hover/tr:flex group-focus-within/tr:flex">
+          {[
+            { label: 'Add row before', fn: () => editor.chain().focus().addRowBefore().run() },
+            { label: 'Add row after', fn: () => editor.chain().focus().addRowAfter().run() },
+            { label: 'Delete row', fn: () => editor.chain().focus().deleteRow().run() },
+          ].map(({ label, fn }) => (
+            <button
+              key={label}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); fn(); }}
+              className="px-4 py-1.5 text-left text-sm text-muted-foreground first:rounded-t-lg last:rounded-b-lg hover:bg-muted hover:text-foreground"
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <ToolbarButton
+        active={false}
+        onClick={() => editor.chain().focus().deleteTable().run()}
+        title="Delete table"
+      >
+        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+      </ToolbarButton>
+    </>
   );
 }
 
