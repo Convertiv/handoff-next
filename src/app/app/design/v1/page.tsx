@@ -1,14 +1,18 @@
 import type { ComponentListObject } from '@handoff/transformers/preview/types';
-import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
 import { auth } from '@/lib/auth';
-import { getDataProvider } from '../../lib/data';
-import { isServerAiConfigured } from '../../lib/server/ai-client';
-import { serializeFoundationsFromTokens } from '../../lib/server/design-prompt-builder';
-import type { Metadata as DocMetadata } from '../../components/util';
-import CloudFeatureGate from '../../components/CloudFeatureGate';
+import { getDataProvider } from '../../../lib/data';
+import { isServerAiConfigured } from '../../../lib/server/ai-client';
+import { serializeFoundationsFromTokens } from '../../../lib/server/design-prompt-builder';
+import type { Metadata as DocMetadata } from '../../../components/util';
+import CloudFeatureGate from '../../../components/CloudFeatureGate';
 import { getHandoffCapabilities } from '@/lib/handoff-capabilities';
 import DesignClient from './DesignClient';
-import type { DesignWorkbenchComponentPreviewRef, DesignWorkbenchComponentRow, DesignWorkbenchFoundationContext } from './workbench-types';
+import type {
+  DesignWorkbenchComponentPreviewRef,
+  DesignWorkbenchComponentRow,
+  DesignWorkbenchFoundationContext,
+} from '../workbench-types';
 
 function summarizeProps(props: unknown): string {
   if (!props || typeof props !== 'object') return '';
@@ -54,7 +58,7 @@ type DesignPageProps = {
   searchParams?: Promise<{ loadArtifact?: string | string[] }>;
 };
 
-export default async function NewDesignPage({ searchParams }: DesignPageProps) {
+export default async function DesignPage({ searchParams }: DesignPageProps) {
   const sp = searchParams ? await searchParams : {};
   const raw = sp.loadArtifact;
   const loadArtifactId = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? '').trim() : '';

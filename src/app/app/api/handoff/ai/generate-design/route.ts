@@ -82,6 +82,8 @@ export async function POST(request: NextRequest) {
     const quality = toAllowedImageQuality(String(formData.get('quality') ?? 'auto'));
     let designGuidelines = String(formData.get('designGuidelines') ?? '').trim();
     let brandVoiceGuidelines = String(formData.get('brandVoiceGuidelines') ?? '').trim();
+    const layoutGuideDescription = String(formData.get('layoutGuideDescription') ?? '').trim();
+    const layoutGuideImageIncluded = String(formData.get('layoutGuideImageIncluded') ?? '') === 'true';
     const promptImageCount = Math.max(0, Number.parseInt(String(formData.get('promptImageCount') ?? '0'), 10) || 0);
     if (!prompt) {
       return NextResponse.json({ error: 'prompt is required' }, { status: 400 });
@@ -139,7 +141,9 @@ export async function POST(request: NextRequest) {
 
     if (customFoundationImageInput) {
       images.push(customFoundationImageInput);
-      imageOrderLabels.push('custom-foundations.png: custom foundation reference image from settings.');
+      imageOrderLabels.push(
+        'custom-foundations.png: custom foundation style reference from settings. Use only for styling; do not reproduce it as visible content.'
+      );
     } else {
       try {
         const foundationPng = await renderFoundationsImage(foundationContext);
@@ -149,7 +153,9 @@ export async function POST(request: NextRequest) {
             contentType: 'image/png',
             data: foundationPng,
           });
-          imageOrderLabels.push('design-system-foundations.png: generated design system foundations reference from settings/tokens.');
+          imageOrderLabels.push(
+            'design-system-foundations.png: generated design system foundation style reference from settings/tokens. Use only for styling; do not reproduce the sheet as visible content.'
+          );
         }
       } catch (foundationErr) {
         console.error('[generate-design] foundation raster failed:', foundationErr);
@@ -231,6 +237,8 @@ export async function POST(request: NextRequest) {
       brandVoiceGuidelines,
       customFoundationImageIncluded: Boolean(customFoundationImageInput),
       promptImageCount,
+      layoutGuideDescription,
+      layoutGuideImageIncluded,
       attachedImageLabels: imageOrderLabels,
     });
 
@@ -238,7 +246,7 @@ export async function POST(request: NextRequest) {
       prompt: fullPrompt,
       images,
       model: 'gpt-image-2',
-      size: '1024x1024',
+      size: '2048x1152',
       quality,
       actorUserId: userId,
       route: '/api/handoff/ai/generate-design',

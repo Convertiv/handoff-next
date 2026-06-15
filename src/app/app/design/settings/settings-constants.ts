@@ -54,20 +54,20 @@ export const COMPONENT_REFERENCE_SETTINGS = [
     label: 'Buttons',
     description: 'Upload a reference image showing default button styles and states.',
     storageKey: 'handoff.design.componentReference.buttons',
-    filename: 'buttons.png',
+    filename: 'design-system-buttons.png',
   },
   {
     id: 'inputs',
     label: 'Inputs',
     description: 'Upload a reference image showing default input, textarea, and form field styles.',
     storageKey: 'handoff.design.componentReference.inputs',
-    filename: 'inputs.png',
+    filename: 'design-system-inputs.png',
   },
   {
     id: 'iconography',
     label: 'Iconography',
     description: 'Upload a reference image showing icon style, stroke weight, fill treatment, and visual metaphor patterns.',
     storageKey: 'handoff.design.componentReference.iconography',
-    filename: 'iconography.png',
+    filename: 'design-system-icons.png',
   },
 ] as const;

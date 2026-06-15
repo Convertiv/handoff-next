@@ -10,7 +10,7 @@ export type TextContent = { type: 'text'; text: string };
 export type MessageContent = string | (TextContent | ImageContent)[];
 
 export type ChatMessage = { role: 'system' | 'user'; content: MessageContent };
-export type ImageEditSize = '1024x1024' | '1536x1024' | '1024x1536' | 'auto';
+export type ImageEditSize = '1024x1024' | '1536x1024' | '1024x1536' | '2048x1152' | 'auto';
 export type ImageEditQuality = 'auto' | 'low' | 'medium' | 'high';
 export type ImageEditInput = {
   filename: string;
