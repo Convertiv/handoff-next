@@ -10,6 +10,7 @@ import {
   FileTextIcon,
   LayoutGridIcon,
   LibraryIcon,
+  LightbulbIcon,
   Loader2Icon,
   MoreHorizontalIcon,
   PaperclipIcon,
@@ -91,6 +92,17 @@ const CANVAS_MIN_SCALE = 0.2;
 const CANVAS_PROMPT_SAFE_AREA = 144;
 const TRACKPAD_ZOOM_STEP = 0.01;
 const LAYOUT_WIZARD_PROMPT = 'Make me a design using our design system based on this wireframe.';
+const PROMPT_SUGGESTIONS = [
+  'Design a modern SaaS landing page hero for a productivity app.',
+  'Create a pricing section with three plans and a highlighted recommended tier.',
+  'Make an onboarding screen that helps a new user set up their workspace.',
+  'Design a dashboard overview with key metrics, recent activity, and quick actions.',
+  'Create a mobile checkout flow for a boutique ecommerce store.',
+  'Design a settings page for managing team members and permissions.',
+  'Make a feature comparison section for a product marketing page.',
+  'Create an empty state for a project dashboard with a clear next action.',
+  'Design a calendar scheduling screen for booking customer calls.',
+];
 
 function formatGenerationTimestamp(createdAt: string): string {
   const date = new Date(createdAt);
@@ -153,6 +165,7 @@ const NewDesignClient = ({
   const [layoutGuideWireframeUrl, setLayoutGuideWireframeUrl] = useState('');
   const [isAnalyzingLayoutGuide, setIsAnalyzingLayoutGuide] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [promptSuggestionsOpen, setPromptSuggestionsOpen] = useState(false);
   const [imageQuality, setImageQuality] = useState<ImageQuality>('auto');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [conversationHistory, setConversationHistory] = useState<DesignConversationTurn[]>([]);
@@ -1194,24 +1207,66 @@ const NewDesignClient = ({
               <div className="space-y-5">
                 <p className="text-xl font-regular text-foreground">{isGenerating ? 'Generating design...' : 'What are we designing today?'}</p>
                 {!isGenerating ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
-                    onClick={handleOpenLayoutWizard}
-                  >
-                    <WandSparklesIcon className="h-2.5 w-2.5" />
-                    Layout wizard
-                  </Button>
+                  <div className="flex items-center justify-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
+                      onClick={handleOpenLayoutWizard}
+                    >
+                      <WandSparklesIcon className="h-2.5 w-2.5" />
+                      Layout wizard
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
+                      onClick={() => setPromptSuggestionsOpen((open) => !open)}
+                      aria-expanded={promptSuggestionsOpen}
+                    >
+                      <LightbulbIcon className="h-2.5 w-2.5" />
+                      Try a prompt
+                    </Button>
+                  </div>
                 ) : null}
               </div>
             </div>
           ) : null}
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-12">
-            <div className="pointer-events-auto mx-auto w-full max-w-3xl">
+            <div className="pointer-events-auto relative mx-auto w-full max-w-3xl">
               {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
+              {!imageSrc && promptSuggestionsOpen ? (
+                <div className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] animate-in fade-in-0 slide-in-from-bottom-2 duration-200 rounded-2xl border border-gray-200 bg-white p-2 text-left shadow-lg">
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <p className="text-xs font-medium text-gray-500">Prompt suggestions</p>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
+                      onClick={() => setPromptSuggestionsOpen(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
+                    {PROMPT_SUGGESTIONS.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="block w-full rounded-xl px-3 py-2 text-left text-sm text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+                        onClick={() => {
+                          setPrompt(suggestion);
+                          setPromptSuggestionsOpen(false);
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-2xl border border-gray-200 bg-white shadow-lg">
                 <Label htmlFor="design-prompt" className="sr-only">
                   {imageSrc ? 'Refine' : 'Prompt'}
