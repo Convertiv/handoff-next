@@ -10,6 +10,7 @@ import processComponents from '@handoff/transformers/preview/component/builder';
 import { buildMainCss } from '@handoff/transformers/preview/component/css';
 import { buildMainJS } from '@handoff/transformers/preview/component/javascript';
 import { Logger } from '@handoff/utils/logger';
+import { resolveAvailablePort } from '@handoff/utils/port';
 import { generatePlaygroundAssetsApi, generateTokensApi, persistClientConfig } from './client-config.js';
 import {
   BUNDLE_VERSION_FILENAME,
@@ -109,6 +110,60 @@ async function syncIncrementalAppSource(srcPath: string, destPath: string): Prom
   await fs.ensureDir(destPath);
   await walk(srcPath, destPath, true);
   return updated;
+}
+
+/**
+ * Remove materialized files that no longer exist in handoff-app source.
+ * `fs.copy` merge syncs forward only; deleted source files would otherwise linger
+ * (e.g. middleware.ts after migrating to proxy.ts in Next.js 16).
+ */
+async function pruneStaleAppSourceFiles(srcPath: string, destPath: string): Promise<number> {
+  if (!(await fs.pathExists(destPath))) return 0;
+  let removed = 0;
+
+  const walk = async (src: string, dest: string, isRoot: boolean): Promise<void> => {
+    const destEntries = await fs.readdir(dest, { withFileTypes: true });
+    for (const entry of destEntries) {
+      if (isRoot && INCREMENTAL_SYNC_EXCLUDES.has(entry.name)) continue;
+      const srcFile = path.join(src, entry.name);
+      const destFile = path.join(dest, entry.name);
+      if (!(await fs.pathExists(srcFile))) {
+        await fs.remove(destFile);
+        removed++;
+        continue;
+      }
+      if (entry.isDirectory()) {
+        await walk(srcFile, destFile, false);
+      }
+    }
+  };
+
+  await walk(srcPath, destPath, true);
+  return removed;
+}
+
+/** Next.js 16 uses proxy.ts; remove stale materialized middleware.ts from older bundles. */
+async function removeLegacyMiddlewareFile(appPath: string): Promise<void> {
+  const legacy = path.join(appPath, 'middleware.ts');
+  if (await fs.pathExists(legacy)) {
+    await fs.remove(legacy);
+  }
+}
+
+/** Update baked HANDOFF_WEBSOCKET_PORT when live reload binds a fallback port. */
+async function patchMaterializedWebsocketPort(appPath: string, wsPort: number): Promise<void> {
+  const nextConfigPath = path.join(appPath, 'next.config.mjs');
+  const portStr = String(wsPort);
+  let content = await fs.readFile(nextConfigPath, 'utf-8');
+  const updated = content
+    .replace(
+      /HANDOFF_WEBSOCKET_PORT:\s*resolveEnvPlaceholder\('[^']*',\s*'[^']*'\)/,
+      `HANDOFF_WEBSOCKET_PORT: resolveEnvPlaceholder('${portStr}', '${portStr}')`
+    )
+    .replace(/HANDOFF_WEBSOCKET_PORT:\s*'[^']*'/, `HANDOFF_WEBSOCKET_PORT: '${portStr}'`);
+  if (updated !== content) {
+    await fs.writeFile(nextConfigPath, updated);
+  }
 }
 
 /** Longest common ancestor directory of two absolute paths. */
@@ -335,6 +390,12 @@ const initializeProjectApp = async (handoff: Handoff, mode: BuildMode): Promise<
 
   await materializeMiddlewareHookModule(handoff, appPath);
 
+  const pruned = await pruneStaleAppSourceFiles(srcPath, appPath);
+  if (pruned > 0) {
+    Logger.info(`[handoff] Removed ${pruned} stale file(s) from materialized app.`);
+  }
+  await removeLegacyMiddlewareFile(appPath);
+
   const hostNodeModules = resolveHostNodeModulesDir(handoff.modulePath);
   // Symlink node_modules for every materialization mode (including Vercel ephemeral).
   // A separate `npm install` inside `.handoff/runtime` would install a second `next`,
@@ -542,7 +603,18 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
   watchAppSource(handoff, state, (h) => initializeProjectApp(h, 'dynamic'));
 
   const hostname = 'localhost';
-  const port = handoff.config.app.ports?.app ?? 3000;
+  const preferredPort = handoff.config.app.ports?.app ?? 3000;
+  const preferredWsPort = handoff.config.app.ports?.websocket ?? 3001;
+  const port = await resolveAvailablePort(preferredPort);
+  const wsPort = await resolveAvailablePort(preferredWsPort, { exclude: [port] });
+
+  if (port !== preferredPort) {
+    Logger.warn(`Port ${preferredPort} is in use; starting Next.js dev server on http://${hostname}:${port} instead.`);
+  }
+  if (wsPort !== preferredWsPort) {
+    Logger.warn(`Port ${preferredWsPort} is in use; using WebSocket live reload on port ${wsPort} instead.`);
+    await patchMaterializedWebsocketPort(appPath, wsPort);
+  }
 
   // purge out cache and stale bundler output (e.g. after switching webpack → Turbopack)
   const moduleOutput = path.resolve(appPath, 'out');
@@ -585,7 +657,7 @@ export const watchApp = async (handoff: Handoff): Promise<void> => {
     process.exit(code ?? 1);
   });
 
-  const wss = await createWebSocketServer(handoff.config.app.ports?.websocket ?? 3001);
+  const wss = await createWebSocketServer(wsPort);
 
   const chokidarConfig = {
     ignored: /(^|[\/\\])\../, // ignore dotfiles
@@ -618,17 +690,21 @@ export const devApp = async (handoff: Handoff): Promise<void> => {
   // Persist client configuration
   await persistClientConfig(handoff);
 
-  const devPort = handoff.config.app.ports?.app ?? 3000;
-  Logger.info(`Starting Next.js dev server on port ${devPort}…`);
+  const preferredPort = handoff.config.app.ports?.app ?? 3000;
+  const port = await resolveAvailablePort(preferredPort);
+  if (port !== preferredPort) {
+    Logger.warn(`Port ${preferredPort} is in use; starting Next.js dev server on port ${port} instead.`);
+  }
+  Logger.info(`Starting Next.js dev server on port ${port}…`);
 
   const nextBin = resolveNextBinFromHandoffPackage(handoff.modulePath);
-  const devResult = spawn.sync(process.execPath, [nextBin, 'dev', '--port', String(devPort)], {
+  const devResult = spawn.sync(process.execPath, [nextBin, 'dev', '--port', String(port)], {
     cwd: appPath,
     stdio: ['inherit', 'pipe', 'pipe'],
     env: {
       ...process.env,
       NODE_ENV: 'development',
-      PORT: String(devPort),
+      PORT: String(port),
     },
   });
 

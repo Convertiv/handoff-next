@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { X, Trash2, Sparkles } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import { useChatContext } from './ChatContext';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -48,20 +49,21 @@ export function ChatDrawer({ basePath }: Props) {
         />
       )}
 
-      {/* Drawer panel */}
+      {/* Drawer panel — hidden off-screen when closed; pointer-events disabled so it cannot block nav clicks */}
       <div
         role="dialog"
         aria-label="Design system assistant"
-        aria-modal="true"
-        className={`
-          fixed bottom-0 right-0 z-50 flex flex-col
-          w-full md:w-[420px] md:max-w-[50vw]
-          h-[85dvh] md:h-[calc(100dvh-4rem)]
-          bg-background border-l border-t border-border shadow-xl
-          rounded-tl-2xl md:rounded-tl-2xl md:rounded-tr-none
-          transition-transform duration-300 ease-in-out
-          ${isOpen ? 'translate-y-0 md:translate-x-0' : 'translate-y-full md:translate-y-0 md:translate-x-full'}
-        `}
+        aria-modal={isOpen}
+        aria-hidden={!isOpen}
+        className={cn(
+          'fixed bottom-0 right-0 flex flex-col',
+          'w-full md:w-[420px] md:max-w-[50vw]',
+          'h-[85dvh] md:h-[calc(100dvh-4rem)]',
+          'bg-background border-l border-t border-border shadow-xl',
+          'rounded-tl-2xl md:rounded-tl-2xl md:rounded-tr-none',
+          'transition-transform duration-300 ease-in-out',
+          isOpen ? 'z-50 translate-y-0 md:translate-x-0' : 'z-40 pointer-events-none translate-y-full md:translate-y-0 md:translate-x-full',
+        )}
       >
         {/* Header */}
         <div className="flex shrink-0 items-center gap-2 border-b border-border px-4 py-3">

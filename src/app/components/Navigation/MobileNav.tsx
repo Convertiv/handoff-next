@@ -52,8 +52,8 @@ export function MobileNav() {
       <SheetContent side="right" className="w-full max-w-[300px] [&>button:first-of-type]:hidden">
         <SheetHeader className="flex flex-row items-center justify-between">
           <SheetTitle>
-            <Link href="/">
-              <img className="max-h-5" src={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/logo.svg`} alt={context.config?.app?.title} />
+            <Link href="/" className="inline-flex shrink-0 items-center">
+              <img className="h-5 w-auto max-w-[160px] object-contain object-left" src={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/logo.svg`} alt={context.config?.app?.title} />
             </Link>
           </SheetTitle>
           <SheetTrigger asChild>

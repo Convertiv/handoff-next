@@ -2,6 +2,17 @@
 
 @import 'tailwindcss';
 
+/*
+ * The materialized Next app runs under `.handoff/app/` (gitignored). Tailwind v4
+ * skips gitignored paths during auto-detection, so responsive utilities like
+ * `lg:flex`, `md:block`, and `@2xl:flex` would never be emitted unless we
+ * register sources explicitly.
+ */
+@source '../app';
+@source '../components';
+@source '../hooks';
+@source '../lib';
+
 @plugin 'tailwindcss-animate';
 @plugin '@tailwindcss/typography';
 @plugin '@tailwindcss/container-queries';
