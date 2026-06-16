@@ -79,7 +79,7 @@ export default function SessionHistoryPanel({ image, onClose, onSetAsCanvas, onS
             {/* Metadata */}
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
               <span>Status: <strong className="text-foreground">{image.status}</strong></span>
-              {image.ts ? <span>{formatTs(image.ts)}</span> : null}
+              {image.ts || image.createdAt ? <span>{formatTs(image.ts ?? image.createdAt)}</span> : null}
               {image.jobId ? <span>Job #{image.jobId}</span> : null}
               {image.artifactId ? (
                 <a

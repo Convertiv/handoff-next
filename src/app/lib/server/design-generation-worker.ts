@@ -31,15 +31,21 @@ export type DesignGenerationRequestParams = {
   promptImageCount: number;
   /** User-attached prompt images stored as base64 (max 3, max 2MB each) */
   attachedImages?: StoredImage[];
+  /** Labels matching attachedImages order (designer-assembled references) */
+  attachedImageLabels?: string[];
+  layoutGuideDescription?: string;
+  layoutGuideImageIncluded?: boolean;
+  /** Custom foundation image uploaded with the request */
+  customFoundationImage?: StoredImage | null;
 };
 
-const MAX_ATTACHED = 3;
+const MAX_ATTACHED = 12;
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
 /** Serialize FormData images into a storable list (caps count and size). */
-export async function serializeAttachedImages(files: File[]): Promise<StoredImage[]> {
+export async function serializeAttachedImages(files: File[], maxCount = MAX_ATTACHED): Promise<StoredImage[]> {
   const result: StoredImage[] = [];
-  for (const f of files.slice(0, MAX_ATTACHED)) {
+  for (const f of files.slice(0, maxCount)) {
     if (f.size > MAX_IMAGE_BYTES) continue;
     const ct = f.type as StoredImage['contentType'];
     if (ct !== 'image/png' && ct !== 'image/jpeg' && ct !== 'image/webp') continue;
@@ -113,48 +119,76 @@ export async function runDesignGenerationJob(jobId: number, actorUserId: string)
 
     const images: ImageEditInput[] = [];
     const imageOrderLabels: string[] = [];
+    const designerAssembled = Boolean(params.attachedImageLabels?.length && params.attachedImages?.length);
 
     // Foundation image
-    if (workspaceResolved.customFoundationImageUrl.startsWith('data:image/')) {
+    if (params.customFoundationImage) {
+      images.push(storedImageToEditInput(params.customFoundationImage));
+      imageOrderLabels.push(
+        'custom-foundations.png: custom foundation style reference from settings. Use only for styling; do not reproduce it as visible content.'
+      );
+    } else if (workspaceResolved.customFoundationImageUrl.startsWith('data:image/')) {
       const input = await urlToEditInput(workspaceResolved.customFoundationImageUrl);
       if (input) {
         images.push(input);
-        imageOrderLabels.push('custom-foundations.png: custom foundation reference image from settings.');
+        imageOrderLabels.push(
+          'custom-foundations.png: custom foundation style reference from settings. Use only for styling; do not reproduce it as visible content.'
+        );
       }
+    } else if (!designerAssembled) {
+      try {
+        const foundationPng = await renderFoundationsImage(params.foundationContext);
+        if (foundationPng) {
+          images.push({ filename: 'design-system-foundations.png', contentType: 'image/png', data: foundationPng });
+          imageOrderLabels.push(
+            'design-system-foundations.png: generated design system foundation style reference from settings/tokens. Use only for styling; do not reproduce the sheet as visible content.'
+          );
+        }
+      } catch { /* non-fatal */ }
     } else {
       try {
         const foundationPng = await renderFoundationsImage(params.foundationContext);
         if (foundationPng) {
           images.push({ filename: 'design-system-foundations.png', contentType: 'image/png', data: foundationPng });
-          imageOrderLabels.push('design-system-foundations.png: generated design system foundations reference.');
+          imageOrderLabels.push(
+            'design-system-foundations.png: generated design system foundation style reference from settings/tokens. Use only for styling; do not reproduce the sheet as visible content.'
+          );
         }
       } catch { /* non-fatal */ }
     }
 
-    // Iteration base (current canvas)
-    if (params.iterationBaseUrl) {
-      const input = await urlToEditInput(params.iterationBaseUrl);
-      if (input) {
-        images.push(input);
-        imageOrderLabels.push('iteration-base.png: main canvas image the user is referring to for this request.');
+    if (designerAssembled) {
+      for (let i = 0; i < (params.attachedImages ?? []).length; i += 1) {
+        const img = params.attachedImages![i];
+        images.push(storedImageToEditInput(img));
+        imageOrderLabels.push(params.attachedImageLabels![i] ?? `${img.filename}: attached reference image.`);
       }
-    }
+    } else {
+      // Iteration base (current canvas)
+      if (params.iterationBaseUrl) {
+        const input = await urlToEditInput(params.iterationBaseUrl);
+        if (input) {
+          images.push(input);
+          imageOrderLabels.push('iteration-base.png: main canvas image the user is referring to for this request.');
+        }
+      }
 
-    // Component references from workspace
-    for (const ref of workspaceResolved.componentReferenceFiles) {
-      const match = ref.dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
-      if (!match) continue;
-      const ct = match[1] as ImageEditInput['contentType'];
-      if (ct !== 'image/png' && ct !== 'image/jpeg' && ct !== 'image/webp') continue;
-      const setting = COMPONENT_REFERENCE_SETTINGS.find((s) => s.id === ref.slot);
-      images.push({ filename: ref.filename, contentType: ct, data: Buffer.from(match[2], 'base64') });
-      imageOrderLabels.push(`${ref.filename}: saved ${setting?.label.toLowerCase() ?? ref.slot} style reference.`);
-    }
+      // Component references from workspace
+      for (const ref of workspaceResolved.componentReferenceFiles) {
+        const match = ref.dataUrl.match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+        if (!match) continue;
+        const ct = match[1] as ImageEditInput['contentType'];
+        if (ct !== 'image/png' && ct !== 'image/jpeg' && ct !== 'image/webp') continue;
+        const setting = COMPONENT_REFERENCE_SETTINGS.find((s) => s.id === ref.slot);
+        images.push({ filename: ref.filename, contentType: ct, data: Buffer.from(match[2], 'base64') });
+        imageOrderLabels.push(`${ref.filename}: saved ${setting?.label.toLowerCase() ?? ref.slot} style reference.`);
+      }
 
-    // User-attached images
-    for (const img of params.attachedImages ?? []) {
-      images.push(storedImageToEditInput(img));
-      imageOrderLabels.push(`${img.filename}: user-attached reference image.`);
+      // User-attached images
+      for (const img of params.attachedImages ?? []) {
+        images.push(storedImageToEditInput(img));
+        imageOrderLabels.push(`${img.filename}: user-attached reference image.`);
+      }
     }
 
     if (images.length === 0) {
@@ -171,8 +205,10 @@ export async function runDesignGenerationJob(jobId: number, actorUserId: string)
       conversationHistory: params.conversationHistory,
       designGuidelines: workspaceResolved.designGuidelines,
       brandVoiceGuidelines: workspaceResolved.brandVoiceGuidelines,
-      customFoundationImageIncluded: Boolean(workspaceResolved.customFoundationImageUrl),
+      customFoundationImageIncluded: Boolean(params.customFoundationImage || workspaceResolved.customFoundationImageUrl),
       promptImageCount: params.promptImageCount,
+      layoutGuideDescription: params.layoutGuideDescription ?? '',
+      layoutGuideImageIncluded: Boolean(params.layoutGuideImageIncluded),
       attachedImageLabels: imageOrderLabels,
     });
 
@@ -182,7 +218,7 @@ export async function runDesignGenerationJob(jobId: number, actorUserId: string)
       prompt: fullPrompt,
       images,
       model: 'gpt-image-2',
-      size: '1024x1024',
+      size: '2048x1152',
       quality: params.quality,
       actorUserId,
       route: 'worker:design-generation',

@@ -2,16 +2,22 @@
 
 import {
   ArrowUpIcon,
+  ClipboardIcon,
+  CopyIcon,
   DownloadIcon,
-  Eye,
-  ImageIcon,
+  FileTextIcon,
   InfoIcon,
+  LayoutGridIcon,
+  LibraryIcon,
+  LightbulbIcon,
   Loader2Icon,
+  MoreHorizontalIcon,
   PaperclipIcon,
+  PlusIcon,
   RotateCcwIcon,
   SettingsIcon,
-  SquareDashedMousePointer,
   Trash2Icon,
+  WandSparklesIcon,
   XIcon,
   ZoomInIcon,
   ZoomOutIcon,
@@ -22,16 +28,26 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
 import Layout from '../../components/Layout/Main';
-import { handoffApiUrl } from '../../lib/api-path';
 import { Button } from '../../components/ui/button';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../components/ui/collapsible';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../components/ui/dropdown-menu';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Textarea } from '../../components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import type { DocumentationProps } from '../../components/util';
-import { LOGIN_TO_USE_TOOL_MESSAGE } from '@/lib/login-required-messages';
+import { handoffApiUrl } from '../../lib/api-path';
+import { applyWorkspaceToState, fetchDesignWorkspace, readLocalStorageWorkspace } from '../../lib/design-workspace-client';
+import { formatBrandVoiceForPrompt } from '../../lib/design-workspace-format';
+import { LOGIN_TO_USE_TOOL_MESSAGE } from '../../lib/login-required-messages';
 import type {
   DesignConversationTurn,
   DesignWorkbenchComponentGuide,
@@ -40,16 +56,6 @@ import type {
   GeneratedImage,
 } from './workbench-types';
 import {
-  applyWorkspaceToState,
-  fetchDesignWorkspace,
-  readLocalStorageWorkspace,
-} from '@/lib/design-workspace-client';
-import { formatBrandVoiceForPrompt } from '@/lib/design-workspace-format';
-import {
-  COMPONENT_REFERENCE_SETTINGS,
-  CUSTOM_FOUNDATION_IMAGE_FILENAME,
-} from './settings/settings-constants';
-import {
   clearWorkbenchSession,
   loadWorkbenchSession,
   saveWorkbenchSession,
@@ -57,20 +63,14 @@ import {
   type WorkbenchSession,
 } from './workbench-session';
 import SessionHistoryPanel from './SessionHistoryPanel';
+import { COMPONENT_REFERENCE_SETTINGS, CUSTOM_FOUNDATION_IMAGE_FILENAME } from './settings/settings-constants';
 
-type AnnotationRect = {
-  id: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
+type LayoutWizardStatus = 'idle' | 'analyzing' | 'generating' | 'done';
+type SidebarTab = 'session' | 'layout' | 'library';
 
-type DraftAnnotation = {
-  startX: number;
-  startY: number;
-  currentX: number;
-  currentY: number;
+type LayoutAnalysisResult = {
+  description: string;
+  wireframeImage: string;
 };
 
 type DesignClientProps = DocumentationProps & {
@@ -85,23 +85,51 @@ type DesignClientProps = DocumentationProps & {
   initialPrompt?: string;
 };
 
+const IMAGE_QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
+type ImageQuality = (typeof IMAGE_QUALITY_OPTIONS)[number];
+const EMPTY_FOUNDATIONS: DesignWorkbenchFoundationContext = { colors: [], typography: [], effects: [], spacing: [] };
+const PROMPT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const CANVAS_WIDTH = 2048;
+const CANVAS_HEIGHT = 1152;
+const CANVAS_INITIAL_SCALE = 0.35;
+const CANVAS_MIN_SCALE = 0.2;
+const CANVAS_PROMPT_SAFE_AREA = 144;
+const TRACKPAD_ZOOM_STEP = 0.01;
+const LAYOUT_WIZARD_PROMPT = 'Make me a design using our design system based on this wireframe.';
 const STAGE_LABELS: Record<string, string> = {
   preparing: 'Preparing…',
   building_prompt: 'Building prompt…',
   generating: 'Generating…',
 };
+const PROMPT_SUGGESTIONS = [
+  'Design a modern SaaS landing page hero for a productivity app.',
+  'Create a pricing section with three plans and a highlighted recommended tier.',
+  'Make an onboarding screen that helps a new user set up their workspace.',
+  'Design a dashboard overview with key metrics, recent activity, and quick actions.',
+  'Create a mobile checkout flow for a boutique ecommerce store.',
+  'Design a settings page for managing team members and permissions.',
+  'Make a feature comparison section for a product marketing page.',
+  'Create an empty state for a project dashboard with a clear next action.',
+  'Design a calendar scheduling screen for booking customer calls.',
+];
 
-const DESIGN_CLIENTS = ['ssc', '8x8'] as const;
-type DesignLibraryClient = (typeof DESIGN_CLIENTS)[number];
-const DESIGN_ASSETS = [{ name: 'carousel.png' }, { name: 'container.png' }, { name: 'hero.png' }];
-const IMAGE_QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
-type ImageQuality = (typeof IMAGE_QUALITY_OPTIONS)[number];
-const EMPTY_FOUNDATIONS: DesignWorkbenchFoundationContext = { colors: [], typography: [], effects: [], spacing: [] };
-const PROMPT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-const CANVAS_SIZE = 1024;
-const MIN_ANNOTATION_SIZE = 8;
+function formatGenerationTimestamp(createdAt: string | undefined): string {
+  if (!createdAt) return '';
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return '';
 
-const getDesignAssetSrc = (client: DesignLibraryClient, name: string) => `/assets/design/${client}/${name}`;
+  const now = new Date();
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate()
+  ) {
+    return `Today, ${time}`;
+  }
+
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + `, ${time}`;
+}
 
 function safeFoundationContext(raw: unknown): DesignWorkbenchFoundationContext {
   if (!raw || typeof raw !== 'object') {
@@ -122,12 +150,6 @@ async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
   return new File([blob], name, { type: blob.type || 'image/png' });
 }
 
-/** Full URL to the authenticated screenshot API for a preview HTML app path (includes basePath). */
-function componentScreenshotApiUrl(previewHtmlAppPath: string): string {
-  const endpoint = handoffApiUrl('/api/handoff/ai/component-screenshot');
-  return `${endpoint}?url=${encodeURIComponent(previewHtmlAppPath)}`;
-}
-
 const DesignWorkbenchPage = ({
   menu,
   metadata,
@@ -135,7 +157,6 @@ const DesignWorkbenchPage = ({
   config,
   isLoggedIn,
   serverAiAvailable,
-  components,
   foundations,
   loadArtifactId,
   initialComponentIds,
@@ -144,44 +165,51 @@ const DesignWorkbenchPage = ({
   const router = useRouter();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const promptImageInputRef = useRef<HTMLInputElement>(null);
-  const componentsRef = useRef(components);
-  componentsRef.current = components;
+  const layoutGuideInputRef = useRef<HTMLInputElement>(null);
+  const selectedGeneratedImageIdRef = useRef<string | null>(null);
+  const draftArtifactIdRef = useRef<string | null>(null);
+  const layoutWizardRunIdRef = useRef(0);
+  const layoutWizardTransitionTimerRef = useRef<number | null>(null);
+  /** True when the page was opened from the chat assistant with a pre-built prompt. Reset after first fire. */
+  const autoGenerateRef = useRef(Boolean(initialPrompt));
 
-  const [selectedClient, setSelectedClient] = useState<DesignLibraryClient>('ssc');
-  const [selectedAssetName, setSelectedAssetName] = useState<string | null>(null);
-  const [selectedGeneratedImageId, setSelectedGeneratedImageId] = useState<string | null>(null);
   const [promptImages, setPromptImages] = useState<File[]>([]);
   const [promptImagePreviewUrls, setPromptImagePreviewUrls] = useState<string[]>([]);
-  const [componentQuery, setComponentQuery] = useState('');
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [layoutGuideImage, setLayoutGuideImage] = useState<File | null>(null);
+  const [layoutGuidePreviewUrl, setLayoutGuidePreviewUrl] = useState('');
+  const [layoutGuideDescription, setLayoutGuideDescription] = useState('');
+  const [layoutGuideWireframeUrl, setLayoutGuideWireframeUrl] = useState('');
+  const [isAnalyzingLayoutGuide, setIsAnalyzingLayoutGuide] = useState(false);
   const [prompt, setPrompt] = useState('');
+  const [promptSuggestionsOpen, setPromptSuggestionsOpen] = useState(false);
   const [imageQuality, setImageQuality] = useState<ImageQuality>('auto');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
-  const [isAnnotating, setIsAnnotating] = useState(false);
-  const [annotations, setAnnotations] = useState<AnnotationRect[]>([]);
-  const [draftAnnotation, setDraftAnnotation] = useState<DraftAnnotation | null>(null);
   const [conversationHistory, setConversationHistory] = useState<DesignConversationTurn[]>([]);
   const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
+  const [selectedGeneratedImageId, setSelectedGeneratedImageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saveOpen, setSaveOpen] = useState(false);
-  const [saveTitle, setSaveTitle] = useState('');
-  const [saveDescription, setSaveDescription] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
   const [includeFoundations, setIncludeFoundations] = useState(true);
   const [customFoundationImageDataUrl, setCustomFoundationImageDataUrl] = useState('');
   const [componentReferenceDataUrls, setComponentReferenceDataUrls] = useState<Record<string, string>>({});
   const [designMd, setDesignMd] = useState('');
   const [brandVoice, setBrandVoice] = useState<Record<string, string>>({});
   const [effectiveFoundations, setEffectiveFoundations] = useState<DesignWorkbenchFoundationContext>(foundations);
-
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveTitle, setSaveTitle] = useState('');
+  const [saveDefaultTitle, setSaveDefaultTitle] = useState('');
+  const [saveDescription, setSaveDescription] = useState('');
+  const [saveImageSrc, setSaveImageSrc] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [layoutWizardOpen, setLayoutWizardOpen] = useState(false);
+  const [layoutWizardTransitioning, setLayoutWizardTransitioning] = useState(false);
+  const [layoutWizardClosing, setLayoutWizardClosing] = useState(false);
+  const [layoutWizardStatus, setLayoutWizardStatus] = useState<LayoutWizardStatus>('idle');
+  const [layoutWizardDisplayWireframeUrl, setLayoutWizardDisplayWireframeUrl] = useState('');
+  const [layoutWizardDisplayDescription, setLayoutWizardDisplayDescription] = useState('');
+  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('session');
   const [draftArtifactId, setDraftArtifactId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<WorkbenchSession | null>(null);
   const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
-
-  const selectedGeneratedImageIdRef = useRef<string | null>(null);
-  const draftArtifactIdRef = useRef<string | null>(null);
-  /** True when the page was opened from the chat assistant with a pre-built prompt. Reset after first fire. */
-  const autoGenerateRef = useRef(Boolean(initialPrompt));
 
   useEffect(() => {
     selectedGeneratedImageIdRef.current = selectedGeneratedImageId;
@@ -191,17 +219,14 @@ const DesignWorkbenchPage = ({
     draftArtifactIdRef.current = draftArtifactId;
   }, [draftArtifactId]);
 
-  // ── Session restore on mount ──────────────────────────────────────────────
   useEffect(() => {
-    if (loadArtifactId?.trim()) return; // explicit artifact load takes priority
+    if (loadArtifactId?.trim()) return;
     const saved = loadWorkbenchSession();
     if (!saved) return;
-    // Show banner; don't auto-restore — let user confirm
     setResumeSession(saved);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Restore in-flight server jobs on mount ────────────────────────────────
   useEffect(() => {
     if (!isLoggedIn) return;
     let cancelled = false;
@@ -227,12 +252,12 @@ const DesignWorkbenchPage = ({
               stage: j.stage,
               jobId: j.id,
               artifactId: j.artifactId ?? undefined,
+              createdAt: j.createdAt,
               ts: j.createdAt,
             }));
           if (toAdd.length === 0) return current;
           return [...toAdd, ...current];
         });
-        // Poll each active job until it completes
         for (const j of jobs.filter((j) => j.status === 'pending' || j.status === 'running')) {
           void pollJobUntilDone(j.id);
         }
@@ -242,21 +267,33 @@ const DesignWorkbenchPage = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
-  // ── Persist session to localStorage on relevant state changes ─────────────
   useEffect(() => {
     const recentImages = generatedImages
       .filter((img) => img.status === 'completed' && img.src)
       .slice(0, MAX_RECENT)
-      .map((img) => ({ id: img.id, src: img.src!, prompt: img.prompt, ts: img.ts ?? '' }));
+      .map((img) => ({ id: img.id, src: img.src!, prompt: img.prompt, ts: img.createdAt ?? img.ts ?? '' }));
     saveWorkbenchSession({
       draftArtifactId: draftArtifactIdRef.current,
       imageSrc,
-      selectedIds,
+      selectedIds: [],
       conversationHistory,
       recentImages,
       activeJobIds: generatedImages.filter((img) => img.status === 'pending' && img.jobId).map((img) => img.jobId!),
     });
-  }, [generatedImages, conversationHistory, imageSrc, selectedIds]);
+  }, [generatedImages, conversationHistory, imageSrc]);
+
+  useEffect(() => {
+    if (!initialComponentIds?.length && !initialPrompt) return;
+    if (initialPrompt) setPrompt(initialPrompt);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!autoGenerateRef.current || !prompt) return;
+    autoGenerateRef.current = false;
+    void handleGenerate();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prompt]);
 
   useEffect(() => {
     setEffectiveFoundations(foundations);
@@ -277,16 +314,15 @@ const DesignWorkbenchPage = ({
       const local = readLocalStorageWorkspace();
       setIncludeFoundations(local.includeFoundations);
       setCustomFoundationImageDataUrl(local.customFoundationImageUrl);
-      setComponentReferenceDataUrls(
-        Object.fromEntries(Object.entries(local.componentReferences).map(([k, v]) => [k, v.imageUrl]))
-      );
+      setComponentReferenceDataUrls(Object.fromEntries(Object.entries(local.componentReferences).map(([k, v]) => [k, v.imageUrl])));
       setDesignMd(local.designMd);
       setBrandVoice(local.brandVoice);
     };
+    const handleFocus = () => void readSetting();
     void readSetting();
-    window.addEventListener('focus', () => void readSetting());
+    window.addEventListener('focus', handleFocus);
     return () => {
-      window.removeEventListener('focus', () => void readSetting());
+      window.removeEventListener('focus', handleFocus);
     };
   }, []);
 
@@ -304,23 +340,19 @@ const DesignWorkbenchPage = ({
           artifact?: {
             imageUrl?: string;
             conversationHistory?: DesignConversationTurn[];
-            componentGuides?: { id?: string }[];
             foundationContext?: unknown;
           };
           error?: string;
         };
         if (!res.ok) throw new Error(json.error || `Could not load design (${res.status})`);
-        const a = json.artifact;
-        if (!a?.imageUrl) throw new Error('Saved design has no image to continue from.');
+        const artifact = json.artifact;
+        if (!artifact?.imageUrl) throw new Error('Saved design has no image to continue from.');
         if (cancelled) return;
-        setImageSrc(a.imageUrl);
-        if (Array.isArray(a.conversationHistory)) setConversationHistory(a.conversationHistory);
-        const guideIds = (Array.isArray(a.componentGuides) ? a.componentGuides : [])
-          .map((g) => (g && typeof g.id === 'string' ? g.id : ''))
-          .filter(Boolean);
-        const known = new Set(componentsRef.current.map((c) => c.id));
-        setSelectedIds(guideIds.filter((gid) => known.has(gid)));
-        setEffectiveFoundations(safeFoundationContext(a.foundationContext));
+        setImageSrc(artifact.imageUrl);
+        selectedGeneratedImageIdRef.current = null;
+        setSelectedGeneratedImageId(null);
+        if (Array.isArray(artifact.conversationHistory)) setConversationHistory(artifact.conversationHistory);
+        setEffectiveFoundations(safeFoundationContext(artifact.foundationContext));
         router.replace(`${basePath}/design`);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Could not open saved design in workbench.');
@@ -331,30 +363,6 @@ const DesignWorkbenchPage = ({
     };
   }, [loadArtifactId, router, basePath]);
 
-  // Pre-populate from chat assistant hand-off (?component=<id>&prompt=<text>)
-  useEffect(() => {
-    if (!initialComponentIds?.length && !initialPrompt) return;
-    if (initialComponentIds?.length) {
-      const known = new Set(componentsRef.current.map((c) => c.id));
-      const valid = initialComponentIds.filter((id) => known.has(id));
-      if (valid.length) setSelectedIds(valid);
-    }
-    if (initialPrompt) {
-      setPrompt(initialPrompt);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-fire generation once the prompt state has settled after chat hand-off.
-  // autoGenerateRef is only true when initialPrompt was set; we reset it on first fire.
-  useEffect(() => {
-    if (!autoGenerateRef.current || !prompt) return;
-    autoGenerateRef.current = false;
-    void handleGenerate();
-  // handleGenerate is a stable closure inside this render; prompt changing is the correct trigger.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt]);
-
   useEffect(() => {
     const urls = promptImages.map((f) => URL.createObjectURL(f));
     setPromptImagePreviewUrls(urls);
@@ -363,9 +371,34 @@ const DesignWorkbenchPage = ({
     };
   }, [promptImages]);
 
+  useEffect(() => {
+    if (!layoutGuideImage) {
+      setLayoutGuidePreviewUrl('');
+      return;
+    }
+    const url = URL.createObjectURL(layoutGuideImage);
+    setLayoutGuidePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [layoutGuideImage]);
+
+  useEffect(() => {
+    return () => {
+      if (layoutWizardTransitionTimerRef.current) {
+        window.clearTimeout(layoutWizardTransitionTimerRef.current);
+      }
+    };
+  }, []);
+
   const promptedFoundations = includeFoundations ? effectiveFoundations : EMPTY_FOUNDATIONS;
   const customFoundationImage = !includeFoundations ? customFoundationImageDataUrl : '';
   const brandVoiceGuidelines = useMemo(() => formatBrandVoiceForPrompt(brandVoice), [brandVoice]);
+  const selectedGuides = useMemo<DesignWorkbenchComponentGuide[]>(() => [], []);
+  const activeGeneration = generatedImages.find((image) => image.id === selectedGeneratedImageIdRef.current);
+  const isGenerating = activeGeneration?.status === 'pending';
+  const hasActiveCanvasState =
+    Boolean(imageSrc) ||
+    Boolean(selectedGeneratedImageId) ||
+    Boolean(layoutWizardOpen || layoutWizardClosing || layoutWizardDisplayWireframeUrl || layoutWizardDisplayDescription);
 
   const hasFoundationsForRaster = useMemo(
     () =>
@@ -376,43 +409,6 @@ const DesignWorkbenchPage = ({
     [promptedFoundations]
   );
 
-  const filteredComponents = useMemo(() => {
-    const q = componentQuery.trim().toLowerCase();
-    if (!q) return components;
-    return components.filter(
-      (c) =>
-        c.id.toLowerCase().includes(q) ||
-        c.title.toLowerCase().includes(q) ||
-        c.group.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q)
-    );
-  }, [components, componentQuery]);
-
-  const selectedGuides: DesignWorkbenchComponentGuide[] = useMemo(() => {
-    const map = new Map(components.map((c) => [c.id, c]));
-    return selectedIds
-      .map((id) => map.get(id))
-      .filter(Boolean)
-      .map((c) => {
-        const first = c!.previews?.[0];
-        const htmlAppPath = first?.url ? handoffApiUrl(`/api/component/${first.url}`) : null;
-        const previewUrl = htmlAppPath != null ? componentScreenshotApiUrl(htmlAppPath) : c!.image || null;
-        return {
-          id: c!.id,
-          title: c!.title,
-          group: c!.group,
-          description: c!.description,
-          previewUrl,
-          previewKey: first?.key,
-          propertiesSummary: c!.propertiesSummary,
-        };
-      });
-  }, [components, selectedIds]);
-
-  const toggleComponent = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-  };
-
   const addPromptImageFiles = useCallback((files: ArrayLike<File> | Iterable<File> | null) => {
     if (!files) return;
     const next = Array.from(files).filter((f) => PROMPT_IMAGE_TYPES.includes(f.type));
@@ -420,6 +416,86 @@ const DesignWorkbenchPage = ({
     setPromptImages((current) => [...current, ...next]);
     if (promptImageInputRef.current) promptImageInputRef.current.value = '';
   }, []);
+
+  const setLayoutGuideFile = useCallback((file: File | null) => {
+    if (file && !PROMPT_IMAGE_TYPES.includes(file.type)) {
+      setError('Layout Guide supports PNG, JPEG, or WebP images.');
+      return;
+    }
+    setLayoutGuideImage(file);
+    setLayoutGuideDescription('');
+    setLayoutGuideWireframeUrl('');
+    setLayoutWizardStatus('idle');
+    setError(null);
+    if (layoutGuideInputRef.current) layoutGuideInputRef.current.value = '';
+  }, []);
+
+  const handleLayoutGuideUpload = useCallback(
+    (files: FileList | null) => {
+      if (!files?.length) return;
+      const image = Array.from(files).find((file) => PROMPT_IMAGE_TYPES.includes(file.type));
+      if (!image) {
+        setError('Layout Guide supports PNG, JPEG, or WebP images.');
+        return;
+      }
+      setLayoutGuideFile(image);
+    },
+    [setLayoutGuideFile]
+  );
+
+  const handlePasteLayoutGuide = useCallback(async () => {
+    if (!navigator.clipboard?.read) {
+      setError('Clipboard image paste is not supported in this browser.');
+      return;
+    }
+
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find((type) => PROMPT_IMAGE_TYPES.includes(type));
+        if (!imageType) continue;
+        const blob = await item.getType(imageType);
+        setLayoutGuideFile(new File([blob], 'layout-guide-image', { type: imageType }));
+        return;
+      }
+      setError('No image found in clipboard.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not read image from clipboard.');
+    }
+  }, [setLayoutGuideFile]);
+
+  const analyzeLayoutGuideImage = useCallback(async (image: File): Promise<LayoutAnalysisResult> => {
+    const formData = new FormData();
+    formData.append('image', image);
+    const res = await fetch(handoffApiUrl('/api/handoff/ai/analyze-layout-guide'), {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+    });
+    const json = (await res.json().catch(() => ({}))) as { description?: string; wireframeImage?: string; error?: string };
+    if (!res.ok) throw new Error(json.error || 'Layout analysis failed.');
+    if (!json.description?.trim()) throw new Error('Layout analysis returned no description.');
+    return {
+      description: json.description.trim(),
+      wireframeImage: json.wireframeImage?.trim() ?? '',
+    };
+  }, []);
+
+  const handleUseLayoutGuide = useCallback(async () => {
+    if (!layoutGuideImage) return;
+    setIsAnalyzingLayoutGuide(true);
+    setError(null);
+
+    try {
+      const analysis = await analyzeLayoutGuideImage(layoutGuideImage);
+      setLayoutGuideDescription(analysis.description);
+      setLayoutGuideWireframeUrl(analysis.wireframeImage);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Layout analysis failed.');
+    } finally {
+      setIsAnalyzingLayoutGuide(false);
+    }
+  }, [analyzeLayoutGuideImage, layoutGuideImage]);
 
   const handlePromptPaste = useCallback(
     (event: React.ClipboardEvent<HTMLInputElement>) => {
@@ -438,169 +514,6 @@ const DesignWorkbenchPage = ({
     },
     [addPromptImageFiles]
   );
-
-  const handleSelectAsset = async (assetName: string) => {
-    const assetSrc = getDesignAssetSrc(selectedClient, assetName);
-    try {
-      const response = await fetch(assetSrc);
-      if (!response.ok) {
-        throw new Error(`Could not load ${assetName}. Add it under public/assets/design/${selectedClient}/.`);
-      }
-      setImageSrc(assetSrc);
-      setSelectedAssetName(assetName);
-      selectedGeneratedImageIdRef.current = null;
-      setSelectedGeneratedImageId(null);
-      setAnnotations([]);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to select asset.');
-    }
-  };
-
-  const handleDeleteGeneratedImage = (imageId: string) => {
-    setGeneratedImages((current) => current.filter((image) => image.id !== imageId));
-    if (selectedGeneratedImageId === imageId) {
-      selectedGeneratedImageIdRef.current = null;
-      setSelectedGeneratedImageId(null);
-      setImageSrc(null);
-      setAnnotations([]);
-    }
-  };
-
-  const getCanvasPoint = (event: React.MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return {
-      x: Math.min(Math.max(((event.clientX - rect.left) / rect.width) * CANVAS_SIZE, 0), CANVAS_SIZE),
-      y: Math.min(Math.max(((event.clientY - rect.top) / rect.height) * CANVAS_SIZE, 0), CANVAS_SIZE),
-    };
-  };
-
-  const getAnnotationRect = (annotation: DraftAnnotation): Omit<AnnotationRect, 'id'> => {
-    const x = Math.min(annotation.startX, annotation.currentX);
-    const y = Math.min(annotation.startY, annotation.currentY);
-    return {
-      x,
-      y,
-      width: Math.abs(annotation.currentX - annotation.startX),
-      height: Math.abs(annotation.currentY - annotation.startY),
-    };
-  };
-
-  const handleAnnotationStart = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAnnotating || !imageSrc) return;
-    event.preventDefault();
-    const point = getCanvasPoint(event);
-    setAnnotations([]);
-    setDraftAnnotation({
-      startX: point.x,
-      startY: point.y,
-      currentX: point.x,
-      currentY: point.y,
-    });
-  };
-
-  const handleAnnotationMove = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!draftAnnotation) return;
-    const point = getCanvasPoint(event);
-    setDraftAnnotation((current) => (current ? { ...current, currentX: point.x, currentY: point.y } : current));
-  };
-
-  const handleAnnotationEnd = () => {
-    if (!draftAnnotation) return;
-    const rect = getAnnotationRect(draftAnnotation);
-    setDraftAnnotation(null);
-    if (rect.width < MIN_ANNOTATION_SIZE || rect.height < MIN_ANNOTATION_SIZE) return;
-    setIsAnnotating(false);
-    setAnnotations((current) => [
-      ...current,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        ...rect,
-      },
-    ]);
-  };
-
-  const loadImageForCanvas = (src: string) =>
-    new Promise<HTMLImageElement>((resolve, reject) => {
-      const image = new window.Image();
-      image.crossOrigin = 'anonymous';
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('Could not load image for export.'));
-      image.src = src;
-    });
-
-  const createAnnotatedImageBlob = async (src: string, imageAnnotations: AnnotationRect[]) => {
-    const sourceImage = await loadImageForCanvas(src);
-    const imageWidth = sourceImage.naturalWidth || CANVAS_SIZE;
-    const imageHeight = sourceImage.naturalHeight || CANVAS_SIZE;
-    const displayedImageWidth = CANVAS_SIZE;
-    const displayedImageHeight = (imageHeight / imageWidth) * displayedImageWidth;
-    const displayedImageX = (CANVAS_SIZE - displayedImageWidth) / 2;
-    const displayedImageY = (CANVAS_SIZE - displayedImageHeight) / 2;
-    const scaleX = imageWidth / displayedImageWidth;
-    const scaleY = imageHeight / displayedImageHeight;
-    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = imageWidth;
-    canvas.height = imageHeight;
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Could not create canvas context.');
-
-    context.drawImage(sourceImage, 0, 0, imageWidth, imageHeight);
-    imageAnnotations.forEach((annotation) => {
-      const x = clamp((annotation.x - displayedImageX) * scaleX, 0, imageWidth);
-      const y = clamp((annotation.y - displayedImageY) * scaleY, 0, imageHeight);
-      const width = clamp(annotation.width * scaleX, 0, imageWidth - x);
-      const height = clamp(annotation.height * scaleY, 0, imageHeight - y);
-      context.strokeStyle = 'rgb(239, 68, 68)';
-      context.lineWidth = 2;
-      context.strokeRect(x, y, width, height);
-    });
-
-    return new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob((blob) => {
-        if (blob) {
-          resolve(blob);
-          return;
-        }
-        reject(new Error('Could not export annotated image.'));
-      }, 'image/png');
-    });
-  };
-
-  const downloadHref = (href: string, filename: string) => {
-    const link = document.createElement('a');
-    link.href = href;
-    link.download = filename;
-    link.click();
-  };
-
-  const downloadBlob = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    downloadHref(url, filename);
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  };
-
-  const handleDownloadImage = async (src = imageSrc) => {
-    if (!src) return;
-    try {
-      const response = await fetch(src);
-      if (!response.ok) throw new Error('Could not fetch image.');
-      downloadBlob(await response.blob(), 'design-image.png');
-    } catch {
-      downloadHref(src, 'design-image.png');
-    }
-  };
-
-  const handleDownloadAnnotatedImage = async () => {
-    if (!imageSrc || annotations.length === 0) return;
-    try {
-      downloadBlob(await createAnnotatedImageBlob(imageSrc, annotations), 'design-image-annotated.png');
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not export annotated image.');
-    }
-  };
 
   const pollJobUntilDone = async (jobId: number) => {
     const POLL_MS = 2000;
@@ -635,44 +548,37 @@ const DesignWorkbenchPage = ({
     }
   };
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
-    if (!isLoggedIn) {
-      setError(LOGIN_TO_USE_TOOL_MESSAGE);
-      return;
-    }
-    if (!serverAiAvailable) {
-      setError(
-        'Design generation needs server AI: set HANDOFF_AI_API_KEY, or HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN to use your team cloud. Configure in Integrations / .env.'
-      );
-      return;
-    }
-
-    const refining = Boolean(imageSrc);
-    const hasPromptImage = promptImages.length > 0;
-    const hasCustomFoundationImage = Boolean(customFoundationImage);
-    const hasSavedComponentReferences = Object.values(componentReferenceDataUrls).some(Boolean);
-    if (!refining && !hasPromptImage && !hasFoundationsForRaster && !hasCustomFoundationImage && !hasSavedComponentReferences) {
-      setError(
-        'Select an image on the canvas, attach a prompt image, save component references in settings, use foundations, or add a custom foundation image in settings.'
-      );
-      return;
-    }
-
+  const generateDesignImage = async ({
+    submittedPrompt,
+    submittedPromptImages,
+    submittedLayoutGuideImage,
+    submittedLayoutGuideWireframeUrl,
+    submittedLayoutGuideDescription,
+    clearPromptAfterSubmit,
+    clearPromptImagesAfterSubmit,
+  }: {
+    submittedPrompt: string;
+    submittedPromptImages: File[];
+    submittedLayoutGuideImage: File | null;
+    submittedLayoutGuideWireframeUrl: string;
+    submittedLayoutGuideDescription: string;
+    clearPromptAfterSubmit: boolean;
+    clearPromptImagesAfterSubmit: boolean;
+  }): Promise<string> => {
     setError(null);
     const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const submittedPrompt = prompt.trim();
-    const submittedPromptImages = promptImages;
+    const submittedAt = new Date().toISOString();
+    const refining = Boolean(imageSrc);
 
     selectedGeneratedImageIdRef.current = requestId;
     setSelectedGeneratedImageId(requestId);
-    setSelectedAssetName(null);
     setImageSrc(null);
-    setAnnotations([]);
-    setGeneratedImages((current) => [{ id: requestId, prompt: submittedPrompt, status: 'pending', ts: new Date().toISOString() }, ...current]);
-    setPrompt('');
-    setPromptImages([]);
-    if (promptImageInputRef.current) promptImageInputRef.current.value = '';
+    setGeneratedImages((current) => [{ id: requestId, prompt: submittedPrompt, status: 'pending', createdAt: submittedAt }, ...current]);
+    if (clearPromptAfterSubmit) setPrompt('');
+    if (clearPromptImagesAfterSubmit) {
+      setPromptImages([]);
+      if (promptImageInputRef.current) promptImageInputRef.current.value = '';
+    }
 
     try {
       const formData = new FormData();
@@ -680,22 +586,16 @@ const DesignWorkbenchPage = ({
       formData.append('prompt', submittedPrompt);
       formData.append('foundationContext', JSON.stringify(promptedFoundations));
       formData.append('componentGuides', JSON.stringify(selectedGuides.map((guide) => ({ ...guide, previewUrl: null }))));
-      formData.append('conversationHistory', JSON.stringify(conversationHistory));
       formData.append('designGuidelines', designMd);
       formData.append('brandVoiceGuidelines', brandVoiceGuidelines);
       formData.append('quality', imageQuality);
       formData.append('promptImageCount', String(submittedPromptImages.length));
+      formData.append('layoutGuideDescription', submittedLayoutGuideDescription);
+      formData.append('conversationHistory', JSON.stringify(conversationHistory));
       if (draftArtifactIdRef.current) formData.append('artifactId', draftArtifactIdRef.current);
 
       if (refining && imageSrc) {
-        let canvasFile: File;
-        if (annotations.length > 0) {
-          const blob = await createAnnotatedImageBlob(imageSrc, annotations);
-          canvasFile = new File([blob], 'annotated-current-canvas.png', { type: 'image/png' });
-        } else {
-          canvasFile = await dataUrlToFile(imageSrc, 'current-canvas.png');
-        }
-        formData.append('image[]', canvasFile);
+        formData.append('image[]', await dataUrlToFile(imageSrc, 'current-canvas.png'));
         attachedImageLabels.push('Main canvas image the user is referring to for this request.');
       }
 
@@ -709,24 +609,40 @@ const DesignWorkbenchPage = ({
           attachedImageLabels.push(`${setting.filename}: saved ${setting.label.toLowerCase()} style reference from settings.`);
         }
       }
+      if (submittedLayoutGuideWireframeUrl) {
+        formData.append('image[]', await dataUrlToFile(submittedLayoutGuideWireframeUrl, 'layout-guide-wireframe.png'));
+        formData.append('layoutGuideImageIncluded', 'true');
+        attachedImageLabels.push(
+          'layout-guide-wireframe.png: Layout Guide wireframe reference. Follow its structure only; ignore styling and exact copy.'
+        );
+      } else if (submittedLayoutGuideImage) {
+        formData.append('image[]', submittedLayoutGuideImage);
+        formData.append('layoutGuideImageIncluded', 'true');
+        attachedImageLabels.push(
+          `Layout Guide screenshot${submittedLayoutGuideImage.name ? ` (${submittedLayoutGuideImage.name})` : ''}: follow layout structure only; ignore styling and exact copy.`
+        );
+      } else {
+        formData.append('layoutGuideImageIncluded', 'false');
+      }
       submittedPromptImages.forEach((file, index) => {
         formData.append('image[]', file);
-        attachedImageLabels.push(`User-attached prompt image ${index + 1}${file.name ? ` (${file.name})` : ''}: request-specific visual reference.`);
+        attachedImageLabels.push(
+          `User-attached prompt image ${index + 1}${file.name ? ` (${file.name})` : ''}: request-specific visual reference.`
+        );
       });
       formData.append('attachedImageLabels', JSON.stringify(attachedImageLabels));
+
       const response = await fetch(handoffApiUrl('/api/handoff/ai/generate-design'), {
         method: 'POST',
         body: formData,
         credentials: 'include',
       });
 
-      // Non-SSE error (auth, rate limit, config — returned before stream opens)
       if (!response.ok || response.headers.get('content-type')?.includes('application/json')) {
         const json = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(json.error || `Design API error (${response.status})`);
       }
 
-      // Consume the SSE stream
       if (!response.body) throw new Error('No response body.');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -754,7 +670,6 @@ const DesignWorkbenchPage = ({
               doneArtifactId = evt.artifactId;
               break outer;
             }
-            // Update stage label on the pending thumbnail
             setGeneratedImages((current) =>
               current.map((img) => (img.id === requestId ? { ...img, stage } : img))
             );
@@ -767,41 +682,244 @@ const DesignWorkbenchPage = ({
 
       if (!imageUrl) throw new Error('No image returned.');
 
-      // Track the draft artifact for subsequent iterations
       if (doneArtifactId) {
         setDraftArtifactId(doneArtifactId);
         draftArtifactIdRef.current = doneArtifactId;
       }
 
-      const ts = new Date().toISOString();
+      const now = new Date().toISOString();
       setConversationHistory((h) => [
         ...h,
-        { role: 'user', prompt: submittedPrompt, timestamp: ts },
-        { role: 'assistant', prompt: 'Generated image', imageUrl, timestamp: ts },
+        { role: 'user', prompt: submittedPrompt, timestamp: now },
+        { role: 'assistant', prompt: 'Generated image', imageUrl, timestamp: now },
       ]);
 
       if (selectedGeneratedImageIdRef.current === requestId) {
         setImageSrc(imageUrl);
-        setAnnotations([]);
       }
       setGeneratedImages((current) =>
-        current.map((img) =>
-          img.id === requestId
-            ? { ...img, src: imageUrl!, status: 'completed', stage: undefined, ts, jobId: doneJobId, artifactId: doneArtifactId }
-            : img
+        current.map((image) =>
+          image.id === requestId
+            ? {
+                ...image,
+                src: imageUrl!,
+                status: 'completed',
+                stage: undefined,
+                createdAt: submittedAt,
+                ts: submittedAt,
+                jobId: doneJobId,
+                artifactId: doneArtifactId,
+              }
+            : image
         )
       );
+      return imageUrl;
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Failed to generate.';
       setError(message);
       setGeneratedImages((current) =>
-        current.map((img) => (img.id === requestId ? { ...img, status: 'error', error: message, stage: undefined } : img))
+        current.map((image) => (image.id === requestId ? { ...image, status: 'error', error: message, stage: undefined } : image))
       );
+      throw e;
     }
   };
 
+  const handleGenerate = async () => {
+    if (!prompt.trim()) return;
+    if (!isLoggedIn) {
+      setError(LOGIN_TO_USE_TOOL_MESSAGE);
+      return;
+    }
+    if (!serverAiAvailable) {
+      setError(
+        'Design generation needs server AI: set HANDOFF_AI_API_KEY, or HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN to use your team cloud. Configure in Integrations / .env.'
+      );
+      return;
+    }
+
+    const refining = Boolean(imageSrc);
+    const hasPromptImage = promptImages.length > 0;
+    const hasCustomFoundationImage = Boolean(customFoundationImage);
+    const hasSavedComponentReferences = Object.values(componentReferenceDataUrls).some(Boolean);
+    const hasLayoutGuideReference = Boolean(layoutGuideImage || layoutGuideWireframeUrl);
+    if (
+      !refining &&
+      !hasPromptImage &&
+      !hasFoundationsForRaster &&
+      !hasCustomFoundationImage &&
+      !hasSavedComponentReferences &&
+      !hasLayoutGuideReference
+    ) {
+      setError(
+        'Attach a prompt image, add a Layout Guide, save component references in settings, use foundations, or add a custom foundation image in settings.'
+      );
+      return;
+    }
+
+    try {
+      await generateDesignImage({
+        submittedPrompt: prompt.trim(),
+        submittedPromptImages: promptImages,
+        submittedLayoutGuideImage: layoutGuideImage,
+        submittedLayoutGuideWireframeUrl: layoutGuideWireframeUrl,
+        submittedLayoutGuideDescription: layoutGuideDescription.trim(),
+        clearPromptAfterSubmit: true,
+        clearPromptImagesAfterSubmit: true,
+      });
+    } catch {
+      // generateDesignImage already records the error in UI state.
+    }
+  };
+
+  const handleOpenLayoutWizard = () => {
+    if (layoutWizardOpen || layoutWizardTransitioning || layoutWizardClosing) return;
+    if (layoutWizardTransitionTimerRef.current) {
+      window.clearTimeout(layoutWizardTransitionTimerRef.current);
+    }
+    setLayoutWizardStatus('idle');
+    setLayoutWizardDisplayWireframeUrl('');
+    setLayoutWizardDisplayDescription('');
+    setPromptSuggestionsOpen(false);
+    setError(null);
+    setLayoutWizardClosing(false);
+    setLayoutWizardTransitioning(true);
+    layoutWizardTransitionTimerRef.current = window.setTimeout(() => {
+      setLayoutWizardOpen(true);
+      setLayoutWizardTransitioning(false);
+      layoutWizardTransitionTimerRef.current = null;
+    }, 190);
+  };
+
+  const handleCloseLayoutWizard = () => {
+    if (layoutWizardTransitionTimerRef.current) {
+      window.clearTimeout(layoutWizardTransitionTimerRef.current);
+      layoutWizardTransitionTimerRef.current = null;
+    }
+    layoutWizardRunIdRef.current += 1;
+    setLayoutWizardTransitioning(false);
+    setError(null);
+    if (!layoutWizardOpen) {
+      setLayoutWizardOpen(false);
+      setLayoutWizardClosing(false);
+      setLayoutGuideFile(null);
+      return;
+    }
+    setLayoutWizardClosing(true);
+    layoutWizardTransitionTimerRef.current = window.setTimeout(() => {
+      setLayoutWizardOpen(false);
+      setLayoutWizardClosing(false);
+      setLayoutGuideFile(null);
+      layoutWizardTransitionTimerRef.current = null;
+    }, 190);
+  };
+
+  const handleShowEmptyCanvas = () => {
+    if (layoutWizardTransitionTimerRef.current) {
+      window.clearTimeout(layoutWizardTransitionTimerRef.current);
+      layoutWizardTransitionTimerRef.current = null;
+    }
+    layoutWizardRunIdRef.current += 1;
+    selectedGeneratedImageIdRef.current = null;
+    setSelectedGeneratedImageId(null);
+    setImageSrc(null);
+    setPromptSuggestionsOpen(false);
+    setLayoutWizardTransitioning(false);
+    setLayoutWizardClosing(false);
+    setLayoutWizardOpen(false);
+    setLayoutWizardStatus('idle');
+    setLayoutWizardDisplayWireframeUrl('');
+    setLayoutWizardDisplayDescription('');
+    setError(null);
+    setActiveSidebarTab('session');
+    router.replace(`${basePath}/design`);
+  };
+
+  const handleGenerateLayoutWizard = async () => {
+    if (!layoutGuideImage) {
+      setError('Upload or paste a layout image first.');
+      return;
+    }
+    if (!isLoggedIn) {
+      setError(LOGIN_TO_USE_TOOL_MESSAGE);
+      return;
+    }
+    if (!serverAiAvailable) {
+      setError(
+        'Design generation needs server AI: set HANDOFF_AI_API_KEY, or HANDOFF_CLOUD_URL + HANDOFF_CLOUD_TOKEN to use your team cloud. Configure in Integrations / .env.'
+      );
+      return;
+    }
+
+    setError(null);
+    const runId = (layoutWizardRunIdRef.current += 1);
+    try {
+      setLayoutWizardStatus('analyzing');
+      const analysis = await analyzeLayoutGuideImage(layoutGuideImage);
+      if (runId !== layoutWizardRunIdRef.current) return;
+      setLayoutGuideDescription(analysis.description);
+      setLayoutGuideWireframeUrl(analysis.wireframeImage);
+      setLayoutWizardDisplayDescription(analysis.description);
+      setLayoutWizardDisplayWireframeUrl(analysis.wireframeImage);
+
+      setLayoutWizardStatus('generating');
+      await generateDesignImage({
+        submittedPrompt: LAYOUT_WIZARD_PROMPT,
+        submittedPromptImages: [],
+        submittedLayoutGuideImage: layoutGuideImage,
+        submittedLayoutGuideWireframeUrl: analysis.wireframeImage,
+        submittedLayoutGuideDescription: analysis.description,
+        clearPromptAfterSubmit: false,
+        clearPromptImagesAfterSubmit: false,
+      });
+      if (runId !== layoutWizardRunIdRef.current) return;
+      setLayoutWizardStatus('done');
+      setLayoutWizardOpen(false);
+      setLayoutGuideFile(null);
+    } catch (e) {
+      if (runId !== layoutWizardRunIdRef.current) return;
+      setLayoutWizardStatus('idle');
+      setError(e instanceof Error ? e.message : 'Could not generate a design from this layout.');
+    }
+  };
+
+  const handleDeleteGeneratedImage = (imageId: string) => {
+    setGeneratedImages((current) => current.filter((image) => image.id !== imageId));
+    if (selectedGeneratedImageIdRef.current === imageId) {
+      selectedGeneratedImageIdRef.current = null;
+      setSelectedGeneratedImageId(null);
+      setImageSrc(null);
+      setLayoutWizardDisplayWireframeUrl('');
+      setLayoutWizardDisplayDescription('');
+    }
+  };
+
+  const handleDownloadGeneratedImage = (img: GeneratedImage) => {
+    if (!img.src) return;
+    const link = document.createElement('a');
+    link.href = img.src;
+    link.download = `handoff-generation-${img.id}.png`;
+    link.click();
+  };
+
+  const handleCopyGeneratedPrompt = async (promptText: string) => {
+    if (!promptText) return;
+    await navigator.clipboard.writeText(promptText);
+  };
+
+  const handleOpenSaveArtifact = (img: GeneratedImage, index: number) => {
+    if (!img.src) return;
+    const defaultTitle = `Generation ${generatedImages.length - index}`;
+    setSaveImageSrc(img.src);
+    setSaveDefaultTitle(defaultTitle);
+    setSaveTitle(defaultTitle);
+    setSaveDescription('');
+    setError(null);
+    setSaveOpen(true);
+  };
+
   const handleSaveArtifact = async () => {
-    if (!saveTitle.trim() || !imageSrc) return;
+    const title = (saveTitle.trim() || saveDefaultTitle.trim()).trim();
+    if (!title || !saveImageSrc) return;
     setIsSaving(true);
     setError(null);
     try {
@@ -810,10 +928,10 @@ const DesignWorkbenchPage = ({
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          title: saveTitle.trim(),
+          title,
           description: saveDescription.trim(),
           status: 'review',
-          imageUrl: imageSrc,
+          imageUrl: saveImageSrc,
           sourceImages: [],
           componentGuides: selectedGuides,
           foundationContext: promptedFoundations,
@@ -824,7 +942,9 @@ const DesignWorkbenchPage = ({
       if (!res.ok) throw new Error(json.error || 'Save failed');
       setSaveOpen(false);
       setSaveTitle('');
+      setSaveDefaultTitle('');
       setSaveDescription('');
+      setSaveImageSrc(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
@@ -832,227 +952,328 @@ const DesignWorkbenchPage = ({
     }
   };
 
+  const isLayoutWizardRunning = layoutWizardStatus === 'analyzing' || layoutWizardStatus === 'generating';
+
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <>
-        {resumeSession ? (
-          <div className="flex shrink-0 items-center justify-between border-b bg-amber-50 px-4 py-2 text-sm dark:bg-amber-950/30">
-            <span className="text-amber-800 dark:text-amber-300">
-              You have an unsaved session from {new Date(resumeSession.savedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })} — restore it?
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs"
-                onClick={() => {
-                  if (resumeSession.imageSrc) setImageSrc(resumeSession.imageSrc);
-                  if (resumeSession.selectedIds.length) setSelectedIds(resumeSession.selectedIds);
-                  if (resumeSession.conversationHistory.length) setConversationHistory(resumeSession.conversationHistory as typeof conversationHistory);
-                  if (resumeSession.draftArtifactId) {
-                    setDraftArtifactId(resumeSession.draftArtifactId);
-                    draftArtifactIdRef.current = resumeSession.draftArtifactId;
-                  }
-                  const restored: GeneratedImage[] = resumeSession.recentImages.map((r) => ({
-                    id: r.id,
-                    src: r.src,
-                    prompt: r.prompt,
-                    status: 'completed' as const,
-                    ts: r.ts,
-                  }));
-                  if (restored.length) setGeneratedImages(restored);
-                  setResumeSession(null);
-                }}
-              >
-                Restore
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs"
-                onClick={() => { clearWorkbenchSession(); setResumeSession(null); }}
-              >
-                Start fresh
-              </Button>
-            </div>
+      {resumeSession ? (
+        <div className="flex shrink-0 items-center justify-between border-b bg-amber-50 px-4 py-2 text-sm dark:bg-amber-950/30">
+          <span className="text-amber-800 dark:text-amber-300">
+            You have an unsaved session from {new Date(resumeSession.savedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })} — restore it?
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              onClick={() => {
+                if (resumeSession.imageSrc) setImageSrc(resumeSession.imageSrc);
+                if (resumeSession.conversationHistory.length) {
+                  setConversationHistory(resumeSession.conversationHistory as DesignConversationTurn[]);
+                }
+                if (resumeSession.draftArtifactId) {
+                  setDraftArtifactId(resumeSession.draftArtifactId);
+                  draftArtifactIdRef.current = resumeSession.draftArtifactId;
+                }
+                const restored: GeneratedImage[] = resumeSession.recentImages.map((r) => ({
+                  id: r.id,
+                  src: r.src,
+                  prompt: r.prompt,
+                  status: 'completed' as const,
+                  createdAt: r.ts,
+                  ts: r.ts,
+                }));
+                if (restored.length) setGeneratedImages(restored);
+                setResumeSession(null);
+              }}
+            >
+              Restore
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs"
+              onClick={() => { clearWorkbenchSession(); setResumeSession(null); }}
+            >
+              Start fresh
+            </Button>
           </div>
+        </div>
+      ) : null}
+      <div className="relative flex h-full min-h-0 overflow-hidden bg-background">
+        {!serverAiAvailable ? (
+          <p className="absolute left-1/2 top-4 z-20 w-[min(44rem,calc(100%-2rem))] -translate-x-1/2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 shadow-sm dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            Design workbench needs server AI: <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_AI_API_KEY</code> or{' '}
+            <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_URL</code> +{' '}
+            <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code>.
+          </p>
         ) : null}
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="flex h-12 shrink-0 items-center border-b bg-muted/30 px-2">
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`h-8 w-8 p-0 ${isAnnotating ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : ''}`}
-                onClick={() => setIsAnnotating((current) => !current)}
-                disabled={!imageSrc}
-              >
-                <SquareDashedMousePointer className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => setAnnotations([])}
-                disabled={annotations.length === 0}
-              >
-                <XIcon className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => void handleDownloadImage()} disabled={!imageSrc}>
-                <DownloadIcon className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => void handleDownloadAnnotatedImage()}
-                disabled={!imageSrc || annotations.length === 0}
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
+        <aside className="flex w-56 shrink-0 flex-col border-r bg-background">
+          <input
+            ref={layoutGuideInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => handleLayoutGuideUpload(e.target.files)}
+          />
+          <Tabs
+            value={activeSidebarTab}
+            onValueChange={(value) => setActiveSidebarTab(value as SidebarTab)}
+            className="flex min-h-0 flex-1 flex-col"
+          >
+            <div className="border-b px-3 py-3">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="session">Session</TabsTrigger>
+                <TabsTrigger value="layout" className="hidden">
+                  Layout
+                </TabsTrigger>
+                <TabsTrigger value="library">Library</TabsTrigger>
+              </TabsList>
             </div>
-            <div className="ml-auto flex items-center gap-2">
-              <Select
-                value={selectedClient}
-                onValueChange={(value) => {
-                  setSelectedClient(value as DesignLibraryClient);
-                  setSelectedAssetName(null);
-                }}
-              >
-                <SelectTrigger className="h-8 w-28">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  {DESIGN_CLIENTS.map((client) => (
-                    <SelectItem key={client} value={client}>
-                      {client}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
-                <Link href={`${basePath}/design/settings/`} aria-label="Design settings">
-                  <SettingsIcon className="h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex min-h-0 flex-1">
-            <aside className="flex w-[min(22rem,100%)] shrink-0 flex-col overflow-hidden border-r bg-background">
-              <div className="flex-1 space-y-2 overflow-y-auto p-2">
-                <Collapsible defaultOpen className="rounded-md border px-2 py-1">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
-                    <span>Reference library</span>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2 pb-2">
-                    <div className="grid grid-cols-3 gap-2">
-                      {DESIGN_ASSETS.map((asset) => (
-                        <button
-                          key={asset.name}
-                          type="button"
-                          onClick={() => void handleSelectAsset(asset.name)}
-                          data-selected={selectedAssetName === asset.name}
-                          className="group relative rounded-md border bg-muted/20 p-1 data-[selected=true]:border-primary"
-                          title={asset.name}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={getDesignAssetSrc(selectedClient, asset.name)}
-                            alt={asset.name}
-                            className="aspect-square w-full rounded object-cover"
-                          />
-                        </button>
-                      ))}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-
-                <Collapsible defaultOpen className="rounded-md border px-2 py-1">
-                  <CollapsibleTrigger className="flex w-full items-center justify-between py-2 text-left text-sm font-medium">
-                    <span>Component guides</span>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="space-y-2 pb-2">
-                    <Input
-                      placeholder="Search components…"
-                      value={componentQuery}
-                      onChange={(e) => setComponentQuery(e.target.value)}
-                      className="h-8 text-sm"
-                    />
-                    <div className="max-h-72 space-y-1.5 overflow-y-auto pb-1">
-                      {filteredComponents.slice(0, 80).map((c) => {
-                        const selected = selectedIds.includes(c.id);
-                        const thumbUrl =
-                          c.previews?.[0]?.url != null
-                            ? componentScreenshotApiUrl(handoffApiUrl(`/api/component/${c.previews[0].url}`))
-                            : c.image;
-                        return (
-                          <button
-                            key={c.id}
-                            type="button"
-                            onClick={() => toggleComponent(c.id)}
-                            className={`flex w-full items-center gap-2.5 rounded-md border-2 bg-muted/20 p-1.5 text-left transition ${
-                              selected ? 'border-primary ring-1 ring-primary/30' : 'border-transparent hover:border-muted-foreground/30'
-                            }`}
-                            title={`${c.title}${c.group ? ` — ${c.group}` : ''}`}
-                          >
-                            <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded bg-muted/40">
-                              {thumbUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={thumbUrl} alt="" className="h-full w-full object-cover" />
-                              ) : (
-                                <div className="flex h-full items-center justify-center text-muted-foreground/40">
-                                  <ImageIcon className="h-4 w-4" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <span className="block truncate text-xs font-medium">{c.title}</span>
-                              {c.group ? <span className="block truncate text-[10px] text-muted-foreground">{c.group}</span> : null}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            </aside>
-
-            <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-auto p-4">
-              {!serverAiAvailable ? (
-                <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                  Design workbench needs server AI: <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_AI_API_KEY</code>{' '}
-                  or <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_URL</code> +{' '}
-                  <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code>.
-                </p>
-              ) : null}
-
-              {conversationHistory.length > 0 ? (
-                <div className="hidden max-h-24 flex-wrap gap-2 overflow-y-auto rounded-md border bg-muted/30 p-2 text-xs">
-                  {conversationHistory.map((turn, idx) => (
-                    <span key={idx} className="rounded bg-background px-2 py-1 shadow-sm">
-                      <strong>{turn.role}:</strong> {turn.prompt.slice(0, 80)}
-                      {turn.prompt.length > 80 ? '…' : ''}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-lg border bg-muted/20">
-                <TransformWrapper
-                  initialScale={0.75}
-                  minScale={0.25}
-                  maxScale={4}
-                  centerOnInit
-                  limitToBounds={false}
-                  panning={{ disabled: isAnnotating }}
-                  wheel={{ step: 0.08 }}
-                  doubleClick={{ mode: 'reset' }}
+            <TabsContent value="session" className="m-0 flex min-h-0 flex-1 flex-col">
+              <div className="flex items-center justify-between border-b px-3 py-2">
+                <p className="text-xs font-medium text-muted-foreground">Design session</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={handleShowEmptyCanvas}
+                  disabled={!hasActiveCanvasState}
+                  aria-label="Show empty canvas"
+                  title={hasActiveCanvasState ? 'Show empty canvas' : 'Canvas is already empty'}
                 >
-                  {({ zoomIn, zoomOut, resetTransform }) => (
-                    <>
-                      <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
+                  <PlusIcon className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
+                {generatedImages.length > 0 ? (
+                  generatedImages.map((img, index) => (
+                    <div
+                      key={img.id}
+                      className="group relative"
+                    >
+                      <div className="mb-2 space-y-0.5">
+                        <p className="text-xs font-medium">Generation {generatedImages.length - index}</p>
+                        <p className="text-[11px] text-muted-foreground">{formatGenerationTimestamp(img.createdAt)}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectedGeneratedImageIdRef.current = img.id;
+                          setSelectedGeneratedImageId(img.id);
+                          setImageSrc(img.src ?? null);
+                        }}
+                        className="block w-full rounded-lg border bg-muted/20 p-1 text-left transition hover:border-primary data-[selected=true]:border-primary"
+                        data-selected={selectedGeneratedImageId === img.id}
+                        title={img.error || img.prompt}
+                      >
+                        {img.status === 'completed' && img.src ? (
+                          <Image
+                            src={img.src}
+                            alt={img.prompt}
+                            width={192}
+                            height={108}
+                            unoptimized
+                            className="h-20 w-full rounded-md object-cover"
+                          />
+                        ) : (
+                          <div
+                            className={`relative flex h-20 w-full items-center justify-center rounded-md text-xs text-muted-foreground ${
+                              img.status === 'error' ? 'bg-destructive/10 text-destructive' : 'animate-pulse bg-muted'
+                            }`}
+                          >
+                            {img.status === 'error' ? 'Failed' : img.stage ? (STAGE_LABELS[img.stage] ?? img.stage) : 'Generating...'}
+                          </div>
+                        )}
+                      </button>
+                      <div className="absolute right-3 top-3">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="h-7 w-7 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
+                              aria-label="Generation actions"
+                            >
+                              <MoreHorizontalIcon className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setPanelImage(img)}>
+                              <InfoIcon className="h-3.5 w-3.5" />
+                              View details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={!img.src} onClick={() => handleOpenSaveArtifact(img, index)}>
+                              <LibraryIcon className="h-3.5 w-3.5" />
+                              Add to Library
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled={!img.src} onClick={() => handleDownloadGeneratedImage(img)}>
+                              <DownloadIcon className="h-3.5 w-3.5" />
+                              Download PNG
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void handleCopyGeneratedPrompt(img.prompt)}>
+                              <CopyIcon className="h-3.5 w-3.5" />
+                              Copy prompt
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDeleteGeneratedImage(img.id)}>
+                              <Trash2Icon className="h-3.5 w-3.5" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">Generations appear here for this session.</p>
+                )}
+              </div>
+            </TabsContent>
+            <TabsContent value="layout" className="hidden">
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground">Add a web section screenshot to use its layout structure.</p>
+                {layoutGuidePreviewUrl ? (
+                  <div className="group relative overflow-hidden rounded-md border bg-muted/20">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={layoutGuidePreviewUrl} alt="Layout guide" className="max-h-36 w-full object-cover" />
+                    <button
+                      type="button"
+                      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground group-hover:opacity-100"
+                      onClick={() => setLayoutGuideFile(null)}
+                      aria-label="Remove layout guide"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : null}
+                {layoutGuidePreviewUrl ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => void handleUseLayoutGuide()}
+                      disabled={isAnalyzingLayoutGuide || !serverAiAvailable || !isLoggedIn}
+                      title={
+                        !isLoggedIn
+                          ? LOGIN_TO_USE_TOOL_MESSAGE
+                          : !serverAiAvailable
+                            ? 'Configure server AI in Integrations or .env'
+                            : undefined
+                      }
+                    >
+                      {isAnalyzingLayoutGuide ? (
+                        <>
+                          <Loader2Icon className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        'Use layout'
+                      )}
+                    </Button>
+                    {layoutGuideDescription ? (
+                      <p className="rounded-md border bg-muted/20 p-2 text-xs leading-relaxed text-muted-foreground">
+                        {layoutGuideDescription}
+                      </p>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" size="sm" className="flex-1" onClick={() => layoutGuideInputRef.current?.click()}>
+                      Upload Layout
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => void handlePasteLayoutGuide()}
+                      aria-label="Paste layout image from clipboard"
+                      title="Paste image from clipboard"
+                    >
+                      <ClipboardIcon className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+              <div className="mt-auto border-t pt-3">
+                <Button type="button" className="w-full" onClick={handleOpenLayoutWizard}>
+                  Make a design
+                </Button>
+              </div>
+            </TabsContent>
+            <TabsContent value="library" className="m-0 flex min-h-0 flex-1 flex-col p-4">
+              <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center">
+                <p className="text-sm font-medium">Library</p>
+                <p className="mt-1 text-xs text-muted-foreground">Library items will appear here.</p>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </aside>
+
+        <div
+          className="relative min-h-0 flex-1 overflow-hidden bg-gray-50"
+          style={{
+            backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
+            backgroundSize: '18px 18px',
+          }}
+        >
+          <div className="absolute inset-x-0 top-0" style={{ bottom: CANVAS_PROMPT_SAFE_AREA }}>
+            <TransformWrapper
+              initialScale={CANVAS_INITIAL_SCALE}
+              minScale={CANVAS_MIN_SCALE}
+              maxScale={4}
+              centerOnInit
+              centerZoomedOut
+              disablePadding
+              wheel={{ step: TRACKPAD_ZOOM_STEP }}
+              doubleClick={{ mode: 'reset' }}
+            >
+              {({ zoomIn, zoomOut, resetTransform }) => (
+                <>
+                  <TooltipProvider delayDuration={200}>
+                    <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2">
+                      {imageSrc && (layoutWizardDisplayWireframeUrl || layoutWizardDisplayDescription) ? (
+                        <div className="flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
+                          {layoutWizardDisplayWireframeUrl ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 px-0" aria-label="Show layout wireframe">
+                                  <LayoutGridIcon className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" align="end" sideOffset={8} className="border bg-background p-2 text-foreground shadow-md">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={layoutWizardDisplayWireframeUrl}
+                                  alt="Layout wireframe"
+                                  className="max-h-64 w-auto max-w-sm object-contain"
+                                />
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                          {layoutWizardDisplayDescription ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 px-0" aria-label="Show layout description">
+                                  <FileTextIcon className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                align="end"
+                                sideOffset={8}
+                                className="max-h-64 max-w-sm overflow-y-auto border bg-background px-3 py-2 text-left text-xs leading-relaxed text-foreground shadow-md"
+                              >
+                                {layoutWizardDisplayDescription}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
                         <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomOut()} aria-label="Zoom out">
                           <ZoomOutIcon className="h-4 w-4" />
                         </Button>
@@ -1063,62 +1284,186 @@ const DesignWorkbenchPage = ({
                           <ZoomInIcon className="h-4 w-4" />
                         </Button>
                       </div>
+                    </div>
+                  </TooltipProvider>
 
-                      <TransformComponent wrapperClass="!h-full !w-full" contentClass="!h-fit !w-fit">
-                        <div
-                          className={`relative flex h-[1024px] w-[1024px] items-center justify-center p-8 ${isAnnotating ? 'cursor-crosshair' : ''}`}
-                          onMouseDown={handleAnnotationStart}
-                          onMouseMove={handleAnnotationMove}
-                          onMouseUp={handleAnnotationEnd}
-                          onMouseLeave={handleAnnotationEnd}
-                          style={{
-                            backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
-                            backgroundSize: '18px 18px',
-                          }}
-                        >
-                          {imageSrc ? (
-                            <Image
-                              src={imageSrc}
-                              alt={prompt || 'Generated design'}
-                              width={1024}
-                              height={1024}
-                              unoptimized
-                              className="h-auto w-[1024px] max-w-none rounded-md bg-background object-contain shadow-lg"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center gap-2 rounded-md border border-dashed bg-background/80 px-6 py-8 text-sm text-muted-foreground shadow-sm">
-                              <ImageIcon className="h-10 w-10 opacity-40" />
-                              <p>Add images, select components, or rely on foundations — then write a prompt and generate.</p>
-                            </div>
-                          )}
-                          {annotations.map((annotation) => (
-                            <div
-                              key={annotation.id}
-                              className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
-                              style={{ left: annotation.x, top: annotation.y, width: annotation.width, height: annotation.height }}
-                            />
-                          ))}
-                          {draftAnnotation ? (
-                            <div
-                              className="pointer-events-none absolute border-2 border-dashed border-red-500 bg-red-500/10"
-                              style={{
-                                left: getAnnotationRect(draftAnnotation).x,
-                                top: getAnnotationRect(draftAnnotation).y,
-                                width: getAnnotationRect(draftAnnotation).width,
-                                height: getAnnotationRect(draftAnnotation).height,
-                              }}
-                            />
-                          ) : null}
-                        </div>
-                      </TransformComponent>
-                    </>
+                  <TransformComponent wrapperClass="!h-full !w-full cursor-grab active:cursor-grabbing" contentClass="!h-fit !w-fit">
+                    <div className="relative flex h-[1152px] w-[2048px] items-center justify-center">
+                      {imageSrc ? (
+                        <Image
+                          src={imageSrc}
+                          alt={prompt || 'Generated design'}
+                          width={CANVAS_WIDTH}
+                          height={CANVAS_HEIGHT}
+                          unoptimized
+                          className="h-auto max-h-[calc(100%-160px)] w-auto max-w-[calc(100%-160px)] rounded-md bg-background object-contain shadow-lg"
+                        />
+                      ) : (
+                        <div className="h-full w-full bg-gray-50" aria-hidden="true" />
+                      )}
+                    </div>
+                  </TransformComponent>
+                </>
+              )}
+            </TransformWrapper>
+          </div>
+
+          {!imageSrc ? (
+            <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center bg-gray-50 px-6 text-center" style={{ bottom: CANVAS_PROMPT_SAFE_AREA }}>
+              {layoutWizardOpen ? (
+                <div
+                  className={`relative w-full max-w-3xl space-y-5 transition-all duration-200 ease-out ${
+                    layoutWizardClosing
+                      ? 'scale-95 opacity-0 blur-md'
+                      : 'animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-300 scale-100 opacity-100 blur-0'
+                  }`}
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-9 w-9 rounded-full p-0 text-gray-500 hover:bg-white hover:text-gray-900"
+                    onClick={handleCloseLayoutWizard}
+                    disabled={isLayoutWizardRunning}
+                    aria-label="Close layout wizard"
+                  >
+                    <XIcon className="h-4 w-4" />
+                  </Button>
+                  <p className="px-10 text-sm text-gray-500">Upload or paste a screenshot, wireframe, or sketch.</p>
+                  {layoutGuidePreviewUrl ? (
+                    <div className="mx-auto max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white p-2 shadow-sm">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={layoutGuidePreviewUrl} alt="Layout guide" className="max-h-[42vh] w-full rounded-lg bg-gray-50 object-contain" />
+                    </div>
+                  ) : (
+                    <div className="mx-auto flex h-44 max-w-2xl items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white/70">
+                      <WandSparklesIcon className="h-10 w-10 text-gray-300" />
+                    </div>
                   )}
-                </TransformWrapper>
-              </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {!layoutGuideImage ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="rounded-full px-5"
+                          onClick={() => layoutGuideInputRef.current?.click()}
+                          disabled={isLayoutWizardRunning}
+                        >
+                          Browse
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full px-5"
+                          onClick={() => void handlePasteLayoutGuide()}
+                          disabled={isLayoutWizardRunning}
+                        >
+                          <ClipboardIcon className="mr-2 h-3.5 w-3.5" />
+                          Paste
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-full px-5"
+                        onClick={() => void handleGenerateLayoutWizard()}
+                        disabled={!serverAiAvailable || !isLoggedIn || isLayoutWizardRunning}
+                        title={
+                          !isLoggedIn
+                            ? LOGIN_TO_USE_TOOL_MESSAGE
+                            : !serverAiAvailable
+                              ? 'Configure server AI in Integrations or .env'
+                              : undefined
+                        }
+                      >
+                        {isLayoutWizardRunning ? (
+                          <>
+                            <Loader2Icon className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            {layoutWizardStatus === 'analyzing' ? 'Analyzing...' : 'Generating...'}
+                          </>
+                        ) : (
+                          'Generate design'
+                        )}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={`space-y-5 transition-all duration-200 ease-out ${
+                    layoutWizardTransitioning
+                      ? 'scale-95 opacity-0 blur-md'
+                      : 'animate-in fade-in-0 zoom-in-95 duration-300 scale-100 opacity-100 blur-0'
+                  }`}
+                >
+                  <p className="text-xl font-regular text-foreground">{isGenerating ? 'Generating design...' : 'What are we designing today?'}</p>
+                  {!isGenerating ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
+                        onClick={handleOpenLayoutWizard}
+                      >
+                        <WandSparklesIcon className="h-2.5 w-2.5" />
+                        Layout wizard
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
+                        onClick={() => setPromptSuggestionsOpen((open) => !open)}
+                        aria-expanded={promptSuggestionsOpen}
+                      >
+                        <LightbulbIcon className="h-2.5 w-2.5" />
+                        Try a prompt
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
+          ) : null}
 
-              {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-              <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-12">
+            <div className="pointer-events-auto relative mx-auto w-full max-w-3xl">
+              {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
+              {!imageSrc && !layoutWizardOpen && promptSuggestionsOpen ? (
+                <div className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] animate-in fade-in-0 slide-in-from-bottom-2 duration-200 rounded-2xl border border-gray-200 bg-white p-2 text-left shadow-lg">
+                  <div className="flex items-center justify-between px-3 py-2">
+                    <p className="text-xs font-medium text-gray-500">Prompt suggestions</p>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
+                      onClick={() => setPromptSuggestionsOpen(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
+                    {PROMPT_SUGGESTIONS.map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className="block w-full rounded-xl px-3 py-2 text-left text-sm text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+                        onClick={() => {
+                          setPrompt(suggestion);
+                          setPromptSuggestionsOpen(false);
+                        }}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="rounded-2xl border border-gray-200 bg-white shadow-lg">
                 <Label htmlFor="design-prompt" className="sr-only">
                   {imageSrc ? 'Refine' : 'Prompt'}
                 </Label>
@@ -1138,28 +1483,35 @@ const DesignWorkbenchPage = ({
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onPaste={handlePromptPaste}
-                    onKeyDown={(e) => e.key === 'Enter' && void handleGenerate()}
-                    placeholder="Reply..."
+                    onKeyDown={(e) => e.key === 'Enter' && !isGenerating && void handleGenerate()}
+                    placeholder={imageSrc ? 'Describe a change to this design...' : 'Describe the design you want...'}
                   />
                 </div>
                 <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
-                  <Select value={imageQuality} onValueChange={(value) => setImageQuality(value as ImageQuality)}>
-                    <SelectTrigger
-                      className="h-9 w-auto gap-2 border-0 px-2 text-sm font-medium text-gray-600 shadow-none hover:bg-gray-100 hover:text-gray-900 focus:ring-0"
-                      aria-label="Image quality"
-                    >
-                      <span>Quality</span>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      {IMAGE_QUALITY_OPTIONS.map((quality) => (
-                        <SelectItem key={quality} value={quality}>
-                          {quality[0].toUpperCase()}
-                          {quality.slice(1)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="flex items-center gap-1">
+                    <Select value={imageQuality} onValueChange={(value) => setImageQuality(value as ImageQuality)}>
+                      <SelectTrigger
+                        className="h-9 w-auto gap-2 border-0 px-2 text-sm font-medium text-gray-600 shadow-none hover:bg-gray-100 hover:text-gray-900 focus:ring-0"
+                        aria-label="Image quality"
+                      >
+                        <span>Quality</span>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {IMAGE_QUALITY_OPTIONS.map((quality) => (
+                          <SelectItem key={quality} value={quality}>
+                            {quality[0].toUpperCase()}
+                            {quality.slice(1)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-gray-500" asChild>
+                      <Link href={`${basePath}/design/settings/`} aria-label="Design settings">
+                        <SettingsIcon className="h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </div>
                   <div className="flex min-w-0 items-center gap-2">
                     {promptImages.length > 0 ? (
                       <div className="flex min-w-0 max-w-xs gap-2 overflow-x-auto">
@@ -1198,7 +1550,7 @@ const DesignWorkbenchPage = ({
                     <button
                       type="button"
                       onClick={() => void handleGenerate()}
-                      disabled={!prompt.trim() || !serverAiAvailable || !isLoggedIn}
+                      disabled={!prompt.trim() || !serverAiAvailable || !isLoggedIn || isGenerating}
                       className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                       title={
                         !isLoggedIn
@@ -1209,171 +1561,76 @@ const DesignWorkbenchPage = ({
                       }
                       aria-label={imageSrc ? 'Refine design' : 'Generate design'}
                     >
-                      <ArrowUpIcon className="h-5 w-5" />
+                      {isGenerating ? <Loader2Icon className="h-5 w-5 animate-spin" /> : <ArrowUpIcon className="h-5 w-5" />}
                     </button>
                   </div>
                 </div>
               </div>
             </div>
-
-            <aside className="flex w-44 shrink-0 flex-col border-l bg-background">
-              <div className="border-b px-3 py-3">
-                <h2 className="text-sm font-semibold">Session</h2>
-                <p className="text-xs text-muted-foreground">{generatedImages.length} versions</p>
-              </div>
-              <div className="flex flex-1 flex-col gap-2 overflow-y-auto p-2">
-                {generatedImages.length > 0 ? (
-                  generatedImages.map((img) => (
-                    <div key={img.id} className="group relative">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          selectedGeneratedImageIdRef.current = img.id;
-                          setSelectedGeneratedImageId(img.id);
-                          setSelectedAssetName(null);
-                          if (img.src) {
-                            setImageSrc(img.src);
-                          } else {
-                            setImageSrc(null);
-                          }
-                          setAnnotations([]);
-                        }}
-                        className="block w-full rounded-md border bg-muted/20 p-1 text-left text-xs transition hover:border-primary data-[selected=true]:border-primary"
-                        title={img.error || img.prompt}
-                        data-selected={selectedGeneratedImageId === img.id}
-                      >
-                        {img.status === 'completed' && img.src ? (
-                          <Image
-                            src={img.src}
-                            alt={img.prompt}
-                            width={128}
-                            height={128}
-                            unoptimized
-                            className="aspect-square w-full rounded object-cover"
-                          />
-                        ) : (
-                          <div
-                            className={`relative aspect-square w-full overflow-hidden rounded ${img.status === 'error' ? 'bg-destructive/10' : 'animate-pulse bg-muted'}`}
-                          >
-                            {img.stage ? (
-                              <span className="absolute inset-x-0 bottom-1 px-1 text-center text-[9px] leading-tight text-muted-foreground">
-                                {STAGE_LABELS[img.stage] ?? img.stage}
-                              </span>
-                            ) : null}
-                          </div>
-                        )}
-                      </button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="absolute right-1.5 top-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
-                        onClick={() => handleDeleteGeneratedImage(img.id)}
-                        aria-label="Delete generated image"
-                      >
-                        <Trash2Icon className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="absolute left-1.5 top-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
-                        onClick={() => setPanelImage(img)}
-                        aria-label="View generation details"
-                      >
-                        <InfoIcon className="h-3.5 w-3.5" />
-                      </Button>
-                      {img.src ? (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="absolute bottom-1.5 right-1.5 h-6 w-6 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
-                          onClick={() => void handleDownloadImage(img.src)}
-                          aria-label="Save generated image"
-                        >
-                          <DownloadIcon className="h-3.5 w-3.5" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-muted-foreground">Versions appear here.</p>
-                )}
-                {generatedImages.length > 0 ? (
-                  <div className="mt-auto flex w-full shrink-0 flex-col gap-1.5">
-                    <Button variant="secondary" size="sm" className="w-full" onClick={() => setSaveOpen(true)}>
-                      Save for review
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-auto w-full py-1 text-[11px] text-muted-foreground" asChild>
-                      <Link href={`${basePath}/design/library/`}>View saved designs</Link>
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            </aside>
           </div>
         </div>
 
-        <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
-          <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Save design for review</DialogTitle>
-              <DialogDescription>Describe the design and required assets. This is stored for your team to review.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              {imageSrc ? (
-                <div className="relative mx-auto h-40 w-40 overflow-hidden rounded border">
-                  <Image src={imageSrc} alt="Preview" fill className="object-contain" unoptimized />
-                </div>
-              ) : null}
-              <div className="space-y-1">
-                <Label htmlFor="artifact-title">Title</Label>
-                <Input
-                  id="artifact-title"
-                  value={saveTitle}
-                  onChange={(e) => setSaveTitle(e.target.value)}
-                  placeholder="e.g. Hero — pricing page"
-                />
+      </div>
+      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Save design for review</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {saveImageSrc ? (
+              <div className="relative mx-auto aspect-video w-full overflow-hidden rounded-md">
+                <Image src={saveImageSrc} alt="Preview" fill className="object-contain" unoptimized />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="artifact-desc">Description and assets</Label>
-                <Textarea
-                  id="artifact-desc"
-                  value={saveDescription}
-                  onChange={(e) => setSaveDescription(e.target.value)}
-                  rows={5}
-                  placeholder="What this design is for, copy notes, and image assets needed to build the component…"
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Saves with status <strong>review</strong>. {selectedGuides.length} component guide(s), {conversationHistory.length}{' '}
-                conversation step(s).
-              </p>
+            ) : null}
+            <div className="space-y-1">
+              <Label htmlFor="artifact-title">Title</Label>
+              <Input
+                id="artifact-title"
+                value={saveTitle}
+                onChange={(e) => setSaveTitle(e.target.value)}
+                placeholder="e.g. Hero - pricing page"
+              />
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setSaveOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => void handleSaveArtifact()} disabled={!saveTitle.trim() || isSaving}>
-                {isSaving ? <Loader2Icon className="h-4 w-4 animate-spin" /> : 'Save'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <SessionHistoryPanel
-          image={panelImage}
-          onClose={() => setPanelImage(null)}
-          basePath={basePath}
-          onSetAsCanvas={(img) => {
-            if (!img.src) return;
-            selectedGeneratedImageIdRef.current = img.id;
-            setSelectedGeneratedImageId(img.id);
-            setImageSrc(img.src);
-            setAnnotations([]);
-            setSelectedAssetName(null);
-          }}
-          onSaveForReview={() => setSaveOpen(true)}
-          onDownload={(src) => void handleDownloadImage(src)}
-        />
+            <div className="space-y-1">
+              <Label htmlFor="artifact-desc">Description and assets</Label>
+              <Textarea
+                id="artifact-desc"
+                value={saveDescription}
+                onChange={(e) => setSaveDescription(e.target.value)}
+                rows={5}
+                placeholder="What this design is for, copy notes, and image assets needed to build the component..."
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Saves with status <strong>review</strong>. {conversationHistory.length} conversation step(s).
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void handleSaveArtifact()} disabled={!(saveTitle.trim() || saveDefaultTitle.trim()) || isSaving}>
+              {isSaving ? <Loader2Icon className="h-4 w-4 animate-spin" /> : 'Save'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <SessionHistoryPanel
+        image={panelImage}
+        onClose={() => setPanelImage(null)}
+        onSetAsCanvas={(image) => {
+          if (!image.src) return;
+          selectedGeneratedImageIdRef.current = image.id;
+          setSelectedGeneratedImageId(image.id);
+          setImageSrc(image.src);
+        }}
+        onSaveForReview={(image) => {
+          const index = generatedImages.findIndex((g) => g.id === image.id);
+          handleOpenSaveArtifact(image, index >= 0 ? index : 0);
+        }}
+        onDownload={(src) => handleDownloadGeneratedImage({ src, prompt: panelImage?.prompt ?? '' } as GeneratedImage)}
+        basePath={basePath}
+      />
       </>
     </Layout>
   );

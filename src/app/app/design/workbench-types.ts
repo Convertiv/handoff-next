@@ -54,6 +54,8 @@ export type GeneratedImage = {
   /** Draft artifact ID if auto-saved */
   artifactId?: string;
   /** ISO timestamp when the generation was kicked off */
+  createdAt?: string;
+  /** Alias used by session persistence */
   ts?: string;
 };
 

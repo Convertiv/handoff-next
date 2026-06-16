@@ -1,14 +1,18 @@
 import type { ComponentListObject } from '@handoff/transformers/preview/types';
-import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../components/util';
+import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
 import { auth } from '@/lib/auth';
-import { getDataProvider } from '../../lib/data';
-import { isServerAiConfigured } from '../../lib/server/ai-client';
-import { serializeFoundationsFromTokens } from '../../lib/server/design-prompt-builder';
-import type { Metadata as DocMetadata } from '../../components/util';
-import CloudFeatureGate from '../../components/CloudFeatureGate';
+import { getDataProvider } from '../../../lib/data';
+import { isServerAiConfigured } from '../../../lib/server/ai-client';
+import { serializeFoundationsFromTokens } from '../../../lib/server/design-prompt-builder';
+import type { Metadata as DocMetadata } from '../../../components/util';
+import CloudFeatureGate from '../../../components/CloudFeatureGate';
 import { getHandoffCapabilities } from '@/lib/handoff-capabilities';
 import DesignClient from './DesignClient';
-import type { DesignWorkbenchComponentPreviewRef, DesignWorkbenchComponentRow, DesignWorkbenchFoundationContext } from './workbench-types';
+import type {
+  DesignWorkbenchComponentPreviewRef,
+  DesignWorkbenchComponentRow,
+  DesignWorkbenchFoundationContext,
+} from '../workbench-types';
 
 function summarizeProps(props: unknown): string {
   if (!props || typeof props !== 'object') return '';
@@ -51,28 +55,13 @@ export async function generateMetadata() {
 }
 
 type DesignPageProps = {
-  searchParams?: Promise<{
-    loadArtifact?: string | string[];
-    /** Pre-select component IDs (comma-separated or repeated param) — from chat assistant */
-    component?: string | string[];
-    /** Pre-fill the prompt textarea — from chat assistant */
-    prompt?: string | string[];
-  }>;
+  searchParams?: Promise<{ loadArtifact?: string | string[] }>;
 };
-
-function pickParam(val: string | string[] | undefined): string {
-  if (!val) return '';
-  return typeof val === 'string' ? val.trim() : String(val[0] ?? '').trim();
-}
 
 export default async function DesignPage({ searchParams }: DesignPageProps) {
   const sp = searchParams ? await searchParams : {};
   const raw = sp.loadArtifact;
-  const loadArtifactId = pickParam(raw);
-
-  // Chat assistant hand-off: pre-select component + pre-fill prompt
-  const initialComponentId = pickParam(sp.component);
-  const initialPrompt = pickParam(sp.prompt);
+  const loadArtifactId = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? String(raw[0] ?? '').trim() : '';
 
   const caps = getHandoffCapabilities();
   const session = await auth();
@@ -107,8 +96,6 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
         components={components}
         foundations={foundations}
         loadArtifactId={loadArtifactId || undefined}
-        initialComponentIds={initialComponentId ? [initialComponentId] : undefined}
-        initialPrompt={initialPrompt || undefined}
       />
     </CloudFeatureGate>
   );

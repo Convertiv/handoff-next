@@ -82,11 +82,15 @@ function formatFoundationsBlock(ctx: DesignWorkbenchFoundationContext, customFou
   if (customFoundationImageIncluded) {
     return [
       '## Design system foundations (use strictly)',
-      'A custom foundation reference image is attached to this request. Use that image as the source of truth for colors, typography, spacing, effects, and component styling foundations.',
+      'A custom foundation reference image is attached to this request. Use that image only as a style reference and source of truth for colors, typography, spacing, effects, and component styling foundations.',
+      'Do not reproduce the foundation reference image, token sheet, swatches, type samples, labels, or any foundation documentation as visible content in the generated design.',
     ].join('\n');
   }
 
-  const lines: string[] = ['## Design system foundations (use strictly)'];
+  const lines: string[] = [
+    '## Design system foundations (use strictly)',
+    'Use these foundations only to style the generated design. Do not render foundation tokens, swatches, type samples, labels, or documentation as visible content.',
+  ];
   if (ctx.colors.length) {
     lines.push('### Colors');
     for (const c of ctx.colors) lines.push(`- ${c.name}: ${c.value}`);
@@ -164,13 +168,30 @@ function formatPromptImagesBlock(count: number): string {
   ].join('\n');
 }
 
+function formatLayoutGuideBlock(description: string, imageIncluded: boolean): string {
+  const trimmed = description.trim();
+  if (!trimmed && !imageIncluded) return '';
+  const lines = [
+    '## Layout Guide (follow structure)',
+    'The user attached a wireframe/layout reference for this request. Use it for layout structure only: hierarchy, alignment, grouping, spacing, columns, rows, cards, repeated items, image placeholders, text block sizes, and button placement.',
+    'Do not copy colors, typography, brand marks, exact copy, imagery style, or visual design details from the Layout Guide. Apply the design system foundations and the user request on top of this structure.',
+  ];
+  if (imageIncluded) {
+    lines.push('A Layout Guide reference image is included in the attached images. Prioritize it for page structure.');
+  }
+  if (trimmed) {
+    lines.push(`Layout description: ${trimmed}`);
+  }
+  return lines.join('\n');
+}
+
 function formatAttachedImageOrderBlock(labels: string[]): string {
   if (!labels.length) return '';
   return ['## Attached image order', ...labels.map((label, index) => `${index + 1}. ${label}`)].join('\n');
 }
 
 const CANVAS_RULES = `## Output rules
-- Canvas is 1024×1024. The UI section should only use the vertical height it needs; leave unused canvas area minimal and neutral (do not stretch content to fill the square).
+- Canvas is 2048×1152 landscape. Compose the result like a polished desktop web page section, such as a hero, footer, feature band, or content block.
 - Match the design system's colors, typography, spacing, and component semantics described above.
 - Produce a polished marketing/product UI suitable for web.`;
 
@@ -186,6 +207,8 @@ export function buildDesignGenerationPrompt({
   brandVoiceGuidelines = '',
   customFoundationImageIncluded = false,
   promptImageCount = 0,
+  layoutGuideDescription = '',
+  layoutGuideImageIncluded = false,
   attachedImageLabels = [],
 }: {
   userPrompt: string;
@@ -196,6 +219,8 @@ export function buildDesignGenerationPrompt({
   brandVoiceGuidelines?: string;
   customFoundationImageIncluded?: boolean;
   promptImageCount?: number;
+  layoutGuideDescription?: string;
+  layoutGuideImageIncluded?: boolean;
   attachedImageLabels?: string[];
 }): string {
   const parts = [
@@ -206,6 +231,7 @@ export function buildDesignGenerationPrompt({
     formatBrandVoiceGuidelinesBlock(brandVoiceGuidelines),
     formatConversationBlock(conversationHistory),
     formatPromptImagesBlock(promptImageCount),
+    formatLayoutGuideBlock(layoutGuideDescription, layoutGuideImageIncluded),
     formatAttachedImageOrderBlock(attachedImageLabels),
     CANVAS_RULES,
     '## Current user request',

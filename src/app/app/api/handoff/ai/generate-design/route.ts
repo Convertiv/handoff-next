@@ -3,7 +3,7 @@ import { authOrCloudToken, rateLimitUserId } from '@/lib/sync-auth';
 import { shouldProxyAi } from '@/lib/server/ai-client';
 import { proxyAiToCloud } from '@/lib/server/ai-proxy';
 import { insertDesignGenerationJob, updateDesignGenerationJob } from '@/lib/db/queries';
-import { runDesignGenerationJob, serializeAttachedImages } from '@/lib/server/design-generation-worker';
+import { runDesignGenerationJob, serializeAttachedImages, type StoredImage } from '@/lib/server/design-generation-worker';
 import type { ImageEditQuality } from '@/lib/server/ai-client';
 import type {
   DesignConversationTurn,
@@ -84,6 +84,8 @@ export async function POST(request: NextRequest) {
   const quality = toAllowedImageQuality(String(formData.get('quality') ?? 'auto'));
   const promptImageCount = Math.max(0, Number.parseInt(String(formData.get('promptImageCount') ?? '0'), 10) || 0);
   const existingArtifactId = String(formData.get('artifactId') ?? '').trim() || null;
+  const layoutGuideDescription = String(formData.get('layoutGuideDescription') ?? '').trim();
+  const layoutGuideImageIncluded = String(formData.get('layoutGuideImageIncluded') ?? '') === 'true';
 
   const foundationContext = safeJson<DesignWorkbenchFoundationContext>(String(formData.get('foundationContext') ?? ''), {
     colors: [], typography: [], effects: [], spacing: [],
@@ -92,11 +94,16 @@ export async function POST(request: NextRequest) {
   const conversationHistory = safeJson<DesignConversationTurn[]>(String(formData.get('conversationHistory') ?? ''), []);
   const designGuidelines = String(formData.get('designGuidelines') ?? '').trim();
   const brandVoiceGuidelines = String(formData.get('brandVoiceGuidelines') ?? '').trim();
+  const attachedImageLabels = safeJson<string[]>(String(formData.get('attachedImageLabels') ?? ''), []);
 
   // Validate image types
   const iterationBase = formData.get('iterationBase');
   if (iterationBase instanceof File && iterationBase.size > 0 && !toAllowedImageType(iterationBase.type)) {
     return NextResponse.json({ error: `iterationBase must be PNG, JPEG, or WEBP.` }, { status: 400 });
+  }
+  const customFoundationImageFile = formData.get('customFoundationImage');
+  if (customFoundationImageFile instanceof File && customFoundationImageFile.size > 0 && !toAllowedImageType(customFoundationImageFile.type)) {
+    return NextResponse.json({ error: `customFoundationImage must be PNG, JPEG, or WEBP.` }, { status: 400 });
   }
   const imageFiles = formData.getAll('image[]');
   for (const f of imageFiles) {
@@ -113,10 +120,16 @@ export async function POST(request: NextRequest) {
     iterationBaseUrl = `data:${ct};base64,${buf.toString('base64')}`;
   }
 
-  // Serialize user-attached prompt images (capped at 3)
+  // Serialize user-attached prompt images
   const attachedImages = await serializeAttachedImages(
     imageFiles.filter((f): f is File => f instanceof File && f.size > 0)
   );
+
+  let customFoundationImage: StoredImage | null = null;
+  if (customFoundationImageFile instanceof File && customFoundationImageFile.size > 0) {
+    const serialized = await serializeAttachedImages([customFoundationImageFile], 1);
+    customFoundationImage = serialized[0] ?? null;
+  }
 
   const requestParams: DesignGenerationRequestParams = {
     prompt,
@@ -129,6 +142,10 @@ export async function POST(request: NextRequest) {
     brandVoiceGuidelines,
     promptImageCount,
     attachedImages,
+    layoutGuideDescription,
+    layoutGuideImageIncluded,
+    attachedImageLabels,
+    customFoundationImage,
   };
 
   // Insert job row
