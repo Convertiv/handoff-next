@@ -56,3 +56,4 @@ handoff.config.js
 handoff.config.cjs
 
 projects/
+components/
