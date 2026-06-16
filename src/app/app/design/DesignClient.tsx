@@ -5,8 +5,6 @@ import {
   ClipboardIcon,
   CopyIcon,
   DownloadIcon,
-  EyeIcon,
-  EyeOffIcon,
   FileTextIcon,
   LayoutGridIcon,
   LibraryIcon,
@@ -14,6 +12,7 @@ import {
   Loader2Icon,
   MoreHorizontalIcon,
   PaperclipIcon,
+  PlusIcon,
   RotateCcwIcon,
   SettingsIcon,
   Trash2Icon,
@@ -156,6 +155,7 @@ const NewDesignClient = ({
   const layoutGuideInputRef = useRef<HTMLInputElement>(null);
   const selectedGeneratedImageIdRef = useRef<string | null>(null);
   const layoutWizardRunIdRef = useRef(0);
+  const layoutWizardTransitionTimerRef = useRef<number | null>(null);
 
   const [promptImages, setPromptImages] = useState<File[]>([]);
   const [promptImagePreviewUrls, setPromptImagePreviewUrls] = useState<string[]>([]);
@@ -185,25 +185,16 @@ const NewDesignClient = ({
   const [saveImageSrc, setSaveImageSrc] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [layoutWizardOpen, setLayoutWizardOpen] = useState(false);
+  const [layoutWizardTransitioning, setLayoutWizardTransitioning] = useState(false);
+  const [layoutWizardClosing, setLayoutWizardClosing] = useState(false);
   const [layoutWizardStatus, setLayoutWizardStatus] = useState<LayoutWizardStatus>('idle');
-  const [layoutWizardResultUrl, setLayoutWizardResultUrl] = useState('');
-  const [layoutWizardShowOriginal, setLayoutWizardShowOriginal] = useState(false);
-  const [layoutWizardRevealComplete, setLayoutWizardRevealComplete] = useState(false);
+  const [layoutWizardDisplayWireframeUrl, setLayoutWizardDisplayWireframeUrl] = useState('');
+  const [layoutWizardDisplayDescription, setLayoutWizardDisplayDescription] = useState('');
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('session');
 
   useEffect(() => {
     setEffectiveFoundations(foundations);
   }, [foundations]);
-
-  useEffect(() => {
-    if (!layoutWizardResultUrl) {
-      setLayoutWizardRevealComplete(false);
-      return;
-    }
-    setLayoutWizardShowOriginal(false);
-    const timer = window.setTimeout(() => setLayoutWizardRevealComplete(true), 1120);
-    return () => window.clearTimeout(timer);
-  }, [layoutWizardResultUrl]);
 
   useEffect(() => {
     const readSetting = async () => {
@@ -287,12 +278,24 @@ const NewDesignClient = ({
     return () => URL.revokeObjectURL(url);
   }, [layoutGuideImage]);
 
+  useEffect(() => {
+    return () => {
+      if (layoutWizardTransitionTimerRef.current) {
+        window.clearTimeout(layoutWizardTransitionTimerRef.current);
+      }
+    };
+  }, []);
+
   const promptedFoundations = includeFoundations ? effectiveFoundations : EMPTY_FOUNDATIONS;
   const customFoundationImage = !includeFoundations ? customFoundationImageDataUrl : '';
   const brandVoiceGuidelines = useMemo(() => formatBrandVoiceForPrompt(brandVoice), [brandVoice]);
   const selectedGuides = useMemo<DesignWorkbenchComponentGuide[]>(() => [], []);
   const activeGeneration = generatedImages.find((image) => image.id === selectedGeneratedImageIdRef.current);
   const isGenerating = activeGeneration?.status === 'pending';
+  const hasActiveCanvasState =
+    Boolean(imageSrc) ||
+    Boolean(selectedGeneratedImageId) ||
+    Boolean(layoutWizardOpen || layoutWizardClosing || layoutWizardDisplayWireframeUrl || layoutWizardDisplayDescription);
 
   const hasFoundationsForRaster = useMemo(
     () =>
@@ -319,10 +322,7 @@ const NewDesignClient = ({
     setLayoutGuideImage(file);
     setLayoutGuideDescription('');
     setLayoutGuideWireframeUrl('');
-    setLayoutWizardResultUrl('');
     setLayoutWizardStatus('idle');
-    setLayoutWizardShowOriginal(false);
-    setLayoutWizardRevealComplete(false);
     setError(null);
     if (layoutGuideInputRef.current) layoutGuideInputRef.current.value = '';
   }, []);
@@ -575,26 +575,66 @@ const NewDesignClient = ({
   };
 
   const handleOpenLayoutWizard = () => {
-    setLayoutWizardOpen(true);
+    if (layoutWizardOpen || layoutWizardTransitioning || layoutWizardClosing) return;
+    if (layoutWizardTransitionTimerRef.current) {
+      window.clearTimeout(layoutWizardTransitionTimerRef.current);
+    }
     setLayoutWizardStatus('idle');
-    setLayoutWizardResultUrl('');
-    setLayoutWizardShowOriginal(false);
-    setLayoutWizardRevealComplete(false);
+    setLayoutWizardDisplayWireframeUrl('');
+    setLayoutWizardDisplayDescription('');
+    setPromptSuggestionsOpen(false);
     setError(null);
+    setLayoutWizardClosing(false);
+    setLayoutWizardTransitioning(true);
+    layoutWizardTransitionTimerRef.current = window.setTimeout(() => {
+      setLayoutWizardOpen(true);
+      setLayoutWizardTransitioning(false);
+      layoutWizardTransitionTimerRef.current = null;
+    }, 190);
   };
 
   const handleCloseLayoutWizard = () => {
+    if (layoutWizardTransitionTimerRef.current) {
+      window.clearTimeout(layoutWizardTransitionTimerRef.current);
+      layoutWizardTransitionTimerRef.current = null;
+    }
     layoutWizardRunIdRef.current += 1;
-    setLayoutWizardOpen(false);
-    setLayoutGuideFile(null);
+    setLayoutWizardTransitioning(false);
     setError(null);
+    if (!layoutWizardOpen) {
+      setLayoutWizardOpen(false);
+      setLayoutWizardClosing(false);
+      setLayoutGuideFile(null);
+      return;
+    }
+    setLayoutWizardClosing(true);
+    layoutWizardTransitionTimerRef.current = window.setTimeout(() => {
+      setLayoutWizardOpen(false);
+      setLayoutWizardClosing(false);
+      setLayoutGuideFile(null);
+      layoutWizardTransitionTimerRef.current = null;
+    }, 190);
   };
 
-  const handleAddLayoutWizardToWorkbench = () => {
-    if (!layoutWizardResultUrl) return;
-    setImageSrc(layoutWizardResultUrl);
+  const handleShowEmptyCanvas = () => {
+    if (layoutWizardTransitionTimerRef.current) {
+      window.clearTimeout(layoutWizardTransitionTimerRef.current);
+      layoutWizardTransitionTimerRef.current = null;
+    }
+    layoutWizardRunIdRef.current += 1;
+    selectedGeneratedImageIdRef.current = null;
+    setSelectedGeneratedImageId(null);
+    setImageSrc(null);
+    setPromptSuggestionsOpen(false);
+    setLayoutWizardTransitioning(false);
+    setLayoutWizardClosing(false);
+    setLayoutWizardOpen(false);
+    setLayoutWizardStatus('idle');
+    setLayoutWizardDisplayWireframeUrl('');
+    setLayoutWizardDisplayDescription('');
+    setError(null);
     setActiveSidebarTab('session');
-    handleCloseLayoutWizard();
+    router.replace(`${basePath}/design`);
   };
 
   const handleGenerateLayoutWizard = async () => {
@@ -613,9 +653,6 @@ const NewDesignClient = ({
       return;
     }
 
-    setLayoutWizardResultUrl('');
-    setLayoutWizardShowOriginal(false);
-    setLayoutWizardRevealComplete(false);
     setError(null);
     const runId = (layoutWizardRunIdRef.current += 1);
     try {
@@ -624,9 +661,11 @@ const NewDesignClient = ({
       if (runId !== layoutWizardRunIdRef.current) return;
       setLayoutGuideDescription(analysis.description);
       setLayoutGuideWireframeUrl(analysis.wireframeImage);
+      setLayoutWizardDisplayDescription(analysis.description);
+      setLayoutWizardDisplayWireframeUrl(analysis.wireframeImage);
 
       setLayoutWizardStatus('generating');
-      const generatedImage = await generateDesignImage({
+      await generateDesignImage({
         submittedPrompt: LAYOUT_WIZARD_PROMPT,
         submittedPromptImages: [],
         submittedLayoutGuideImage: layoutGuideImage,
@@ -636,8 +675,9 @@ const NewDesignClient = ({
         clearPromptImagesAfterSubmit: false,
       });
       if (runId !== layoutWizardRunIdRef.current) return;
-      setLayoutWizardResultUrl(generatedImage);
       setLayoutWizardStatus('done');
+      setLayoutWizardOpen(false);
+      setLayoutGuideFile(null);
     } catch (e) {
       if (runId !== layoutWizardRunIdRef.current) return;
       setLayoutWizardStatus('idle');
@@ -651,6 +691,8 @@ const NewDesignClient = ({
       selectedGeneratedImageIdRef.current = null;
       setSelectedGeneratedImageId(null);
       setImageSrc(null);
+      setLayoutWizardDisplayWireframeUrl('');
+      setLayoutWizardDisplayDescription('');
     }
   };
 
@@ -726,244 +768,6 @@ const NewDesignClient = ({
             <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code>.
           </p>
         ) : null}
-
-        {layoutWizardOpen ? (
-          <div className="absolute inset-0 z-30 flex flex-col bg-background">
-            <style>{`
-              @keyframes layoutWizardSourceOut {
-                0% {
-                  opacity: 1;
-                  filter: blur(0);
-                  transform: scale(1);
-                }
-                100% {
-                  opacity: 0;
-                  filter: blur(18px);
-                  transform: scale(0.985);
-                }
-              }
-              @keyframes layoutWizardDesignIn {
-                0% {
-                  opacity: 0;
-                  filter: blur(18px);
-                  transform: scale(1.015);
-                }
-                100% {
-                  opacity: 1;
-                  filter: blur(0);
-                  transform: scale(1);
-                }
-              }
-              @keyframes layoutWizardActionsIn {
-                0% {
-                  opacity: 0;
-                  transform: translateY(6px);
-                }
-                100% {
-                  opacity: 1;
-                  transform: translateY(0);
-                }
-              }
-            `}</style>
-            <TooltipProvider delayDuration={200}>
-              <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
-                {layoutWizardResultUrl && layoutGuideWireframeUrl ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 w-9 rounded-full bg-background/80 p-0 shadow-sm backdrop-blur"
-                        aria-label="Show layout wireframe"
-                      >
-                        <LayoutGridIcon className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="bottom"
-                      align="end"
-                      sideOffset={8}
-                      className="border bg-background p-2 text-foreground shadow-md"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={layoutGuideWireframeUrl}
-                        alt="Layout wireframe"
-                        className="max-h-64 w-auto max-w-sm object-contain"
-                      />
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-                {layoutWizardResultUrl && layoutGuideDescription ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-9 w-9 rounded-full bg-background/80 p-0 shadow-sm backdrop-blur"
-                        aria-label="Show layout description"
-                      >
-                        <FileTextIcon className="h-4 w-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="bottom"
-                      align="end"
-                      sideOffset={8}
-                      className="max-h-64 max-w-sm overflow-y-auto border bg-background px-3 py-2 text-left text-xs leading-relaxed text-foreground shadow-md"
-                    >
-                      {layoutGuideDescription}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : null}
-                {layoutWizardResultUrl && layoutGuidePreviewUrl ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-9 w-9 rounded-full bg-background/80 p-0 shadow-sm backdrop-blur"
-                    onClick={() => setLayoutWizardShowOriginal((current) => !current)}
-                    aria-label={layoutWizardShowOriginal ? 'Show generated design' : 'Show original layout'}
-                    title={layoutWizardShowOriginal ? 'Show generated design' : 'Show original layout'}
-                  >
-                    {layoutWizardShowOriginal ? <EyeOffIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-9 w-9 rounded-full bg-background/80 p-0 shadow-sm backdrop-blur"
-                  onClick={handleCloseLayoutWizard}
-                  aria-label="Close layout wizard"
-                >
-                  <XIcon className="h-4 w-4" />
-                </Button>
-              </div>
-            </TooltipProvider>
-
-            <div className="flex min-h-0 flex-1 items-center justify-center bg-muted/40 p-8">
-              <div className="w-full max-w-5xl space-y-4 text-center">
-                <div className="relative aspect-video overflow-hidden rounded-xl border bg-background shadow-sm">
-                  {layoutGuidePreviewUrl ? (
-                    <div
-                      className={`absolute inset-0 flex items-center justify-center bg-background transition-opacity duration-150 ${
-                        layoutWizardResultUrl
-                          ? layoutWizardShowOriginal
-                            ? 'z-20 opacity-100'
-                            : layoutWizardRevealComplete
-                              ? 'z-0 opacity-0'
-                              : 'z-20'
-                          : 'z-10 opacity-100'
-                      }`}
-                      style={
-                        layoutWizardResultUrl && !layoutWizardRevealComplete && !layoutWizardShowOriginal
-                          ? { animation: 'layoutWizardSourceOut 1000ms ease-in-out 120ms forwards' }
-                          : undefined
-                      }
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={layoutGuidePreviewUrl} alt="Original layout" className="h-full w-full object-contain" />
-                    </div>
-                  ) : (
-                    <div className="absolute inset-0 flex items-center justify-center bg-muted/30">
-                      <LibraryIcon className="h-12 w-12 text-muted-foreground/60" />
-                    </div>
-                  )}
-                  {layoutWizardResultUrl ? (
-                    <Image
-                      src={layoutWizardResultUrl}
-                      alt="Generated design from layout"
-                      fill
-                      sizes="(min-width: 1024px) 1024px, 100vw"
-                      unoptimized
-                      className={`object-contain transition-opacity duration-150 ${
-                        layoutWizardShowOriginal ? 'opacity-0' : 'opacity-100'
-                      }`}
-                      style={
-                        !layoutWizardRevealComplete && !layoutWizardShowOriginal
-                          ? { animation: 'layoutWizardDesignIn 1000ms ease-in-out 120ms both' }
-                          : undefined
-                      }
-                    />
-                  ) : null}
-                </div>
-
-                {error ? <p className="text-sm text-destructive">{error}</p> : null}
-
-                {layoutWizardResultUrl ? (
-                  <div
-                    className="flex justify-center gap-2"
-                    style={{ animation: 'layoutWizardActionsIn 300ms ease-out 900ms both' }}
-                  >
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={handleAddLayoutWizardToWorkbench}
-                    >
-                      Add to workbench
-                    </Button>
-                    <Button type="button" onClick={() => setLayoutGuideFile(null)}>
-                      Start another
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex justify-center gap-2">
-                    {layoutGuideImage ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => layoutGuideInputRef.current?.click()}
-                        disabled={isLayoutWizardRunning}
-                      >
-                        Change layout
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        onClick={() => layoutGuideInputRef.current?.click()}
-                        disabled={isLayoutWizardRunning}
-                      >
-                        Upload Layout
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      variant={layoutGuideImage ? 'default' : 'outline'}
-                      onClick={layoutGuideImage ? () => void handleGenerateLayoutWizard() : () => void handlePasteLayoutGuide()}
-                      disabled={(layoutGuideImage && (!serverAiAvailable || !isLoggedIn)) || isLayoutWizardRunning}
-                      title={
-                        !isLoggedIn
-                          ? LOGIN_TO_USE_TOOL_MESSAGE
-                          : !serverAiAvailable
-                            ? 'Configure server AI in Integrations or .env'
-                            : undefined
-                      }
-                    >
-                      {isLayoutWizardRunning ? (
-                        <>
-                          <Loader2Icon className="mr-2 h-4 w-4 animate-spin" />
-                          {layoutWizardStatus === 'analyzing' ? 'Analyzing design...' : 'Generating design...'}
-                        </>
-                      ) : layoutGuideImage ? (
-                        'Generate design'
-                      ) : (
-                        <>
-                          <ClipboardIcon className="mr-2 h-4 w-4" />
-                          Paste
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         <aside className="flex w-56 shrink-0 flex-col border-r bg-background">
           <input
             ref={layoutGuideInputRef}
@@ -987,6 +791,21 @@ const NewDesignClient = ({
               </TabsList>
             </div>
             <TabsContent value="session" className="m-0 flex min-h-0 flex-1 flex-col">
+              <div className="flex items-center justify-between border-b px-3 py-2">
+                <p className="text-xs font-medium text-muted-foreground">Design session</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={handleShowEmptyCanvas}
+                  disabled={!hasActiveCanvasState}
+                  aria-label="Show empty canvas"
+                  title={hasActiveCanvasState ? 'Show empty canvas' : 'Canvas is already empty'}
+                >
+                  <PlusIcon className="h-4 w-4" />
+                </Button>
+              </div>
               <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
                 {generatedImages.length > 0 ? (
                   generatedImages.map((img, index) => (
@@ -1150,7 +969,7 @@ const NewDesignClient = ({
         </aside>
 
         <div
-          className="relative min-h-0 flex-1 overflow-hidden bg-muted/70"
+          className="relative min-h-0 flex-1 overflow-hidden bg-gray-50"
           style={{
             backgroundImage: 'radial-gradient(hsl(var(--border)) 1px, transparent 1px)',
             backgroundSize: '18px 18px',
@@ -1169,17 +988,59 @@ const NewDesignClient = ({
             >
               {({ zoomIn, zoomOut, resetTransform }) => (
                 <>
-                  <div className="absolute bottom-4 right-4 z-10 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
-                    <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomOut()} aria-label="Zoom out">
-                      <ZoomOutIcon className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => resetTransform()} aria-label="Reset zoom">
-                      <RotateCcwIcon className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomIn()} aria-label="Zoom in">
-                      <ZoomInIcon className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  <TooltipProvider delayDuration={200}>
+                    <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2">
+                      {imageSrc && (layoutWizardDisplayWireframeUrl || layoutWizardDisplayDescription) ? (
+                        <div className="flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
+                          {layoutWizardDisplayWireframeUrl ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 px-0" aria-label="Show layout wireframe">
+                                  <LayoutGridIcon className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" align="end" sideOffset={8} className="border bg-background p-2 text-foreground shadow-md">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={layoutWizardDisplayWireframeUrl}
+                                  alt="Layout wireframe"
+                                  className="max-h-64 w-auto max-w-sm object-contain"
+                                />
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                          {layoutWizardDisplayDescription ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 px-0" aria-label="Show layout description">
+                                  <FileTextIcon className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent
+                                side="top"
+                                align="end"
+                                sideOffset={8}
+                                className="max-h-64 max-w-sm overflow-y-auto border bg-background px-3 py-2 text-left text-xs leading-relaxed text-foreground shadow-md"
+                              >
+                                {layoutWizardDisplayDescription}
+                              </TooltipContent>
+                            </Tooltip>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      <div className="flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomOut()} aria-label="Zoom out">
+                          <ZoomOutIcon className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => resetTransform()} aria-label="Reset zoom">
+                          <RotateCcwIcon className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 px-0" onClick={() => zoomIn()} aria-label="Zoom in">
+                          <ZoomInIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </TooltipProvider>
 
                   <TransformComponent wrapperClass="!h-full !w-full cursor-grab active:cursor-grabbing" contentClass="!h-fit !w-fit">
                     <div className="relative flex h-[1152px] w-[2048px] items-center justify-center">
@@ -1193,7 +1054,7 @@ const NewDesignClient = ({
                           className="h-auto max-h-[calc(100%-160px)] w-auto max-w-[calc(100%-160px)] rounded-md bg-background object-contain shadow-lg"
                         />
                       ) : (
-                        <div className="h-full w-full bg-muted/70" aria-hidden="true" />
+                        <div className="h-full w-full bg-gray-50" aria-hidden="true" />
                       )}
                     </div>
                   </TransformComponent>
@@ -1203,42 +1064,132 @@ const NewDesignClient = ({
           </div>
 
           {!imageSrc ? (
-            <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center bg-muted px-6 text-center" style={{ bottom: CANVAS_PROMPT_SAFE_AREA }}>
-              <div className="space-y-5">
-                <p className="text-xl font-regular text-foreground">{isGenerating ? 'Generating design...' : 'What are we designing today?'}</p>
-                {!isGenerating ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
-                      onClick={handleOpenLayoutWizard}
-                    >
-                      <WandSparklesIcon className="h-2.5 w-2.5" />
-                      Layout wizard
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
-                      onClick={() => setPromptSuggestionsOpen((open) => !open)}
-                      aria-expanded={promptSuggestionsOpen}
-                    >
-                      <LightbulbIcon className="h-2.5 w-2.5" />
-                      Try a prompt
-                    </Button>
+            <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center bg-gray-50 px-6 text-center" style={{ bottom: CANVAS_PROMPT_SAFE_AREA }}>
+              {layoutWizardOpen ? (
+                <div
+                  className={`relative w-full max-w-3xl space-y-5 transition-all duration-200 ease-out ${
+                    layoutWizardClosing
+                      ? 'scale-95 opacity-0 blur-md'
+                      : 'animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-2 duration-300 scale-100 opacity-100 blur-0'
+                  }`}
+                >
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-0 top-0 h-9 w-9 rounded-full p-0 text-gray-500 hover:bg-white hover:text-gray-900"
+                    onClick={handleCloseLayoutWizard}
+                    disabled={isLayoutWizardRunning}
+                    aria-label="Close layout wizard"
+                  >
+                    <XIcon className="h-4 w-4" />
+                  </Button>
+                  <p className="px-10 text-sm text-gray-500">Upload or paste a screenshot, wireframe, or sketch.</p>
+                  {layoutGuidePreviewUrl ? (
+                    <div className="mx-auto max-w-2xl overflow-hidden rounded-xl border border-gray-200 bg-white p-2 shadow-sm">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={layoutGuidePreviewUrl} alt="Layout guide" className="max-h-[42vh] w-full rounded-lg bg-gray-50 object-contain" />
+                    </div>
+                  ) : (
+                    <div className="mx-auto flex h-44 max-w-2xl items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white/70">
+                      <WandSparklesIcon className="h-10 w-10 text-gray-300" />
+                    </div>
+                  )}
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    {!layoutGuideImage ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="rounded-full px-5"
+                          onClick={() => layoutGuideInputRef.current?.click()}
+                          disabled={isLayoutWizardRunning}
+                        >
+                          Browse
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-full px-5"
+                          onClick={() => void handlePasteLayoutGuide()}
+                          disabled={isLayoutWizardRunning}
+                        >
+                          <ClipboardIcon className="mr-2 h-3.5 w-3.5" />
+                          Paste
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-full px-5"
+                        onClick={() => void handleGenerateLayoutWizard()}
+                        disabled={!serverAiAvailable || !isLoggedIn || isLayoutWizardRunning}
+                        title={
+                          !isLoggedIn
+                            ? LOGIN_TO_USE_TOOL_MESSAGE
+                            : !serverAiAvailable
+                              ? 'Configure server AI in Integrations or .env'
+                              : undefined
+                        }
+                      >
+                        {isLayoutWizardRunning ? (
+                          <>
+                            <Loader2Icon className="mr-2 h-3.5 w-3.5 animate-spin" />
+                            {layoutWizardStatus === 'analyzing' ? 'Analyzing...' : 'Generating...'}
+                          </>
+                        ) : (
+                          'Generate design'
+                        )}
+                      </Button>
+                    )}
                   </div>
-                ) : null}
-              </div>
+                </div>
+              ) : (
+                <div
+                  className={`space-y-5 transition-all duration-200 ease-out ${
+                    layoutWizardTransitioning
+                      ? 'scale-95 opacity-0 blur-md'
+                      : 'animate-in fade-in-0 zoom-in-95 duration-300 scale-100 opacity-100 blur-0'
+                  }`}
+                >
+                  <p className="text-xl font-regular text-foreground">{isGenerating ? 'Generating design...' : 'What are we designing today?'}</p>
+                  {!isGenerating ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
+                        onClick={handleOpenLayoutWizard}
+                      >
+                        <WandSparklesIcon className="h-2.5 w-2.5" />
+                        Layout wizard
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="[&_svg]:size-3 rounded-full bg-transparent px-5 h-10 font-normal shadow-none"
+                        onClick={() => setPromptSuggestionsOpen((open) => !open)}
+                        aria-expanded={promptSuggestionsOpen}
+                      >
+                        <LightbulbIcon className="h-2.5 w-2.5" />
+                        Try a prompt
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              )}
             </div>
           ) : null}
 
           <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-12">
             <div className="pointer-events-auto relative mx-auto w-full max-w-3xl">
               {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
-              {!imageSrc && promptSuggestionsOpen ? (
+              {!imageSrc && !layoutWizardOpen && promptSuggestionsOpen ? (
                 <div className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] animate-in fade-in-0 slide-in-from-bottom-2 duration-200 rounded-2xl border border-gray-200 bg-white p-2 text-left shadow-lg">
                   <div className="flex items-center justify-between px-3 py-2">
                     <p className="text-xs font-medium text-gray-500">Prompt suggestions</p>
