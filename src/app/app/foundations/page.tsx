@@ -1,4 +1,4 @@
-import { Hexagon, LayoutPanelLeft, Palette, Shapes, Sun, TypeOutline } from 'lucide-react';
+import { Focus, Hexagon, Layers, LayoutPanelLeft, Palette, Ruler, Shapes, Square, Sun, TypeOutline, Zap } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
@@ -33,11 +33,16 @@ export default async function FoundationsPage() {
         <CardsWithIcons
           items={[
             { title: 'Logos', description: `${config?.app?.client} logo used for all digital and offline materials.`, icon: Hexagon, link: '/foundations/logo', cta: 'Explore Logos' },
-            { title: 'Colors', description: 'Official logo used for all digital and offline materials.', icon: Palette, link: '/foundations/colors', cta: 'Explore Colors' },
-            { title: 'Typography', description: 'Typographic system with scale, sizes and color of text.', icon: TypeOutline, link: '/foundations/typography', cta: 'Explore Typography' },
-            { title: 'Grid', description: 'How should pages be laid out, with spacing, breakpoints, and device sizes.', icon: LayoutPanelLeft, link: '/foundations/grid', cta: 'Explore Grid' },
-            { title: 'Icons', description: 'Downloadable icon set for use in digital and offline materials.', icon: Shapes, link: '/foundations/icons', cta: 'View Library' },
-            { title: 'Effects', description: 'Shadows, blurs, and other effects used in the design system.', icon: Sun, link: '/foundations/effects', cta: 'View Effects' },
+            { title: 'Colors', description: 'Color palette, semantic tokens, and usage guidelines across light and dark surfaces.', icon: Palette, link: '/foundations/colors', cta: 'Explore Colors' },
+            { title: 'Typography', description: 'Typographic scale, font families, sizes, weights, and line heights.', icon: TypeOutline, link: '/foundations/typography', cta: 'Explore Typography' },
+            { title: 'Spacing', description: 'Consistent spacing scale for margins, paddings, and layout gaps.', icon: Ruler, link: '/foundations/spacing', cta: 'Explore Spacing' },
+            { title: 'Grid', description: 'Page layout system with columns, gutters, breakpoints, and device sizes.', icon: LayoutPanelLeft, link: '/foundations/grid', cta: 'Explore Grid' },
+            { title: 'Effects', description: 'Shadows, blurs, and other visual effects used across components.', icon: Sun, link: '/foundations/effects', cta: 'View Effects' },
+            { title: 'Icons', description: 'Downloadable icon library for use in digital products and materials.', icon: Shapes, link: '/foundations/icons', cta: 'View Library' },
+            { title: 'Border Radius', description: 'Corner radius scale from sharp to fully rounded, applied to buttons, cards, and inputs.', icon: Square, link: '/foundations/border-radius', cta: 'View Scale' },
+            { title: 'Motion', description: 'Duration and easing tokens for consistent, intentional animation across the system.', icon: Zap, link: '/foundations/motion', cta: 'View Motion' },
+            { title: 'Focus States', description: 'Focus ring tokens for accessible keyboard and pointer navigation across all surfaces.', icon: Focus, link: '/foundations/focus', cta: 'View Focus' },
+            { title: 'Elevation', description: 'Z-index scale for layering overlays, modals, dropdowns, and sticky elements.', icon: Layers, link: '/foundations/elevation', cta: 'View Elevation' },
           ]}
         />
       </div>

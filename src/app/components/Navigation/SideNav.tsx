@@ -59,7 +59,7 @@ const CollapsibleMenuItem = ({ title, icon, path, menu }) => {
     (item) => normalizePathForMatch(pathname).startsWith(normalizePathForMatch(item.path))
   );
   return (
-    <Collapsible defaultOpen={isActive} className="group/collapsible">
+    <Collapsible defaultOpen={false} className="group/collapsible">
       <SidebarMenuItem>
         <CollapsibleTrigger asChild>
           <SidebarMenuButton className="h-9 gap-3">
