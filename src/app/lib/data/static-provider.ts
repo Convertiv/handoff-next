@@ -114,6 +114,28 @@ export class StaticDataProvider implements DataProvider {
     }
   }
 
+  async getDtcgBrands(): Promise<import('./types').DtcgBrandTokens | null> {
+    try {
+      const workingPath = process.env.HANDOFF_WORKING_PATH;
+      const dsRoot = workingPath ? path.resolve(workingPath, 'design-system') : path.resolve(process.cwd(), 'design-system');
+      const brandsDir = path.join(dsRoot, 'tokens', 'brands');
+      const sharedGray = path.join(dsRoot, 'tokens', 'shared', 'gray.tokens.json');
+      if (!fs.existsSync(brandsDir)) return null;
+      const result: import('./types').DtcgBrandTokens = {};
+      if (fs.existsSync(sharedGray)) {
+        result['shared'] = JSON.parse(await fs.readFile(sharedGray, 'utf-8'));
+      }
+      for (const entry of await fs.readdir(brandsDir)) {
+        if (!entry.endsWith('.tokens.json')) continue;
+        const brand = entry.replace(/\.tokens\.json$/, '');
+        result[brand] = JSON.parse(await fs.readFile(path.join(brandsDir, entry), 'utf-8'));
+      }
+      return Object.keys(result).length > 0 ? result : null;
+    } catch {
+      return null;
+    }
+  }
+
   async getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent> {
     const { metadata, content, options } = fetchDocPageMetadataAndContent(localPath, slug);
     return {

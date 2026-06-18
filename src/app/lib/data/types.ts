@@ -24,7 +24,17 @@ export type DtcgManifest = {
   generatedAt: string;
   sources: string[];
   counts: Record<string, number>;
+  brands?: string[];
 };
+
+/**
+ * DTCG token tree for a single brand (or the shared gray ramp).
+ * Top-level keys are token groups (e.g. "resolvet-blue", "semantic", "gray").
+ * Each group value is a record of token name → DTCG token node.
+ */
+export type DtcgToken = { $type: string; $value: string; $description?: string };
+export type DtcgTokenGroup = Record<string, DtcgToken | Record<string, DtcgToken>>;
+export type DtcgBrandTokens = Record<string, DtcgTokenGroup>; // keyed by brand name + 'shared'
 
 /** Unified data access for the Handoff app (filesystem and/or DB-backed sources at runtime). */
 export interface DataProvider {
@@ -35,6 +45,7 @@ export interface DataProvider {
   getTokens(): Promise<CoreTypes.IDocumentationObject>;
   getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null>;
   getDtcgManifest(): Promise<DtcgManifest | null>;
+  getDtcgBrands(): Promise<DtcgBrandTokens | null>;
   getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent>;
   getConfig(): ClientConfig;
   getMenu(): Promise<SectionLink[]>;

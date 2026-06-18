@@ -349,6 +349,21 @@ export class DynamicDataProvider implements DataProvider {
     return this.fallback.getDtcgManifest();
   }
 
+  async getDtcgBrands(): Promise<import('./types').DtcgBrandTokens | null> {
+    let row: import('../db/registry-queries').RegistryDtcgPayload | null = null;
+    try {
+      const { getRegistryDtcg } = await import('../db/registry-queries');
+      row = await getRegistryDtcg();
+    } catch (err) {
+      if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
+      logDbFallback('handoff_registry_dtcg', err);
+    }
+    if (row?.brands && Object.keys(row.brands).length > 0) {
+      return row.brands as import('./types').DtcgBrandTokens;
+    }
+    return this.fallback.getDtcgBrands();
+  }
+
   async getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent> {
     // Future: read from `pages` table; for now same as static markdown resolution
     const { metadata, content, options } = fetchDocPageMetadataAndContent(localPath, slug);

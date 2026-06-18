@@ -15,3 +15,7 @@ export async function fetchDtcgTokenStrings(type: import('../../lib/data/types')
 export async function fetchDtcgManifest() {
   return getDataProvider().getDtcgManifest();
 }
+
+export async function fetchDtcgBrands() {
+  return getDataProvider().getDtcgBrands();
+}

@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import ColorGrid from '../../../components/Foundations/ColorGrid';
+import BrandColorSwatches from '../../../components/Foundations/BrandColorSwatches';
 import { ProvenanceBadge } from '../../../components/Foundations/ProvenanceBadge';
 import { TokenOutputTabs } from '../../../components/Foundations/TokenOutputTabs';
 import { DownloadTokens } from '../../../components/DownloadTokens';
@@ -13,7 +14,7 @@ import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown
 import AnchorNav from '../../../components/Navigation/AnchorNav';
 import PrevNextNav from '../../../components/Navigation/PrevNextNav';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
-import { fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
+import { fetchDtcgBrands, fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
 
 export async function generateMetadata() {
   const { props } = await fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'colors', '/foundations');
@@ -31,6 +32,8 @@ export default async function ColorsPage() {
 
   const dtcg     = await fetchDtcgTokenStrings('color');
   const manifest = await fetchDtcgManifest();
+  const brands   = await fetchDtcgBrands();
+  const brandNames = (manifest?.brands ?? []).filter((b) => b !== 'shared');
 
   const colorGroups = Object.fromEntries(
     Object.entries(groupBy(design?.color ?? [], 'group'))
@@ -65,6 +68,9 @@ export default async function ColorsPage() {
 
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div className="flex flex-col gap-0">
+          {brands && brandNames.length > 0 && (
+            <BrandColorSwatches brands={brands} brandNames={brandNames} />
+          )}
           {Object.keys(colorGroups).map((group) => (
             <ColorGrid
               title={upperFirst(group)}
