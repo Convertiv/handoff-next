@@ -26,4 +26,16 @@ menu:
   - path: foundations/icons
     title: Icons
     icon: shapes
+  - path: foundations/border-radius
+    title: Border Radius
+    icon: square
+  - path: foundations/motion
+    title: Motion
+    icon: zap
+  - path: foundations/focus
+    title: Focus States
+    icon: focus
+  - path: foundations/elevation
+    title: Elevation
+    icon: layers
 ---

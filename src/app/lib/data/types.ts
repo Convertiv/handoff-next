@@ -10,7 +10,7 @@ export type DocPageContent = {
   options: ComponentDocumentationOptions;
 };
 
-export type DtcgTokenType = 'color' | 'typography' | 'shadow' | 'spacing' | 'grid';
+export type DtcgTokenType = 'color' | 'typography' | 'shadow' | 'spacing' | 'grid' | 'border-radius' | 'motion' | 'focus' | 'elevation';
 
 export type DtcgTokenStrings = {
   css: string;
