@@ -45,7 +45,7 @@ export default async function EffectsPage() {
   const manifest = await fetchDtcgManifest();
 
   const effectGroups = Object.fromEntries(
-    Object.entries(groupBy(design.effect, 'group')).map(([groupKey, effects]) =>
+    Object.entries(groupBy(design?.effect ?? [], 'group')).map(([groupKey, effects]) =>
       [groupKey, effects.map((e) => ({ ...e }))] as const
     )
   );

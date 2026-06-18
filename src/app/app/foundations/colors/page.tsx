@@ -33,7 +33,7 @@ export default async function ColorsPage() {
   const manifest = await fetchDtcgManifest();
 
   const colorGroups = Object.fromEntries(
-    Object.entries(groupBy(design.color ?? [], 'group'))
+    Object.entries(groupBy(design?.color ?? [], 'group'))
       .map(([groupKey, colors]) => [groupKey, colors.map((c) => ({ ...c }))] as const)
       .sort((a, b) => {
         const l = (config?.app?.color_sort ?? []).indexOf(a[0]) >>> 0;

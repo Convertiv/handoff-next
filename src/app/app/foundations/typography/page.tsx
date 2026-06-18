@@ -33,7 +33,7 @@ export default async function TypographyPage() {
   const dtcg     = await fetchDtcgTokenStrings('typography');
   const manifest = await fetchDtcgManifest();
 
-  const typography = design.typography.slice().sort((a, b) => {
+  const typography = (design?.typography ?? []).slice().sort((a, b) => {
     const l = (config?.app?.type_sort ?? []).indexOf(a.name) >>> 0;
     const r = (config?.app?.type_sort ?? []).indexOf(b.name) >>> 0;
     return l !== r ? l - r : a.name.localeCompare(b.name);
