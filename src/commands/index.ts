@@ -18,6 +18,7 @@ import logoutCommand from './logout.js';
 import pullCommand from './pull.js';
 import pushCommand from './push.js';
 import pushAllCommand from './push-all.js';
+import pushTokensCommand from './push-tokens.js';
 import scaffoldCommand from './scaffold/index.js';
 import startCommand from './start/index.js';
 import syncStatusCommand from './sync-status.js';
@@ -45,6 +46,7 @@ export const commands = [
   pullCommand,
   pushCommand,
   pushAllCommand,
+  pushTokensCommand,
   scaffoldCommand,
   startCommand,
   syncStatusCommand,

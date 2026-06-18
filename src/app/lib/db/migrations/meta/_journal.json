@@ -71,6 +71,13 @@
       "when": 1781500000000,
       "tag": "0009_assets",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781600000000,
+      "tag": "0010_registry_dtcg",
+      "breakpoints": true
     }
   ]
 }
