@@ -1,0 +1,25 @@
+{
+  "shadow": {
+    "shadow-100": {
+      "$type": "shadow",
+      "$value": {
+        "color": "rgba(0,0,0,.1)",
+        "offsetX": "0px",
+        "offsetY": "12px",
+        "blur": "25px",
+        "spread": "0px"
+      },
+      "$description": "Shadow 100",
+      "$extensions": {
+        "handoff": {
+          "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+          "originalId": "127:360",
+          "syncState": "in-sync",
+          "lastSynced": "2026-06-17T20:59:39.997Z",
+          "reference": "effect--shadow-100",
+          "rawValue": "0px 12px 25px rgba(0, 0, 0, .1)"
+        }
+      }
+    }
+  }
+}

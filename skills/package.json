@@ -1,0 +1,26 @@
+{
+  "name": "handoff-figma",
+  "version": "1.0.0",
+  "description": "Figma image pipeline for handoff projects — crawl, link, extract, and browse",
+  "license": "MIT",
+  "bin": {
+    "figma-init":                 "bin/figma-init.js",
+    "figma-crawl":                "scripts/figma-crawl.js",
+    "figma-export-previews":      "scripts/figma-export-previews.js",
+    "figma-extract-design-images":"scripts/figma-extract-design-images.js",
+    "figma-image-browser":        "build/generate-image-browser.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["figma", "handoff", "design-tokens"],
+  "files": [
+    "bin",
+    "scripts",
+    "build",
+    "templates"
+  ]
+}

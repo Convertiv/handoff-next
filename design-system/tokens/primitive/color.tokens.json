@@ -1,0 +1,1397 @@
+{
+  "color": {
+    "primary": {
+      "ssc-blue": {
+        "$type": "color",
+        "$value": "#0077c8",
+        "$description": "SS&C Blue",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:138",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primary-ssc-blue",
+            "reference": "color-primary-ssc-blue"
+          }
+        }
+      },
+      "cobalt": {
+        "$type": "color",
+        "$value": "#0b4d99",
+        "$description": "Cobalt",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:139",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primary-cobalt",
+            "reference": "color-primary-cobalt"
+          }
+        }
+      },
+      "navy": {
+        "$type": "color",
+        "$value": "#131e58",
+        "$description": "Navy",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:140",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primary-navy",
+            "reference": "color-primary-navy"
+          }
+        }
+      }
+    },
+    "secondary": {
+      "teal": {
+        "$type": "color",
+        "$value": "#1099ac",
+        "$description": "Teal",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:141",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-secondary-teal",
+            "reference": "color-secondary-teal"
+          }
+        }
+      },
+      "dark-teal": {
+        "$type": "color",
+        "$value": "#076775",
+        "$description": "Dark Teal",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:142",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-secondary-dark-teal",
+            "reference": "color-secondary-dark-teal"
+          }
+        }
+      },
+      "dark-gray": {
+        "$type": "color",
+        "$value": "#344157",
+        "$description": "Dark Gray",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:143",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-secondary-dark-gray",
+            "reference": "color-secondary-dark-gray"
+          }
+        }
+      }
+    },
+    "accent": {
+      "yellow": {
+        "$type": "color",
+        "$value": "#f5ab0a",
+        "$description": "Yellow",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:144",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-accent-yellow",
+            "reference": "color-accent-yellow"
+          }
+        }
+      },
+      "gray": {
+        "$type": "color",
+        "$value": "#858ea0",
+        "$description": "Gray",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:145",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-accent-gray",
+            "reference": "color-accent-gray"
+          }
+        }
+      }
+    },
+    "primitive": {
+      "light-gradient": {
+        "$type": "color",
+        "$value": "linear-gradient(90deg, rgba(255, 255, 255) 32%, rgba(178, 214, 238) 100%)",
+        "$description": "Light gradient",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "1229:114",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-light-gradient",
+            "reference": "color-primitive-light-gradient"
+          }
+        }
+      },
+      "gradient-2": {
+        "$type": "color",
+        "$value": "linear-gradient(180deg, rgba(38, 66, 132) 0%, rgba(0, 119, 200) 100%)",
+        "$description": "Gradient 2",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "1291:801",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gradient-2",
+            "reference": "color-primitive-gradient-2"
+          }
+        }
+      },
+      "ssc-blue-100": {
+        "$type": "color",
+        "$value": "#e5f1f9",
+        "$description": "SS&C Blue 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:95",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-100",
+            "reference": "color-primitive-ssc-blue-100"
+          }
+        }
+      },
+      "ssc-blue-200": {
+        "$type": "color",
+        "$value": "#cce4f4",
+        "$description": "SS&C Blue 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:88",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-200",
+            "reference": "color-primitive-ssc-blue-200"
+          }
+        }
+      },
+      "ssc-blue-300": {
+        "$type": "color",
+        "$value": "#99c9e9",
+        "$description": "SS&C Blue 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:89",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-300",
+            "reference": "color-primitive-ssc-blue-300"
+          }
+        }
+      },
+      "ssc-blue-400": {
+        "$type": "color",
+        "$value": "#66adde",
+        "$description": "SS&C Blue 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:90",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-400",
+            "reference": "color-primitive-ssc-blue-400"
+          }
+        }
+      },
+      "ssc-blue-500": {
+        "$type": "color",
+        "$value": "#3392d3",
+        "$description": "SS&C Blue 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:91",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-500",
+            "reference": "color-primitive-ssc-blue-500"
+          }
+        }
+      },
+      "ssc-blue-600": {
+        "$type": "color",
+        "$value": "#0077c8",
+        "$description": "SS&C Blue 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:92",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-600",
+            "reference": "color-primitive-ssc-blue-600"
+          }
+        }
+      },
+      "ssc-blue-700": {
+        "$type": "color",
+        "$value": "#005f9e",
+        "$description": "SS&C Blue 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:390",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-700",
+            "reference": "color-primitive-ssc-blue-700"
+          }
+        }
+      },
+      "ssc-blue-800": {
+        "$type": "color",
+        "$value": "#00497a",
+        "$description": "SS&C Blue 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:391",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-800",
+            "reference": "color-primitive-ssc-blue-800"
+          }
+        }
+      },
+      "ssc-blue-900": {
+        "$type": "color",
+        "$value": "#003152",
+        "$description": "SS&C Blue 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:392",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-ssc-blue-900",
+            "reference": "color-primitive-ssc-blue-900"
+          }
+        }
+      },
+      "cobalt-100": {
+        "$type": "color",
+        "$value": "#e7edf5",
+        "$description": "Cobalt 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "25:146",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-100",
+            "reference": "color-primitive-cobalt-100"
+          }
+        }
+      },
+      "cobalt-200": {
+        "$type": "color",
+        "$value": "#cedbeb",
+        "$description": "Cobalt 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:96",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-200",
+            "reference": "color-primitive-cobalt-200"
+          }
+        }
+      },
+      "cobalt-300": {
+        "$type": "color",
+        "$value": "#9db8d6",
+        "$description": "Cobalt 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:97",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-300",
+            "reference": "color-primitive-cobalt-300"
+          }
+        }
+      },
+      "cobalt-400": {
+        "$type": "color",
+        "$value": "#6d94c2",
+        "$description": "Cobalt 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:98",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-400",
+            "reference": "color-primitive-cobalt-400"
+          }
+        }
+      },
+      "cobalt-500": {
+        "$type": "color",
+        "$value": "#3c71ad",
+        "$description": "Cobalt 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:99",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-500",
+            "reference": "color-primitive-cobalt-500"
+          }
+        }
+      },
+      "cobalt-600": {
+        "$type": "color",
+        "$value": "#0b4d99",
+        "$description": "Cobalt 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:100",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-600",
+            "reference": "color-primitive-cobalt-600"
+          }
+        }
+      },
+      "cobalt-700": {
+        "$type": "color",
+        "$value": "#093e7c",
+        "$description": "Cobalt 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:393",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-700",
+            "reference": "color-primitive-cobalt-700"
+          }
+        }
+      },
+      "cobalt-800": {
+        "$type": "color",
+        "$value": "#07305f",
+        "$description": "Cobalt 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:394",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-800",
+            "reference": "color-primitive-cobalt-800"
+          }
+        }
+      },
+      "cobalt-900": {
+        "$type": "color",
+        "$value": "#052243",
+        "$description": "Cobalt 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:395",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-cobalt-900",
+            "reference": "color-primitive-cobalt-900"
+          }
+        }
+      },
+      "teal-100": {
+        "$type": "color",
+        "$value": "#e7f5f7",
+        "$description": "Teal 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:101",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-100",
+            "reference": "color-primitive-teal-100"
+          }
+        }
+      },
+      "teal-200": {
+        "$type": "color",
+        "$value": "#cfebee",
+        "$description": "Teal 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:102",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-200",
+            "reference": "color-primitive-teal-200"
+          }
+        }
+      },
+      "teal-300": {
+        "$type": "color",
+        "$value": "#9fd6de",
+        "$description": "Teal 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:103",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-300",
+            "reference": "color-primitive-teal-300"
+          }
+        }
+      },
+      "teal-400": {
+        "$type": "color",
+        "$value": "#70c2cd",
+        "$description": "Teal 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:104",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-400",
+            "reference": "color-primitive-teal-400"
+          }
+        }
+      },
+      "teal-500": {
+        "$type": "color",
+        "$value": "#40adbd",
+        "$description": "Teal 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:105",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-500",
+            "reference": "color-primitive-teal-500"
+          }
+        }
+      },
+      "teal-600": {
+        "$type": "color",
+        "$value": "#1099ac",
+        "$description": "Teal 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:106",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-600",
+            "reference": "color-primitive-teal-600"
+          }
+        }
+      },
+      "teal-700": {
+        "$type": "color",
+        "$value": "#0d7d8c",
+        "$description": "Teal 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:396",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-700",
+            "reference": "color-primitive-teal-700"
+          }
+        }
+      },
+      "teal-800": {
+        "$type": "color",
+        "$value": "#0a5c67",
+        "$description": "Teal 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:397",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-800",
+            "reference": "color-primitive-teal-800"
+          }
+        }
+      },
+      "teal-900": {
+        "$type": "color",
+        "$value": "#073f46",
+        "$description": "Teal 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:398",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-teal-900",
+            "reference": "color-primitive-teal-900"
+          }
+        }
+      },
+      "dark-teal-100": {
+        "$type": "color",
+        "$value": "#e6f0f1",
+        "$description": "Dark Teal 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:107",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-100",
+            "reference": "color-primitive-dark-teal-100"
+          }
+        }
+      },
+      "dark-teal-200": {
+        "$type": "color",
+        "$value": "#cde1e3",
+        "$description": "Dark Teal 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:108",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-200",
+            "reference": "color-primitive-dark-teal-200"
+          }
+        }
+      },
+      "dark-teal-300": {
+        "$type": "color",
+        "$value": "#9cc2c8",
+        "$description": "Dark Teal 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:109",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-300",
+            "reference": "color-primitive-dark-teal-300"
+          }
+        }
+      },
+      "dark-teal-400": {
+        "$type": "color",
+        "$value": "#6aa4ac",
+        "$description": "Dark Teal 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:110",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-400",
+            "reference": "color-primitive-dark-teal-400"
+          }
+        }
+      },
+      "dark-teal-500": {
+        "$type": "color",
+        "$value": "#398691",
+        "$description": "Dark Teal 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:111",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-500",
+            "reference": "color-primitive-dark-teal-500"
+          }
+        }
+      },
+      "dark-teal-600": {
+        "$type": "color",
+        "$value": "#076775",
+        "$description": "Dark Teal 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:112",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-600",
+            "reference": "color-primitive-dark-teal-600"
+          }
+        }
+      },
+      "dark-teal-700": {
+        "$type": "color",
+        "$value": "#065460",
+        "$description": "Dark Teal 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:399",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-700",
+            "reference": "color-primitive-dark-teal-700"
+          }
+        }
+      },
+      "dark-teal-800": {
+        "$type": "color",
+        "$value": "#05434d",
+        "$description": "Dark Teal 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:400",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-800",
+            "reference": "color-primitive-dark-teal-800"
+          }
+        }
+      },
+      "dark-teal-900": {
+        "$type": "color",
+        "$value": "#03333a",
+        "$description": "Dark Teal 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:401",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-teal-900",
+            "reference": "color-primitive-dark-teal-900"
+          }
+        }
+      },
+      "navy-100": {
+        "$type": "color",
+        "$value": "#e7e8ee",
+        "$description": "Navy 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:113",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-100",
+            "reference": "color-primitive-navy-100"
+          }
+        }
+      },
+      "navy-200": {
+        "$type": "color",
+        "$value": "#d0d2de",
+        "$description": "Navy 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:114",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-200",
+            "reference": "color-primitive-navy-200"
+          }
+        }
+      },
+      "navy-300": {
+        "$type": "color",
+        "$value": "#a1a5bc",
+        "$description": "Navy 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:115",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-300",
+            "reference": "color-primitive-navy-300"
+          }
+        }
+      },
+      "navy-400": {
+        "$type": "color",
+        "$value": "#71789b",
+        "$description": "Navy 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:116",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-400",
+            "reference": "color-primitive-navy-400"
+          }
+        }
+      },
+      "navy-500": {
+        "$type": "color",
+        "$value": "#424b79",
+        "$description": "Navy 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:117",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-500",
+            "reference": "color-primitive-navy-500"
+          }
+        }
+      },
+      "navy-600": {
+        "$type": "color",
+        "$value": "#131e58",
+        "$description": "Navy 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:118",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-600",
+            "reference": "color-primitive-navy-600"
+          }
+        }
+      },
+      "navy-700": {
+        "$type": "color",
+        "$value": "#101a4c",
+        "$description": "Navy 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:402",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-700",
+            "reference": "color-primitive-navy-700"
+          }
+        }
+      },
+      "navy-800": {
+        "$type": "color",
+        "$value": "#0e163f",
+        "$description": "Navy 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:403",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-800",
+            "reference": "color-primitive-navy-800"
+          }
+        }
+      },
+      "navy-900": {
+        "$type": "color",
+        "$value": "#0a102e",
+        "$description": "Navy 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:404",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-navy-900",
+            "reference": "color-primitive-navy-900"
+          }
+        }
+      },
+      "dark-gray-100": {
+        "$type": "color",
+        "$value": "#ebecee",
+        "$description": "Dark Gray 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:119",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-100",
+            "reference": "color-primitive-dark-gray-100"
+          }
+        }
+      },
+      "dark-gray-200": {
+        "$type": "color",
+        "$value": "#d6d9dd",
+        "$description": "Dark Gray 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:120",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-200",
+            "reference": "color-primitive-dark-gray-200"
+          }
+        }
+      },
+      "dark-gray-300": {
+        "$type": "color",
+        "$value": "#aeb3bc",
+        "$description": "Dark Gray 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:121",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-300",
+            "reference": "color-primitive-dark-gray-300"
+          }
+        }
+      },
+      "dark-gray-400": {
+        "$type": "color",
+        "$value": "#858d9a",
+        "$description": "Dark Gray 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:122",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-400",
+            "reference": "color-primitive-dark-gray-400"
+          }
+        }
+      },
+      "dark-gray-500": {
+        "$type": "color",
+        "$value": "#5d6779",
+        "$description": "Dark Gray 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:123",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-500",
+            "reference": "color-primitive-dark-gray-500"
+          }
+        }
+      },
+      "dark-gray-600": {
+        "$type": "color",
+        "$value": "#344157",
+        "$description": "Dark Gray 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:124",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-600",
+            "reference": "color-primitive-dark-gray-600"
+          }
+        }
+      },
+      "dark-gray-700": {
+        "$type": "color",
+        "$value": "#263040",
+        "$description": "Dark Gray 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:366",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-700",
+            "reference": "color-primitive-dark-gray-700"
+          }
+        }
+      },
+      "dark-gray-800": {
+        "$type": "color",
+        "$value": "#1b212d",
+        "$description": "Dark Gray 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:367",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-800",
+            "reference": "color-primitive-dark-gray-800"
+          }
+        }
+      },
+      "dark-gray-900": {
+        "$type": "color",
+        "$value": "#0d1116",
+        "$description": "Dark Gray 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:368",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-dark-gray-900",
+            "reference": "color-primitive-dark-gray-900"
+          }
+        }
+      },
+      "gray-100": {
+        "$type": "color",
+        "$value": "#f3f4f5",
+        "$description": "Gray 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:125",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-100",
+            "reference": "color-primitive-gray-100"
+          }
+        }
+      },
+      "gray-200": {
+        "$type": "color",
+        "$value": "#e7e8ec",
+        "$description": "Gray 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:126",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-200",
+            "reference": "color-primitive-gray-200"
+          }
+        }
+      },
+      "gray-300": {
+        "$type": "color",
+        "$value": "#ced2d9",
+        "$description": "Gray 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:128",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-300",
+            "reference": "color-primitive-gray-300"
+          }
+        }
+      },
+      "gray-400": {
+        "$type": "color",
+        "$value": "#b6bbc6",
+        "$description": "Gray 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:129",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-400",
+            "reference": "color-primitive-gray-400"
+          }
+        }
+      },
+      "gray-500": {
+        "$type": "color",
+        "$value": "#9da5b3",
+        "$description": "Gray 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:130",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-500",
+            "reference": "color-primitive-gray-500"
+          }
+        }
+      },
+      "gray-600": {
+        "$type": "color",
+        "$value": "#858ea0",
+        "$description": "Gray 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:131",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-600",
+            "reference": "color-primitive-gray-600"
+          }
+        }
+      },
+      "gray-700": {
+        "$type": "color",
+        "$value": "#60697b",
+        "$description": "Gray 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:369",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-700",
+            "reference": "color-primitive-gray-700"
+          }
+        }
+      },
+      "gray-800": {
+        "$type": "color",
+        "$value": "#414753",
+        "$description": "Gray 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:370",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-800",
+            "reference": "color-primitive-gray-800"
+          }
+        }
+      },
+      "gray-900": {
+        "$type": "color",
+        "$value": "#1f2228",
+        "$description": "Gray 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:371",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-gray-900",
+            "reference": "color-primitive-gray-900"
+          }
+        }
+      },
+      "yellow-100": {
+        "$type": "color",
+        "$value": "#fef7e6",
+        "$description": "Yellow 100",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:132",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-100",
+            "reference": "color-primitive-yellow-100"
+          }
+        }
+      },
+      "yellow-200": {
+        "$type": "color",
+        "$value": "#fdeece",
+        "$description": "Yellow 200",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:133",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-200",
+            "reference": "color-primitive-yellow-200"
+          }
+        }
+      },
+      "yellow-300": {
+        "$type": "color",
+        "$value": "#fbdd9d",
+        "$description": "Yellow 300",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:134",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-300",
+            "reference": "color-primitive-yellow-300"
+          }
+        }
+      },
+      "yellow-400": {
+        "$type": "color",
+        "$value": "#f9cd6c",
+        "$description": "Yellow 400",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:135",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-400",
+            "reference": "color-primitive-yellow-400"
+          }
+        }
+      },
+      "yellow-500": {
+        "$type": "color",
+        "$value": "#f7bc3b",
+        "$description": "Yellow 500",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:136",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-500",
+            "reference": "color-primitive-yellow-500"
+          }
+        }
+      },
+      "yellow-600": {
+        "$type": "color",
+        "$value": "#f5ab0a",
+        "$description": "Yellow 600",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "35:137",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-600",
+            "reference": "color-primitive-yellow-600"
+          }
+        }
+      },
+      "yellow-700": {
+        "$type": "color",
+        "$value": "#ba8208",
+        "$description": "Yellow 700",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:405",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-700",
+            "reference": "color-primitive-yellow-700"
+          }
+        }
+      },
+      "yellow-800": {
+        "$type": "color",
+        "$value": "#7b5505",
+        "$description": "Yellow 800",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:406",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-800",
+            "reference": "color-primitive-yellow-800"
+          }
+        }
+      },
+      "yellow-900": {
+        "$type": "color",
+        "$value": "#402c03",
+        "$description": "Yellow 900",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "310:407",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-primitive-yellow-900",
+            "reference": "color-primitive-yellow-900"
+          }
+        }
+      }
+    },
+    "text": {
+      "hard": {
+        "$type": "color",
+        "$value": "#0d1116",
+        "$description": "Hard",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "277:475",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-text-hard",
+            "reference": "color-text-hard"
+          }
+        }
+      },
+      "base": {
+        "$type": "color",
+        "$value": "#1b212d",
+        "$description": "Base",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "277:476",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-text-base",
+            "reference": "color-text-base"
+          }
+        }
+      },
+      "soft": {
+        "$type": "color",
+        "$value": "#344157",
+        "$description": "Soft",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "277:474",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-text-soft",
+            "reference": "color-text-soft"
+          }
+        }
+      },
+      "muted": {
+        "$type": "color",
+        "$value": "#5d6779",
+        "$description": "Muted",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "277:482",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-text-muted",
+            "reference": "color-text-muted"
+          }
+        }
+      }
+    },
+    "gradients": {
+      "ssc-gradient-dark-top": {
+        "$type": "color",
+        "$value": "linear-gradient(0deg, rgba(0, 119, 200) 0%, rgba(19, 30, 88) 100%)",
+        "$description": "SS&C gradient dark top",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "3577:1363",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-gradients-ssc-gradient-dark-top",
+            "reference": "color-gradients-ssc-gradient-dark-top"
+          }
+        }
+      },
+      "ssc-gradient-top-light": {
+        "$type": "color",
+        "$value": "linear-gradient(180deg, rgba(0, 119, 200) 0%, rgba(19, 30, 88) 100%)",
+        "$description": "SS&C gradient top light",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "3577:1364",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-gradients-ssc-gradient-top-light",
+            "reference": "color-gradients-ssc-gradient-top-light"
+          }
+        }
+      },
+      "light-ssc-blues": {
+        "$type": "color",
+        "$value": "linear-gradient(104.25deg, rgba(178, 214, 238) 0%, rgba(0, 119, 200) 100%), rgba(29, 29, 29, .05)",
+        "$description": "light ss&c blues",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "3467:4222",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-gradients-light-ssc-blues",
+            "reference": "color-gradients-light-ssc-blues",
+            "blend": "normal, normal"
+          }
+        }
+      },
+      "ssc-gradient-3": {
+        "$type": "color",
+        "$value": "linear-gradient(29.98deg, rgba(178, 214, 238) 0%, rgba(102, 173, 222) 82.01%)",
+        "$description": "SS&C gradient 3",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "3467:4223",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-gradients-ssc-gradient-3",
+            "reference": "color-gradients-ssc-gradient-3"
+          }
+        }
+      },
+      "light-gradient": {
+        "$type": "color",
+        "$value": "linear-gradient(90deg, rgba(255, 255, 255) 32%, rgba(178, 214, 238) 100%)",
+        "$description": "Light gradient",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "3577:1365",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-gradients-light-gradient",
+            "reference": "color-gradients-light-gradient"
+          }
+        }
+      },
+      "gradient-2": {
+        "$type": "color",
+        "$value": "linear-gradient(180deg, rgba(38, 66, 132) 0%, rgba(0, 119, 200) 100%)",
+        "$description": "Gradient 2",
+        "$extensions": {
+          "handoff": {
+            "source": "figma:3GcQn3eA8Kg9kprYXBXksv",
+            "originalId": "3577:1366",
+            "syncState": "in-sync",
+            "lastSynced": "2026-06-17T20:59:39.997Z",
+            "sass": "$color-gradients-gradient-2",
+            "reference": "color-gradients-gradient-2"
+          }
+        }
+      }
+    }
+  }
+}

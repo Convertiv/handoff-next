@@ -1,0 +1,23 @@
+{
+  "project": "3GcQn3eA8Kg9kprYXBXksv",
+  "generatedAt": "2026-06-17T20:59:39.997Z",
+  "generator": "build/tokens-to-dtcg.js",
+  "tiers": {
+    "primitive": [
+      "tokens/primitive/color.tokens.json",
+      "tokens/primitive/shadow.tokens.json"
+    ],
+    "semantic": [
+      "tokens/semantic/typography.tokens.json"
+    ]
+  },
+  "counts": {
+    "color": 92,
+    "typography": 14,
+    "shadow": 1,
+    "total": 107
+  },
+  "sources": [
+    "figma:3GcQn3eA8Kg9kprYXBXksv"
+  ]
+}

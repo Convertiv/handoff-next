@@ -55,6 +55,9 @@
     "build:vercel": "node ./dist/cli.js vercel-build",
     "build:registry": "npm run build && cd src/app && next build",
     "prepare-runtime": "node ./dist/cli.js prepare-runtime",
+    "tokens:dtcg": "node scripts/tokens-to-dtcg.js",
+    "tokens:transform": "node scripts/tokens-transform.js",
+    "tokens:build": "npm run tokens:dtcg && npm run tokens:transform",
     "fetch": "node ./dist/cli.js fetch",
     "lint": "cd src/app && npx eslint app components lib",
     "release": "np --any-branch",
@@ -190,6 +193,7 @@
     "np": "^10.2.0",
     "prettier-plugin-tailwindcss": "^0.7.0",
     "sass-embedded": "^1.89.0",
+    "style-dictionary": "^4.4.0",
     "tsc-alias": "^1.8.16",
     "tsx": "^4.21.0",
     "typescript": "5.6.3"

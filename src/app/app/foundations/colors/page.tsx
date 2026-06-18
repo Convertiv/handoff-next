@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import ColorGrid from '../../../components/Foundations/ColorGrid';
+import { ProvenanceBadge } from '../../../components/Foundations/ProvenanceBadge';
+import { TokenOutputTabs } from '../../../components/Foundations/TokenOutputTabs';
 import { DownloadTokens } from '../../../components/DownloadTokens';
 import { InlineEditHeader } from '../../../components/InlineEdit/InlineEditHeader';
 import Layout from '../../../components/Layout/Main';
@@ -11,6 +13,7 @@ import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown
 import AnchorNav from '../../../components/Navigation/AnchorNav';
 import PrevNextNav from '../../../components/Navigation/PrevNextNav';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
+import { fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
 
 export async function generateMetadata() {
   const { props } = await fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'colors', '/foundations');
@@ -22,9 +25,12 @@ export default async function ColorsPage() {
     fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'colors', '/foundations'),
     getTokensForRuntime(),
   ]);
-  const config = getClientRuntimeConfig();
-  const design = tokens.localStyles;
+  const config   = getClientRuntimeConfig();
+  const design   = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
+
+  const dtcg     = fetchDtcgTokenStrings('color');
+  const manifest = fetchDtcgManifest();
 
   const colorGroups = Object.fromEntries(
     Object.entries(groupBy(design.color, 'group'))
@@ -45,8 +51,18 @@ export default async function ColorsPage() {
         initialFrontmatter={metadata as Record<string, unknown>}
         markdown={content}
       >
-        <DownloadTokens componentId="colors" scss={scss} css={css} styleDictionary={styleDictionary} types={types} />
+        <DownloadTokens
+          componentId="colors"
+          scss={scss}
+          css={css}
+          styleDictionary={styleDictionary}
+          types={types}
+          tailwind={dtcg?.tailwind}
+          dtcg={dtcg?.dtcg}
+        />
+        {manifest && <ProvenanceBadge manifest={manifest} />}
       </InlineEditHeader>
+
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div className="flex flex-col gap-0">
           {Object.keys(colorGroups).map((group) => (
@@ -58,6 +74,17 @@ export default async function ColorsPage() {
               key={group}
             />
           ))}
+
+          {dtcg && (
+            <TokenOutputTabs
+              css={dtcg.css}
+              scss={dtcg.scss}
+              tailwind={dtcg.tailwind}
+              dtcg={dtcg.dtcg}
+              name="colors"
+            />
+          )}
+
           <PrevNextNav previous={null} next={{ title: 'Typography', href: '/foundations/typography' }} />
         </div>
         <AnchorNav
