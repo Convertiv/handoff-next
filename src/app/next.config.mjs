@@ -147,7 +147,11 @@ const nextConfig = {
     //     when handoff-app is deployed and no schema is ever applied — first
     //     request fails with "relation does not exist" forever.
     '/**': [
+      // Materialized workspace deploy: config/docs/ lives next to next.config.mjs
       './config/docs/**/*',
+      // Direct registry deploy (src/app/ is the Next.js root, repo root is two levels up):
+      // config/docs/ is at handoff-app/config/docs/, not src/app/config/docs/
+      '../../config/docs/**/*',
       './public/api/**/*',
       './client.config.json',
       './lib/db/migrations/**/*',

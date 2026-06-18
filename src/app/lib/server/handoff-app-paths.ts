@@ -53,36 +53,25 @@ export function getMaterializedAppRoot(env: NodeJS.ProcessEnv = process.env): st
  * Prefer the copy under the materialized app (present on Vercel / serverless); else `handoff-app` package.
  */
 export function getDefaultDocsDir(env: NodeJS.ProcessEnv = process.env): string | null {
-  const appRoot = readEnv('HANDOFF_APP_ROOT', env)?.trim();
   const materialized = path.join(getMaterializedAppRoot(env), 'config', 'docs');
   const mp = readEnv('HANDOFF_MODULE_PATH', env)?.trim();
   const moduleDocs =
     mp && !mp.startsWith('%HANDOFF_') ? path.join(path.resolve(mp), 'config', 'docs') : null;
 
-  // Fallback: process.cwd()-relative path. In the Vercel Lambda runtime with
-  // standalone output, HANDOFF_APP_ROOT and HANDOFF_MODULE_PATH are baked in as
-  // absolute build-machine paths that no longer exist. The standalone bundle
-  // places config/docs/ relative to its root, which is process.cwd() at runtime.
+  // In the Vercel Lambda runtime with standalone output, HANDOFF_APP_ROOT and
+  // HANDOFF_MODULE_PATH are baked in as absolute build-machine paths that no longer
+  // exist. The standalone bundle places config/docs/ relative to its tracing root,
+  // which becomes process.cwd() at runtime. Check direct and one sub-level paths.
   const cwdDocs = path.join(process.cwd(), 'config', 'docs');
-
-  // In direct registry deploys on Vercel (no materialization), outputFileTracingRoot
-  // is the repo root (HANDOFF_MODULE_PATH) and config/docs/ lands at
-  //   <standalone-root>/<relative(module, appRoot)>/config/docs/
-  // e.g. process.cwd()/src/app/config/docs. Compute and check that path too.
-  let cwdRelDocs: string | null = null;
-  if (
-    appRoot && !isUnset(appRoot) && !fs.existsSync(appRoot) &&
-    mp && !isUnset(mp) && !fs.existsSync(mp)
-  ) {
-    const rel = path.relative(path.resolve(mp), path.resolve(appRoot));
-    if (rel && !rel.startsWith('..')) {
-      cwdRelDocs = path.join(process.cwd(), rel, 'config', 'docs');
-    }
-  }
+  // Direct registry deploy: outputFileTracingRoot is the repo root, app is at src/app/.
+  // config/docs/ at repo root lands at process.cwd()/config/docs (fixed by the
+  // ../../config/docs/**/* include in next.config.mjs), but also check src/app/ sub-path
+  // as a safety net in case the tracing root changes.
+  const cwdSrcAppDocs = path.join(process.cwd(), 'src', 'app', 'config', 'docs');
 
   if (fs.existsSync(materialized)) return materialized;
   if (moduleDocs && fs.existsSync(moduleDocs)) return moduleDocs;
   if (fs.existsSync(cwdDocs)) return cwdDocs;
-  if (cwdRelDocs && fs.existsSync(cwdRelDocs)) return cwdRelDocs;
+  if (fs.existsSync(cwdSrcAppDocs)) return cwdSrcAppDocs;
   return null;
 }
