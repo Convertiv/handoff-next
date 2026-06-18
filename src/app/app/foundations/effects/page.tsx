@@ -7,11 +7,14 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { DownloadTokens } from '../../../components/DownloadTokens';
+import { ProvenanceBadge } from '../../../components/Foundations/ProvenanceBadge';
+import { TokenOutputTabs } from '../../../components/Foundations/TokenOutputTabs';
 import { InlineEditHeader } from '../../../components/InlineEdit/InlineEditHeader';
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import AnchorNav from '../../../components/Navigation/AnchorNav';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
+import { fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
 
 type EffectParametersObject = CoreTypes.IEffectObject['effects'][number];
 
@@ -34,9 +37,12 @@ export default async function EffectsPage() {
     fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'effects', '/foundations'),
     getTokensForRuntime(),
   ]);
-  const config = getClientRuntimeConfig();
-  const design = tokens.localStyles;
+  const config   = getClientRuntimeConfig();
+  const design   = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
+
+  const dtcg     = fetchDtcgTokenStrings('shadow');
+  const manifest = fetchDtcgManifest();
 
   const effectGroups = Object.fromEntries(
     Object.entries(groupBy(design.effect, 'group')).map(([groupKey, effects]) =>
@@ -53,7 +59,16 @@ export default async function EffectsPage() {
         initialFrontmatter={metadata as Record<string, unknown>}
         markdown={content}
       >
-        <DownloadTokens componentId="colors" scss={scss} css={css} styleDictionary={styleDictionary} types={types} />
+        <DownloadTokens
+          componentId="effects"
+          scss={scss}
+          css={css}
+          styleDictionary={styleDictionary}
+          types={types}
+          tailwind={dtcg?.tailwind}
+          dtcg={dtcg?.dtcg}
+        />
+        {manifest && <ProvenanceBadge manifest={manifest} />}
       </InlineEditHeader>
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div>
@@ -83,6 +98,15 @@ export default async function EffectsPage() {
               <hr />
             </div>
           ))}
+          {dtcg && (
+            <TokenOutputTabs
+              css={dtcg.css}
+              scss={dtcg.scss}
+              tailwind={dtcg.tailwind}
+              dtcg={dtcg.dtcg}
+              name="effects"
+            />
+          )}
         </div>
         <AnchorNav
           groups={[

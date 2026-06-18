@@ -4,6 +4,8 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { DownloadTokens } from '../../../components/DownloadTokens';
+import { ProvenanceBadge } from '../../../components/Foundations/ProvenanceBadge';
+import { TokenOutputTabs } from '../../../components/Foundations/TokenOutputTabs';
 import TypographyExamples from '../../../components/Foundations/TypographyExample';
 import { InlineEditHeader } from '../../../components/InlineEdit/InlineEditHeader';
 import Layout from '../../../components/Layout/Main';
@@ -12,6 +14,7 @@ import AnchorNav from '../../../components/Navigation/AnchorNav';
 import { anchorSlugify } from '../../../components/Navigation/anchor-slugify';
 import HeadersType from '../../../components/Typography/Headers';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
+import { fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
 
 export async function generateMetadata() {
   const { props } = await fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'typography', '/foundations');
@@ -23,9 +26,12 @@ export default async function TypographyPage() {
     fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'typography', '/foundations'),
     getTokensForRuntime(),
   ]);
-  const config = getClientRuntimeConfig();
-  const design = tokens.localStyles;
+  const config   = getClientRuntimeConfig();
+  const design   = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
+
+  const dtcg     = fetchDtcgTokenStrings('typography');
+  const manifest = fetchDtcgManifest();
 
   const typography = design.typography.slice().sort((a, b) => {
     const l = (config?.app?.type_sort ?? []).indexOf(a.name) >>> 0;
@@ -49,7 +55,16 @@ export default async function TypographyPage() {
         initialFrontmatter={metadata as Record<string, unknown>}
         markdown={content}
       >
-        <DownloadTokens componentId="colors" scss={scss} css={css} styleDictionary={styleDictionary} types={types} />
+        <DownloadTokens
+          componentId="typography"
+          scss={scss}
+          css={css}
+          styleDictionary={styleDictionary}
+          types={types}
+          tailwind={dtcg?.tailwind}
+          dtcg={dtcg?.dtcg}
+        />
+        {manifest && <ProvenanceBadge manifest={manifest} />}
       </InlineEditHeader>
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div>
@@ -72,6 +87,16 @@ export default async function TypographyPage() {
             <p className="mb-8">This is our typography hierarchy, defining the full range of headings, paragraphs, labels and other text used across the system.</p>
             <TypographyExamples types={typography} />
           </div>
+
+          {dtcg && (
+            <TokenOutputTabs
+              css={dtcg.css}
+              scss={dtcg.scss}
+              tailwind={dtcg.tailwind}
+              dtcg={dtcg.dtcg}
+              name="typography"
+            />
+          )}
         </div>
         <AnchorNav groups={[{ typefaces: 'Typefaces' }, { 'typography-scale': 'Typography Scale' }]} />
         <div className="prose">
