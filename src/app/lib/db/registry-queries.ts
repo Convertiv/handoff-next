@@ -101,6 +101,12 @@ export type RegistryDtcgPayload = {
   scss: string;
   tailwind: string;
   dtcg: Record<string, unknown>;
+  /**
+   * Brand token trees keyed by brand name (plus "shared" for the gray ramp).
+   * Each value is a DTCG token file parsed from a CSS brand file.
+   * Empty object when no brands are configured.
+   */
+  brands: Record<string, Record<string, unknown>>;
 };
 
 export async function getRegistryDtcg(): Promise<RegistryDtcgPayload | null> {
@@ -114,6 +120,7 @@ export async function getRegistryDtcg(): Promise<RegistryDtcgPayload | null> {
     scss: row.scss ?? '',
     tailwind: row.tailwind ?? '',
     dtcg: (row.dtcg as Record<string, unknown>) ?? {},
+    brands: (row.brands as Record<string, Record<string, unknown>>) ?? {},
   };
 }
 

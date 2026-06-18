@@ -206,6 +206,36 @@ export interface Config {
     patterns?: string[];
   };
   /**
+   * Brand CSS files to parse and emit as DTCG token files during `tokens:build`.
+   *
+   * Each entry maps a brand name to an absolute (or working-dir-relative) path
+   * to a CSS file whose `:root { --var: value }` declarations should be extracted.
+   * A shared `sharedCss` path provides the base variable pool for alias resolution
+   * (e.g. `--primary: var(--resolvet-blue-600)` → resolved hex).
+   *
+   * Output files:
+   *   design-system/tokens/shared/gray.tokens.json  (from sharedCss)
+   *   design-system/tokens/brands/{brand}.tokens.json  (per brand)
+   *
+   * @example
+   * ```ts
+   * brands: {
+   *   sharedCss: '../packages/ui/src/styles/theme.css',
+   *   entries: [
+   *     { brand: 'resolvet', filePath: '../packages/ui/src/styles/brands/resolvet.css' },
+   *     { brand: 'hagyard',  filePath: '../packages/ui/src/styles/brands/hagyard.css' },
+   *   ],
+   * }
+   * ```
+   */
+  brands?: {
+    /** Shared primitives CSS (gray ramp, Tailwind @theme wiring). Used as alias-resolution base. */
+    sharedCss: string;
+    /** Per-brand CSS files to parse. */
+    entries: Array<{ brand: string; filePath: string }>;
+  };
+
+  /**
    * Configuration for asset zip file download links
    * @default { icons: "/icons.zip", logos: "/logos.zip" }
    */

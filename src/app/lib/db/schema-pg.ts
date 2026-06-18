@@ -549,6 +549,8 @@ export const handoffRegistryDtcg = pgTable('handoff_registry_dtcg', {
   scss: text('scss').notNull().default(''),
   tailwind: text('tailwind').notNull().default(''),
   dtcg: jsonb('dtcg').notNull().default({}),
+  /** Brand token trees keyed by brand name (plus "shared" for the gray ramp). */
+  brands: jsonb('brands').notNull().default({}),
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
   updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 });

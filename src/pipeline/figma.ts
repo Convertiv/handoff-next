@@ -6,6 +6,7 @@ import path from 'path';
 import Handoff from '@handoff/index';
 import { getAppPath } from '@handoff/app-builder/paths';
 import { Logger } from '@handoff/utils/logger';
+import { migrateLegacyTokens } from '@handoff/cli/tokens/migrate-legacy';
 import { zipAssets } from './archive.js';
 import { createDocumentationObject } from './documentation.js';
 
@@ -123,6 +124,14 @@ export const figmaExtract = async (handoff: Handoff): Promise<HandoffTypes.IDocu
         ]
       : []),
   ]);
+
+  // Write Figma tokens into design-system/tokens/ as DTCG so `tokens:build` has up-to-date source
+  try {
+    Logger.info('Writing Figma tokens to design-system/tokens/ (DTCG)...');
+    await migrateLegacyTokens(handoff);
+  } catch (e) {
+    Logger.warn(`Could not write DTCG tokens: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   // define the output folder (materialized Next app `public/`)
   const outputFolder = path.join(getAppPath(handoff), 'public');

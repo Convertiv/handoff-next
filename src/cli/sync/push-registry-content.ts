@@ -342,22 +342,44 @@ export async function pushRegistryTokens(handoff: Handoff): Promise<void> {
 
 /**
  * Push the DTCG token pipeline output. Reads from the workspace's
- * design-system/dist/ directory (the output of `npm run tokens:build`).
+ * design-system/dist/ directory (the output of `handoff-app tokens:build`).
  *
  * Sends all four compiled formats (CSS, SCSS, Tailwind, resolved DTCG JSON)
  * plus the manifest to POST /api/registry/dtcg so the registry can serve
  * foundation pages without access to the workspace filesystem.
  *
- * If design-system/dist/ doesn't exist, warns and skips — run `npm run tokens:build`
+ * If design-system/dist/ doesn't exist, warns and skips — run `handoff-app tokens:build`
  * in the workspace before push:all if you want DTCG data on the registry.
  */
+/** Collect brand token files from design-system/tokens/brands/ and shared/. */
+async function collectBrandTokens(dsRoot: string): Promise<Record<string, Record<string, unknown>>> {
+  const brands: Record<string, Record<string, unknown>> = {};
+
+  const sharedGray = path.join(dsRoot, 'tokens', 'shared', 'gray.tokens.json');
+  if (await fs.pathExists(sharedGray)) {
+    brands['shared'] = await fs.readJson(sharedGray);
+  }
+
+  const brandsDir = path.join(dsRoot, 'tokens', 'brands');
+  if (await fs.pathExists(brandsDir)) {
+    for (const entry of await fs.readdir(brandsDir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.tokens.json')) {
+        const brandName = entry.name.replace(/\.tokens\.json$/, '');
+        brands[brandName] = await fs.readJson(path.join(brandsDir, entry.name));
+      }
+    }
+  }
+
+  return brands;
+}
+
 export async function pushRegistryDtcg(handoff: Handoff): Promise<void> {
   const dsRoot  = path.join(handoff.workingPath, 'design-system');
   const dsDist  = path.join(dsRoot, 'dist');
   const manifestPath = path.join(dsRoot, 'manifest.json');
 
   if (!(await fs.pathExists(dsDist))) {
-    Logger.warn(`No design-system/dist/ found at ${dsDist}. Run \`npm run tokens:build\` first. Skipping DTCG push.`);
+    Logger.warn(`No design-system/dist/ found at ${dsDist}. Run \`handoff-app tokens:build\` first. Skipping DTCG push.`);
     return;
   }
 
@@ -368,24 +390,26 @@ export async function pushRegistryDtcg(handoff: Handoff): Promise<void> {
 
   const missing = [cssPath, scssPath, tailwindPath, dtcgPath].filter((p) => !fs.existsSync(p));
   if (missing.length > 0) {
-    Logger.warn(`Missing DTCG dist files: ${missing.map((p) => path.relative(handoff.workingPath, p)).join(', ')}. Run \`npm run tokens:build\`. Skipping DTCG push.`);
+    Logger.warn(`Missing DTCG dist files: ${missing.map((p) => path.relative(handoff.workingPath, p)).join(', ')}. Run \`handoff-app tokens:build\`. Skipping DTCG push.`);
     return;
   }
 
-  const [css, scss, tailwind, dtcg, manifest] = await Promise.all([
+  const [css, scss, tailwind, dtcg, manifest, brands] = await Promise.all([
     fs.readFile(cssPath, 'utf-8'),
     fs.readFile(scssPath, 'utf-8'),
     fs.readFile(tailwindPath, 'utf-8'),
     fs.readJson(dtcgPath),
     fs.pathExists(manifestPath).then((exists) => (exists ? fs.readJson(manifestPath) : {})),
+    collectBrandTokens(dsRoot),
   ]);
 
   const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
   const bearer  = await getSyncBearerToken(handoff.workingPath);
   const url     = `${baseUrl}/api/registry/dtcg`;
 
+  const brandNames = Object.keys(brands).filter((k) => k !== 'shared');
   const cssKb = Math.round(css.length / 1024);
-  Logger.info(`Pushing DTCG token dist to registry (~${cssKb}KB CSS)…`);
-  await postJson(url, bearer, { manifest, css, scss, tailwind, dtcg });
+  Logger.info(`Pushing DTCG token dist to registry (~${cssKb}KB CSS${brandNames.length ? `, brands: ${brandNames.join(', ')}` : ''})…`);
+  await postJson(url, bearer, { manifest, css, scss, tailwind, dtcg, brands });
   Logger.success('Registry DTCG tokens pushed.');
 }

@@ -42,6 +42,7 @@ export async function POST(request: Request): Promise<Response> {
     scss?: unknown;
     tailwind?: unknown;
     dtcg?: unknown;
+    brands?: unknown;
   };
   try {
     body = await request.json();
@@ -66,6 +67,9 @@ export async function POST(request: Request): Promise<Response> {
       scss: body.scss,
       tailwind: body.tailwind,
       dtcg: body.dtcg as Record<string, unknown>,
+      brands: (body.brands && typeof body.brands === 'object' && !Array.isArray(body.brands))
+        ? body.brands as Record<string, Record<string, unknown>>
+        : {},
     });
     await insertTokensSnapshot(body.dtcg, 'push');
     return NextResponse.json({ ok: true });
