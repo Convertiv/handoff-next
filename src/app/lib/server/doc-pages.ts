@@ -3,7 +3,7 @@ import 'server-only';
 import { asc, eq } from 'drizzle-orm';
 import type { Session } from 'next-auth';
 import { getDb } from '../db';
-import { handoffPages } from '../db/schema';
+import { handoffPageChanges, handoffPages } from '../db/schema';
 
 export type HandoffPageRow = {
   slug: string;
@@ -98,11 +98,29 @@ export async function upsertHandoffPage(
 export async function bulkUpsertHandoffPages(
   pages: Array<{ slug: string; frontmatter: Record<string, unknown>; markdown: string }>
 ): Promise<number> {
+  const db = getDb();
   let count = 0;
   for (const page of pages) {
     const trimmedSlug = page.slug.replace(/^\/+|\/+$/g, '');
     if (!trimmedSlug) continue;
+
+    const existing = await getHandoffPageBySlug(trimmedSlug);
+    const action = existing ? 'updated' : 'created';
+    const titleBefore = existing ? String(existing.frontmatter?.title ?? '') || null : null;
+    const titleAfter = String(page.frontmatter?.title ?? '') || null;
+
     await upsertHandoffPageInternal(trimmedSlug, page.frontmatter, page.markdown);
+
+    await db.insert(handoffPageChanges).values({
+      slug: trimmedSlug,
+      action,
+      trigger: 'push',
+      titleBefore,
+      titleAfter,
+      markdownLengthBefore: existing ? existing.markdown.length : null,
+      markdownLengthAfter: page.markdown.length,
+    });
+
     count++;
   }
   return count;

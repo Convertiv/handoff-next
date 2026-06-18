@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifySyncAuth } from '@/lib/sync-auth';
-import { getRegistryDtcg, upsertRegistryDtcg } from '@/lib/db/registry-queries';
+import { getRegistryDtcg, insertTokensSnapshot, upsertRegistryDtcg } from '@/lib/db/registry-queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -67,6 +67,7 @@ export async function POST(request: Request): Promise<Response> {
       tailwind: body.tailwind,
       dtcg: body.dtcg as Record<string, unknown>,
     });
+    await insertTokensSnapshot(body.dtcg, 'push');
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';
