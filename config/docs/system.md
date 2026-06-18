@@ -8,20 +8,6 @@ metaTitle: 'Design System | Handoff Design System'
 metaDescription: 'Element that represents a control that provides a menu of options, collection of UI components used.'
 enabled: true
 menu:
-  - title: Design System
-    menu:
-      - path: system
-        title: Overview
-      - path: system/figma-sync
-        title: Figma Sync
-      - path: system/health
-        title: Health
-      - path: system/changelog
-        title: Changelog
-  - title: Tokens
-    tokens: true
-  - title: Components
-    components: true
-  - title: Patterns
-    patterns: true
+  - components: true
+  - patterns: true
 ---

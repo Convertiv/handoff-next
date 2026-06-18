@@ -199,59 +199,30 @@ const SideNav = ({ menu, topNav }: SideNavProps) => {
 
   // Tools sidebar suppressed — navigation handled by ToolsSubNav in Header.
 
-  // ── Knowledge section: cross-section nav with current section expanded ───
+  // ── Knowledge section: flat always-visible sections ─────────────────────
   if (!isToolsSection && topNav && topNav.length > 0) {
     return (
       <Sidebar className="sticky left-auto">
         <SidebarContent className="px-4 pt-5">
           {topNav.map((section, idx) => {
-            const isSectionActive = normalizePathForMatch(pathname).startsWith(
-              normalizePathForMatch(section.path)
-            );
             const subSections = (section.subSections ?? []) as Array<
               SectionLink['subSections'][number] & { menu?: unknown[] }
             >;
-            const hasSubSections = subSections.length > 0;
 
             return (
-              <React.Fragment key={section.path}>
+              <React.Fragment key={section.path ?? section.title}>
                 <SidebarGroup>
+                  <SidebarGroupLabel className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    {section.title}
+                  </SidebarGroupLabel>
                   <SidebarGroupContent>
                     <SidebarMenu>
-                      {hasSubSections ? (
-                        <Collapsible defaultOpen={isSectionActive} className="group/collapsible">
-                          <SidebarMenuItem>
-                            {/* Custom trigger — avoids SidebarMenuButton's hardcoded [&>span:last-child]:truncate */}
-                            <CollapsibleTrigger className="flex min-h-9 w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-sidebar-accent hover:text-sidebar-accent-foreground">
-                              <span
-                                className={cn(
-                                  'flex-1 text-left leading-snug',
-                                  isSectionActive
-                                    ? 'font-medium text-sidebar-accent-foreground'
-                                    : 'text-sidebar-foreground'
-                                )}
-                              >
-                                {section.title}
-                              </span>
-                              <ChevronRight className="size-[14px] shrink-0 stroke-[1.5] text-slate-700 opacity-50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <SidebarMenuSub className="pl-3">
-                                <SidebarMenu>
-                                  {subSections.map((sub, subIdx) => (
-                                    <MenuItem
-                                      key={`${idx}-${subIdx}`}
-                                      item={sub as Parameters<typeof MenuItem>[0]['item']}
-                                    />
-                                  ))}
-                                </SidebarMenu>
-                              </SidebarMenuSub>
-                            </CollapsibleContent>
-                          </SidebarMenuItem>
-                        </Collapsible>
-                      ) : (
-                        <NormalMenuItem title={section.title} path={section.path} icon={null} />
-                      )}
+                      {subSections.map((sub, subIdx) => (
+                        <MenuItem
+                          key={`${idx}-${subIdx}`}
+                          item={sub as Parameters<typeof MenuItem>[0]['item']}
+                        />
+                      ))}
                     </SidebarMenu>
                   </SidebarGroupContent>
                 </SidebarGroup>

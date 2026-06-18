@@ -485,52 +485,37 @@ export class DynamicDataProvider implements DataProvider {
  * with the top-level system navigation rather than the component catalog.
  */
 function injectSystemUtilityLinks(menu: SectionLink[], basePath: string): SectionLink[] {
+  // These four are always present at the top of the System section as direct links.
+  // Any already present (by path) are skipped to avoid duplicates from workspace pushes.
   const utilLinks = [
-    { title: 'Health', path: `${basePath}/system/health` },
-    { title: 'Changelog', path: `${basePath}/system/changelog` },
+    { title: 'Overview',   path: `${basePath}/system` },
+    { title: 'Health',     path: `${basePath}/system/health` },
+    { title: 'Changelog',  path: `${basePath}/system/changelog` },
+    { title: 'Tokens',     path: `${basePath}/system/tokens/foundations` },
   ];
 
   return menu.map((section) => {
     const isSystem = section.path === '/system' || section.path === `${basePath}/system` || section.path?.endsWith('/system');
     if (!isSystem) return section;
 
-    // Find the first subSection that has a menu (the "Design System" group)
     const subSections = section.subSections ?? [];
-    const firstWithMenu = subSections.findIndex((s) => Array.isArray(s.menu) && s.menu.length > 0);
 
-    if (firstWithMenu === -1) {
-      // No existing submenu group — append as a standalone "System" group
-      return {
-        ...section,
-        subSections: [
-          ...subSections,
-          {
-            title: 'System',
-            path: `${basePath}/system`,
-            image: '',
-            menu: utilLinks.map((l) => ({ ...l, image: '' })),
-          },
-        ],
-      };
-    }
-
-    // Merge into the first submenu group, skipping any already present
-    const existingPaths = new Set(
-      (subSections[firstWithMenu].menu ?? []).map((m) => m.path)
+    // Collect all paths already present (direct subSections and one level deep in menus)
+    const existingPaths = new Set<string>(
+      [
+        ...subSections.map((s) => s.path),
+        ...subSections.flatMap((s) => (Array.isArray((s as { menu?: { path: string }[] }).menu) ? ((s as { menu?: { path: string }[] }).menu ?? []).map((m) => m.path) : [])),
+      ].filter(Boolean) as string[]
     );
+
     const toAdd = utilLinks
       .filter((l) => !existingPaths.has(l.path))
       .map((l) => ({ ...l, image: '' }));
 
     if (toAdd.length === 0) return section;
 
-    const updatedSubSections = subSections.map((s, i) =>
-      i === firstWithMenu
-        ? { ...s, menu: [...(s.menu ?? []), ...toAdd] }
-        : s
-    );
-
-    return { ...section, subSections: updatedSubSections };
+    // Prepend utility links so they appear above component groups
+    return { ...section, subSections: [...toAdd, ...subSections] };
   });
 }
 
