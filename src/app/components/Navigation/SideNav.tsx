@@ -9,7 +9,9 @@ import {
   LayoutPanelLeft,
   Palette,
   Pickaxe,
+  Ruler,
   Shapes,
+  Sparkles,
   SquareChartGantt,
   Sun,
   TypeOutline,
@@ -108,8 +110,14 @@ const MenuIcon = ({ icon, isActive = false }) => {
       return <Grid className={iconClass} strokeWidth={1.5} />;
     case 'layout-panel-left':
       return <LayoutPanelLeft className={iconClass} strokeWidth={1.5} />;
+    case 'rulers':
+      return <Ruler className={iconClass} strokeWidth={1.5} />;
     case 'sun':
       return <Sun className={iconClass} strokeWidth={1.5} />;
+    case 'effect':
+    case 'effects':
+    case 'sparkles':
+      return <Sparkles className={iconClass} strokeWidth={1.5} />;
     case 'blend':
       return <Sun className={iconClass} strokeWidth={1.5} />;
     case 'image':

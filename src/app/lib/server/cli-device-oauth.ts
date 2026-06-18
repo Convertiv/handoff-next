@@ -130,17 +130,19 @@ export async function exchangeCliDeviceCode(deviceCodePlain: string, issuer: str
   const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, row.userId)).limit(1);
   const actualRole = userRows[0]?.role ?? 'member';
 
+  const TOKEN_TTL_SEC = 365 * 24 * 3600; // 1 year — CLI tokens are machine credentials, not browser sessions
+
   const accessToken = signCliAccessToken({
     sub: row.userId,
     role: actualRole,
     scp: row.scopes,
     iss: issuer,
-    ttlSeconds: 3600,
+    ttlSeconds: TOKEN_TTL_SEC,
   });
 
   await db.update(cliDeviceSessions).set({ status: 'consumed' }).where(eq(cliDeviceSessions.id, row.id));
 
-  return { ok: true, accessToken, expiresIn: 3600, tokenType: 'Bearer' };
+  return { ok: true, accessToken, expiresIn: TOKEN_TTL_SEC, tokenType: 'Bearer' };
 }
 
 /** Delete expired sessions (best-effort cleanup). */

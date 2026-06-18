@@ -45,7 +45,7 @@ export function signCliAccessToken(payload: Omit<CliSyncJwtPayload, 'aud' | 'iat
     throw new Error('Set HANDOFF_CLI_JWT_SECRET or AUTH_SECRET to issue CLI sync tokens.');
   }
   const now = Math.floor(Date.now() / 1000);
-  const ttl = payload.ttlSeconds ?? 3600;
+  const ttl = payload.ttlSeconds ?? 365 * 24 * 3600;
   const full: CliSyncJwtPayload = {
     sub: payload.sub,
     role: payload.role,
