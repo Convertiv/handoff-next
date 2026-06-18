@@ -4,11 +4,25 @@ import type { Types as CoreTypes } from 'handoff-core';
 import * as fs from 'fs-extra';
 import path from 'path';
 import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getTokens, staticBuildMenu } from '../../components/util';
-import type { DataProvider, DocPageContent } from './types';
+import type { DataProvider, DocPageContent, DtcgManifest, DtcgTokenStrings, DtcgTokenType } from './types';
 import type { SectionLink } from '../../components/util';
 import { getComponentDistDir, getPublicApiDir } from '../server/public-api-paths';
 
 export { getPublicApiDir } from '../server/public-api-paths';
+
+function filterCssLines(content: string, prefix: string): string {
+  const lines = content.split('\n').filter((l) => l.trim().startsWith(`--${prefix}`));
+  return `:root {\n${lines.join('\n')}\n}`;
+}
+
+function filterScssLines(content: string, prefix: string): string {
+  return content.split('\n').filter((l) => l.trim().startsWith(`$${prefix}`)).join('\n');
+}
+
+function filterTailwindLines(content: string, prefix: string): string {
+  const lines = content.split('\n').filter((l) => l.trim().startsWith(`--${prefix}`));
+  return `@theme {\n${lines.join('\n')}\n}`;
+}
 
 // Workspace mode only — reads from filesystem, zero database access.
 export class StaticDataProvider implements DataProvider {
@@ -62,6 +76,42 @@ export class StaticDataProvider implements DataProvider {
 
   async getTokens(): Promise<CoreTypes.IDocumentationObject> {
     return getTokens();
+  }
+
+  async getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null> {
+    try {
+      const workingPath = process.env.HANDOFF_WORKING_PATH;
+      const base = workingPath ? path.resolve(workingPath, 'design-system', 'dist') : path.resolve(process.cwd(), 'design-system', 'dist');
+      const cssPath      = path.join(base, 'css', 'tokens.css');
+      const scssPath     = path.join(base, 'scss', '_tokens.scss');
+      const tailwindPath = path.join(base, 'tailwind', 'theme.css');
+      const dtcgPath     = path.join(base, 'dtcg', 'tokens.resolved.json');
+      if (![cssPath, scssPath, tailwindPath, dtcgPath].every((p) => fs.existsSync(p))) return null;
+      const cssRaw      = await fs.readFile(cssPath, 'utf-8');
+      const scssRaw     = await fs.readFile(scssPath, 'utf-8');
+      const tailwindRaw = await fs.readFile(tailwindPath, 'utf-8');
+      const dtcgRaw     = JSON.parse(await fs.readFile(dtcgPath, 'utf-8')) as Record<string, unknown>;
+      return {
+        css:      filterCssLines(cssRaw, type),
+        scss:     filterScssLines(scssRaw, type),
+        tailwind: filterTailwindLines(tailwindRaw, type),
+        dtcg:     JSON.stringify(dtcgRaw[type] ?? {}, null, 2),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async getDtcgManifest(): Promise<DtcgManifest | null> {
+    try {
+      const workingPath = process.env.HANDOFF_WORKING_PATH;
+      const dsRoot = workingPath ? path.resolve(workingPath, 'design-system') : path.resolve(process.cwd(), 'design-system');
+      const manifestPath = path.join(dsRoot, 'manifest.json');
+      if (!fs.existsSync(manifestPath)) return null;
+      return JSON.parse(await fs.readFile(manifestPath, 'utf-8')) as DtcgManifest;
+    } catch {
+      return null;
+    }
   }
 
   async getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent> {

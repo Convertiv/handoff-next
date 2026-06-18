@@ -6,6 +6,7 @@ import {
   handoffRegistryConfig,
   handoffRegistryTheme,
   handoffRegistryNavigation,
+  handoffRegistryDtcg,
   handoffTokenChanges,
   handoffTokensSnapshots,
 } from './schema-pg';
@@ -89,6 +90,41 @@ export async function upsertRegistryNavigation(tree: NavigationNode[], userId: s
     .onConflictDoUpdate({
       target: handoffRegistryNavigation.id,
       set: { tree, updatedAt: new Date(), updatedByUserId: userId },
+    });
+}
+
+// ─── Registry DTCG ─────────────────────────────────────────────────────────────
+
+export type RegistryDtcgPayload = {
+  manifest: Record<string, unknown>;
+  css: string;
+  scss: string;
+  tailwind: string;
+  dtcg: Record<string, unknown>;
+};
+
+export async function getRegistryDtcg(): Promise<RegistryDtcgPayload | null> {
+  const db = getDb();
+  const rows = await db.select().from(handoffRegistryDtcg).where(eq(handoffRegistryDtcg.id, SINGLETON_ID)).limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    manifest: (row.manifest as Record<string, unknown>) ?? {},
+    css: row.css ?? '',
+    scss: row.scss ?? '',
+    tailwind: row.tailwind ?? '',
+    dtcg: (row.dtcg as Record<string, unknown>) ?? {},
+  };
+}
+
+export async function upsertRegistryDtcg(payload: RegistryDtcgPayload, userId: string | null = null): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(handoffRegistryDtcg)
+    .values({ id: SINGLETON_ID, ...payload, updatedAt: new Date(), updatedByUserId: userId })
+    .onConflictDoUpdate({
+      target: handoffRegistryDtcg.id,
+      set: { ...payload, updatedAt: new Date(), updatedByUserId: userId },
     });
 }
 

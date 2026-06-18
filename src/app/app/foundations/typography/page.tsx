@@ -30,8 +30,8 @@ export default async function TypographyPage() {
   const design   = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
 
-  const dtcg     = fetchDtcgTokenStrings('typography');
-  const manifest = fetchDtcgManifest();
+  const dtcg     = await fetchDtcgTokenStrings('typography');
+  const manifest = await fetchDtcgManifest();
 
   const typography = design.typography.slice().sort((a, b) => {
     const l = (config?.app?.type_sort ?? []).indexOf(a.name) >>> 0;

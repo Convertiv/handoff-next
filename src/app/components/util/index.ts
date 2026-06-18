@@ -112,6 +112,7 @@ export const knownPaths = [
   'foundations/effects',
   'foundations/logos',
   'foundations/logo',
+  'foundations/spacing',
   'foundations/typography',
   'system',
   'system/component',
@@ -119,6 +120,7 @@ export const knownPaths = [
   'system/tokens/foundations',
   'system/tokens/foundations/colors',
   'system/tokens/foundations/effects',
+  'system/tokens/foundations/spacing',
   'system/tokens/foundations/typography',
   'system/tokens/components',
   'system/pattern',
@@ -449,6 +451,10 @@ const staticBuildTokensMenu = () => {
         {
           title: `Effects`,
           path: `${basePath}system/tokens/foundations/effects`,
+        },
+        {
+          title: `Spacing`,
+          path: `${basePath}system/tokens/foundations/spacing`,
         },
         {
           title: `Typography`,

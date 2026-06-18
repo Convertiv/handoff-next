@@ -7,6 +7,7 @@ import {
   pushRegistryNavigation,
   pushRegistryPages,
   pushRegistryTokens,
+  pushRegistryDtcg,
 } from '@handoff/cli/sync/push-registry-content';
 import { Logger } from '@handoff/utils/logger';
 import { SharedArgs } from './types.js';
@@ -20,12 +21,13 @@ export interface PushAllArgs extends SharedArgs {
   skipTheme?: boolean;
   skipNavigation?: boolean;
   skipTokens?: boolean;
+  skipDtcg?: boolean;
 }
 
 const command: CommandModule<{}, PushAllArgs> = {
   command: 'push:all',
   describe:
-    'Push everything to the connected registry: components, pages, config, theme.css, navigation, tokens. Use individual --skip-* flags to omit any piece.',
+    'Push everything to the connected registry: components, pages, config, theme.css, navigation, tokens, DTCG dist. Use individual --skip-* flags to omit any piece.',
   builder: (yargs) =>
     getSharedOptions(yargs)
       .option('skip-build', { type: 'boolean', default: false, describe: 'Skip local component build before push (use existing artifacts).' })
@@ -34,7 +36,8 @@ const command: CommandModule<{}, PushAllArgs> = {
       .option('skip-config', { type: 'boolean', default: false, describe: 'Skip /api/registry/config push.' })
       .option('skip-theme', { type: 'boolean', default: false, describe: 'Skip /api/registry/theme push.' })
       .option('skip-navigation', { type: 'boolean', default: false, describe: 'Skip /api/registry/navigation push.' })
-      .option('skip-tokens', { type: 'boolean', default: false, describe: 'Skip /api/registry/tokens push.' }),
+      .option('skip-tokens', { type: 'boolean', default: false, describe: 'Skip /api/registry/tokens push.' })
+      .option('skip-dtcg', { type: 'boolean', default: false, describe: 'Skip /api/registry/dtcg push (DTCG token pipeline output).' }),
   handler: async (args: PushAllArgs) => {
     const handoff = new Handoff(args.debug, args.force);
     handoff.preRunner();
@@ -84,6 +87,11 @@ const command: CommandModule<{}, PushAllArgs> = {
     // 6. Tokens
     if (!args.skipTokens) {
       await tryStep('tokens', () => pushRegistryTokens(handoff));
+    }
+
+    // 7. DTCG token pipeline output (design-system/dist/)
+    if (!args.skipDtcg) {
+      await tryStep('dtcg', () => pushRegistryDtcg(handoff));
     }
 
     if (failures > 0) {

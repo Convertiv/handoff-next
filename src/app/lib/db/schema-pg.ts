@@ -536,6 +536,24 @@ export const handoffRegistryNavigation = pgTable('handoff_registry_navigation', 
 });
 
 /**
+ * DTCG token pipeline output — singleton row. Workspace runs tokens:build
+ * locally (Phase 0 + Phase 1 scripts) which produces design-system/dist/ files.
+ * push:all reads those files and POSTs them here as text blobs + manifest JSON.
+ * Registry serves them via getDtcgTokenStrings() / getDtcgManifest() through
+ * the DynamicDataProvider so foundation pages work without workspace filesystem.
+ */
+export const handoffRegistryDtcg = pgTable('handoff_registry_dtcg', {
+  id: text('id').primaryKey().default('default'),
+  manifest: jsonb('manifest').notNull().default({}),
+  css: text('css').notNull().default(''),
+  scss: text('scss').notNull().default(''),
+  tailwind: text('tailwind').notNull().default(''),
+  dtcg: jsonb('dtcg').notNull().default({}),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});
+
+/**
  * Immutable version snapshots for each component.
  * One row is appended every time a push results in a detectable change to a
  * component's metadata, source files, or build artifacts.

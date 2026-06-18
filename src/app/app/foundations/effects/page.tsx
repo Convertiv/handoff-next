@@ -41,8 +41,8 @@ export default async function EffectsPage() {
   const design   = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
 
-  const dtcg     = fetchDtcgTokenStrings('shadow');
-  const manifest = fetchDtcgManifest();
+  const dtcg     = await fetchDtcgTokenStrings('shadow');
+  const manifest = await fetchDtcgManifest();
 
   const effectGroups = Object.fromEntries(
     Object.entries(groupBy(design.effect, 'group')).map(([groupKey, effects]) =>

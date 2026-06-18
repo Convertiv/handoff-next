@@ -10,6 +10,22 @@ export type DocPageContent = {
   options: ComponentDocumentationOptions;
 };
 
+export type DtcgTokenType = 'color' | 'typography' | 'shadow' | 'spacing';
+
+export type DtcgTokenStrings = {
+  css: string;
+  scss: string;
+  tailwind: string;
+  dtcg: string;
+};
+
+export type DtcgManifest = {
+  project: string;
+  generatedAt: string;
+  sources: string[];
+  counts: Record<string, number>;
+};
+
 /** Unified data access for the Handoff app (filesystem and/or DB-backed sources at runtime). */
 export interface DataProvider {
   getComponents(): Promise<ComponentListObject[]>;
@@ -17,6 +33,8 @@ export interface DataProvider {
   getPatterns(): Promise<PatternListObject[]>;
   getPattern(id: string): Promise<PatternObject | null>;
   getTokens(): Promise<CoreTypes.IDocumentationObject>;
+  getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null>;
+  getDtcgManifest(): Promise<DtcgManifest | null>;
   getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent>;
   getConfig(): ClientConfig;
   getMenu(): Promise<SectionLink[]>;

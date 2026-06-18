@@ -12,7 +12,7 @@ import {
 } from '../../components/util';
 import { handoffComponents, handoffPatterns } from '../db/schema';
 import { getDbComponents, getDbPatterns, getDbTokensSnapshot } from '../db/queries';
-import type { DataProvider, DocPageContent } from './types';
+import type { DataProvider, DocPageContent, DtcgManifest, DtcgTokenStrings, DtcgTokenType } from './types';
 import { StaticDataProvider } from './static-provider';
 import { mergeDbNavIntoSkeleton, shapeComponentCatalogSubSections } from './menu-merge';
 
@@ -195,6 +195,20 @@ function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatte
  * by postgres-js, or the DB may simply be unreachable from the Vercel build
  * environment. In all cases, fall back to filesystem so page collection succeeds.
  */
+function filterCssLines(content: string, prefix: string): string {
+  const lines = content.split('\n').filter((l) => l.trim().startsWith(`--${prefix}`));
+  return `:root {\n${lines.join('\n')}\n}`;
+}
+
+function filterScssLines(content: string, prefix: string): string {
+  return content.split('\n').filter((l) => l.trim().startsWith(`$${prefix}`)).join('\n');
+}
+
+function filterTailwindLines(content: string, prefix: string): string {
+  const lines = content.split('\n').filter((l) => l.trim().startsWith(`--${prefix}`));
+  return `@theme {\n${lines.join('\n')}\n}`;
+}
+
 function isBuildPhase(): boolean {
   return process.env.NEXT_PHASE === 'phase-production-build' || process.env.NEXT_PHASE === 'phase-export';
 }
@@ -295,6 +309,42 @@ export class DynamicDataProvider implements DataProvider {
       return snap as CoreTypes.IDocumentationObject;
     }
     return this.fallback.getTokens();
+  }
+
+  async getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null> {
+    let row: import('../db/registry-queries').RegistryDtcgPayload | null = null;
+    try {
+      const { getRegistryDtcg } = await import('../db/registry-queries');
+      row = await getRegistryDtcg();
+    } catch (err) {
+      if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
+      logDbFallback('handoff_registry_dtcg', err);
+    }
+    if (row) {
+      const dtcgObj = row.dtcg ?? {};
+      return {
+        css:      filterCssLines(row.css, type),
+        scss:     filterScssLines(row.scss, type),
+        tailwind: filterTailwindLines(row.tailwind, type),
+        dtcg:     JSON.stringify(dtcgObj[type] ?? {}, null, 2),
+      };
+    }
+    return this.fallback.getDtcgTokenStrings(type);
+  }
+
+  async getDtcgManifest(): Promise<DtcgManifest | null> {
+    let row: import('../db/registry-queries').RegistryDtcgPayload | null = null;
+    try {
+      const { getRegistryDtcg } = await import('../db/registry-queries');
+      row = await getRegistryDtcg();
+    } catch (err) {
+      if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
+      logDbFallback('handoff_registry_dtcg', err);
+    }
+    if (row) {
+      return row.manifest as DtcgManifest;
+    }
+    return this.fallback.getDtcgManifest();
   }
 
   async getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent> {

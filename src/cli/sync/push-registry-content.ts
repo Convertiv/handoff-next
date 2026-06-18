@@ -337,3 +337,55 @@ export async function pushRegistryTokens(handoff: Handoff): Promise<void> {
   await postJson(url, bearer, { payload });
   Logger.success('Registry tokens pushed.');
 }
+
+// ─── DTCG ──────────────────────────────────────────────────────────────────────
+
+/**
+ * Push the DTCG token pipeline output. Reads from the workspace's
+ * design-system/dist/ directory (the output of `npm run tokens:build`).
+ *
+ * Sends all four compiled formats (CSS, SCSS, Tailwind, resolved DTCG JSON)
+ * plus the manifest to POST /api/registry/dtcg so the registry can serve
+ * foundation pages without access to the workspace filesystem.
+ *
+ * If design-system/dist/ doesn't exist, warns and skips — run `npm run tokens:build`
+ * in the workspace before push:all if you want DTCG data on the registry.
+ */
+export async function pushRegistryDtcg(handoff: Handoff): Promise<void> {
+  const dsRoot  = path.join(handoff.workingPath, 'design-system');
+  const dsDist  = path.join(dsRoot, 'dist');
+  const manifestPath = path.join(dsRoot, 'manifest.json');
+
+  if (!(await fs.pathExists(dsDist))) {
+    Logger.warn(`No design-system/dist/ found at ${dsDist}. Run \`npm run tokens:build\` first. Skipping DTCG push.`);
+    return;
+  }
+
+  const cssPath      = path.join(dsDist, 'css', 'tokens.css');
+  const scssPath     = path.join(dsDist, 'scss', '_tokens.scss');
+  const tailwindPath = path.join(dsDist, 'tailwind', 'theme.css');
+  const dtcgPath     = path.join(dsDist, 'dtcg', 'tokens.resolved.json');
+
+  const missing = [cssPath, scssPath, tailwindPath, dtcgPath].filter((p) => !fs.existsSync(p));
+  if (missing.length > 0) {
+    Logger.warn(`Missing DTCG dist files: ${missing.map((p) => path.relative(handoff.workingPath, p)).join(', ')}. Run \`npm run tokens:build\`. Skipping DTCG push.`);
+    return;
+  }
+
+  const [css, scss, tailwind, dtcg, manifest] = await Promise.all([
+    fs.readFile(cssPath, 'utf-8'),
+    fs.readFile(scssPath, 'utf-8'),
+    fs.readFile(tailwindPath, 'utf-8'),
+    fs.readJson(dtcgPath),
+    fs.pathExists(manifestPath).then((exists) => (exists ? fs.readJson(manifestPath) : {})),
+  ]);
+
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer  = await getSyncBearerToken(handoff.workingPath);
+  const url     = `${baseUrl}/api/registry/dtcg`;
+
+  const cssKb = Math.round(css.length / 1024);
+  Logger.info(`Pushing DTCG token dist to registry (~${cssKb}KB CSS)…`);
+  await postJson(url, bearer, { manifest, css, scss, tailwind, dtcg });
+  Logger.success('Registry DTCG tokens pushed.');
+}

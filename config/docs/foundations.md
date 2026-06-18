@@ -40,6 +40,9 @@ menu:
             title: Guidelines
           - path: foundations/typography/resources
             title: Resources
+      - path: foundations/spacing
+        title: Spacing
+        icon: rulers
       - path: foundations/grid
         title: Grid
         icon: layout-panel-left

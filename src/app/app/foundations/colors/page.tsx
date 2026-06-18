@@ -29,8 +29,8 @@ export default async function ColorsPage() {
   const design   = tokens.localStyles;
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
 
-  const dtcg     = fetchDtcgTokenStrings('color');
-  const manifest = fetchDtcgManifest();
+  const dtcg     = await fetchDtcgTokenStrings('color');
+  const manifest = await fetchDtcgManifest();
 
   const colorGroups = Object.fromEntries(
     Object.entries(groupBy(design.color, 'group'))
