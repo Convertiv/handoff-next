@@ -7,8 +7,8 @@ interface DownloadTokensProps {
   componentId: string;
   scss: string;
   css: string;
-  styleDictionary: string;
-  types: string;
+  styleDictionary?: string | null;
+  types?: string | null;
   /** Tailwind 4 @theme block from DTCG pipeline */
   tailwind?: string;
   /** Resolved DTCG JSON from DTCG pipeline */
@@ -44,13 +44,15 @@ export const DownloadTokens: React.FC<DownloadTokensProps> = ({ componentId, css
         </Link>
       )}
 
-      <Link
-        className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' font-normal [&_svg]:size-3!'}
-        href={'data:text/plain;charset=utf-8,' + encodeURIComponent(styleDictionary)}
-        download={`${componentId}.tokens.json`}
-      >
-        Style Dictionary <Download strokeWidth={1.5} />
-      </Link>
+      {styleDictionary && (
+        <Link
+          className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' font-normal [&_svg]:size-3!'}
+          href={'data:text/plain;charset=utf-8,' + encodeURIComponent(styleDictionary)}
+          download={`${componentId}.tokens.json`}
+        >
+          Style Dictionary <Download strokeWidth={1.5} />
+        </Link>
+      )}
 
       {dtcg && (
         <Link
@@ -62,13 +64,15 @@ export const DownloadTokens: React.FC<DownloadTokensProps> = ({ componentId, css
         </Link>
       )}
 
-      <Link
-        className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' font-normal [&_svg]:size-3!'}
-        href={'data:text/plain;charset=utf-8,' + encodeURIComponent(types)}
-        download={`${componentId}.scss`}
-      >
-        Component Types <Download strokeWidth={1.5} />
-      </Link>
+      {types && (
+        <Link
+          className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' font-normal [&_svg]:size-3!'}
+          href={'data:text/plain;charset=utf-8,' + encodeURIComponent(types)}
+          download={`${componentId}.scss`}
+        >
+          Component Types <Download strokeWidth={1.5} />
+        </Link>
+      )}
     </div>
   );
 };

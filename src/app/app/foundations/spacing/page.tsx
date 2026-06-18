@@ -1,14 +1,14 @@
-import fs from 'fs';
-import path from 'path';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
+import { DownloadTokens } from '../../../components/DownloadTokens';
 import { ProvenanceBadge } from '../../../components/Foundations/ProvenanceBadge';
 import { TokenOutputTabs } from '../../../components/Foundations/TokenOutputTabs';
 import { InlineEditHeader } from '../../../components/InlineEdit/InlineEditHeader';
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import AnchorNav from '../../../components/Navigation/AnchorNav';
+import PrevNextNav from '../../../components/Navigation/PrevNextNav';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
 import { fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
 
@@ -17,19 +17,19 @@ interface SpacingToken {
   name: string;
   value: string;
   px: number;
+  description: string;
 }
 
-function loadSpacingTokens(): SpacingToken[] {
+function parseSpacingTokens(dtcgJson: string): SpacingToken[] {
   try {
-    const filePath = path.resolve(process.cwd(), 'design-system', 'tokens', 'primitive', 'spacing.tokens.json');
-    if (!fs.existsSync(filePath)) return [];
-    const raw = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as Record<string, Record<string, { $value: string }>>;
-    const spacing = raw['spacing'] ?? {};
-    return Object.entries(spacing).map(([key, token]) => {
-      const value = token['$value'] ?? '0rem';
-      const px    = Math.round(parseFloat(value) * 16);
-      return { key, name: `spacing-${key}`, value, px };
-    }).sort((a, b) => a.px - b.px);
+    const obj = JSON.parse(dtcgJson) as Record<string, { $type?: string; $value: string; $description?: string }>;
+    return Object.entries(obj)
+      .map(([key, token]) => {
+        const value = token.$value ?? '0rem';
+        const px = Math.round(parseFloat(value) * 16);
+        return { key, name: `spacing-${key}`, value, px, description: token.$description ?? '' };
+      })
+      .sort((a, b) => a.px - b.px);
   } catch {
     return [];
   }
@@ -42,14 +42,12 @@ export async function generateMetadata() {
 
 export default async function SpacingPage() {
   const { props } = await fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'spacing', '/foundations');
-  const config   = getClientRuntimeConfig();
+  const config = getClientRuntimeConfig();
   const { content, menu, metadata, current } = props;
 
   const dtcg     = await fetchDtcgTokenStrings('spacing');
   const manifest = await fetchDtcgManifest();
-  const tokens   = loadSpacingTokens();
-
-  const maxPx = Math.max(...tokens.map((t) => t.px), 1);
+  const tokens   = dtcg ? parseSpacingTokens(dtcg.dtcg) : [];
 
   return (
     <Layout config={config} menu={menu} metadata={metadata} current={current}>
@@ -60,51 +58,63 @@ export default async function SpacingPage() {
         initialFrontmatter={metadata as Record<string, unknown>}
         markdown={content}
       >
+        {dtcg && (
+          <DownloadTokens
+            componentId="spacing"
+            scss={dtcg.scss}
+            css={dtcg.css}
+            styleDictionary={null}
+            types={null}
+            tailwind={dtcg.tailwind}
+            dtcg={dtcg.dtcg}
+          />
+        )}
         {manifest && <ProvenanceBadge manifest={manifest} />}
       </InlineEditHeader>
 
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div>
-          <div id="spacing-scale" className="scroll-mt-24 pb-10">
-            <h2 className="mb-4 text-2xl font-semibold">Spacing Scale</h2>
-            <p className="mb-8 text-gray-600">
-              Base unit is <code className="rounded bg-gray-100 px-1 py-0.5 text-sm">1.25rem</code> (20px). Steps are multiples of that base, with a finer <code className="rounded bg-gray-100 px-1 py-0.5 text-sm">0.625rem</code> half-step for tight layouts.
-            </p>
+          {tokens.length > 0 && (
+            <div id="spacing-scale" className="scroll-mt-24 pb-10">
+              <h2 className="mb-2 text-2xl font-semibold">Spacing Scale</h2>
+              <p className="mb-8 text-gray-500 dark:text-gray-400">
+                Each step in the scale is a multiple of the base unit{' '}
+                <code className="rounded bg-gray-100 px-1.5 py-0.5 text-sm dark:bg-gray-800">1.25rem</code>{' '}
+                (20px). Use these tokens consistently to maintain rhythm across layouts and components.
+              </p>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                    <th className="pb-3 pr-6 font-medium">Token</th>
-                    <th className="pb-3 pr-6 font-medium">Value</th>
-                    <th className="pb-3 pr-6 font-medium">px</th>
-                    <th className="pb-3 w-full font-medium">Visual</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {tokens.map((token) => (
-                    <tr key={token.key} className="group hover:bg-gray-50/60">
-                      <td className="py-3 pr-6 font-mono text-xs text-gray-700">
-                        <span className="rounded bg-gray-100 px-1.5 py-0.5">--{token.name}</span>
-                      </td>
-                      <td className="py-3 pr-6 font-mono text-xs text-gray-500">{token.value}</td>
-                      <td className="py-3 pr-6 font-mono text-xs text-gray-400">{token.px}px</td>
-                      <td className="py-3">
-                        {token.px === 0 ? (
-                          <span className="text-xs text-gray-300">—</span>
-                        ) : (
-                          <div
-                            className="h-4 rounded-sm bg-blue-500"
-                            style={{ width: `${Math.round((token.px / maxPx) * 100)}%`, maxWidth: '100%' }}
-                          />
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="flex flex-col gap-3">
+                {tokens.map((token) => (
+                  <div key={token.key} className="group flex items-center gap-4">
+                    <div className="w-[220px] shrink-0">
+                      {token.px === 0 ? (
+                        <span className="inline-block h-5 w-px bg-gray-300 dark:bg-gray-600" />
+                      ) : (
+                        <div
+                          className="h-5 rounded-sm bg-blue-500 transition-colors group-hover:bg-blue-600"
+                          style={{ width: token.px }}
+                        />
+                      )}
+                    </div>
+                    <code className="w-40 shrink-0 text-xs text-gray-700 dark:text-gray-300">
+                      --{token.name}
+                    </code>
+                    <span className="w-24 shrink-0 font-mono text-xs text-gray-500">{token.value}</span>
+                    <span className="w-14 shrink-0 font-mono text-xs text-gray-400">{token.px}px</span>
+                    {token.description && (
+                      <span className="text-xs text-gray-400">{token.description}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {tokens.length === 0 && (
+            <div className="rounded-lg border border-dashed border-gray-200 p-10 text-center text-sm text-gray-400">
+              No spacing tokens found. Run <code className="mx-1 rounded bg-gray-100 px-1.5 py-0.5">npm run tokens:build</code> in the workspace and push to the registry.
+            </div>
+          )}
 
           {dtcg && (
             <TokenOutputTabs
@@ -115,6 +125,11 @@ export default async function SpacingPage() {
               name="spacing"
             />
           )}
+
+          <PrevNextNav
+            previous={{ title: 'Typography', href: '/foundations/typography' }}
+            next={{ title: 'Effects', href: '/foundations/effects' }}
+          />
         </div>
 
         <AnchorNav groups={[{ 'spacing-scale': 'Spacing Scale' }]} />
