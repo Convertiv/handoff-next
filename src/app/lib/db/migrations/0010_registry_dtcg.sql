@@ -9,5 +9,5 @@ CREATE TABLE IF NOT EXISTS handoff_registry_dtcg (
   tailwind           TEXT NOT NULL DEFAULT '',
   dtcg               JSONB NOT NULL DEFAULT '{}',
   updated_at         TIMESTAMPTZ DEFAULT NOW(),
-  updated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+  updated_by_user_id TEXT REFERENCES "user"(id) ON DELETE SET NULL
 );
