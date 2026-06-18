@@ -232,7 +232,9 @@ function logDbFallback(table: string, err: unknown): void {
 }
 
 function isUndefinedTableError(err: unknown): boolean {
-  return (err as { cause?: { code?: string } })?.cause?.code === '42P01';
+  const code = (err as { cause?: { code?: string } })?.cause?.code;
+  // 42P01 = undefined_table, 42703 = undefined_column (pending migration)
+  return code === '42P01' || code === '42703';
 }
 
 async function safeDbComponents(): Promise<HandoffComponentRow[]> {
