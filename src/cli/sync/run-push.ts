@@ -16,6 +16,15 @@ import {
   resolvePatternDeclarationForSync,
 } from './resolve-declaration-payload.js';
 import { getSyncBearerToken, resolveSyncRemoteUrl } from './sync-remote-env.js';
+import {
+  loadBuildCache,
+  saveBuildCache,
+  createEmptyCache,
+  computeComponentFileStates,
+  computeGlobalDepsState,
+  hasPushChanged,
+  recordComponentPushed,
+} from '@handoff/cache/build-cache.js';
 
 async function collectMarkdownFiles(rootDir: string): Promise<string[]> {
   const out: string[] = [];
@@ -48,6 +57,12 @@ export type RunPushOptions = {
   metadataOnly?: boolean;
   /** Skip build step; upload existing artifacts only. */
   noBuild?: boolean;
+  /**
+   * Skip components/patterns whose source files have not changed since the last
+   * successful push. Uses the build cache (.handoff/.cache/build-cache.json) to
+   * track per-component file state hashes. Ignored when handoff.force is set.
+   */
+  skipUnchanged?: boolean;
 };
 
 function normalizePageSlug(s: string): string {
@@ -107,10 +122,19 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
     bearer = await getSyncBearerToken(workPath);
   }
 
-  const changes: SyncUploadBody['changes'] = [];
-
+  // Push-cache: track which components were actually changed since last push.
+  // Disabled for selective pushes (user explicitly named components/patterns)
+  // and when force flag is set.
   const selective =
     (opts?.componentIds?.length ?? 0) > 0 || (opts?.patternIds?.length ?? 0) > 0 || (opts?.pageSlugs?.length ?? 0) > 0;
+  const usePushCache = Boolean(opts?.skipUnchanged) && !selective && !handoff.force;
+  let pushCache = usePushCache ? (await loadBuildCache(handoff)) ?? createEmptyCache() : null;
+  let globalDepsState = usePushCache ? await computeGlobalDepsState(handoff) : null;
+
+  // IDs that were actually pushed (to update push cache after upload)
+  const pushedIds = new Set<string>();
+
+  const changes: SyncUploadBody['changes'] = [];
 
   const pageSlugSet = selective && opts?.pageSlugs?.length
     ? new Set(opts.pageSlugs.map((s) => normalizePageSlug(s)))
@@ -160,6 +184,18 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
   for (const id of compIdsToScan) {
     if (!configuredCompIds.includes(id)) continue;
     try {
+      // Push-cache check: skip components whose source files haven't changed
+      // since the last successful push. We compute file states before the build
+      // so the check reflects the actual source, not built output.
+      let currentFileStates: Awaited<ReturnType<typeof computeComponentFileStates>> | null = null;
+      if (usePushCache && pushCache && globalDepsState) {
+        currentFileStates = await computeComponentFileStates(handoff, id);
+        if (!hasPushChanged(pushCache.components[id], currentFileStates, globalDepsState)) {
+          Logger.info(`Component "${id}": unchanged since last push, skipping`);
+          continue;
+        }
+      }
+
       if (runBuild) {
         Logger.info(`Building component "${id}"…`);
         await buildEntity(handoff, 'component', id);
@@ -199,6 +235,12 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
         action: 'update',
         data: { ...payload, source: 'sync' },
       });
+      // Record this component for push-cache update after upload succeeds
+      if (usePushCache && pushCache && globalDepsState) {
+        if (!currentFileStates) currentFileStates = await computeComponentFileStates(handoff, id);
+        recordComponentPushed(pushCache, id, currentFileStates, globalDepsState);
+        pushedIds.add(id);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       Logger.error(`Component "${id}": ${msg}`);
@@ -399,4 +441,10 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
   }
 
   Logger.success(`Push complete: ${totalApplied} change(s) applied on server across ${batches.length} batch(es).`);
+
+  // Persist push-cache so unchanged components are skipped on the next run.
+  if (usePushCache && pushCache && pushedIds.size > 0) {
+    await saveBuildCache(handoff, pushCache);
+    Logger.debug(`Push cache updated for ${pushedIds.size} component(s).`);
+  }
 }

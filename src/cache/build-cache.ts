@@ -19,6 +19,12 @@ export interface ComponentCacheEntry {
   templateDirFiles?: Record<string, FileState>;
   /** Timestamp when this component was last built */
   buildTimestamp: number;
+  /** Source file states captured at last successful push to registry */
+  pushedFileStates?: Record<string, FileState>;
+  /** Template dir states captured at last successful push to registry */
+  pushedTemplateDirFiles?: Record<string, FileState>;
+  /** Global deps state captured at last successful push to registry */
+  pushedGlobalDepsState?: GlobalDepsState;
 }
 
 /**
@@ -346,5 +352,56 @@ export function pruneRemovedComponents(cache: BuildCache, currentComponentIds: s
       Logger.debug(`Pruning removed component from cache: ${cachedId}`);
       delete cache.components[cachedId];
     }
+  }
+}
+
+/**
+ * Returns true if the component needs to be pushed to the registry.
+ * A push is needed when:
+ *   - There is no cache entry (new component, never pushed)
+ *   - The global dependencies changed since last push
+ *   - The component's source files changed since last push
+ */
+export function hasPushChanged(
+  cachedEntry: ComponentCacheEntry | null | undefined,
+  currentFileStates: { files: Record<string, FileState>; templateDirFiles?: Record<string, FileState> },
+  currentGlobalDeps: GlobalDepsState
+): boolean {
+  if (!cachedEntry || !cachedEntry.pushedFileStates) return true;
+
+  // Global deps changed since last push?
+  if (haveGlobalDepsChanged(cachedEntry.pushedGlobalDepsState, currentGlobalDeps)) return true;
+
+  // Source files changed since last push?
+  return hasComponentChanged(
+    { ...cachedEntry, files: cachedEntry.pushedFileStates, templateDirFiles: cachedEntry.pushedTemplateDirFiles },
+    currentFileStates
+  );
+}
+
+/**
+ * Records a successful push for a component by persisting the current file states
+ * into the cache. Call this after the push payload for the component is confirmed sent.
+ */
+export function recordComponentPushed(
+  cache: BuildCache,
+  componentId: string,
+  currentFileStates: { files: Record<string, FileState>; templateDirFiles?: Record<string, FileState> },
+  currentGlobalDeps: GlobalDepsState
+): void {
+  const entry = cache.components[componentId];
+  if (!entry) {
+    cache.components[componentId] = {
+      files: currentFileStates.files,
+      templateDirFiles: currentFileStates.templateDirFiles,
+      buildTimestamp: Date.now(),
+      pushedFileStates: currentFileStates.files,
+      pushedTemplateDirFiles: currentFileStates.templateDirFiles,
+      pushedGlobalDepsState: currentGlobalDeps,
+    };
+  } else {
+    entry.pushedFileStates = currentFileStates.files;
+    entry.pushedTemplateDirFiles = currentFileStates.templateDirFiles;
+    entry.pushedGlobalDepsState = currentGlobalDeps;
   }
 }

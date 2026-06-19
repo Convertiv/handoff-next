@@ -65,6 +65,9 @@ const command: CommandModule<{}, PushAllArgs> = {
           // Skip pages here when --skip-pages is set; runPush handles both selectively
           pageSlugs: args.skipPages ? [] : undefined,
           noBuild: Boolean(args.skipBuild),
+          // Skip components whose source files haven't changed since last push.
+          // Bypassed when --force is set (handoff.force) or when a selective push is active.
+          skipUnchanged: true,
         })
       );
     }
