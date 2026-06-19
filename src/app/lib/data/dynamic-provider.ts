@@ -391,7 +391,38 @@ export class DynamicDataProvider implements DataProvider {
     // System+Foundations disappear in registry mode when push:all included
     // a DB nav. Fix: always start with staticBuildMenu() as the skeleton,
     // then merge in DB project pages by slug.
-    const base = staticBuildMenu();
+    let base = staticBuildMenu();
+
+    // staticBuildMenu() returns [] when config/docs/ can't be found on the
+    // filesystem (e.g. Vercel standalone where the traced paths haven't been
+    // resolved yet). In registry mode the structural sections — Foundations,
+    // System — must always be present so the sidebar renders. Fall back to a
+    // hard-coded skeleton that mirrors config/docs/foundations.md.
+    if (base.length === 0) {
+      const bp = process.env.HANDOFF_APP_BASE_PATH ?? '';
+      base = [
+        {
+          title: 'Foundations',
+          path: `${bp}/foundations`,
+          subSections: [
+            { title: 'Colors',        path: `${bp}/foundations/colors` },
+            { title: 'Typography',    path: `${bp}/foundations/typography` },
+            { title: 'Spacing',       path: `${bp}/foundations/spacing` },
+            { title: 'Grid',          path: `${bp}/foundations/grid` },
+            { title: 'Effects',       path: `${bp}/foundations/effects` },
+            { title: 'Icons',         path: `${bp}/foundations/icons` },
+            { title: 'Border Radius', path: `${bp}/foundations/border-radius` },
+            { title: 'Motion',        path: `${bp}/foundations/motion` },
+          ],
+        },
+        {
+          title: 'System',
+          path: `${bp}/system`,
+          subSections: [],
+        },
+      ];
+    }
+
     const merged = await this.getComponents();
     const skeleton = injectMergedComponentMenus(base, merged);
 
