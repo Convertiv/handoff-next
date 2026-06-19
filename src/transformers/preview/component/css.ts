@@ -1,6 +1,6 @@
 import fs from 'fs-extra';
 import path from 'path';
-import { InlineConfig, Plugin, build as viteBuild } from 'vite';
+import { InlineConfig, build as viteBuild } from 'vite';
 import { initRuntimeConfig } from '@handoff/config/index';
 import Handoff from '@handoff/index';
 import { formatDurationMs } from '@handoff/utils/duration';
@@ -49,31 +49,9 @@ const buildCssBundle = async ({
     await fs.ensureDir(wrapperDir);
     await fs.writeFile(wrapperFile, `import ${JSON.stringify(absEntry)};\nexport default 0;\n`);
 
-    // Rename the emitted CSS asset to the desired filename and remove the
-    // JS stub chunk from the bundle so only the CSS is written to disk.
-    const renameCssPlugin: Plugin = {
-      name: 'handoff-rename-css',
-      apply: 'build',
-      enforce: 'post',
-      generateBundle(_, bundle) {
-        for (const [fileName, asset] of Object.entries(bundle)) {
-          if (fileName.endsWith('.css') && fileName !== outputFilename) {
-            (asset as { fileName: string }).fileName = outputFilename;
-            bundle[outputFilename] = asset;
-            delete bundle[fileName];
-          }
-        }
-        for (const [fileName, chunk] of Object.entries(bundle)) {
-          if (chunk.type === 'chunk') {
-            delete bundle[fileName];
-          }
-        }
-      },
-    };
-
     let viteConfig: InlineConfig = {
       ...viteBaseConfig,
-      plugins: [...(viteBaseConfig.plugins || []), renameCssPlugin],
+      plugins: [...(viteBaseConfig.plugins || [])],
       build: {
         ...viteBaseConfig.build,
         outDir: outputPath,
@@ -103,6 +81,20 @@ const buildCssBundle = async ({
 
     try {
       await viteBuild(viteConfig);
+      // Rolldown (Vite 8) does not support direct bundle mutation in generateBundle,
+      // so we rename the emitted CSS file after the build instead of using a plugin.
+      const emitted = (await fs.readdir(outputPath)).find(
+        (n) => n.endsWith('.css') && n !== outputFilename
+      );
+      if (emitted) {
+        await fs.move(path.join(outputPath, emitted), path.join(outputPath, outputFilename), { overwrite: true });
+      }
+      // Remove the JS stub chunk emitted alongside the CSS entry.
+      for (const n of await fs.readdir(outputPath)) {
+        if ((n.endsWith('.mjs') || n.endsWith('.js')) && n.startsWith('_css_entry')) {
+          await fs.remove(path.join(outputPath, n)).catch(() => {});
+        }
+      }
     } finally {
       await fs.remove(wrapperDir).catch(() => {});
     }
