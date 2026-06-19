@@ -195,17 +195,69 @@ function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatte
  * by postgres-js, or the DB may simply be unreachable from the Vercel build
  * environment. In all cases, fall back to filesystem so page collection succeeds.
  */
-function filterCssLines(content: string, prefix: string): string {
-  const lines = content.split('\n').filter((l) => l.trim().startsWith(`--${prefix}`));
+/**
+ * Recursively walk a DTCG JSON tree and collect all leaf tokens where $type
+ * matches the requested type. Returns the filtered subtree and the set of
+ * CSS custom-property names that correspond to those tokens.
+ *
+ * Why: DTCG trees group tokens by semantic role (e.g. "hagyard-navy",
+ * "semantic", "resolvet-blue") rather than by DTCG type ("color"). Filtering
+ * by CSS variable prefix alone (--color-*) therefore misses every color token
+ * whose variable name doesn't start with "--color". Walking by $type finds them
+ * regardless of where they sit in the tree.
+ */
+function collectDtcgByType(
+  obj: Record<string, unknown>,
+  type: string,
+  cssPrefix = '--',
+): { filteredDtcg: Record<string, unknown>; cssNames: Set<string> } {
+  const filteredDtcg: Record<string, unknown> = {};
+  const cssNames = new Set<string>();
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const item = value as Record<string, unknown>;
+    if ('$value' in item) {
+      if (item['$type'] === type) {
+        filteredDtcg[key] = item;
+        cssNames.add(`${cssPrefix}${key}`);
+      }
+    } else {
+      const nested = collectDtcgByType(item, type, `${cssPrefix}${key}-`);
+      if (Object.keys(nested.filteredDtcg).length > 0) {
+        filteredDtcg[key] = nested.filteredDtcg;
+        for (const name of nested.cssNames) cssNames.add(name);
+      }
+    }
+  }
+  return { filteredDtcg, cssNames };
+}
+
+function filterCssLinesByNames(content: string, names: Set<string>): string {
+  const lines = content.split('\n').filter((l) => {
+    const t = l.trim();
+    return Array.from(names).some((n) => t.startsWith(n + ':') || t.startsWith(n + ' '));
+  });
   return `:root {\n${lines.join('\n')}\n}`;
 }
 
-function filterScssLines(content: string, prefix: string): string {
-  return content.split('\n').filter((l) => l.trim().startsWith(`$${prefix}`)).join('\n');
+function filterScssLinesByNames(content: string, names: Set<string>): string {
+  return content
+    .split('\n')
+    .filter((l) => {
+      const t = l.trim();
+      return Array.from(names).some((n) => {
+        const scssName = `$${n.slice(2)}`; // --foo → $foo
+        return t.startsWith(scssName + ':') || t.startsWith(scssName + ' ');
+      });
+    })
+    .join('\n');
 }
 
-function filterTailwindLines(content: string, prefix: string): string {
-  const lines = content.split('\n').filter((l) => l.trim().startsWith(`--${prefix}`));
+function filterTailwindLinesByNames(content: string, names: Set<string>): string {
+  const lines = content.split('\n').filter((l) => {
+    const t = l.trim();
+    return Array.from(names).some((n) => t.startsWith(n + ':') || t.startsWith(n + ' '));
+  });
   return `@theme {\n${lines.join('\n')}\n}`;
 }
 
@@ -323,12 +375,13 @@ export class DynamicDataProvider implements DataProvider {
       logDbFallback('handoff_registry_dtcg', err);
     }
     if (row) {
-      const dtcgObj = row.dtcg ?? {};
+      const dtcgObj = (row.dtcg ?? {}) as Record<string, unknown>;
+      const { filteredDtcg, cssNames } = collectDtcgByType(dtcgObj, type);
       return {
-        css:      filterCssLines(row.css, type),
-        scss:     filterScssLines(row.scss, type),
-        tailwind: filterTailwindLines(row.tailwind, type),
-        dtcg:     JSON.stringify(dtcgObj[type] ?? {}, null, 2),
+        css:      filterCssLinesByNames(row.css ?? '', cssNames),
+        scss:     filterScssLinesByNames(row.scss ?? '', cssNames),
+        tailwind: filterTailwindLinesByNames(row.tailwind ?? '', cssNames),
+        dtcg:     JSON.stringify(filteredDtcg, null, 2),
       };
     }
     return this.fallback.getDtcgTokenStrings(type);
@@ -365,7 +418,31 @@ export class DynamicDataProvider implements DataProvider {
   }
 
   async getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent> {
-    // Future: read from `pages` table; for now same as static markdown resolution
+    // Derive the DB slug from the docs-relative path, e.g.
+    //   localPath='docs/foundations/', slug='colors' → 'foundations/colors'
+    //   localPath='docs/',             slug='foundations' → 'foundations'
+    const docPath = localPath.startsWith('docs/') ? localPath.slice('docs/'.length) : localPath;
+    const slugStr = typeof slug === 'string' ? slug : (Array.isArray(slug) ? slug.join('/') : '');
+    const dbSlug = `${docPath}${slugStr}`.replace(/\/+$/, '');
+
+    // Check the DB for user-saved overrides (inline edits / workspace pushes).
+    if (dbSlug && !isBuildPhase()) {
+      try {
+        const { getHandoffPageBySlug } = await import('../server/doc-pages');
+        const row = await getHandoffPageBySlug(dbSlug);
+        if (row) {
+          return {
+            metadata: row.frontmatter as DocPageContent['metadata'],
+            content: row.markdown,
+            options: {} as DocPageContent['options'],
+          };
+        }
+      } catch {
+        // DB unavailable — fall through to filesystem
+      }
+    }
+
+    // Fall back to bundled markdown on disk.
     const { metadata, content, options } = fetchDocPageMetadataAndContent(localPath, slug);
     return {
       metadata: metadata as DocPageContent['metadata'],

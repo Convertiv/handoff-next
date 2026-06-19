@@ -5,7 +5,8 @@ import type { ComponentDocumentationOptions } from '@handoff/types/preview';
 import type { SectionLink } from '../../components/util';
 
 export type DocPageContent = {
-  metadata: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  metadata: Record<string, any>;
   content: string;
   options: ComponentDocumentationOptions;
 };

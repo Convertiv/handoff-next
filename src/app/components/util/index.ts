@@ -597,8 +597,17 @@ export const fetchDocPageMarkdown = (
 /** Same as {@link fetchDocPageMarkdown} but uses `getDataProvider().getMenu()` (merged DB + disk in dynamic mode). */
 export async function fetchDocPageMarkdownAsync(path: string, slug: string | undefined, id: string, runtimeConfig?: RuntimeConfig) {
   const { getDataProvider } = await import('../../lib/data');
-  const menu = await getDataProvider().getMenu();
-  return fetchDocPageMarkdown(path, slug, id, runtimeConfig, menu);
+  const provider = getDataProvider();
+  const [menu, pageData] = await Promise.all([provider.getMenu(), provider.getPageContent(path, slug)]);
+  return {
+    props: {
+      metadata: pageData.metadata,
+      content: pageData.content,
+      options: pageData.options,
+      menu,
+      current: getCurrentSection(menu, id) ?? null,
+    },
+  };
 }
 
 /**
@@ -768,8 +777,21 @@ export const fetchFoundationDocPageMarkdown = (path: string, slug: string | unde
 
 export async function fetchFoundationDocPageMarkdownAsync(path: string, slug: string | undefined, id: string) {
   const { getDataProvider } = await import('../../lib/data');
-  const menu = await getDataProvider().getMenu();
-  return fetchFoundationDocPageMarkdown(path, slug, id, menu);
+  const provider = getDataProvider();
+  const [menu, pageData] = await Promise.all([provider.getMenu(), provider.getPageContent(path, slug)]);
+  return {
+    props: {
+      metadata: pageData.metadata,
+      content: pageData.content,
+      options: pageData.options,
+      menu,
+      current: getCurrentSection(menu, id) ?? null,
+      scss: slug ? fetchTokensString(pluralizeComponent(slug), 'scss') : '',
+      css: slug ? fetchTokensString(pluralizeComponent(slug), 'css') : '',
+      styleDictionary: slug ? fetchTokensString(pluralizeComponent(slug), 'styleDictionary') : '',
+      types: slug ? fetchTokensString(pluralizeComponent(slug), 'types') : '',
+    },
+  };
 }
 
 export const getClientRuntimeConfig = (): ClientConfig => {
@@ -865,10 +887,23 @@ export const fetchDocPageMetadataAndContent = (localPath: string, slug: string |
     currentContents = fs.readFileSync(contentBundledFilePath, 'utf-8');
   } else if (fs.existsSync(contentCwdFilePath)) {
     currentContents = fs.readFileSync(contentCwdFilePath, 'utf-8');
-  } else if (!fs.existsSync(contentModuleFilePath)) {
-    return { metadata: {}, content: currentContents, options: {} };
   } else {
-    currentContents = fs.readFileSync(contentModuleFilePath, 'utf-8');
+    // Use the same docs-root resolution logic as staticBuildMenu() so path resolution
+    // stays consistent between nav and page content on all runtimes (local, Vercel lambda).
+    const docsDir = getDefaultDocsDir();
+    if (docsDir && typeof slug === 'string') {
+      const relFromDocs = localPath.startsWith('docs/') ? localPath.slice('docs/'.length) : localPath;
+      const docsDirFile = path.join(docsDir, relFromDocs, `${slug}.md`);
+      if (fs.existsSync(docsDirFile)) {
+        currentContents = fs.readFileSync(docsDirFile, 'utf-8');
+      }
+    }
+    if (!currentContents) {
+      if (!fs.existsSync(contentModuleFilePath)) {
+        return { metadata: {}, content: '', options: {} };
+      }
+      currentContents = fs.readFileSync(contentModuleFilePath, 'utf-8');
+    }
   }
 
   const { data: metadata, content } = matter(currentContents);
