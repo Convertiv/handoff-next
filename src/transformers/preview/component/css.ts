@@ -79,6 +79,12 @@ const buildCssBundle = async ({
       viteConfig = handoff.config.hooks.cssBuildConfig(viteConfig);
     }
 
+    // Snapshot existing JS files so we can remove the stub emitted during the CSS build.
+    const beforeBuild = new Set(
+      (await fs.pathExists(outputPath) ? await fs.readdir(outputPath) : []).filter(
+        (n) => n.endsWith('.mjs') || n.endsWith('.js')
+      )
+    );
     try {
       await viteBuild(viteConfig);
       // Rolldown (Vite 8) does not support direct bundle mutation in generateBundle,
@@ -89,9 +95,9 @@ const buildCssBundle = async ({
       if (emitted) {
         await fs.move(path.join(outputPath, emitted), path.join(outputPath, outputFilename), { overwrite: true });
       }
-      // Remove the JS stub chunk emitted alongside the CSS entry.
+      // Remove any JS stub files that the CSS build emitted (files that weren't there before).
       for (const n of await fs.readdir(outputPath)) {
-        if ((n.endsWith('.mjs') || n.endsWith('.js')) && n.startsWith('_css_entry')) {
+        if ((n.endsWith('.mjs') || n.endsWith('.js')) && !beforeBuild.has(n)) {
           await fs.remove(path.join(outputPath, n)).catch(() => {});
         }
       }
