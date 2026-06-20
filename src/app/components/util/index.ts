@@ -833,8 +833,15 @@ export const getTokens = (): CoreTypes.IDocumentationObject => {
  * also received DTCG-shaped rows; since `push:all` runs the dtcg step after tokens,
  * a naive "latest row" read returned the DTCG row and the visual displays went
  * blank. Filtering by `localStyles` ensures a DTCG row can never mask the data.
+ *
+ * Phase 4 augmentation: when `localStyles.color` is empty (workspaces whose colors
+ * live in the DTCG brand pipeline rather than Figma styles, e.g. resolvet), the
+ * DTCG registry row is normalised into IColorObject[] / ITypographyObject[] /
+ * IEffectObject[] and merged in — so ColorGrid receives real data instead of an
+ * empty array. Workspaces with Figma color styles are unaffected (localStyles wins).
  */
 export const getTokensForRuntime = async (): Promise<CoreTypes.IDocumentationObject> => {
+  let base: CoreTypes.IDocumentationObject | null = null;
   try {
     const db = getDb();
     const rows = await db
@@ -846,12 +853,49 @@ export const getTokensForRuntime = async (): Promise<CoreTypes.IDocumentationObj
       (r) => r.payload && typeof r.payload === 'object' && 'localStyles' in (r.payload as Record<string, unknown>)
     )?.payload;
     if (payload && typeof payload === 'object') {
-      return payload as CoreTypes.IDocumentationObject;
+      base = payload as CoreTypes.IDocumentationObject;
     }
   } catch {
     // ignore DB errors and fall back to filesystem tokens
   }
-  return getTokens();
+
+  if (!base) base = getTokens();
+
+  // Augment from DTCG when any localStyles dimension is absent or empty.
+  const ls = base.localStyles ?? {};
+  const needsColors = !ls.color?.length;
+  const needsTypography = !ls.typography?.length;
+  const needsEffects = !ls.effect?.length;
+
+  if (needsColors || needsTypography || needsEffects) {
+    try {
+      const { getRegistryDtcg } = await import('../../lib/db/registry-queries');
+      const dtcgRow = await getRegistryDtcg();
+      if (dtcgRow?.dtcg && typeof dtcgRow.dtcg === 'object') {
+        const { normalizeDtcgToLocalStyles } = await import('../../lib/dtcg-normalizer');
+        const brands = dtcgRow.brands && typeof dtcgRow.brands === 'object'
+          ? dtcgRow.brands as Record<string, Record<string, unknown>>
+          : undefined;
+        const normalized = normalizeDtcgToLocalStyles(
+          dtcgRow.dtcg as Record<string, unknown>,
+          brands
+        );
+        base = {
+          ...base,
+          localStyles: {
+            ...ls,
+            ...(needsColors && normalized.color.length ? { color: normalized.color } : {}),
+            ...(needsTypography && normalized.typography.length ? { typography: normalized.typography } : {}),
+            ...(needsEffects && normalized.effect.length ? { effect: normalized.effect } : {}),
+          },
+        };
+      }
+    } catch {
+      // DTCG not available or normalisation failed — return base as-is
+    }
+  }
+
+  return base;
 };
 
 /**
