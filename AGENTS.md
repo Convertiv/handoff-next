@@ -179,6 +179,17 @@ the DataProvider into visual documentation. The rules:
 
 ### 2. REST API — Machine-readable endpoints
 
+The full API is documented as an **OpenAPI 3.1 spec** at:
+
+- **Static file**: `public/openapi.yaml` (served at `/openapi.yaml` on any deployed registry)
+- **API route**: `GET /api/openapi` (same content with CORS headers; use this URL in Swagger UI, Redoc, Postman)
+- **Footer link**: Every registry page links to `/openapi.yaml` in the footer
+
+**Keeping the spec current** — whenever you add or change an API route:
+1. Update `public/openapi.yaml` — add/edit the path under `paths:`, add any new schemas to `components/schemas:`
+2. Keep `info.version` in sync with the release milestone (currently `2.0.0-alpha`)
+3. The route file at `src/app/app/api/openapi/route.ts` reads and serves the YAML directly — no codegen step required
+
 Registry API routes live in `src/app/app/api/registry/`. Each data type has:
 
 | Data type | Push endpoint | Read endpoint |
@@ -195,6 +206,14 @@ Registry API routes live in `src/app/app/api/registry/`. Each data type has:
 
 Public GET endpoints return JSON. Authenticated MCP/API consumers can read all surfaces.
 POST (push) endpoints require `Authorization: Bearer <sync-token>`.
+
+Additional API groups covered by the spec:
+- **Sync** (`/api/sync/*`) — component upload / changeset pull
+- **Changelog** (`/api/handoff/changelog`) — unified entity change history
+- **Pages / Patterns / Assets** — session-authenticated CRUD
+- **OAuth** (`/api/oauth/*`) — RFC 8628 device authorization for CLI login
+- **MCP** (`/api/mcp`) — Model Context Protocol server (SSE + HTTP transports)
+- **Admin / AI / Figma** — internal surfaces; documented but subject to change pre-2.0
 
 ### 3. MCP — Agent-accessible tools
 
@@ -229,6 +248,7 @@ When you add a new foundation type (e.g. motion tokens, brand voices), follow th
 - [ ] Add push step to `push:all` command + update AGENTS.md push table
 - [ ] Update the foundation UI page to read from DataProvider
 - [ ] Add MCP tool(s) to `create-server.ts`
+- [ ] **Add the new endpoints to `public/openapi.yaml`** — both the path entry and any new component schemas
 - [ ] Update AGENTS.md
 
 ---

@@ -30,6 +30,16 @@ function Footer({ config }: FooterProps) {
         <span className="ml-3 font-mono opacity-50" title="Registry build version">
           v{BUILD_VERSION}
         </span>
+        <span className="mx-2 opacity-30">·</span>
+        <a
+          href="/openapi.yaml"
+          target="_blank"
+          rel="noreferrer"
+          className="font-mono opacity-50 hover:opacity-100 transition-opacity"
+          title="OpenAPI 3.1 spec"
+        >
+          API docs
+        </a>
       </p>
     </footer>
   );
