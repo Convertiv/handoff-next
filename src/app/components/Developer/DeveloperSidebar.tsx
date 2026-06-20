@@ -1,9 +1,18 @@
 'use client';
 
-import { BookOpen, Code2, Cpu, GitMerge, LayoutDashboard, Laptop } from 'lucide-react';
+import { BookOpen, Braces, Code2, Cpu, FileCode2, FileJson, GitMerge, Laptop, LayoutDashboard, Package } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '../../lib/utils';
+
+const DOWNLOADS = [
+  { href: '/openapi.yaml', label: 'openapi.yaml', icon: BookOpen },
+  { href: '/api/registry/dtcg/download?format=dtcg', label: 'DTCG tokens (.json)', icon: FileJson },
+  { href: '/api/registry/dtcg/download?format=tailwind', label: 'Tailwind tokens (.css)', icon: FileCode2 },
+  { href: '/api/registry/dtcg/download?format=css', label: 'CSS tokens (.zip)', icon: Braces },
+  { href: '/api/registry/dtcg/download?format=scss', label: 'SCSS tokens (.zip)', icon: FileCode2 },
+  { href: '/api/registry/icons/download', label: 'Icons (.zip)', icon: Package },
+];
 
 const NAV = [
   { href: '/developer', label: 'Overview', icon: LayoutDashboard, exact: true },
@@ -47,14 +56,19 @@ export default function DeveloperSidebar() {
         <p className="mb-3 px-3 text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
           Downloads
         </p>
-        <a
-          href="/openapi.yaml"
-          download
-          className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800/50 dark:hover:text-gray-100 transition-colors"
-        >
-          <BookOpen className="h-4 w-4 shrink-0 opacity-60" strokeWidth={1.5} />
-          openapi.yaml
-        </a>
+        <div className="flex flex-col gap-0.5">
+          {DOWNLOADS.map(({ href, label, icon: Icon }) => (
+            <a
+              key={href}
+              href={href}
+              download
+              className="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800/50 dark:hover:text-gray-100 transition-colors"
+            >
+              <Icon className="h-4 w-4 shrink-0 opacity-60" strokeWidth={1.5} />
+              {label}
+            </a>
+          ))}
+        </div>
       </div>
     </aside>
   );
