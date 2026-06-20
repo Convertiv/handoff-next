@@ -489,6 +489,7 @@ export class DynamicDataProvider implements DataProvider {
             { title: 'Grid',          path: `${bp}/foundations/grid`,          image: '' },
             { title: 'Effects',       path: `${bp}/foundations/effects`,       image: '' },
             { title: 'Icons',         path: `${bp}/foundations/icons`,         image: '' },
+            { title: 'Logo',          path: `${bp}/foundations/logo`,          image: '' },
             { title: 'Border Radius', path: `${bp}/foundations/border-radius`, image: '' },
             { title: 'Motion',        path: `${bp}/foundations/motion`,        image: '' },
           ],
@@ -654,21 +655,20 @@ function injectSystemUtilityLinks(menu: SectionLink[], basePath: string): Sectio
 
     const subSections = section.subSections ?? [];
 
-    // Collect all paths already present (direct subSections and one level deep in menus)
-    const existingPaths = new Set<string>(
-      [
-        ...subSections.map((s) => s.path),
-        ...subSections.flatMap((s) => (Array.isArray((s as { menu?: { path: string }[] }).menu) ? ((s as { menu?: { path: string }[] }).menu ?? []).map((m) => m.path) : [])),
-      ].filter(Boolean) as string[]
+    // Only check direct subSection paths — NOT nested menu paths.
+    // If Overview is buried inside a "Design System" dropdown from the DB nav,
+    // it still needs to appear as a top-level link above that group.
+    const existingDirectPaths = new Set<string>(
+      subSections.map((s) => s.path).filter(Boolean) as string[]
     );
 
     const toAdd = utilLinks
-      .filter((l) => !existingPaths.has(l.path))
+      .filter((l) => !existingDirectPaths.has(l.path))
       .map((l) => ({ ...l, image: '' }));
 
     if (toAdd.length === 0) return section;
 
-    // Prepend utility links so they appear above component groups
+    // Prepend utility links so they appear above all component groups
     return { ...section, subSections: [...toAdd, ...subSections] };
   });
 }

@@ -1,12 +1,11 @@
 import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '../../../../components/util';
+import { getDataProvider } from '@/lib/data';
 import SingleIconClient from './SingleIconClient';
-
-export const dynamicParams = false;
 
 export async function generateStaticParams() {
   const tokens = getTokens();
   const icons = (tokens.assets?.icons ?? []).map((icon) => ({ name: icon.name }));
-  return icons.length > 0 ? icons : [{ name: '_placeholder' }];
+  return icons;
 }
 
 export async function generateMetadata() {
@@ -19,6 +18,10 @@ export default async function SingleIconPage({ params }: { params: Promise<{ nam
   const { props } = await fetchDocPageMarkdownAsync('docs/foundations/', 'icons', '/foundations');
   const config = getClientRuntimeConfig();
   const assets = getTokens().assets;
+
+  const catalog = await getDataProvider().getIconCatalog();
+  const catalogEntry = catalog.find((e) => e.id === name) ?? null;
+
   return (
     <SingleIconClient
       name={name}
@@ -27,6 +30,7 @@ export default async function SingleIconPage({ params }: { params: Promise<{ nam
       current={props.current}
       config={config}
       assets={assets}
+      catalogEntry={catalogEntry}
     />
   );
 }

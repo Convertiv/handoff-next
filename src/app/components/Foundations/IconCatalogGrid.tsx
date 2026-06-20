@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import type { IconCatalog, IconCatalogEntry, IconSource } from '../../lib/data/types';
 import { Input } from '../ui/input';
 
@@ -35,7 +36,8 @@ function IconTile({ entry }: { entry: IconCatalogEntry }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <div
+      <Link
+        href={`/foundations/icons/${entry.id}`}
         className="flex flex-col items-center gap-4 rounded-lg border border-gray-100/80 bg-gray-100/80 py-8 transition-all hover:border-gray-300 hover:bg-gray-100 dark:border-gray-800 dark:bg-gray-900 dark:hover:border-gray-700"
         title={entry.usage ?? entry.description ?? entry.name}
       >
@@ -55,7 +57,7 @@ function IconTile({ entry }: { entry: IconCatalogEntry }) {
         <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] text-gray-600 dark:bg-gray-700 dark:text-gray-300">
           {badge}
         </span>
-      </div>
+      </Link>
       <div className="flex items-center justify-between gap-1 px-0.5">
         <p className="truncate font-mono text-[11px] text-gray-700 dark:text-gray-300">{entry.name}</p>
         <CopyButton text={copyValue} />
