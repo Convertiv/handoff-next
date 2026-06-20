@@ -242,7 +242,8 @@ When you add a new foundation type (e.g. motion tokens, brand voices), follow th
 - [ ] Add TypeScript types to `src/app/lib/data/types.ts`
 - [ ] Add `get<Type>()` to the DataProvider interface
 - [ ] Implement in DynamicDataProvider (DB read) and StaticDataProvider (filesystem read)
-- [ ] Add `handoff_registry_<type>` singleton table to `schema-pg.ts` + migration
+- [ ] Add `handoff_registry_<type>` singleton table to `schema-pg.ts` + migration SQL file
+- [ ] **Add the migration to the journal** — append an entry to `src/app/lib/db/migrations/meta/_journal.json` with the next `idx` value and a `tag` matching the SQL filename (without `.sql`). Without this, Drizzle's migrator ignores the file entirely.
 - [ ] Create `POST /api/registry/<type>` and `GET /api/registry/<type>` API routes
 - [ ] Add `push<Type>()` to `push-registry-content.ts`
 - [ ] Add push step to `push:all` command + update AGENTS.md push table
@@ -250,6 +251,32 @@ When you add a new foundation type (e.g. motion tokens, brand voices), follow th
 - [ ] Add MCP tool(s) to `create-server.ts`
 - [ ] **Add the new endpoints to `public/openapi.yaml`** — both the path entry and any new component schemas
 - [ ] Update AGENTS.md
+
+---
+
+## Database Migrations — Critical Rule
+
+**Every new migration SQL file MUST be registered in the journal or it will never run.**
+
+Drizzle's `migrate()` reads `src/app/lib/db/migrations/meta/_journal.json` exclusively. A `.sql` file
+with no journal entry is silently ignored — the table will never be created on deployed registries.
+
+When you create `src/app/lib/db/migrations/NNNN_<name>.sql`:
+
+1. Write the SQL file with `CREATE TABLE IF NOT EXISTS` (idempotent).
+2. Append to `_journal.json`:
+   ```json
+   {
+     "idx": <next integer>,
+     "version": "7",
+     "when": <unix-ms timestamp>,
+     "tag": "NNNN_<name>",
+     "breakpoints": true
+   }
+   ```
+3. Use a timestamp safely in the future of the prior entry (e.g. add 100000 ms).
+
+Do NOT use `drizzle-kit push` on production databases — only `migrate()` via the auto-migrate path.
 
 ---
 

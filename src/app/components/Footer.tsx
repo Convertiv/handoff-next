@@ -32,13 +32,11 @@ function Footer({ config }: FooterProps) {
         </span>
         <span className="mx-2 opacity-30">·</span>
         <a
-          href="/openapi.yaml"
-          target="_blank"
-          rel="noreferrer"
+          href="/developer"
           className="font-mono opacity-50 hover:opacity-100 transition-opacity"
-          title="OpenAPI 3.1 spec"
+          title="Developer documentation"
         >
-          API docs
+          Developer Docs
         </a>
       </p>
     </footer>

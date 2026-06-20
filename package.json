@@ -55,7 +55,7 @@
     "build:vercel": "node ./dist/cli.js vercel-build",
     "build:registry": "npm run build && cd src/app && next build",
     "prepare-runtime": "node ./dist/cli.js prepare-runtime",
-"fetch": "node ./dist/cli.js fetch",
+    "fetch": "node ./dist/cli.js fetch",
     "lint": "cd src/app && npx eslint app components lib",
     "release": "np --any-branch",
     "test": "npm run lint && npm run test:unit",
@@ -106,6 +106,7 @@
     "@radix-ui/react-toggle-group": "^1.1.1",
     "@radix-ui/react-tooltip": "^1.1.6",
     "@resvg/resvg-js": "^2.6.2",
+    "@scalar/nextjs-api-reference": "^0.11.4",
     "@tailwindcss/container-queries": "^0.1.1",
     "@tailwindcss/postcss": "^4.1.14",
     "@tailwindcss/typography": "^0.5.16",
@@ -169,6 +170,7 @@
     "sass": "^1.85.0",
     "satori": "^0.26.0",
     "server-only": "^0.0.1",
+    "style-dictionary": "^4.4.0",
     "tailwind-merge": "^2.5.5",
     "tailwindcss": "^4.1.14",
     "tailwindcss-animate": "^1.0.7",
@@ -177,7 +179,6 @@
     "vite": "^8.0.0",
     "ws": "^8.18.3",
     "yargs": "^17.7.2",
-    "style-dictionary": "^4.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

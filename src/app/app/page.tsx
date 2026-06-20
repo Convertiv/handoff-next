@@ -1,4 +1,4 @@
-import { ArrowRight, Component, Hexagon, Layers, Shapes } from 'lucide-react';
+import { ArrowRight, BookOpen, Component, Hexagon, Layers, Shapes } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
@@ -151,6 +151,27 @@ export default async function Home() {
           </Link>
         </div>
         <hr />
+      </div>
+
+      <div className="container mx-auto px-8 pt-16">
+        <div className="flex flex-col items-start gap-4 pb-16 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1">
+            <p className="flex items-center gap-3 text-sm font-normal text-gray-500 dark:text-gray-400">
+              <BookOpen className="size-3 stroke-[1.5]" />
+              Developer Docs
+            </p>
+            <h3 className="text-xl font-medium">CLI, REST API, and MCP integration guides</h3>
+            <p className="max-w-xl text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+              Connect your editor, push workspace data, and query the design system programmatically.
+            </p>
+          </div>
+          <Button asChild className="shrink-0">
+            <Link href="/developer">
+              View Developer Docs
+              <ArrowRight className="inline-block transition-transform group-hover:translate-x-1" />
+            </Link>
+          </Button>
+        </div>
       </div>
     </Layout>
   );
