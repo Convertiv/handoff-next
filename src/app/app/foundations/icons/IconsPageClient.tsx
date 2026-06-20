@@ -7,7 +7,6 @@ import * as React from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import Footer from '../../../components/Footer';
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import HeadersType from '../../../components/Typography/Headers';
@@ -96,7 +95,6 @@ export default function IconsPageClient({ content, menu, metadata, current, conf
           <h4 className="text-lg font-light text-gray-600 dark:text-gray-300">No icons found.</h4>
         </div>
       )}
-      <Footer config={config} />
     </Layout>
   );
 }

@@ -1,0 +1,1818 @@
+openapi: 3.1.0
+info:
+  title: Handoff Registry API
+  version: 2.0.0-alpha
+  description: |
+    The Handoff REST API gives programmatic access to every design-system
+    artifact stored in a Handoff registry: tokens, components, patterns,
+    pages, icons, logos, assets, changelog, and more.
+
+    ## Authentication
+
+    Three credential types are used across the API:
+
+    | Type | Header | Used by |
+    |------|--------|---------|
+    | **Sync Bearer** | `Authorization: Bearer <token>` | CLI `push:all` / `pull`; token is either the `HANDOFF_SYNC_SECRET` env var or a short-lived CLI OAuth JWT |
+    | **Session Cookie** | NextAuth session (`__Secure-next-auth.session-token`) | Browser UI; all `/api/handoff/*` endpoints |
+    | **API Key** | `X-Handoff-Api-Key: <key>` | MCP endpoint and machine-to-machine calls |
+
+    Public read endpoints require no credentials.
+
+    ## Versioning
+
+    This spec tracks the **2.0 pre-release** series (`feature/mcp-prototype`
+    branch). Endpoint shapes are stable within minor versions; breaking changes
+    will increment the major version.
+
+  contact:
+    name: Handoff by Convertiv
+    url: https://www.handoff.com/
+
+servers:
+  - url: /
+    description: Same-origin (relative paths work for all clients)
+
+tags:
+  - name: Registry — Read
+    description: >
+      Public, unauthenticated reads of design-system singletons. All registry
+      reads are served directly from the database singleton row and are safe
+      to call from any client.
+  - name: Registry — Write
+    description: >
+      Authenticated push endpoints consumed by the `handoff-app push:all` CLI
+      command. Require a sync:write bearer token.
+  - name: Sync
+    description: >
+      Low-level workspace sync protocol. Used by the CLI for incremental
+      component push/pull. Requires a sync bearer token.
+  - name: Components
+    description: Public component list and artifact file serving.
+  - name: Changelog
+    description: Unified change history across all entity types.
+  - name: Pages
+    description: Documentation page CRUD (session-authenticated).
+  - name: Patterns
+    description: Reusable design patterns (session-authenticated).
+  - name: Assets
+    description: Media asset management — logos, icons, images, fonts, videos.
+  - name: OAuth
+    description: RFC 8628 Device Authorization Grant for CLI login.
+  - name: MCP
+    description: Model Context Protocol server endpoint for AI agents.
+  - name: Admin
+    description: User management and build-queue inspection (admin session).
+  - name: AI
+    description: AI-powered generation features (session-authenticated).
+  - name: Figma
+    description: Figma integration — fetch and audit (admin session).
+  - name: Account
+    description: Authenticated user profile management.
+
+# ---------------------------------------------------------------------------
+# Security scheme definitions
+# ---------------------------------------------------------------------------
+components:
+  securitySchemes:
+    syncBearer:
+      type: http
+      scheme: bearer
+      description: >
+        JWT issued by the Handoff OAuth device flow, or the raw
+        `HANDOFF_SYNC_SECRET` env var value when using a shared-secret setup.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Secure-next-auth.session-token
+      description: NextAuth session cookie set after browser login.
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-Handoff-Api-Key
+      description: Long-lived API key for machine-to-machine access (MCP, CI).
+
+  # -------------------------------------------------------------------------
+  # Reusable schemas
+  # -------------------------------------------------------------------------
+  schemas:
+
+    # --- Tokens / DTCG ---
+    DtcgManifest:
+      type: object
+      description: Metadata about the compiled DTCG token bundle.
+      properties:
+        project:    { type: string }
+        generatedAt: { type: string, format: date-time }
+        sources:    { type: array, items: { type: string } }
+        counts:     { type: object, additionalProperties: { type: number } }
+
+    DtcgPayload:
+      type: object
+      description: Compiled DTCG token output.
+      properties:
+        manifest: { $ref: '#/components/schemas/DtcgManifest' }
+        css:      { type: string, description: CSS custom-property output }
+        scss:     { type: string, description: SCSS variable output }
+        tailwind: { type: string, description: Tailwind config output }
+        dtcg:     { type: object, description: Raw W3C DTCG JSON }
+        brands:   { type: object, description: Per-brand token maps, keyed by brand slug }
+
+    TokensSnapshot:
+      type: object
+      description: >
+        IDocumentationObject emitted by handoff-core after a Figma fetch.
+        Contains raw local-style data used to render typography and effects pages.
+      properties:
+        localStyles:
+          type: object
+          properties:
+            typography: { type: array, items: { type: object } }
+            effect:     { type: array, items: { type: object } }
+            color:      { type: array, items: { type: object } }
+      additionalProperties: true
+
+    # --- Icons ---
+    IconSource:
+      type: object
+      description: Where to resolve an icon's SVG.
+      required: [type]
+      discriminator:
+        propertyName: type
+      oneOf:
+        - title: Library icon (Iconify)
+          properties:
+            type:      { type: string, const: library }
+            iconifyId: { type: string, example: lucide:chevron-down, description: "Iconify canonical ID in {prefix}:{name} format" }
+          required: [type, iconifyId]
+        - title: Custom SVG
+          properties:
+            type: { type: string, const: custom }
+            svg:  { type: string, description: Inline SVG string }
+          required: [type, svg]
+        - title: Font Awesome Pro
+          properties:
+            type:      { type: string, const: fa-pro }
+            iconifyId: { type: string, description: Iconify-style ID for metadata }
+            svg:       { type: string, description: Inline SVG (required; FA Pro is not on Iconify CDN) }
+          required: [type, iconifyId, svg]
+
+    IconCatalogEntry:
+      type: object
+      required: [id, name, source, category]
+      properties:
+        id:       { type: string, example: lucide:chevron-down }
+        name:     { type: string, example: Chevron Down }
+        source:   { $ref: '#/components/schemas/IconSource' }
+        category: { type: string, example: Navigation }
+        tags:     { type: array, items: { type: string } }
+        usage:    { type: string }
+
+    # --- Logos ---
+    LogoVariant:
+      type: object
+      required: [id, name, variant, form, svg]
+      properties:
+        id:         { type: string }
+        name:       { type: string }
+        brand:      { type: string, description: Brand this variant belongs to (multi-brand workspaces) }
+        variant:    { type: string, enum: [color, dark, light, monochrome] }
+        form:       { type: string, enum: [primary, wordmark, icon, stacked] }
+        svg:        { type: string, description: Inline SVG string }
+        background: { type: string, description: Recommended background color or 'dark'/'white' }
+        width:      { type: integer }
+        height:     { type: integer }
+        colors:     { type: object, additionalProperties: { type: string } }
+        usage:      { type: string }
+        doNotUse:   { type: array, items: { type: string } }
+
+    LogoSet:
+      type: object
+      required: [name, variants]
+      properties:
+        name:        { type: string }
+        description: { type: string }
+        clearspace:  { type: string }
+        minWidth:    { type: string }
+        doNot:       { type: array, items: { type: string } }
+        variants:    { type: array, items: { $ref: '#/components/schemas/LogoVariant' } }
+
+    # --- Navigation ---
+    NavigationNode:
+      type: object
+      required: [slug, title, type]
+      properties:
+        slug:     { type: string }
+        title:    { type: string }
+        type:     { type: string, enum: [markdown, mdx, html, plugin, category] }
+        children: { type: array, items: { $ref: '#/components/schemas/NavigationNode' } }
+
+    # --- Pages ---
+    PageSummary:
+      type: object
+      required: [slug]
+      properties:
+        slug:        { type: string }
+        frontmatter: { type: object, additionalProperties: true }
+        updatedAt:   { type: string, format: date-time }
+
+    PageFull:
+      allOf:
+        - $ref: '#/components/schemas/PageSummary'
+        - type: object
+          properties:
+            markdown: { type: string }
+
+    # --- Components ---
+    ComponentSummary:
+      type: object
+      properties:
+        id:          { type: string }
+        title:       { type: string }
+        group:       { type: string }
+        description: { type: string }
+        version:     { type: string }
+        updatedAt:   { type: string, format: date-time }
+
+    ValidationResult:
+      type: object
+      properties:
+        ruleId:   { type: string }
+        severity: { type: string, enum: [error, warning, info] }
+        message:  { type: string }
+        selector: { type: string }
+
+    VersionRecord:
+      type: object
+      properties:
+        version:   { type: string }
+        pushedAt:  { type: string, format: date-time }
+        pushedBy:  { type: string }
+        changeType: { type: string, enum: [create, update, delete] }
+
+    # --- Changelog ---
+    ChangeRecord:
+      type: object
+      properties:
+        id:         { type: integer }
+        entityType: { type: string, enum: [component, token, page] }
+        entityId:   { type: string }
+        entityName: { type: string }
+        changeType: { type: string, enum: [create, update, delete] }
+        changedAt:  { type: string, format: date-time }
+        changedBy:  { type: string }
+        summary:    { type: string }
+
+    # --- Patterns ---
+    PatternListEntry:
+      type: object
+      properties:
+        id:          { type: string }
+        title:       { type: string }
+        group:       { type: string }
+        source:      { type: string }
+        description: { type: string }
+        updatedAt:   { type: string, format: date-time }
+
+    # --- Assets ---
+    Asset:
+      type: object
+      properties:
+        id:           { type: string }
+        title:        { type: string }
+        description:  { type: string }
+        altText:      { type: string }
+        assetType:    { type: string, enum: [logo, icon, image, video, font] }
+        mimeType:     { type: string }
+        storageUrl:   { type: string, format: uri }
+        thumbnailUrl: { type: string, format: uri }
+        collectionId: { type: string }
+        tags:         { type: array, items: { type: string } }
+        sourceType:   { type: string, enum: [figma, upload, url, wordpress, cloudinary] }
+        status:       { type: string, enum: [pending, active] }
+        createdAt:    { type: string, format: date-time }
+        updatedAt:    { type: string, format: date-time }
+
+    AssetCollection:
+      type: object
+      properties:
+        id:             { type: string }
+        name:           { type: string }
+        slug:           { type: string }
+        description:    { type: string }
+        sourceType:     { type: string }
+        figmaSectionId: { type: string }
+        figmaFileKey:   { type: string }
+
+    # --- Sync ---
+    SyncEntityType:
+      type: string
+      enum: [component, component_source, component_artifact, component_screenshot]
+
+    SyncChange:
+      type: object
+      required: [entityType, entityId, action]
+      properties:
+        entityType: { $ref: '#/components/schemas/SyncEntityType' }
+        entityId:   { type: string }
+        action:     { type: string, enum: [create, update, delete] }
+        data:       { type: object, nullable: true }
+
+    # --- OAuth ---
+    DeviceAuthorizationResponse:
+      type: object
+      required: [device_code, user_code, verification_uri, expires_in, interval]
+      properties:
+        device_code:               { type: string }
+        user_code:                 { type: string }
+        verification_uri:          { type: string, format: uri }
+        verification_uri_complete: { type: string, format: uri }
+        expires_in:                { type: integer, description: Seconds until codes expire }
+        interval:                  { type: integer, description: Polling interval in seconds }
+
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        token_type:   { type: string, example: bearer }
+        expires_in:   { type: integer }
+
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error:             { type: string, example: authorization_pending }
+        error_description: { type: string }
+
+    # --- Users ---
+    User:
+      type: object
+      properties:
+        id:        { type: string }
+        name:      { type: string }
+        email:     { type: string, format: email }
+        role:      { type: string, enum: [admin, member] }
+        image:     { type: string, format: uri }
+        createdAt: { type: string, format: date-time }
+
+    # --- Error ---
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+
+# ===========================================================================
+# Paths
+# ===========================================================================
+paths:
+
+  # =========================================================================
+  # REGISTRY — READ (public)
+  # =========================================================================
+
+  /api/registry/config:
+    get:
+      tags: [Registry — Read]
+      summary: Get registry config
+      description: >
+        Returns the singleton configuration row: app title, client name,
+        color-mode settings, type sort order, breakpoints, and any custom
+        fields pushed from the workspace `handoff.config.js`.
+      operationId: getRegistryConfig
+      responses:
+        '200':
+          description: Registry config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: object, additionalProperties: true }
+    post:
+      tags: [Registry — Write]
+      summary: Push registry config
+      operationId: pushRegistryConfig
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/registry/tokens:
+    get:
+      tags: [Registry — Read]
+      summary: Get latest tokens snapshot
+      description: >
+        Returns the most recent `IDocumentationObject` emitted by handoff-core
+        after a Figma fetch. Contains `localStyles.typography`,
+        `localStyles.effect`, and `localStyles.color` — the source for the
+        visual type/effects/color pages.
+      operationId: getTokensSnapshot
+      responses:
+        '200':
+          description: Tokens snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payload: { $ref: '#/components/schemas/TokensSnapshot', nullable: true }
+    post:
+      tags: [Registry — Write]
+      summary: Push tokens snapshot
+      description: Appends a new snapshot row. Reads always return the latest by ID.
+      operationId: pushTokensSnapshot
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payload]
+              properties:
+                payload: { $ref: '#/components/schemas/TokensSnapshot' }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+        '401': { description: Unauthorized, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/registry/dtcg:
+    get:
+      tags: [Registry — Read]
+      summary: Get compiled DTCG token output
+      description: >
+        Returns the latest compiled W3C DTCG token bundle including CSS custom
+        properties, SCSS variables, Tailwind config, and raw DTCG JSON.
+        Optional per-brand maps are included when `brands` is populated.
+      operationId: getDtcgPayload
+      responses:
+        '200':
+          description: DTCG payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payload: { $ref: '#/components/schemas/DtcgPayload', nullable: true }
+    post:
+      tags: [Registry — Write]
+      summary: Push compiled DTCG output
+      operationId: pushDtcgPayload
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DtcgPayload' }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/registry/icons:
+    get:
+      tags: [Registry — Read]
+      summary: Get icon catalog
+      description: >
+        Returns the singleton icon catalog. Each entry has an `iconifyId`
+        (e.g. `lucide:chevron-down`) for library icons or an inline `svg`
+        string for custom icons. Library icons should be rendered via the
+        Iconify CDN at `https://api.iconify.design/{prefix}/{name}.svg`.
+      operationId: getIconCatalog
+      responses:
+        '200':
+          description: Icon catalog
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  catalog:
+                    type: array
+                    items: { $ref: '#/components/schemas/IconCatalogEntry' }
+    post:
+      tags: [Registry — Write]
+      summary: Push icon catalog
+      description: Replaces the icon catalog singleton via upsert.
+      operationId: pushIconCatalog
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [catalog]
+              properties:
+                catalog:
+                  type: array
+                  items: { $ref: '#/components/schemas/IconCatalogEntry' }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:    { type: boolean }
+                  count: { type: integer }
+
+  /api/registry/logos:
+    get:
+      tags: [Registry — Read]
+      summary: Get logo set
+      description: >
+        Returns the singleton logo set containing all brand marks and their
+        approved variants. Multi-brand workspaces store all brands in a single
+        set with a `brand` discriminator on each variant.
+      operationId: getLogoSet
+      responses:
+        '200':
+          description: Logo set
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logoSet: { $ref: '#/components/schemas/LogoSet', nullable: true }
+    post:
+      tags: [Registry — Write]
+      summary: Push logo set
+      operationId: pushLogoSet
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [logoSet]
+              properties:
+                logoSet: { $ref: '#/components/schemas/LogoSet' }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  /api/registry/navigation:
+    get:
+      tags: [Registry — Read]
+      summary: Get navigation tree
+      description: >
+        Returns the full sidebar navigation tree used to render the registry UI.
+        Node types: `markdown` (prose doc), `mdx`, `html`, `plugin` (dynamic
+        section), `category` (non-linking header).
+      operationId: getNavigation
+      responses:
+        '200':
+          description: Navigation tree
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tree:
+                    type: array
+                    items: { $ref: '#/components/schemas/NavigationNode' }
+    post:
+      tags: [Registry — Write]
+      summary: Push navigation tree
+      operationId: pushNavigation
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tree]
+              properties:
+                tree:
+                  type: array
+                  items: { $ref: '#/components/schemas/NavigationNode' }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:    { type: boolean }
+                  nodes: { type: integer }
+
+  /api/registry/pages:
+    get:
+      tags: [Registry — Read]
+      summary: List all pages
+      description: Returns summaries of all documentation pages for workspace pull.
+      operationId: listRegistryPages
+      responses:
+        '200':
+          description: Page list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pages:
+                    type: array
+                    items: { $ref: '#/components/schemas/PageSummary' }
+    post:
+      tags: [Registry — Write]
+      summary: Bulk push pages
+      description: Upserts all pages from a workspace push in a single batch.
+      operationId: pushPages
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pages]
+              properties:
+                pages:
+                  type: array
+                  items: { $ref: '#/components/schemas/PageFull' }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:    { type: boolean }
+                  count: { type: integer }
+
+  /api/registry/theme:
+    get:
+      tags: [Registry — Read]
+      summary: Get theme metadata
+      description: >
+        Returns CSS byte-length and last-updated timestamp for the theme
+        singleton. To retrieve the actual CSS, use `GET /api/registry/theme.css`.
+      operationId: getThemeMeta
+      responses:
+        '200':
+          description: Theme metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  length:    { type: integer, description: CSS byte length }
+                  updatedAt: { type: string, format: date-time, nullable: true }
+    post:
+      tags: [Registry — Write]
+      summary: Push theme CSS
+      operationId: pushTheme
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [css]
+              properties:
+                css: { type: string }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:     { type: boolean }
+                  length: { type: integer }
+
+  /api/registry/theme.css:
+    get:
+      tags: [Registry — Read]
+      summary: Get theme CSS
+      description: Returns the singleton theme CSS file with `text/css` content type.
+      operationId: getThemeCss
+      responses:
+        '200':
+          description: Theme CSS
+          content:
+            text/css:
+              schema:
+                type: string
+
+  # =========================================================================
+  # SYNC
+  # =========================================================================
+
+  /api/sync/status:
+    get:
+      tags: [Sync]
+      summary: Get sync status
+      description: Returns connection health and current registry statistics.
+      operationId: getSyncStatus
+      security: [{syncBearer: []}]
+      responses:
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/sync/changes:
+    get:
+      tags: [Sync]
+      summary: Get changes since a checkpoint
+      description: >
+        Returns all sync events recorded after `since`. Used by `handoff-app
+        pull` to compute what has changed since the last pull. Passing `since=0`
+        (default) returns the full history.
+      operationId: getSyncChanges
+      security: [{syncBearer: []}]
+      parameters:
+        - name: since
+          in: query
+          description: Sync event ID to start from (exclusive)
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Changeset
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/sync/upload:
+    post:
+      tags: [Sync]
+      summary: Upload component changes
+      description: >
+        Applies a batch of create/update/delete sync events for components,
+        source files, artifacts, and screenshots. Triggers an async validation
+        snapshot when component data changes. Errors on individual events do
+        not abort the batch — partial success is reported.
+      operationId: uploadSyncChanges
+      security: [{syncBearer: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [changes]
+              properties:
+                changes:
+                  type: array
+                  items: { $ref: '#/components/schemas/SyncChange' }
+      responses:
+        '200':
+          description: Applied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:           { type: boolean }
+                  appliedCount: { type: integer }
+                  applied:      { type: array, items: { type: string } }
+        '207':
+          description: Partial success
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:   { type: string }
+                  applied: { type: array, items: { type: string } }
+
+  # =========================================================================
+  # COMPONENTS (public)
+  # =========================================================================
+
+  /api/components:
+    get:
+      tags: [Components]
+      summary: List all components
+      description: Returns a flat list of all component summaries from the registry.
+      operationId: listComponents
+      responses:
+        '200':
+          description: Component list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ComponentSummary' }
+
+  /api/component/{path}:
+    get:
+      tags: [Components]
+      summary: Serve component artifact file
+      description: >
+        Serves a single component artifact (HTML preview, CSS, JS, JSON
+        metadata, screenshot, etc.) identified by its path within the component
+        bundle. Resolves from the database in registry mode or from disk in
+        workspace mode.
+      operationId: getComponentArtifact
+      parameters:
+        - name: path
+          in: path
+          required: true
+          description: Catch-all path within the component artifact tree (e.g. `button/primary/index.html`)
+          schema: { type: string }
+      responses:
+        '200':
+          description: Artifact file
+          content:
+            text/html:
+              schema: { type: string }
+            text/css:
+              schema: { type: string }
+            application/javascript:
+              schema: { type: string }
+            application/json:
+              schema: { type: object }
+            image/png:
+              schema: { type: string, format: binary }
+        '404': { description: Not found }
+
+  /api/handoff/components:
+    get:
+      tags: [Components]
+      summary: Get component by ID
+      description: Fetch full component record including metadata and latest artifact URLs.
+      operationId: getComponent
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Component
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ComponentSummary' }
+        '401': { description: Unauthorized }
+        '404': { description: Not found }
+    patch:
+      tags: [Components]
+      summary: Patch component metadata
+      description: Update component fields (admin only).
+      operationId: patchComponent
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:          { type: string }
+                title:       { type: string }
+                description: { type: string }
+                group:       { type: string }
+      responses:
+        '200':
+          description: Updated component
+        '401': { description: Unauthorized }
+        '403': { description: Admin role required }
+
+  /api/handoff/components/validation:
+    get:
+      tags: [Components]
+      summary: Get component validation results
+      description: >
+        Returns the latest validation snapshot for a component. Only available
+        on PostgreSQL registries; returns an empty array on SQLite.
+      operationId: getComponentValidation
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Validation results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:      { type: string }
+                  results:
+                    type: array
+                    items: { $ref: '#/components/schemas/ValidationResult' }
+
+  /api/handoff/components/history:
+    get:
+      tags: [Components]
+      summary: Get component version history
+      description: >
+        Returns push history for a component. Only available on PostgreSQL.
+      operationId: getComponentHistory
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: Version history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  versions:
+                    type: array
+                    items: { $ref: '#/components/schemas/VersionRecord' }
+                  total: { type: integer }
+
+  # =========================================================================
+  # CHANGELOG
+  # =========================================================================
+
+  /api/handoff/changelog:
+    get:
+      tags: [Changelog]
+      summary: Get unified changelog
+      description: >
+        Returns a time-ordered feed of changes across components, tokens, and
+        pages. Only available on PostgreSQL registries.
+      operationId: getChangelog
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50, maximum: 200 }
+        - name: since
+          in: query
+          description: ISO 8601 date-time; return changes after this timestamp
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Changelog feed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes:
+                    type: array
+                    items: { $ref: '#/components/schemas/ChangeRecord' }
+                  total: { type: integer }
+
+  # =========================================================================
+  # PAGES
+  # =========================================================================
+
+  /api/handoff/pages:
+    get:
+      tags: [Pages]
+      summary: Get page(s)
+      description: >
+        If `slug` is provided, returns a single full page (frontmatter +
+        markdown). Without `slug`, returns all page summaries for the page
+        manager UI.
+      operationId: getPage
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: slug
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page or page list
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/PageFull'
+                  - type: object
+                    properties:
+                      pages:
+                        type: array
+                        items: { $ref: '#/components/schemas/PageSummary' }
+    post:
+      tags: [Pages]
+      summary: Create or update page
+      description: >
+        Upserts a documentation page by slug. Fires an async nav sync
+        (non-fatal) to update the sidebar after save.
+      operationId: upsertPage
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug]
+              properties:
+                slug:        { type: string }
+                frontmatter: { type: object, additionalProperties: true }
+                markdown:    { type: string }
+      responses:
+        '200':
+          description: Saved page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PageFull' }
+    delete:
+      tags: [Pages]
+      summary: Delete page
+      operationId: deletePage
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: slug
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+
+  # =========================================================================
+  # PATTERNS
+  # =========================================================================
+
+  /api/handoff/patterns:
+    get:
+      tags: [Patterns]
+      summary: List patterns
+      operationId: listPatterns
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: q
+          in: query
+          description: Full-text search query
+          schema: { type: string }
+        - name: group
+          in: query
+          schema: { type: string }
+        - name: source
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pattern list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  patterns:
+                    type: array
+                    items: { $ref: '#/components/schemas/PatternListEntry' }
+
+  /api/handoff/patterns/{id}:
+    get:
+      tags: [Patterns]
+      summary: Get pattern by ID
+      operationId: getPattern
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Pattern detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pattern: { type: object }
+        '404': { description: Not found }
+
+  # =========================================================================
+  # ASSETS
+  # =========================================================================
+
+  /api/handoff/assets:
+    get:
+      tags: [Assets]
+      summary: List assets
+      operationId: listAssets
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: assetType
+          in: query
+          schema: { type: string, enum: [logo, icon, image, video, font] }
+        - name: collectionId
+          in: query
+          schema: { type: string }
+        - name: iconSetId
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, active] }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: tags
+          in: query
+          description: Comma-separated tag list
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer }
+        - name: offset
+          in: query
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Asset list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Asset' }
+    post:
+      tags: [Assets]
+      summary: Create asset
+      description: >
+        Creates a new asset record. The `storageUrl` must point to an already-
+        uploaded file (use `/api/handoff/assets/presign` → `/api/handoff/assets/confirm`
+        for the S3 upload flow, or supply an external URL directly).
+      operationId: createAsset
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, assetType, storageUrl]
+              properties:
+                title:          { type: string }
+                description:    { type: string }
+                altText:        { type: string }
+                assetType:      { type: string, enum: [logo, icon, image, video, font] }
+                mimeType:       { type: string }
+                storageUrl:     { type: string, format: uri }
+                collectionId:   { type: string }
+                tags:           { type: array, items: { type: string } }
+                sourceType:     { type: string, enum: [figma, upload, url, wordpress, cloudinary] }
+                sourceUrl:      { type: string, format: uri }
+                sourceMetadata: { type: object }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+
+  /api/handoff/assets/{id}:
+    get:
+      tags: [Assets]
+      summary: Get asset
+      operationId: getAsset
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Asset with usages
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Asset'
+                  - type: object
+                    properties:
+                      usages: { type: array, items: { type: object } }
+    put:
+      tags: [Assets]
+      summary: Update asset metadata
+      operationId: updateAsset
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:          { type: string }
+                description:    { type: string }
+                altText:        { type: string }
+                thumbnailUrl:   { type: string, format: uri }
+                collectionId:   { type: string }
+                tags:           { type: array, items: { type: string } }
+                status:         { type: string, enum: [pending, active] }
+                nativeWidth:    { type: integer }
+                nativeHeight:   { type: integer }
+                sourceUrl:      { type: string, format: uri }
+                sourceMetadata: { type: object }
+      responses:
+        '200':
+          description: Updated asset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+    delete:
+      tags: [Assets]
+      summary: Delete asset
+      operationId: deleteAsset
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /api/handoff/assets/presign:
+    post:
+      tags: [Assets]
+      summary: Generate S3 presigned upload URL
+      description: >
+        Returns a short-lived presigned PUT URL for direct-to-S3 upload.
+        After upload completes, call `/api/handoff/assets/confirm` to
+        create the asset record.
+      operationId: presignAssetUpload
+      security: [{sessionCookie: []}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename: { type: string }
+                mimeType: { type: string }
+                ttlSecs:  { type: integer, description: URL TTL in seconds }
+      responses:
+        '200':
+          description: Presigned URL + asset ID
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assetId:    { type: string }
+                  uploadUrl:  { type: string, format: uri }
+                  publicUrl:  { type: string, format: uri }
+                  storageKey: { type: string }
+                  expiresAt:  { type: string, format: date-time }
+
+  /api/handoff/assets/confirm:
+    post:
+      tags: [Assets]
+      summary: Confirm S3 upload and create asset record
+      operationId: confirmAssetUpload
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assetId, storageKey, publicUrl, assetType]
+              properties:
+                assetId:        { type: string }
+                storageKey:     { type: string }
+                publicUrl:      { type: string, format: uri }
+                title:          { type: string }
+                description:    { type: string }
+                altText:        { type: string }
+                assetType:      { type: string, enum: [logo, icon, image, video, font] }
+                mimeType:       { type: string }
+                fileSizeBytes:  { type: integer }
+                nativeWidth:    { type: integer }
+                nativeHeight:   { type: integer }
+                collectionId:   { type: string }
+                tags:           { type: array, items: { type: string } }
+                sourceType:     { type: string }
+                sourceUrl:      { type: string, format: uri }
+                sourceMetadata: { type: object }
+      responses:
+        '201':
+          description: Created asset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Asset' }
+
+  /api/handoff/assets/collections:
+    get:
+      tags: [Assets]
+      summary: List asset collections
+      operationId: listAssetCollections
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Collections
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/AssetCollection' }
+    post:
+      tags: [Assets]
+      summary: Create asset collection
+      operationId: createAssetCollection
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:           { type: string }
+                slug:           { type: string }
+                description:    { type: string }
+                sourceType:     { type: string }
+                figmaSectionId: { type: string }
+                figmaFileKey:   { type: string }
+                metadata:       { type: object }
+      responses:
+        '201':
+          description: Created collection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AssetCollection' }
+
+  # =========================================================================
+  # OAUTH — Device Authorization Grant (RFC 8628)
+  # =========================================================================
+
+  /api/oauth/device:
+    post:
+      tags: [OAuth]
+      summary: Request device authorization
+      description: >
+        Initiates the CLI device authorization flow. The CLI displays
+        `verification_uri` and `user_code` to the user, then polls
+        `/api/oauth/token` until approved or expired.
+      operationId: requestDeviceAuthorization
+      responses:
+        '200':
+          description: Device and user codes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceAuthorizationResponse' }
+
+  /api/oauth/token:
+    post:
+      tags: [OAuth]
+      summary: Exchange device code for access token
+      description: >
+        Exchanges an approved device code for a short-lived JWT bearer token.
+        Returns `authorization_pending` while the user hasn't approved yet, or
+        `expired_token` once the device code TTL has elapsed.
+      operationId: exchangeDeviceCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grant_type, device_code]
+              properties:
+                grant_type:  { type: string, const: 'urn:ietf:params:oauth:grant-type:device_code' }
+                device_code: { type: string }
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, device_code]
+              properties:
+                grant_type:  { type: string }
+                device_code: { type: string }
+      responses:
+        '200':
+          description: Access token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400':
+          description: Pending or error
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OAuthError' }
+
+  # =========================================================================
+  # MCP
+  # =========================================================================
+
+  /api/mcp:
+    get:
+      tags: [MCP]
+      summary: MCP server (SSE transport)
+      description: >
+        Server-Sent Events endpoint for the Model Context Protocol server.
+        Connect with an MCP client (e.g. Claude Desktop, Claude Code) using
+        `X-Handoff-Api-Key` or `X-Handoff-Api-Token`.  Only available on
+        PostgreSQL registries.
+      operationId: mcpSse
+      security: [{apiKey: []}]
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+    post:
+      tags: [MCP]
+      summary: MCP server (HTTP transport)
+      operationId: mcpHttp
+      security: [{apiKey: []}]
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '200':
+          description: MCP response
+          content:
+            application/json:
+              schema: { type: object }
+    delete:
+      tags: [MCP]
+      summary: MCP server (close session)
+      operationId: mcpClose
+      security: [{apiKey: []}]
+      responses:
+        '200': { description: Session closed }
+
+  # =========================================================================
+  # ADMIN
+  # =========================================================================
+
+  /api/handoff/admin/users:
+    get:
+      tags: [Admin]
+      summary: List users
+      operationId: listUsers
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+
+  /api/handoff/admin/invite:
+    post:
+      tags: [Admin]
+      summary: Invite user
+      operationId: inviteUser
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                role:  { type: string, enum: [admin, member] }
+      responses:
+        '200':
+          description: Invite result
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/handoff/admin/role:
+    post:
+      tags: [Admin]
+      summary: Update user role
+      operationId: updateUserRole
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId: { type: string }
+                role:   { type: string, enum: [admin, member] }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/handoff/admin/remove:
+    post:
+      tags: [Admin]
+      summary: Remove user
+      operationId: removeUser
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId: { type: string }
+      responses:
+        '200':
+          description: Removed
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/handoff/admin/build-tasks:
+    get:
+      tags: [Admin]
+      summary: Get build queue
+      description: Returns the merged component Vite build + design asset extraction job queue.
+      operationId: getBuildTasks
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Build task list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tasks: { type: array, items: { type: object } }
+
+  /api/handoff/admin/reference-materials:
+    get:
+      tags: [Admin]
+      summary: Get AI reference materials
+      operationId: getReferencesMaterials
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: id
+          in: query
+          description: If provided, return full content for this material
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reference materials
+          content:
+            application/json:
+              schema: { type: object }
+    post:
+      tags: [Admin]
+      summary: Regenerate reference materials
+      operationId: regenerateReferenceMaterials
+      security: [{sessionCookie: []}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:      { type: string }
+                all:     { type: boolean }
+                skipLlm: { type: boolean }
+      responses:
+        '200':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:    { type: boolean }
+                  scope: { type: string }
+
+  # =========================================================================
+  # AI
+  # =========================================================================
+
+  /api/handoff/ai/chat:
+    post:
+      tags: [AI]
+      summary: Chat with the design system assistant
+      description: >
+        Streaming chat endpoint. Returns Server-Sent Events with the assistant's
+        responses and tool calls (show_components, navigate_component,
+        get_recent_changes, check_validation, etc.). Pass a `pageContext`
+        to surface component- or pattern-specific tools.
+      operationId: aiChat
+      security: [{sessionCookie: []}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                messages:
+                  type: array
+                  items:
+                    type: object
+                    required: [role, content]
+                    properties:
+                      role:    { type: string, enum: [system, user, assistant] }
+                      content: { type: string }
+                pageContext:
+                  type: object
+                  properties:
+                    type: { type: string, enum: [component, pattern] }
+                    id:   { type: string }
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /api/handoff/ai/generate-component:
+    post:
+      tags: [AI]
+      summary: Schedule component generation
+      description: Enqueues an AI component generation job from a design artifact.
+      operationId: generateComponent
+      security: [{sessionCookie: []}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                artifactId:       { type: string }
+                componentName:    { type: string }
+                renderer:         { type: string }
+                behaviorPrompt:   { type: string }
+                a11yStandard:     { type: string }
+                useExtractedAssets: { type: boolean }
+                maxIterations:    { type: integer }
+      responses:
+        '200':
+          description: Job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId: { type: string }
+    get:
+      tags: [AI]
+      summary: Get generation job status
+      operationId: getGenerationJob
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: jobId
+          in: query
+          schema: { type: string }
+        - name: artifactId
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job: { type: object, nullable: true }
+
+  # =========================================================================
+  # FIGMA
+  # =========================================================================
+
+  /api/handoff/figma/fetch:
+    post:
+      tags: [Figma]
+      summary: Enqueue Figma fetch job
+      description: >
+        Rate-limited to 3 requests/minute with max 2 concurrent jobs.
+        Returns a `jobId` to poll with `GET /api/handoff/figma/fetch?jobId=...`.
+      operationId: enqueueFigmaFetch
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Job queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:  { type: string }
+                  status: { type: string, example: queued }
+    get:
+      tags: [Figma]
+      summary: Get Figma fetch status or connection info
+      operationId: getFigmaFetchStatus
+      security: [{sessionCookie: []}]
+      parameters:
+        - name: jobId
+          in: query
+          description: If omitted, returns connection status
+          schema: { type: string }
+      responses:
+        '200':
+          description: Job status or connection info
+          content:
+            application/json:
+              schema: { type: object }
+
+  /api/handoff/figma/components:
+    get:
+      tags: [Figma]
+      summary: Get Figma component audit
+      operationId: getFigmaComponentAudit
+      security: [{sessionCookie: []}]
+      responses:
+        '200':
+          description: Figma audit results
+          content:
+            application/json:
+              schema: { type: object }
+
+  # =========================================================================
+  # ACCOUNT
+  # =========================================================================
+
+  /api/account:
+    put:
+      tags: [Account]
+      summary: Update profile
+      operationId: updateAccount
+      security: [{sessionCookie: []}]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:  { type: string }
+                image: { type: string, format: uri }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }

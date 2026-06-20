@@ -7,7 +7,6 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import { ConfigContextProvider } from '@/components/context/ConfigContext';
-import Footer from '@/components/Footer';
 import { Header } from '@/components/Layout/Header';
 import { MarkdownComponents, remarkCodeMeta } from '@/components/Markdown/MarkdownComponents';
 import { fetchDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '@/components/util';
@@ -77,7 +76,6 @@ export default async function FontsPage() {
             </div>
           </div>
         </section>
-        <Footer config={config} />
       </div>
     </ConfigContextProvider>
   );

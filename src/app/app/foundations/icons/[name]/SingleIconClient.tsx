@@ -5,7 +5,6 @@ import HtmlReactParser from 'html-react-parser';
 import { Code, Download, Share } from 'lucide-react';
 import Link from 'next/link';
 import * as React from 'react';
-import Footer from '../../../../components/Footer';
 import Layout from '../../../../components/Layout/Main';
 import HeadersType from '../../../../components/Typography/Headers';
 import { buttonVariants } from '../../../../components/ui/button';
@@ -80,7 +79,6 @@ export default function SingleIconClient({ name, menu, metadata, current, config
           </div>
         </div>
       )}
-      <Footer config={config} />
     </Layout>
   );
 }

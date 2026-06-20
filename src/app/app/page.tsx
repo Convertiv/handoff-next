@@ -4,7 +4,6 @@ import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import Footer from '../components/Footer';
 import Layout from '../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../components/Markdown/MarkdownComponents';
 import HeadersType from '../components/Typography/Headers';
@@ -153,7 +152,6 @@ export default async function Home() {
         </div>
         <hr />
       </div>
-      <Footer config={config} />
     </Layout>
   );
 }
