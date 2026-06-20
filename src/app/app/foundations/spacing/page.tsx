@@ -20,16 +20,37 @@ interface SpacingToken {
   description: string;
 }
 
+/** Recursively flatten a nested DTCG object into a flat list of leaf tokens. */
+function flattenDtcgLeaves(
+  obj: Record<string, unknown>,
+  prefix = '',
+): SpacingToken[] {
+  return Object.entries(obj).flatMap(([key, token]) => {
+    if (!token || typeof token !== 'object') return [];
+    const t = token as Record<string, unknown>;
+    const fullKey = prefix ? `${prefix}-${key}` : key;
+    if ('$value' in t) {
+      const value = typeof t.$value === 'string' ? t.$value : '0rem';
+      const px = Math.round(parseFloat(value) * 16);
+      return [{ key: fullKey, name: `spacing-${fullKey}`, value, px, description: (t.$description as string) ?? '' }];
+    }
+    // Non-leaf group: recurse, stripping the outer key into the prefix
+    return flattenDtcgLeaves(t as Record<string, unknown>, fullKey);
+  });
+}
+
 function parseSpacingTokens(dtcgJson: string): SpacingToken[] {
   try {
-    const obj = JSON.parse(dtcgJson) as Record<string, { $type?: string; $value: string; $description?: string }>;
-    return Object.entries(obj)
-      .map(([key, token]) => {
-        const value = token.$value ?? '0rem';
-        const px = Math.round(parseFloat(value) * 16);
-        return { key, name: `spacing-${key}`, value, px, description: token.$description ?? '' };
-      })
-      .sort((a, b) => a.px - b.px);
+    const obj = JSON.parse(dtcgJson) as Record<string, unknown>;
+    // Style Dictionary resolved DTCG wraps leaves in a top-level 'spacing' group.
+    // Unwrap it so the display keys are '0', '1', … rather than 'spacing-0', etc.
+    const root =
+      obj['spacing'] &&
+      typeof obj['spacing'] === 'object' &&
+      !('$value' in (obj['spacing'] as object))
+        ? (obj['spacing'] as Record<string, unknown>)
+        : obj;
+    return flattenDtcgLeaves(root).sort((a, b) => a.px - b.px);
   } catch {
     return [];
   }

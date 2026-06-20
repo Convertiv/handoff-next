@@ -206,6 +206,33 @@ function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatte
  * whose variable name doesn't start with "--color". Walking by $type finds them
  * regardless of where they sit in the tree.
  */
+/**
+ * Collect all leaf tokens from a DTCG group regardless of $type.
+ * Used when the top-level group key already identifies the token category.
+ */
+function collectAllDtcgLeaves(
+  obj: Record<string, unknown>,
+  cssPrefix: string,
+): { filteredDtcg: Record<string, unknown>; cssNames: Set<string> } {
+  const filteredDtcg: Record<string, unknown> = {};
+  const cssNames = new Set<string>();
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value !== 'object' || value === null) continue;
+    const item = value as Record<string, unknown>;
+    if ('$value' in item) {
+      filteredDtcg[key] = item;
+      cssNames.add(`${cssPrefix}${key}`);
+    } else {
+      const nested = collectAllDtcgLeaves(item, `${cssPrefix}${key}-`);
+      if (Object.keys(nested.filteredDtcg).length > 0) {
+        filteredDtcg[key] = nested.filteredDtcg;
+        for (const name of nested.cssNames) cssNames.add(name);
+      }
+    }
+  }
+  return { filteredDtcg, cssNames };
+}
+
 function collectDtcgByType(
   obj: Record<string, unknown>,
   type: string,
@@ -213,22 +240,33 @@ function collectDtcgByType(
 ): { filteredDtcg: Record<string, unknown>; cssNames: Set<string> } {
   const filteredDtcg: Record<string, unknown> = {};
   const cssNames = new Set<string>();
-  // CSS brand parsers emit $type:'dimension' for rem/px values; the spacing page
-  // queries for 'spacing'. Treat both as equivalent so registry tokens are visible.
-  const acceptedTypes = type === 'spacing' ? [type, 'dimension'] : [type];
+
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value !== 'object' || value === null) continue;
     const item = value as Record<string, unknown>;
     if ('$value' in item) {
-      if (acceptedTypes.includes(item['$type'] as string)) {
+      // Leaf: match by $type
+      if (item['$type'] === type) {
         filteredDtcg[key] = item;
         cssNames.add(`${cssPrefix}${key}`);
       }
     } else {
-      const nested = collectDtcgByType(item, type, `${cssPrefix}${key}-`);
-      if (Object.keys(nested.filteredDtcg).length > 0) {
-        filteredDtcg[key] = nested.filteredDtcg;
-        for (const name of nested.cssNames) cssNames.add(name);
+      // Non-leaf group: when the group key matches the requested type (e.g. the
+      // "spacing" group for type='spacing'), collect ALL its leaves regardless of
+      // $type. Style Dictionary resolved DTCG uses group names as type identifiers
+      // and stores spacing as $type:'dimension', so $type matching alone misses them.
+      if (key === type) {
+        const nested = collectAllDtcgLeaves(item, `${cssPrefix}${key}-`);
+        if (Object.keys(nested.filteredDtcg).length > 0) {
+          filteredDtcg[key] = nested.filteredDtcg;
+          for (const name of nested.cssNames) cssNames.add(name);
+        }
+      } else {
+        const nested = collectDtcgByType(item, type, `${cssPrefix}${key}-`);
+        if (Object.keys(nested.filteredDtcg).length > 0) {
+          filteredDtcg[key] = nested.filteredDtcg;
+          for (const name of nested.cssNames) cssNames.add(name);
+        }
       }
     }
   }
