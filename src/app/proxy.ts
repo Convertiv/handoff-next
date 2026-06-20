@@ -46,7 +46,7 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
 
   if (pathname.startsWith('/admin')) {
     if (!process.env.DATABASE_URL?.trim()) {
-      const setup = new URL('/dev/local-setup', request.url);
+      const setup = new URL('/developer/local-setup', request.url);
       return NextResponse.redirect(setup);
     }
     const secret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;

@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, Code2, Cpu, GitMerge, LayoutDashboard } from 'lucide-react';
+import { BookOpen, Code2, Cpu, GitMerge, LayoutDashboard, Laptop } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '../../lib/utils';
@@ -11,6 +11,7 @@ const NAV = [
   { href: '/developer/api', label: 'REST API', icon: BookOpen, exact: false },
   { href: '/developer/mcp', label: 'MCP Tools', icon: Cpu, exact: false },
   { href: '/developer/push-pull', label: 'Push / Pull Guide', icon: GitMerge, exact: false },
+  { href: '/developer/local-setup', label: 'Local Development', icon: Laptop, exact: false },
 ];
 
 export default function DeveloperSidebar() {

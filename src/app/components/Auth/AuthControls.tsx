@@ -88,7 +88,7 @@ export function AuthControls() {
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
-          <Link href="/dev/local-setup">
+          <Link href="/developer/local-setup">
             <Terminal className="mr-2 h-4 w-4" />
             CLI docs
           </Link>

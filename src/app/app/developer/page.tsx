@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, Code2, Cpu, GitMerge } from 'lucide-react';
+import { ArrowRight, BookOpen, Code2, Cpu, GitMerge, Laptop } from 'lucide-react';
 import Link from 'next/link';
 import { buttonVariants } from '@/components/ui/button';
 
@@ -30,6 +30,13 @@ const CARDS = [
     title: 'Push / Pull Guide',
     description:
       'Understand the sync protocol — what push:all sends, how the registry stores it, and how pull writes changes back to your workspace.',
+  },
+  {
+    href: '/developer/local-setup',
+    icon: Laptop,
+    title: 'Local Development',
+    description:
+      'Authenticate the CLI with OAuth device login, configure MCP for Cursor and Claude, and run push/pull from your workspace.',
   },
 ];
 

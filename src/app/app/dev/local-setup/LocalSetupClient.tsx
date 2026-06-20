@@ -53,7 +53,7 @@ export default function LocalSetupClient({ mcpOnThisHost, fallbackMcpUrl }: Loca
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">Sign in to see team-specific links and the CLI authorization page.</p>
           <Button asChild variant="default">
-            <Link href={`${handoffApiUrl('/login')}?callbackUrl=${encodeURIComponent(`${handoffBasePath()}/dev/local-setup`)}`}>Sign in</Link>
+            <Link href={`${handoffApiUrl('/login')}?callbackUrl=${encodeURIComponent(`${handoffBasePath()}/developer/local-setup`)}`}>Sign in</Link>
           </Button>
         </div>
         <McpSetupSection handoffUrl={mcpHandoffUrl} mcpOnThisHost={mcpOnThisHost} />

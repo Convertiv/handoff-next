@@ -75,7 +75,7 @@ export function Header() {
   const { data: session } = useSession();
   const [isScrolled, setIsScrolled] = useState(false);
   const showDevelopLocally = authEnabled && Boolean(session?.user);
-  const developLocallyActive = pathname.includes('dev/local-setup');
+  const developLocallyActive = pathname.includes('developer/local-setup');
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 10);
@@ -111,7 +111,7 @@ export function Header() {
                 asChild
                 className={cn(developLocallyActive && 'bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground')}
               >
-                <Link href={handoffApiUrl('/dev/local-setup')} aria-label="Develop locally" title="Develop locally">
+                <Link href={handoffApiUrl('/developer/local-setup')} aria-label="Develop locally" title="Develop locally">
                   <CliIcon className="h-[1.1rem] w-[1.1rem]" />
                   <span className="sr-only">Develop locally</span>
                 </Link>

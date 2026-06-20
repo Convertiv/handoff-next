@@ -101,10 +101,10 @@ export function MobileNav() {
           })}
           {showDevelopLocally ? (
             <Link
-              href={handoffApiUrl('/dev/local-setup')}
+              href={handoffApiUrl('/developer/local-setup')}
               className={cn(
                 'rounded-md px-4 py-2 text-sm',
-                trimSlashes(pathname).includes('dev/local-setup')
+                trimSlashes(pathname).includes('developer/local-setup')
                   ? 'bg-accent font-normal text-accent-foreground'
                   : 'text-foreground hover:bg-accent/50 hover:text-accent-foreground'
               )}

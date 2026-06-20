@@ -210,7 +210,7 @@ export default function McpPage() {
             Authentication uses the same Bearer token as push — obtained via <code className="rounded bg-gray-100 px-1 font-mono text-xs dark:bg-gray-800">handoff-app login</code>.
           </p>
           <Link
-            href="/dev/local-setup"
+            href="/developer/local-setup"
             className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' self-start font-normal'}
           >
             Local setup guide <ExternalLink className="h-3.5 w-3.5" />

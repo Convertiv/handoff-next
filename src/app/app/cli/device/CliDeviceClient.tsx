@@ -97,7 +97,7 @@ export default function CliDeviceClient() {
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {message ? <p className="text-sm text-green-700 dark:text-green-400">{message}</p> : null}
       <Button type="button" variant="ghost" size="sm" className="self-start px-0" asChild>
-        <Link href={handoffApiUrl('/dev/local-setup')}>Develop locally help</Link>
+        <Link href={handoffApiUrl('/developer/local-setup')}>Develop locally help</Link>
       </Button>
     </div>
   );

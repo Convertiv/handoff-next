@@ -18,7 +18,7 @@ export default function CloudFeatureGate({ feature, children, enabled }: Props) 
         and sync.
       </p>
       <p className="mt-4">
-        <Link href="/dev/local-setup" className="text-primary underline underline-offset-4">
+        <Link href="/developer/local-setup" className="text-primary underline underline-offset-4">
           Set up HANDOFF_CLOUD_URL
         </Link>
       </p>
