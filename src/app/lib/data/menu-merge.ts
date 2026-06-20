@@ -241,6 +241,7 @@ export function mergeDbNavIntoSkeleton(
     path: normalizeNavPath(child.slug),
     image: '',
     menu: [],
+    ...(child.icon ? { icon: child.icon } : {}),
   });
 
   const subSectionsForNode = (node: DbNavNode): SectionLink['subSections'] => {

@@ -2,6 +2,7 @@
 
 import {
   ChevronRight,
+  Focus,
   Grid,
   Hexagon,
   Image,
@@ -12,9 +13,11 @@ import {
   Ruler,
   Shapes,
   Sparkles,
+  Square,
   SquareChartGantt,
   Sun,
   TypeOutline,
+  Zap,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../components/ui/collapsible';
 
@@ -124,6 +127,12 @@ const MenuIcon = ({ icon, isActive = false }) => {
       return <Image className={iconClass} strokeWidth={1.5} />;
     case 'shapes':
       return <Shapes className={iconClass} strokeWidth={1.5} />;
+    case 'square':
+      return <Square className={iconClass} strokeWidth={1.5} />;
+    case 'zap':
+      return <Zap className={iconClass} strokeWidth={1.5} />;
+    case 'focus':
+      return <Focus className={iconClass} strokeWidth={1.5} />;
     default:
       return null;
   }
@@ -208,6 +217,7 @@ const SideNav = ({ menu, topNav }: SideNavProps) => {
             const subSections = (section.subSections ?? []) as Array<
               SectionLink['subSections'][number] & { menu?: unknown[] }
             >;
+            if (subSections.length === 0) return null;
 
             return (
               <React.Fragment key={section.path ?? section.title}>

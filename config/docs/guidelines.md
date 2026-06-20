@@ -6,6 +6,6 @@ image: hero-components
 menuTitle: 'Guidelines'
 metaTitle: 'Guidelines | Handoff Design System'
 metaDescription: 'How to build out a robust project built on the designs, tokens, and components documented here.'
-enabled: true
+enabled: false
 menu:
 ---
