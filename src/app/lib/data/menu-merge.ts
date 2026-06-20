@@ -350,3 +350,47 @@ export function collectRenderedPaths(menu: SectionLink[]): unknown[] {
   walk(menu);
   return paths;
 }
+
+/**
+ * Prepend the four built-in registry utility links (Overview, Health,
+ * Changelog, Tokens) into the /system section of the given menu.
+ *
+ * These links are always present — both in registry (DynamicDataProvider)
+ * and workspace (StaticDataProvider) — so the Design System section header
+ * and these top-level links are never missing regardless of whether any
+ * components or custom docs are exported.
+ *
+ * Deduplication is done by exact path so running this twice is safe.
+ */
+export function injectSystemUtilityLinks(menu: SectionLink[], basePath: string): SectionLink[] {
+  const utilLinks = [
+    { title: 'Overview',   path: `${basePath}/system` },
+    { title: 'Health',     path: `${basePath}/system/health` },
+    { title: 'Changelog',  path: `${basePath}/system/changelog` },
+    { title: 'Tokens',     path: `${basePath}/system/tokens/foundations` },
+  ];
+
+  return menu.map((section) => {
+    const isSystem =
+      section.path === '/system' ||
+      section.path === `${basePath}/system` ||
+      section.path?.endsWith('/system');
+    if (!isSystem) return section;
+
+    const subSections = section.subSections ?? [];
+
+    // Only check direct subSection paths — nested group items are NOT deduplicated
+    // here so a pushed "Design System" group with an Overview child can coexist.
+    const existingDirectPaths = new Set<string>(
+      subSections.map((s) => s.path).filter(Boolean) as string[]
+    );
+
+    const toAdd = utilLinks
+      .filter((l) => !existingDirectPaths.has(l.path))
+      .map((l) => ({ ...l, image: '' }));
+
+    if (toAdd.length === 0) return section;
+
+    return { ...section, subSections: [...toAdd, ...subSections] };
+  });
+}

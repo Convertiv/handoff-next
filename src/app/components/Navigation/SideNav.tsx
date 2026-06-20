@@ -221,24 +221,8 @@ const SideNav = ({ menu, topNav }: SideNavProps) => {
               SectionLink['subSections'][number] & { menu?: unknown[] }
             >;
 
-            // When a section has no sub-items but does have a valid path (e.g.
-            // Design System on a workspace with no exported components), render
-            // it as a direct link instead of hiding it entirely.
-            if (subSections.length === 0) {
-              if (!section.path) return null;
-              return (
-                <React.Fragment key={section.path ?? section.title}>
-                  <SidebarGroup>
-                    <SidebarGroupContent>
-                      <SidebarMenu>
-                        <NormalMenuItem title={section.title} icon={undefined} path={section.path} />
-                      </SidebarMenu>
-                    </SidebarGroupContent>
-                  </SidebarGroup>
-                  {idx < topNav.length - 1 && <SidebarSeparator className="mx-4" />}
-                </React.Fragment>
-              );
-            }
+            // Skip sections that have no path and no sub-items (nothing to render).
+            if (subSections.length === 0 && !section.path) return null;
 
             return (
               <React.Fragment key={section.path ?? section.title}>
@@ -246,16 +230,18 @@ const SideNav = ({ menu, topNav }: SideNavProps) => {
                   <SidebarGroupLabel className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                     {section.title}
                   </SidebarGroupLabel>
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {subSections.map((sub, subIdx) => (
-                        <MenuItem
-                          key={`${idx}-${subIdx}`}
-                          item={sub as Parameters<typeof MenuItem>[0]['item']}
-                        />
-                      ))}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
+                  {subSections.length > 0 && (
+                    <SidebarGroupContent>
+                      <SidebarMenu>
+                        {subSections.map((sub, subIdx) => (
+                          <MenuItem
+                            key={`${idx}-${subIdx}`}
+                            item={sub as Parameters<typeof MenuItem>[0]['item']}
+                          />
+                        ))}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  )}
                 </SidebarGroup>
                 {idx < topNav.length - 1 && <SidebarSeparator className="mx-4" />}
               </React.Fragment>

@@ -14,7 +14,7 @@ import { handoffComponents, handoffPatterns } from '../db/schema';
 import { getDbComponents, getDbPatterns, getDbTokensSnapshot } from '../db/queries';
 import type { DataProvider, DocPageContent, DtcgManifest, DtcgTokenStrings, DtcgTokenType } from './types';
 import { StaticDataProvider } from './static-provider';
-import { mergeDbNavIntoSkeleton, shapeComponentCatalogSubSections } from './menu-merge';
+import { injectSystemUtilityLinks, mergeDbNavIntoSkeleton, shapeComponentCatalogSubSections } from './menu-merge';
 
 type HandoffComponentRow = InferSelectModel<typeof handoffComponents>;
 type HandoffPatternRow = InferSelectModel<typeof handoffPatterns>;
@@ -673,49 +673,6 @@ export class DynamicDataProvider implements DataProvider {
   }
 }
 
-/**
- * Inject the registry's built-in utility pages (Health, Changelog) into the
- * System section's subSections. These are registry features — they should
- * always be reachable regardless of what a workspace's system.md menu defines.
- *
- * Strategy: find the System section's first subSection that already has a menu
- * (i.e. the "Design System" group with Overview/Figma Sync), and append the
- * utility links there if they're not already present. This keeps them grouped
- * with the top-level system navigation rather than the component catalog.
- */
-function injectSystemUtilityLinks(menu: SectionLink[], basePath: string): SectionLink[] {
-  // These four are always present at the top of the System section as direct links.
-  // Any already present (by path) are skipped to avoid duplicates from workspace pushes.
-  const utilLinks = [
-    { title: 'Overview',   path: `${basePath}/system` },
-    { title: 'Health',     path: `${basePath}/system/health` },
-    { title: 'Changelog',  path: `${basePath}/system/changelog` },
-    { title: 'Tokens',     path: `${basePath}/system/tokens/foundations` },
-  ];
-
-  return menu.map((section) => {
-    const isSystem = section.path === '/system' || section.path === `${basePath}/system` || section.path?.endsWith('/system');
-    if (!isSystem) return section;
-
-    const subSections = section.subSections ?? [];
-
-    // Only check direct subSection paths — NOT nested menu paths.
-    // If Overview is buried inside a "Design System" dropdown from the DB nav,
-    // it still needs to appear as a top-level link above that group.
-    const existingDirectPaths = new Set<string>(
-      subSections.map((s) => s.path).filter(Boolean) as string[]
-    );
-
-    const toAdd = utilLinks
-      .filter((l) => !existingDirectPaths.has(l.path))
-      .map((l) => ({ ...l, image: '' }));
-
-    if (toAdd.length === 0) return section;
-
-    // Prepend utility links so they appear above all component groups
-    return { ...section, subSections: [...toAdd, ...subSections] };
-  });
-}
 
 /**
  * Implementation moved to `./menu-merge.ts` so its pure shape is unit-tested

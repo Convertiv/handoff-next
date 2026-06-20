@@ -7,6 +7,7 @@ import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getTokens, stat
 import type { DataProvider, DocPageContent, DtcgManifest, DtcgTokenStrings, DtcgTokenType } from './types';
 import type { SectionLink } from '../../components/util';
 import { getComponentDistDir, getPublicApiDir } from '../server/public-api-paths';
+import { injectSystemUtilityLinks } from './menu-merge';
 
 export { getPublicApiDir } from '../server/public-api-paths';
 
@@ -150,7 +151,8 @@ export class StaticDataProvider implements DataProvider {
   }
 
   async getMenu(): Promise<SectionLink[]> {
-    return staticBuildMenu();
+    const basePath = (process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '').replace(/\/+$/, '');
+    return injectSystemUtilityLinks(staticBuildMenu(), basePath);
   }
 
   async getIconCatalog(): Promise<import('./types').IconCatalog> {
