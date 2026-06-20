@@ -30,15 +30,11 @@ export default function Layout<LayoutComponentProps>({ children, config, menu, m
     (s) => !TOOLS_PATHS.some((p) => (s.path ?? '').startsWith(p))
   );
 
-  // The asset manager lives at /assets. The legacy docs/assets.md may inject it
-  // with old sub-sections (logos/fonts/icons) — normalise to a clean entry.
-  // If it's absent entirely (DB-only deploy), inject it so it's always present.
-  const ASSETS_SECTION: SectionLink = { title: 'Assets', weight: 0, path: '/assets', subSections: [] };
-  const assetsIdx = rawKbSections.findIndex((s) => (s.path ?? '') === '/assets');
-  const kbSections =
-    assetsIdx >= 0
-      ? rawKbSections.map((s, i) => (i === assetsIdx ? ASSETS_SECTION : s))
-      : [...rawKbSections, ASSETS_SECTION];
+  // Strip any legacy /assets section injected by old docs/assets.md — the
+  // asset manager has moved to /foundations/assets and is now part of the
+  // Foundations nav skeleton. Keeping a separate /assets entry here would
+  // create a duplicate top-nav entry alongside the Foundations section.
+  const kbSections = rawKbSections.filter((s) => (s.path ?? '') !== '/assets');
 
   return (
     <div className={fullBleed ? 'flex h-screen flex-col overflow-hidden' : ''}>

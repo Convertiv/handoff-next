@@ -55,7 +55,7 @@ function AssetCard({ asset }: { asset: AssetListItem }) {
   const isSvg = asset.mimeType === 'image/svg+xml';
 
   return (
-    <Link href={`${BASE}/assets/${asset.id}`} className="group block">
+    <Link href={`${BASE}/foundations/assets/${asset.id}`} className="group block">
       <div className="overflow-hidden rounded-lg border border-border bg-card transition-all duration-150 hover:border-border/80 hover:shadow-sm">
         <div
           className="relative flex h-40 items-center justify-center overflow-hidden bg-[length:12px_12px]"

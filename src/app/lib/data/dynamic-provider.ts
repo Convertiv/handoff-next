@@ -494,6 +494,7 @@ export class DynamicDataProvider implements DataProvider {
             { title: 'Motion',        path: `${bp}/foundations/motion`,        image: '', icon: 'zap' },
             { title: 'Focus States',  path: `${bp}/foundations/focus`,         image: '', icon: 'focus' },
             { title: 'Elevation',     path: `${bp}/foundations/elevation`,     image: '', icon: 'layers' },
+            { title: 'Assets',        path: `${bp}/foundations/assets`,        image: '', icon: 'library' },
           ],
         },
         {

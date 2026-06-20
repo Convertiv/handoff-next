@@ -8,6 +8,7 @@ import {
   Image,
   Layers,
   LayoutPanelLeft,
+  Library,
   Palette,
   Pickaxe,
   Ruler,
@@ -133,6 +134,8 @@ const MenuIcon = ({ icon, isActive = false }) => {
       return <Zap className={iconClass} strokeWidth={1.5} />;
     case 'focus':
       return <Focus className={iconClass} strokeWidth={1.5} />;
+    case 'library':
+      return <Library className={iconClass} strokeWidth={1.5} />;
     default:
       return null;
   }

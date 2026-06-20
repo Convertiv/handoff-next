@@ -15,6 +15,7 @@ async function defaultHandoffProxy(request: NextRequest): Promise<NextResponse> 
     '/_next',
     '/favicon.ico',
     '/assets',
+    '/foundations/assets',
     '/api/component',
     '/api/components.json',
     '/api/pattern',

@@ -38,4 +38,7 @@ menu:
   - path: foundations/elevation
     title: Elevation
     icon: layers
+  - path: foundations/assets
+    title: Assets
+    icon: library
 ---

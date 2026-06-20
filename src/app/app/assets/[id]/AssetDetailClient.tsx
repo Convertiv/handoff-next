@@ -79,7 +79,7 @@ export default function AssetDetailClient({ id }: { id: string }) {
     setDeleting(true);
     const res = await fetch(`${BASE}/api/handoff/assets/${id}`, { method: 'DELETE' });
     if (res.ok) {
-      router.push(`${BASE}/assets`);
+      router.push(`${BASE}/foundations/assets`);
     } else {
       setDeleting(false);
       alert('Failed to delete asset.');
@@ -99,7 +99,7 @@ export default function AssetDetailClient({ id }: { id: string }) {
       <div className="py-24 text-center">
         <p className="text-sm text-muted-foreground">Asset not found.</p>
         <Link
-          href={`${BASE}/assets`}
+          href={`${BASE}/foundations/assets`}
           className="mt-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -117,7 +117,7 @@ export default function AssetDetailClient({ id }: { id: string }) {
     <div className="flex flex-col gap-6 pb-12">
       <div>
         <Link
-          href={`${BASE}/assets`}
+          href={`${BASE}/foundations/assets`}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
