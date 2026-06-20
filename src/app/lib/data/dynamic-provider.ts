@@ -575,6 +575,7 @@ export class DynamicDataProvider implements DataProvider {
 
   async getIconCatalog(): Promise<import('./types').IconCatalog> {
     try {
+      const { getDb } = await import('../db');
       const db = getDb();
       const { handoffRegistryIcons } = await import('../db/schema');
       const { eq } = await import('drizzle-orm');
@@ -587,6 +588,7 @@ export class DynamicDataProvider implements DataProvider {
 
   async getLogoSet(): Promise<import('./types').LogoSet | null> {
     try {
+      const { getDb } = await import('../db');
       const db = getDb();
       const { handoffRegistryLogos } = await import('../db/schema');
       const { eq } = await import('drizzle-orm');
