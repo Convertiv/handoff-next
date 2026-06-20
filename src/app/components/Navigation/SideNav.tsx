@@ -220,7 +220,25 @@ const SideNav = ({ menu, topNav }: SideNavProps) => {
             const subSections = (section.subSections ?? []) as Array<
               SectionLink['subSections'][number] & { menu?: unknown[] }
             >;
-            if (subSections.length === 0) return null;
+
+            // When a section has no sub-items but does have a valid path (e.g.
+            // Design System on a workspace with no exported components), render
+            // it as a direct link instead of hiding it entirely.
+            if (subSections.length === 0) {
+              if (!section.path) return null;
+              return (
+                <React.Fragment key={section.path ?? section.title}>
+                  <SidebarGroup>
+                    <SidebarGroupContent>
+                      <SidebarMenu>
+                        <NormalMenuItem title={section.title} icon={undefined} path={section.path} />
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                  {idx < topNav.length - 1 && <SidebarSeparator className="mx-4" />}
+                </React.Fragment>
+              );
+            }
 
             return (
               <React.Fragment key={section.path ?? section.title}>

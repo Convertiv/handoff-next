@@ -213,11 +213,14 @@ function collectDtcgByType(
 ): { filteredDtcg: Record<string, unknown>; cssNames: Set<string> } {
   const filteredDtcg: Record<string, unknown> = {};
   const cssNames = new Set<string>();
+  // CSS brand parsers emit $type:'dimension' for rem/px values; the spacing page
+  // queries for 'spacing'. Treat both as equivalent so registry tokens are visible.
+  const acceptedTypes = type === 'spacing' ? [type, 'dimension'] : [type];
   for (const [key, value] of Object.entries(obj)) {
     if (typeof value !== 'object' || value === null) continue;
     const item = value as Record<string, unknown>;
     if ('$value' in item) {
-      if (item['$type'] === type) {
+      if (acceptedTypes.includes(item['$type'] as string)) {
         filteredDtcg[key] = item;
         cssNames.add(`${cssPrefix}${key}`);
       }
