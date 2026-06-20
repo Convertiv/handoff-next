@@ -4,7 +4,6 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import IconCatalogGrid from '../../../components/Foundations/IconCatalogGrid';
-import Footer from '../../../components/Footer';
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import HeadersType from '../../../components/Typography/Headers';
@@ -48,7 +47,6 @@ export default async function IconsPage() {
         </div>
       )}
       <IconCatalogGrid catalog={iconCatalog} />
-      <Footer config={config} />
     </Layout>
   );
 }

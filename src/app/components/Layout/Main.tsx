@@ -2,6 +2,7 @@ import { ClientConfig } from '@handoff/types/config';
 import { ComponentDocumentationOptions } from '@handoff/types/preview';
 import Head from 'next/head';
 import { Header } from '../../components/Layout/Header';
+import Footer from '../Footer';
 import { ThemeProvider } from '../../components/util/theme-provider';
 import SideNav from '../Navigation/SideNav';
 import { ConfigContextProvider } from '../context/ConfigContext';
@@ -80,6 +81,7 @@ export default function Layout<LayoutComponentProps>({ children, config, menu, m
               )}
             </div>
           )}
+          {!fullBleed && <Footer config={config} />}
         </ThemeProvider>
       </ConfigContextProvider>
     </div>
