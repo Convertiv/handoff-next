@@ -1,209 +1,194 @@
 # Remediation Plan — Workspace ⇄ Registry Parity & Token Source of Truth
 
-**Status:** Proposed (awaiting approval before code changes)
-**Date:** 2026-06-20
+**Last updated:** 2026-06-20
 **Branch:** feature/mcp-prototype
 
 ---
 
 ## 0. Diagnosis (confirmed, not theorized)
 
-The reported problems reduce to **one disease**: Handoff maintains redundant parallel data
-paths, and nothing enforces that both halves stay in sync. A fix applied to one path silently
-leaves the other broken. Two concrete manifestations:
+The reported problems reduce to **one disease**: Handoff maintains redundant parallel data paths, and nothing enforces that both halves stay in sync. A fix applied to one path silently leaves the other broken. Two concrete manifestations:
 
-### Face 1 — two token data sources (causes blank foundations AND the changed colors/typography UI)
+### Face 1 — two token data sources
+`handoff_tokens_snapshots` (append-only Figma `localStyles`) and `handoff_registry_dtcg` (singleton DTCG). The `dtcg/route.ts` was previously calling `insertTokensSnapshot(body.dtcg)`, appending a DTCG-shaped row to the same table the visual displays read. `getDbTokensSnapshot()` returned the latest row regardless of shape, so DTCG always won → no `localStyles` → blank colors/typography.
 
-| Store | Shape | Written by | Read by |
-|---|---|---|---|
-| `handoff_tokens_snapshots` (append-only) | Figma `localStyles` (`color`/`typography`/`effect`) **or** DTCG object | `POST /api/registry/tokens` **and** `POST /api/registry/dtcg` | `getTokens()` runtime visual reads **and** token-diff history |
-| `handoff_registry_dtcg` (singleton) | `css`/`scss`/`tailwind`/`dtcg` | `POST /api/registry/dtcg` | token cards + 6 newer foundation pages |
-
-**Root cause:** `dtcg/route.ts:74` calls `insertTokensSnapshot(body.dtcg, 'push')`, appending a
-**DTCG-shaped** row to the same table the visual displays read. `getDbTokensSnapshot()`
-(`queries.ts:237-245`) reads the **latest** row regardless of shape. Since `push:all` runs the
-DTCG step *after* the tokens step, the DTCG row is always latest → `getTokens()` returns an object
-with **no `localStyles`** → effects/typography/colors visual displays map over `undefined` → blank.
-The 6 newer pages (grid, spacing, border-radius, motion, focus, elevation) work everywhere because
-they read **only** DTCG.
-
-**Live confirmation (2026-06-20):** `hagyard.../api/registry/dtcg` fully populated;
-`hagyard.../api/registry/tokens` has **no `localStyles`**, holding DTCG-shaped data.
-
-### Face 2 — two navigation builders (causes the nav bugs)
-
-- **Static** (`staticBuildMenu`, `util/index.ts:243`) passes `icon` and filesystem catalogs through.
-- **Dynamic** (`DynamicDataProvider.getMenu`, `dynamic-provider.ts:458`) rebuilds the menu and drops
-  `icon` (`menu-merge.ts childToSubSection:239-244`; skeleton `dynamic-provider.ts:486-494`) → no
-  sidebar icons on the registry; and builds the System body via order-dependent injection that a
-  DB-pushed `/system` node can overwrite with `[]` → System header shows, body empty on registry.
-- `MenuIcon` switch (`SideNav.tsx:96-129`) lacks `square`/`zap`/`focus` cases → 3 foundation icons
-  blank even locally.
-- `guidelines.md` produces a top-level section with empty `subSections`, and the Knowledge branch of
-  `SideNav` (207-232) has no skip-empty guard → spurious empty "Guidelines" header.
-
-### On the colors/typography "degradation" — corrected
-
-Earlier claim ("nothing was degraded") was too narrow: the **component files** `ColorGrid.tsx` /
-`TypographyExample.tsx` are unchanged, but the **pages changed which components lead the display**.
-- Colors (`foundations/colors/page.tsx`) now renders `BrandColorSwatches` (a new brand-swatch model)
-  **above** the `ColorGrid` groups. On the registry, `ColorGrid` renders nothing (Face 1 empty
-  `localStyles`), so only the new model shows — reading as a wholesale UI swap.
-- Typography (`foundations/typography/page.tsx`) keeps the specimen + `TypographyExamples`, but the
-  **desired target is cynosure V1**, which displays typography differently/better than even this
-  repo's pre-rewrite version.
-Net: there is a genuine display regression layered on the data bug. It gets its own phase (Phase 5).
+### Face 2 — two navigation builders
+`staticBuildMenu` (filesystem) and `DynamicDataProvider.getMenu` (DB + skeleton) were diverging on icons, utility links, empty-section handling, and component catalog injection.
 
 ---
 
-## Strategic decision — DTCG as the single canonical token source of truth
+## Phase 1 — Restore the token data feed ✅ DONE
 
-Per the goals (one well-supported format powering UI + REST + MCP; normalize imports from Figma,
-Penpot, Token Studio, etc.), **DTCG (W3C Design Tokens) is the canonical store.** Token Studio exports
-it, Style Dictionary v4 (already in-pipeline) consumes/emits it, Figma Variables map to it.
+1. ✅ `getDbTokensSnapshot()` now filters for the `localStyles` shape specifically (jsonb presence check), so a DTCG row never masks the Figma snapshot.
+2. ✅ `dtcg/route.ts` decoupled — no longer writes to `handoff_tokens_snapshots`. That table is now Figma-only.
+3. Foundation pages now read from `fetchDtcgTokenStrings()` directly (spacing, grid, effects, border-radius, motion, focus, elevation, typography, colors).
 
-Target architecture:
-```
-Figma / Token Studio / Penpot / manual  →  normalize-to-DTCG (edge importers)
-                                         →  handoff_registry_dtcg  (single source of truth)
-                                         →  UI + REST + MCP (all read DTCG)
-```
-The Figma `localStyles` snapshot demotes to a transient import format, not a runtime source.
-**Crux task:** DTCG must carry the presentation metadata the polished UI needs (color group names,
-contrast, font family/weight specimen data, usage). A gap analysis + enrichment of the DTCG
-export/normalization is the central engineering effort (Phase 4). Phase 1 is a bridge to that.
+**Outstanding from Phase 1:**
+- ⬜ **Push failure verbosity** — `pushRegistryTokens` warns+returns when `public/api/tokens.json` is missing; `push:all`'s `tryStep` swallows it. Make a missing tokens push a hard, visible failure.
+- ⬜ **Doc path drift** — `push-all.ts`, `developer/cli/page.tsx`, `developer/push-pull/page.tsx` still say `tokens/tokens.json`; code reads `public/api/tokens.json`.
 
 ---
 
-## Phase 1 — Restore the token data feed (bridge fix; unblocks blank pages now)
+## Phase 2 — Navigation parity ✅ DONE
 
-Lowest-risk, no schema migration, no UI changes.
+1. ✅ Icon passthrough in `menu-merge.ts childToSubSection` — icon spread in place.
+2. ✅ Foundations skeleton in `dynamic-provider.ts` includes all icons (palette, type, rulers, grid, sparkles, shapes, image, square, zap, focus).
+3. ✅ `MenuIcon` switch has `square`, `zap`, `focus` cases.
+4. ✅ Skip-empty guard on the Knowledge branch of SideNav — sections with no path and no subSections are skipped.
+5. ✅ `injectSystemUtilityLinks` moved to `menu-merge.ts` and called from both `DynamicDataProvider` and `StaticDataProvider` — Overview/Health/Changelog/Tokens always appear in Design System sidebar.
 
-1. **Shape-correct the runtime read.** `getDbTokensSnapshot()` (`queries.ts:237-245`) returns the
-   latest row whose payload contains `localStyles` (fetch latest N and pick, or jsonb `? 'localStyles'`).
-   Verify `DynamicDataProvider.getTokens()` (`dynamic-provider.ts:354-366`) resolves identically.
-2. **Stop DTCG from corrupting the snapshot table.** Decouple the `insertTokensSnapshot(body.dtcg)`
-   call in `dtcg/route.ts:74` (see Open Question 1 for history ownership).
-3. **Make the Figma-tokens push loud.** `pushRegistryTokens` (`push-registry-content.ts:324-339`)
-   currently warns+returns when `public/api/tokens.json` is missing, and `push:all`'s `tryStep`
-   swallows it. Make a missing/failed tokens push a hard, visible failure.
-4. **Fix doc path drift.** `push-all.ts:41`, `developer/cli/page.tsx:57`,
-   `developer/push-pull/page.tsx:60` say `tokens/tokens.json`; code reads `public/api/tokens.json`.
-
-**Verify:** local effects/typography/colors still render visuals + token cards; after re-`push:all`,
-`GET hagyard.../api/registry/tokens` has non-empty `localStyles`; registry pages render visuals; diff
-localhost:3002 vs hagyard.
-
-> **Per-workspace data caveat (resolvet, confirmed 2026-06-20):** resolvet's
-> `public/api/tokens.json` has `localStyles` counts color=0, typography=26, effect=5. So Phase 1 fully
-> restores **typography and effects** on the registry, but **colors `ColorGrid` stays empty** — resolvet
-> has no Figma color styles; its colors live only in the DTCG brand pipeline (`tokens:build`). The rich
-> color grid + "Color Info" drawer can only be restored for resolvet by feeding `ColorGrid` from DTCG
-> (Phase 4/5). For workspaces that DO author Figma color styles, Phase 1 restores colors too.
+**Minor open item:**
+- ⬜ `config/docs/guidelines.md` is a bundled default. Per the IA decision, nav sections should be site-specific only. Either remove the bundled file (workspace authors provide their own `pages/guidelines.md`) or make it opt-in via config. Low urgency since the skip-empty guard prevents a spurious header.
 
 ---
 
-## Phase 2 — Navigation parity (fixes the nav bugs)
+## Phase 2.5 — Workspace component sidebar (path resolution) ⬜ OPEN
 
-1. **Icon passthrough** in `menu-merge.ts childToSubSection` (239-244) and the foundations skeleton
-   (`dynamic-provider.ts:486-494`).
-2. **Complete `MenuIcon`**: add `square`/`zap`/`focus` (`SideNav.tsx:96-129`); audit `foundations.md`
-   icon names vs the switch.
-3. **Robust System body**: re-run catalog injection after `mergeDbNavIntoSkeleton`, or guard
-   `coerceDefinitionToSubSections` so unresolved markers never collapse an injected catalog to `[]`.
-4. **No default "Guidelines" / no empty sections (per decision):** remove the bundled
-   `config/docs/guidelines.md` so sections are **site-specific only** — a section appears only if the
-   workspace authors a page (e.g. `pages/guidelines.md`). Add a skip-empty guard to the Knowledge
-   branch of `SideNav` (207-232) matching `renderSubSection`'s `if (!hasPath && !hasMenu) return null`,
-   so any empty section (now or future) never renders a lone header.
+`staticBuildComponentMenu()` reads from `getPublicApiDir()/components.json` = `process.cwd()/public/api/components.json`. When the workspace Next.js dev server or Vercel build runs from the materialized `.handoff/app` directory, this resolves correctly. When `process.cwd()` is the project root (e.g. Vercel without Root Directory configured), `components.json` isn't found → `fetchComponents()` returns `[]` → no component groups appear in the Design System sidebar (utility links from Phase 2 still show correctly).
 
-**Verify:** registry nav matches local — System populated, every foundation item has an icon, no empty
-headers.
+Fix options (pick one):
+1. **Fallback path** — when `getPublicApiDir()` returns a path that doesn't exist, retry with `HANDOFF_WORKING_PATH/.handoff/app/public/api` before returning empty. Near-term, low-risk.
+2. **Async DataProvider interface** — add `getComponentSummaries()` to the `DataProvider` interface so both providers use the same async path (static reads filesystem, dynamic reads DB), and the menu builder is fed from whichever is available. Right long-term architecture.
 
 ---
 
-## Phase 3 — IA consolidation (per decision)
+## Phase 3 — IA consolidation ✅ MOSTLY DONE
 
-1. **Drop the Tokens nav.** Remove the `/system/tokens/*` route group (the plain `<Table>` views at
-   `system/tokens/foundations/{colors,typography}/…`) and any nav entries pointing at it; the
-   foundation pages are the single home for token presentation.
-2. **Move Assets into Foundations.** The current assets view (`/assets`, confirmed at
-   `hagyard.../assets/`) moves to `/foundations/assets`. Relocate the route + components, add the item
-   to the foundations nav skeleton (both providers), and redirect old `/assets/*` → `/foundations/assets/*`.
-3. Reconcile the foundations nav skeleton so the consolidated IA is identical in both providers.
+1. ✅ `/assets` moved to `/foundations/assets`; `/assets/page.tsx` redirects to `/foundations/assets`.
+2. 🔶 `/system/tokens/*` route group still exists (`system/tokens/foundations/{colors,typography,...}`, `system/tokens/components`). These are the legacy plain-table token views. Per decision, they should be removed — the foundation pages are the single home for token presentation. **Still outstanding.**
 
-**Verify:** one coherent Foundations section (tokens + assets); no orphaned Tokens nav; old asset URLs
-redirect.
+**Outstanding:**
+- ⬜ Drop `/system/tokens/*` route group and all nav entries pointing to it.
+- ⬜ Confirm `staticBuildTokensMenu()` in `util/index.ts` no longer references `/system/tokens/foundations` in the nav (it currently does — this is the source of the Tokens link in the Design System sidebar pointing at the old table view rather than the foundation page).
 
 ---
 
-## Phase 4 — DTCG as canonical source of truth (the strategic core)
+## Phase 4 — DTCG as canonical source of truth ✅ MOSTLY DONE
 
-1. **Gap analysis:** enumerate presentation metadata the UI needs (color group/sort, contrast, font
-   family→weights, usage, brand) and check what the current DTCG export carries.
-2. **Enrich the DTCG export/normalization** (`scripts/tokens-to-dtcg.js` / `tokens-transform.js`) to
-   preserve that metadata; extend `handoff_registry_dtcg` payload as needed (+ migration + journal).
-3. **Normalization layer for imports:** define the normalize-to-DTCG entry point so Figma / Token
-   Studio / Penpot all converge on DTCG. (Figma fetch becomes one importer among several.)
-4. **Re-feed all foundation displays from DTCG**; retire the `localStyles` runtime dependency.
-   Phase 1's bridge can then be removed.
-5. Ensure REST (`/api/registry/dtcg` + per-type) and MCP (`handoff_get_tokens`) read the enriched DTCG.
+1. ✅ `getDbTokensSnapshot()` filters by `localStyles` shape; DTCG decoupled from snapshot table.
+2. ✅ All foundation pages read from `fetchDtcgTokenStrings()`.
+3. ✅ DTCG push (`POST /api/registry/dtcg`) is the canonical write path.
+4. ✅ `tokens:build` CSS brand parser (resolvet + hagyard → DTCG); brand metadata in manifest.
+5. 🔶 `getTokens()` still used by some non-foundation displays (design page, settings). These eventually need to read from DTCG or be retired. Not blocking for Phase 5.
 
-**Verify:** every foundation visual renders from DTCG alone in both providers; importing the same
-tokens from two sources yields identical normalized DTCG.
+**Outstanding:**
+- ⬜ **Normalization layer for importers** — Figma/Token Studio/Penpot all normalize into DTCG at the edge. Currently only a CSS brand parser exists; Figma `localStyles` import is still a separate code path.
+- ⬜ **Retire `localStyles` runtime dependency** — once Phase 5 wires all displays from DTCG, remove the `getDbTokensSnapshot()` call from `DynamicDataProvider.getTokens()`.
 
 ---
 
-## Phase 5 — Colors & Typography display reconciliation (the UI regression)
+## Phase 5 — Display reconciliation ⬜ OPEN
 
-**Key finding (2026-06-20):** the desired "… contextual menu → right-hand slide drawer" flow for BOTH
-colors and typography is **already fully implemented** in the current code and matches the cynosure V1
-screenshots — it just renders blank on the registry because of Face 1 (empty `localStyles`). So Phase 1
-alone resurrects both drawers. This phase is reconciliation + data-wiring, not a rebuild.
+The original scope was Colors + Typography. Code audit reveals Icons and Logos have the same problem: new UI was invented instead of extending existing patterns. All four need to be addressed together.
 
-- Colors: `ColorGrid.tsx` → `ColorDropdown` ("…" menu: Name/HEX/RGBA + "Color Info") → `ColorSheet`
-  drawer (`ColorInfo`, `ColorSpaces` incl. OKLCH, `ColorContrast` WCAG slider, `ColorTailwind`). Intact.
-- Typography: `TypographyExample.tsx` → per-row hover toolbar ("Text Info") → `TypographySheet` drawer
-  (specimen, Style Details, Figma breadcrumb). Intact.
+### 5a — Colors
 
-Tasks (depends on Phase 4's enriched DTCG so the restored UI is fed from the canonical source):
-1. **Colors lead-display decision + DTCG feed:** the page currently stacks `BrandColorSwatches` (new,
-   DTCG-fed) **above** the `ColorGrid` groups. Decide the canonical layout — recommend `ColorGrid`
-   (with its drawer) as the primary experience, folding brand-awareness into it rather than two
-   competing models. **Required for resolvet:** `ColorGrid` must be fed from DTCG colors
-   (brands/semantic), because resolvet has no Figma `localStyles.color` (Phase 1 caveat). Map the DTCG
-   color tokens into the `ColorGrid` / drawer shape so the rich grid + "Color Info" works regardless of
-   whether colors originate in Figma styles or the brand CSS pipeline.
-2. **Wire drawer placeholders to real data** (currently hardcoded):
-   - `ColorGrid.tsx:127` copies a hardcoded `'rgba(0, 49, 82, 1)'` instead of the actual color → fix.
-   - `ColorSheet`/`TypographySheet` show a placeholder description and a hardcoded Figma breadcrumb
-     (`Primitives / Text / Heading`) → wire to real Figma variable description + path. **This requires
-     Phase 4 to carry description/figma-path metadata in DTCG.**
-3. **Typography:** confirm the specimen + scale matches the cynosure V1 target; revive the richer
-   per-weight specimen only if wanted (dead block in `git show 53a951ca^:src/app/pages/foundations/typography.tsx`).
-4. Visual sign-off with you, both providers.
+- ⬜ **Fix hardcoded `rgba(0, 49, 82, 1)` in `ColorGrid.tsx:127`** — copies the hardcoded string instead of the actual swatch color.
+- ⬜ **Lead-display decision** — page currently stacks `BrandColorSwatches` above `ColorGrid` groups. Recommendation: `ColorGrid` (with its "…" menu → `ColorSheet` drawer) as the single lead; fold brand-awareness into `ColorGrid` rather than two competing models.
+- ⬜ **Wire `ColorGrid` from DTCG** — required for resolvet (no Figma `localStyles.color`; colors live only in the brand CSS pipeline). Map DTCG color tokens into the `ColorGrid`/drawer shape.
+- ⬜ **Wire `ColorSheet` placeholders** — description and Figma breadcrumb currently hardcoded; needs DTCG metadata enrichment (Phase 4 enrichment task).
 
-**Verify:** colors + typography match the approved target — contextual menu + drawer working — on
-localhost:3002 and the registry.
+### 5b — Typography
 
----
+- ⬜ **Wire `TypographySheet` placeholders** — description + Figma breadcrumb hardcoded (`Primitives / Text / Heading`); needs DTCG metadata.
+- ⬜ **Specimen sign-off** — confirm the scale + specimen matches the cynosure V1 target; optionally revive the per-weight specimen block (dead in git at `53a951ca^`).
 
-## Phase 6 — Guardrails (prevent recurrence)
+### 5c — Icons (same problem as Colors/Typography)
 
-1. **Registry parity smoke test** (extend task #54): seed a test Postgres, render every foundation page
-   + System nav in **registry mode**, assert non-empty visuals + token cards + nav icons + System body.
-2. **Reframe AGENTS.md** around single-source-of-truth: document DTCG as canonical, table ownership
-   (no cross-writing), the dual-path failure mode as a first-class hazard, and a parity checklist
-   (both providers ✓, push fails loudly ✓, renders on seeded registry test ✓).
+The icons page shows a grid of icons but uses custom UI that diverges from the established foundation page pattern. **Extend the existing foundation page structure** rather than maintain a parallel display model.
+
+- ⬜ Audit current icon page vs target pattern; document the delta.
+- ⬜ Reconcile icon grid display to match the foundation page component conventions (InlineEditHeader, AnchorNav, PrevNextNav, DownloadTokens, ProvenanceBadge pattern).
+
+### 5d — Logos (same problem)
+
+Same issue as icons — logo page uses new UI instead of extending existing patterns.
+
+- ⬜ Audit logos page vs target pattern.
+- ⬜ Reconcile to foundation page conventions.
+
+### 5e — Sign-off
+
+- ⬜ Visual sign-off with you, both providers (workspace + registry), all four display types.
 
 ---
 
-## Open questions to resolve during implementation
-1. **Token-change history ownership** after decoupling (Phase 1.2): once DTCG is canonical (Phase 4),
-   diff DTCG into a DTCG-scoped change record; during the Phase 1 bridge, Figma-token snapshot owns the
-   diff. Confirm interim behavior.
+## Phase 6 — Guardrails ⬜ OPEN
 
-## Resolved
-- **Assets/DAM scope** (Phase 3.2): move the existing `/assets` view → `/foundations/assets`. ✓
-- **Cynosure V1 target** (Phase 5): code already present in repo; restore via Phase 1 + reconcile +
-  wire placeholder data. Screenshots supplied confirm the target (… menu → right drawer). ✓
+1. ⬜ **Registry parity smoke test** (extend task #54): seed a test Postgres, render every foundation page + System nav in registry mode, assert non-empty visuals + token cards + nav icons + System body.
+2. ⬜ **Reframe AGENTS.md** — document DTCG as canonical source of truth; table ownership (no cross-writing); dual-path failure mode as a first-class hazard; parity checklist (both providers ✓, push fails loudly ✓, seeded-registry smoke test ✓).
+
+---
+
+## Bug Queue
+
+These are confirmed bugs to fix before or during the phases above.
+
+### B1 — Border-radius: 10 tokens, 1 display ⬜
+
+`parseRadiusTokens()` in `foundations/border-radius/page.tsx:19-32` does a flat `Object.entries(obj)` assuming DTCG is `{key: {$value}}`. The resolved DTCG from Style Dictionary wraps tokens under a `border-radius` group key: `{"border-radius": {"0": {$value}, "1": {$value}, ...}}`. The parser sees only the outer wrapper → extracts `$value = undefined` → one 0px token displayed.
+
+**Fix:** same approach as the spacing page — unwrap the top-level group key, then `flattenDtcgLeaves` recursively.
+
+### B2 — Focus page: server component error ⬜
+
+`foundations/focus/page.tsx` throws a server component error at runtime. `React.CSSProperties` is referenced as a return type on line 36 but `React` is not imported — likely the surface symptom. Needs a reproduction + stack trace to confirm root cause.
+
+### B3 — CLI button hidden on workspace/local ⬜
+
+`showDevelopLocally` in `Header.tsx:77` is gated on `authEnabled && Boolean(session?.user)`. In workspace mode, auth is disabled → `authEnabled = false` → button never shows. Per product intent, the CLI button should appear unconditionally (or at minimum in workspace mode) since local setup is the primary use case for workspace users. Fix: show the button when `!authEnabled` (workspace) OR when `authEnabled && session?.user` (authenticated registry user).
+
+### B4 — Figma asset fetch integration ⬜
+
+We built an asset-fetch system that pulls images from Figma and populates them into the asset DAM. Currently it's a separate flow from the existing Figma fetch controls (`handoff-app fetch` CLI / OAuth UI). These should be unified: the Figma asset fetch should be triggerable from the same fetch control surface (CLI command and the registry UI OAuth fetch panel) rather than a standalone mechanism. Design the integration point; implement the unified fetch command and UI hook.
+
+---
+
+## Feature Queue
+
+### F1 — Figma asset fetch integration (see B4 above)
+
+Surface the Figma-to-DAM asset fetch through the existing `handoff-app fetch` CLI command and the registry OAuth fetch UI. Assets fetched should land in the DAM and be versioned in the same changelog feed as other push events.
+
+### F2 — Registry logo customization ⬜
+
+As part of the theme upload flow, allow registry admins to upload a custom logo that replaces the default Handoff wordmark in the header. Needs:
+- A logo upload field in the registry settings / theme panel.
+- Storage in `handoff_registry_theme` (or a new `handoff_registry_logo` table if binary size is a concern).
+- The `Header.tsx` logo to read from the stored value (falling back to the default wordmark).
+- Push/pull support so the workspace can send a logo via `push:all` and the registry renders it.
+
+---
+
+## Open items from task backlog (to be scheduled)
+
+| # | Task | Phase / Area |
+|---|---|---|
+| T12 | Metadata diff/conflict handling on push | Sync |
+| T23 | Cynosure: diff V1 vs V2 API output JSON schema | Cynosure |
+| T24 | Cynosure: upgrade handoff-app to V2 | Cynosure |
+| T25 | Cynosure: verify WordPress compiler produces valid Gutenberg blocks | Cynosure |
+| T26 | Cynosure: create Tailwind+Handlebars stack guide and MCP config | Cynosure |
+| T61 | Chat flow: token lookup ("what token should I use for X?") | Chat |
+| T62 | Chat flow: component comparison ("compare X and Y") | Chat |
+| T63 | Chat session persistence (localStorage) | Chat |
+| T64 | Chat suggestion chips: dynamic chips based on page context | Chat |
+| T65 | Validation re-run trigger from ChatValidationPanel | Validation |
+| T77 | Component brand tagging — frontmatter + registry filter | Components |
+
+---
+
+## Strategic decisions (resolved)
+
+- **DTCG is the single canonical token source of truth.** Importers normalize into DTCG; UI + REST + MCP all read DTCG. Figma `localStyles` snapshot demotes to a transient import format.
+- **Nav sections are site-specific only.** No bundled default sections (e.g. guidelines.md); a section appears only if the workspace authors a page.
+- **IA:** Drop `/system/tokens` nav; Assets/DAM lives under `/foundations/assets`.
+- **Display pattern:** All foundation pages follow the same component conventions (InlineEditHeader → content → DownloadTokens → ProvenanceBadge → TokenOutputTabs). No parallel UI models.
+
+---
+
+## Open questions
+
+1. **Token-change history ownership** after DTCG becomes fully canonical: diff DTCG into a DTCG-scoped change record; during the Phase 1 bridge, Figma-token snapshot owns the diff.
+2. **`/system/tokens/*` removal** — confirm no external links or workspace-side references before dropping the route group.
+3. **Figma asset fetch** — confirm whether assets are fetched per-component or per-library; this affects the CLI command signature and the push/pull payload shape.
