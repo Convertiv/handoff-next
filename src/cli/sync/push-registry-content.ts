@@ -413,3 +413,48 @@ export async function pushRegistryDtcg(handoff: Handoff): Promise<void> {
   await postJson(url, bearer, { manifest, css, scss, tailwind, dtcg, brands });
   Logger.success('Registry DTCG tokens pushed.');
 }
+
+/**
+ * Push the icon catalog. Reads from `icons/catalog.json` in the workspace root
+ * (an array of IconCatalogEntry). Skips gracefully if the file doesn't exist.
+ */
+export async function pushRegistryIcons(handoff: Handoff): Promise<void> {
+  const catalogPath = path.join(handoff.workingPath, 'icons', 'catalog.json');
+  if (!(await fs.pathExists(catalogPath))) {
+    Logger.warn(`No icon catalog found at ${catalogPath}. Create icons/catalog.json to push icon data. Skipping.`);
+    return;
+  }
+  const catalog = await fs.readJson(catalogPath);
+  if (!Array.isArray(catalog)) {
+    Logger.warn('icons/catalog.json must be a JSON array. Skipping icon push.');
+    return;
+  }
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer = await getSyncBearerToken(handoff.workingPath);
+  Logger.info(`Pushing icon catalog (${catalog.length} icons)…`);
+  await postJson(`${baseUrl}/api/registry/icons`, bearer, { catalog });
+  Logger.success('Registry icon catalog pushed.');
+}
+
+/**
+ * Push the logo set. Reads from `logos/logo-set.json` in the workspace root
+ * (a LogoSet object). SVG content for custom logos is inlined in the JSON.
+ * Skips gracefully if the file doesn't exist.
+ */
+export async function pushRegistryLogos(handoff: Handoff): Promise<void> {
+  const logoSetPath = path.join(handoff.workingPath, 'logos', 'logo-set.json');
+  if (!(await fs.pathExists(logoSetPath))) {
+    Logger.warn(`No logo set found at ${logoSetPath}. Create logos/logo-set.json to push logo data. Skipping.`);
+    return;
+  }
+  const logoSet = await fs.readJson(logoSetPath);
+  if (typeof logoSet !== 'object' || Array.isArray(logoSet)) {
+    Logger.warn('logos/logo-set.json must be a JSON object. Skipping logo push.');
+    return;
+  }
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer = await getSyncBearerToken(handoff.workingPath);
+  Logger.info('Pushing logo set…');
+  await postJson(`${baseUrl}/api/registry/logos`, bearer, { logoSet });
+  Logger.success('Registry logo set pushed.');
+}

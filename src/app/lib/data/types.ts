@@ -37,6 +37,53 @@ export type DtcgToken = { $type: string; $value: string; $description?: string }
 export type DtcgTokenGroup = Record<string, DtcgToken | Record<string, DtcgToken>>;
 export type DtcgBrandTokens = Record<string, DtcgTokenGroup>; // keyed by brand name + 'shared'
 
+// ─── Icon catalog ─────────────────────────────────────────────────────────────
+
+export type IconSource =
+  | { type: 'library'; library: string; iconifyId: string }
+  | { type: 'custom'; svg: string }
+  | { type: 'fa-pro'; faId: string; svg: string };
+
+export type IconCatalogEntry = {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  tags?: string[];
+  usage?: string;
+  source: IconSource;
+  /** Optional DTCG semantic token alias pointing at this icon */
+  tokenAlias?: string;
+};
+
+export type IconCatalog = IconCatalogEntry[];
+
+// ─── Logo set ──────────────────────────────────────────────────────────────
+
+export type LogoVariant = {
+  id: string;
+  name: string;
+  description?: string;
+  /** 'light' | 'dark' | 'color' | 'mono' | 'reversed' */
+  variant: string;
+  /** 'primary' | 'alternate' | 'wordmark' | 'icon-only' */
+  form: string;
+  svg: string;
+  /** Background color hex or CSS value this variant is designed for */
+  background?: string;
+  /** Usage guidance for this specific variant */
+  usage?: string;
+};
+
+export type LogoSet = {
+  name: string;
+  description?: string;
+  clearspace?: string;
+  minWidth?: string;
+  doNot?: string[];
+  variants: LogoVariant[];
+};
+
 /** Unified data access for the Handoff app (filesystem and/or DB-backed sources at runtime). */
 export interface DataProvider {
   getComponents(): Promise<ComponentListObject[]>;
@@ -50,4 +97,6 @@ export interface DataProvider {
   getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent>;
   getConfig(): ClientConfig;
   getMenu(): Promise<SectionLink[]>;
+  getIconCatalog(): Promise<IconCatalog>;
+  getLogoSet(): Promise<LogoSet | null>;
 }

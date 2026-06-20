@@ -573,6 +573,31 @@ export class DynamicDataProvider implements DataProvider {
     return injectSystemUtilityLinks(builtMenu, basePath);
   }
 
+  async getIconCatalog(): Promise<import('./types').IconCatalog> {
+    try {
+      const db = getDb();
+      const { handoffRegistryIcons } = await import('../db/schema');
+      const { eq } = await import('drizzle-orm');
+      const [row] = await db.select().from(handoffRegistryIcons).where(eq(handoffRegistryIcons.id, 'default')).limit(1);
+      return (row?.catalog ?? []) as import('./types').IconCatalog;
+    } catch {
+      return [];
+    }
+  }
+
+  async getLogoSet(): Promise<import('./types').LogoSet | null> {
+    try {
+      const db = getDb();
+      const { handoffRegistryLogos } = await import('../db/schema');
+      const { eq } = await import('drizzle-orm');
+      const [row] = await db.select().from(handoffRegistryLogos).where(eq(handoffRegistryLogos.id, 'default')).limit(1);
+      if (!row?.logoSet || typeof row.logoSet !== 'object' || Array.isArray(row.logoSet)) return null;
+      return row.logoSet as import('./types').LogoSet;
+    } catch {
+      return null;
+    }
+  }
+
   /** Read the validationManifest stored in registry config (pushed by workspace on push:all). */
   async getValidationManifest(): Promise<import('../health-types').ValidationManifest | null> {
     try {

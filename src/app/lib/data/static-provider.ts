@@ -152,6 +152,28 @@ export class StaticDataProvider implements DataProvider {
   async getMenu(): Promise<SectionLink[]> {
     return staticBuildMenu();
   }
+
+  async getIconCatalog(): Promise<import('./types').IconCatalog> {
+    const workingPath = process.env.HANDOFF_WORKING_PATH;
+    if (!workingPath) return [];
+    const catalogPath = path.join(workingPath, 'icons', 'catalog.json');
+    if (!fs.existsSync(catalogPath)) return [];
+    try {
+      const data = JSON.parse(fs.readFileSync(catalogPath, 'utf-8'));
+      return Array.isArray(data) ? data : [];
+    } catch { return []; }
+  }
+
+  async getLogoSet(): Promise<import('./types').LogoSet | null> {
+    const workingPath = process.env.HANDOFF_WORKING_PATH;
+    if (!workingPath) return null;
+    const logoSetPath = path.join(workingPath, 'logos', 'logo-set.json');
+    if (!fs.existsSync(logoSetPath)) return null;
+    try {
+      const data = JSON.parse(fs.readFileSync(logoSetPath, 'utf-8'));
+      return (data && typeof data === 'object' && !Array.isArray(data)) ? data : null;
+    } catch { return null; }
+  }
 }
 
 /** Summary list compatible with `fetchComponents()` shape used for static paths. */

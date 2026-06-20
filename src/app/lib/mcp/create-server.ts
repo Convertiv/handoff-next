@@ -501,30 +501,91 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     }
   );
 
+  // ── Icon catalog tools (DataProvider-backed) ──────────────────────────────
+
+  server.registerTool(
+    'handoff_get_icon_catalog',
+    {
+      description:
+        'Return the full icon catalog as defined in the design system. Optionally filter by category. ' +
+        'Each entry includes id, name, description, category, tags, usage guidance, and source (SVG content or iconify/fa-pro reference).',
+      inputSchema: {
+        category: z.string().optional().describe('Filter to a specific category (case-insensitive exact match)'),
+      },
+    },
+    async ({ category }) => {
+      const provider = getDataProvider();
+      let catalog = await provider.getIconCatalog();
+      if (category?.trim()) {
+        const cat = category.trim().toLowerCase();
+        catalog = catalog.filter((e) => e.category.toLowerCase() === cat);
+      }
+      return textResult(catalog);
+    }
+  );
+
   server.registerTool(
     'handoff_search_icons',
     {
-      description: 'Search icons. Returns SVG content when available for direct use.',
+      description:
+        'Search the icon catalog by name, tag, or description substring. ' +
+        'Returns matching IconCatalogEntry objects including SVG content where available.',
       inputSchema: {
-        query: z.string().optional().describe('Search by icon name'),
-        set_id: z.string().optional().describe('Limit to a specific icon set'),
-        variant: z.string().optional().describe('Filter by icon variant (e.g. "outline", "filled")'),
+        query: z.string().describe('Substring to match against icon name, tags, or description'),
+        category: z.string().optional().describe('Narrow results to a specific category (case-insensitive)'),
         limit: z.number().int().min(1).max(500).optional().describe('Max results (default 100)'),
       },
     },
-    async ({ query, set_id, variant, limit }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
-      const icons = await listAssets({
-        assetType: 'icon',
-        search: query,
-        iconSetId: set_id,
-        limit: limit ?? 100,
-        status: 'active',
-      });
-      const filtered = variant
-        ? icons.filter((i) => i.iconVariant === variant)
-        : icons;
-      return textResult(filtered);
+    async ({ query, category, limit }) => {
+      const provider = getDataProvider();
+      let catalog = await provider.getIconCatalog();
+      const q = query.trim().toLowerCase();
+      catalog = catalog.filter(
+        (e) =>
+          e.name.toLowerCase().includes(q) ||
+          (e.description ?? '').toLowerCase().includes(q) ||
+          (e.tags ?? []).some((t) => t.toLowerCase().includes(q))
+      );
+      if (category?.trim()) {
+        const cat = category.trim().toLowerCase();
+        catalog = catalog.filter((e) => e.category.toLowerCase() === cat);
+      }
+      const cap = limit ?? 100;
+      return textResult(catalog.slice(0, cap));
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_logo_set',
+    {
+      description:
+        'Return all logo variants for the design system, including SVG content, usage guidance, and variant metadata ' +
+        '(light/dark/color/mono, primary/alternate/wordmark/icon-only). Optionally filter by variant or form.',
+      inputSchema: {
+        variant: z
+          .string()
+          .optional()
+          .describe('Filter by variant value (e.g. "light", "dark", "color", "mono", "reversed")'),
+        form: z
+          .string()
+          .optional()
+          .describe('Filter by form value (e.g. "primary", "alternate", "wordmark", "icon-only")'),
+      },
+    },
+    async ({ variant, form }) => {
+      const provider = getDataProvider();
+      const logoSet = await provider.getLogoSet();
+      if (!logoSet) return textResult({ error: 'No logo set available' });
+      let variants = logoSet.variants;
+      if (variant?.trim()) {
+        const v = variant.trim().toLowerCase();
+        variants = variants.filter((lv) => lv.variant.toLowerCase() === v);
+      }
+      if (form?.trim()) {
+        const f = form.trim().toLowerCase();
+        variants = variants.filter((lv) => lv.form.toLowerCase() === f);
+      }
+      return textResult({ ...logoSet, variants });
     }
   );
 

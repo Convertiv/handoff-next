@@ -623,3 +623,28 @@ export const handoffValidationRuns = pgTable('handoff_validation_run', {
   validatorBreakdown: jsonb('validator_breakdown').notNull().default([]),
   componentSnapshot: jsonb('component_snapshot').notNull().default([]),
 });
+
+/**
+ * Icon catalog — singleton row. Workspace pushes its full icon catalog (array
+ * of IconCatalogEntry) here so the registry can serve icon data without
+ * access to the workspace filesystem or Figma.
+ */
+export const handoffRegistryIcons = pgTable('handoff_registry_icons', {
+  id: text('id').primaryKey().default('default'),
+  /** Full icon catalog JSON — array of IconCatalogEntry */
+  catalog: jsonb('catalog').notNull().default([]),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});
+
+/**
+ * Logo set — singleton row. Workspace pushes its full LogoSet shape here so
+ * the registry can serve logo data without access to the workspace filesystem.
+ */
+export const handoffRegistryLogos = pgTable('handoff_registry_logos', {
+  id: text('id').primaryKey().default('default'),
+  /** Full logo set JSON — LogoSet shape */
+  logoSet: jsonb('logo_set').notNull().default({}),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});

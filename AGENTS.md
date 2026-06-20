@@ -96,6 +96,8 @@ Orchestrates a full workspace sync to the registry. Calls these endpoints in seq
 | `POST /api/registry/pages` | all markdown + frontmatter | `pages/**/*.md` |
 | `POST /api/registry/tokens` | raw Figma token snapshot | `public/api/tokens.json` |
 | `POST /api/registry/dtcg` | DTCG manifest + compiled dist (CSS/SCSS/Tailwind/JSON) | `design-system/manifest.json` + `design-system/dist/` |
+| `POST /api/registry/icons` | icon catalog (IconCatalogEntry[]) | `icons/catalog.json` |
+| `POST /api/registry/logos` | logo set (LogoSet) | `logos/logo-set.json` |
 
 ### push (component sync)
 Pushes individual components, patterns, and pages via `POST /api/sync/upload`.
@@ -161,6 +163,76 @@ framework page templates in `src/app/app/foundations/`. They render:
 
 ---
 
+## Three Access Surfaces
+
+Every piece of design system data in Handoff is structured to be consumed via three surfaces.
+When adding new data types (icons, tokens, components, etc.), implement all three.
+
+### 1. UI — Foundation & component pages
+
+Pages under `src/app/app/foundations/` and `src/app/app/[...slug]/` render data from
+the DataProvider into visual documentation. The rules:
+- Always read through `getDataProvider()` — never directly from the filesystem in page components
+- Use `InlineEditHeader` for user-editable title/description (persisted to `handoff_page`)
+- Use `TokenOutputTabs` for code output blocks
+- Pages must render a useful empty state when data hasn't been pushed yet
+
+### 2. REST API — Machine-readable endpoints
+
+Registry API routes live in `src/app/app/api/registry/`. Each data type has:
+
+| Data type | Push endpoint | Read endpoint |
+|---|---|---|
+| Config | `POST /api/registry/config` | served via DataProvider at runtime |
+| Theme | `POST /api/registry/theme` | `GET /api/registry/theme.css` |
+| Navigation | `POST /api/registry/navigation` | served via DataProvider |
+| Page content | `POST /api/registry/pages` | `GET /api/registry/pages?slug=...` |
+| Figma tokens | `POST /api/registry/tokens` | `GET /api/registry/tokens` |
+| DTCG tokens | `POST /api/registry/dtcg` | `GET /api/registry/dtcg` |
+| Icons | `POST /api/registry/icons` | `GET /api/registry/icons` |
+| Logos | `POST /api/registry/logos` | `GET /api/registry/logos` |
+| Components | via `POST /api/sync/upload` | `GET /api/handoff/components` |
+
+Public GET endpoints return JSON. Authenticated MCP/API consumers can read all surfaces.
+POST (push) endpoints require `Authorization: Bearer <sync-token>`.
+
+### 3. MCP — Agent-accessible tools
+
+MCP tools live in `src/app/lib/mcp/create-server.ts`. Each data type should have at minimum:
+- A **get** tool (returns the full dataset or a single item by id)
+- A **search** tool (filters by name/tag/category substring)
+
+| Data type | MCP tools |
+|---|---|
+| Project context | `handoff_get_project_context` |
+| Stack guide | `handoff_get_stack_guide` |
+| Components | `handoff_search_components`, `handoff_get_component` |
+| Tokens | `handoff_get_tokens` |
+| Icons | `handoff_get_icon_catalog`, `handoff_search_icons` |
+| Logos | `handoff_get_logo_set` |
+| Assets | `handoff_search_assets`, `handoff_get_asset` |
+| Design artifacts | `handoff_get_design_artifact`, `handoff_list_design_artifacts` |
+
+MCP tools must always call `getDataProvider()` — they run in the registry context where
+the database is available. Never read from the filesystem in MCP tool handlers.
+
+### Adding a new data type — checklist
+
+When you add a new foundation type (e.g. motion tokens, brand voices), follow this checklist:
+
+- [ ] Add TypeScript types to `src/app/lib/data/types.ts`
+- [ ] Add `get<Type>()` to the DataProvider interface
+- [ ] Implement in DynamicDataProvider (DB read) and StaticDataProvider (filesystem read)
+- [ ] Add `handoff_registry_<type>` singleton table to `schema-pg.ts` + migration
+- [ ] Create `POST /api/registry/<type>` and `GET /api/registry/<type>` API routes
+- [ ] Add `push<Type>()` to `push-registry-content.ts`
+- [ ] Add push step to `push:all` command + update AGENTS.md push table
+- [ ] Update the foundation UI page to read from DataProvider
+- [ ] Add MCP tool(s) to `create-server.ts`
+- [ ] Update AGENTS.md
+
+---
+
 ## Spacing — Phase 2 Addition
 
 Spacing tokens are **hand-authored** in the workspace, not extracted from Figma.
@@ -208,3 +280,4 @@ mode). When absent, it returns `StaticDataProvider` (workspace dev mode).
 |---|---|---|
 | SS&C | `ssc-handoff-next/handoff/` | ssc-handoff.vercel.app |
 | Cynosure | cynosure-hq (v1, pre-DTCG) | TBD |
+| Resolvet / Hagyard | `resolvet/handoff/` | hagyard-handoff.vercel.app |
