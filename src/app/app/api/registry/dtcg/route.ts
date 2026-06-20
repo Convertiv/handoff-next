@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifySyncAuth } from '@/lib/sync-auth';
-import { getRegistryDtcg, insertTokensSnapshot, upsertRegistryDtcg } from '@/lib/db/registry-queries';
+import { getRegistryDtcg, upsertRegistryDtcg } from '@/lib/db/registry-queries';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,7 +71,10 @@ export async function POST(request: Request): Promise<Response> {
         ? body.brands as Record<string, Record<string, unknown>>
         : {},
     });
-    await insertTokensSnapshot(body.dtcg, 'push');
+    // NOTE: the DTCG push intentionally does NOT write handoff_tokens_snapshots.
+    // That table holds the Figma `localStyles` snapshot the foundation visual
+    // displays read (written by POST /api/registry/tokens). Writing a DTCG-shaped
+    // row here previously masked the localStyles row and blanked the visuals.
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';

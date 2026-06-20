@@ -324,8 +324,13 @@ export async function pushRegistryPages(handoff: Handoff): Promise<void> {
 export async function pushRegistryTokens(handoff: Handoff): Promise<void> {
   const tokensPath = path.join(handoff.workingPath, 'public', 'api', 'tokens.json');
   if (!(await fs.pathExists(tokensPath))) {
-    Logger.warn(`No tokens snapshot found at ${tokensPath}. Run \`handoff-app fetch\` first. Skipping tokens push.`);
-    return;
+    // Fail loudly rather than skip: the Figma `localStyles` snapshot this pushes is
+    // what the registry's foundation visual displays (colors, typography, effects)
+    // read. Silently skipping leaves those pages blank on the registry. If a
+    // workspace intentionally has no Figma tokens, pass --skip-tokens.
+    throw new Error(
+      `No tokens snapshot found at ${tokensPath}. Run \`handoff-app fetch\` first, or pass --skip-tokens to omit this step intentionally.`
+    );
   }
 
   const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);

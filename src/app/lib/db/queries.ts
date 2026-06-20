@@ -234,14 +234,28 @@ export async function countQueuedOrBuildingJobs(): Promise<number> {
   return Number(row?.n ?? 0);
 }
 
+/**
+ * Returns the latest tokens snapshot that carries Figma `localStyles` — the shape
+ * the foundation visual displays read.
+ *
+ * The snapshot table is append-only and has historically received rows in two
+ * shapes: the Figma `localStyles` snapshot (from POST /api/registry/tokens) and
+ * DTCG-shaped objects (previously written by the dtcg push). Because `push:all`
+ * runs the dtcg step after the tokens step, a naive "latest row" read returned the
+ * DTCG row and the visual displays went blank. We scan recent rows and return the
+ * newest one that actually has `localStyles`, so a DTCG row can never mask it.
+ */
 export async function getDbTokensSnapshot(): Promise<unknown | null> {
   const db = getDb();
   const rows = await db
     .select()
     .from(handoffTokensSnapshots)
     .orderBy(desc(handoffTokensSnapshots.id))
-    .limit(1);
-  return rows[0]?.payload ?? null;
+    .limit(25);
+  const withLocalStyles = rows.find(
+    (r) => r.payload && typeof r.payload === 'object' && 'localStyles' in (r.payload as Record<string, unknown>)
+  );
+  return withLocalStyles?.payload ?? null;
 }
 
 export async function insertFigmaFetchJob(triggeredByUserId: string): Promise<number> {

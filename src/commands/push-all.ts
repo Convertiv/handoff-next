@@ -38,7 +38,7 @@ const command: CommandModule<{}, PushAllArgs> = {
     '| `POST /api/registry/config`   | project config JSON      | `config/config.json`     |\n' +
     '| `POST /api/registry/theme`    | compiled theme CSS       | `exported/theme.css`     |\n' +
     '| `POST /api/registry/navigation` | navigation tree JSON   | `config/navigation.json` |\n' +
-    '| `POST /api/registry/tokens`   | Figma token snapshot     | `tokens/tokens.json`     |\n' +
+    '| `POST /api/registry/tokens`   | Figma token snapshot     | `public/api/tokens.json` |\n' +
     '| `POST /api/registry/dtcg`     | DTCG dist output         | `design-system/dist/`    |\n' +
     '| `POST /api/registry/icons`    | icon catalog JSON        | `icons/catalog.json`     |\n' +
     '| `POST /api/registry/logos`    | logo set JSON            | `logos/logo-set.json`    |',

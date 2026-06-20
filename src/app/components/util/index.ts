@@ -822,7 +822,15 @@ export const getTokens = (): CoreTypes.IDocumentationObject => {
   return JSON.parse(data.toString()) as CoreTypes.IDocumentationObject;
 };
 
-/** Prefer DB token snapshot, fallback to filesystem tokens.json. */
+/**
+ * Prefer the DB token snapshot, fallback to filesystem tokens.json.
+ *
+ * Scans recent snapshot rows for the latest one carrying Figma `localStyles` (the
+ * shape the visual displays read). The append-only snapshot table has historically
+ * also received DTCG-shaped rows; since `push:all` runs the dtcg step after tokens,
+ * a naive "latest row" read returned the DTCG row and the visual displays went
+ * blank. Filtering by `localStyles` ensures a DTCG row can never mask the data.
+ */
 export const getTokensForRuntime = async (): Promise<CoreTypes.IDocumentationObject> => {
   try {
     const db = getDb();
@@ -830,8 +838,10 @@ export const getTokensForRuntime = async (): Promise<CoreTypes.IDocumentationObj
       .select()
       .from(handoffTokensSnapshots)
       .orderBy(desc(handoffTokensSnapshots.id))
-      .limit(1);
-    const payload = rows[0]?.payload;
+      .limit(25);
+    const payload = rows.find(
+      (r) => r.payload && typeof r.payload === 'object' && 'localStyles' in (r.payload as Record<string, unknown>)
+    )?.payload;
     if (payload && typeof payload === 'object') {
       return payload as CoreTypes.IDocumentationObject;
     }
