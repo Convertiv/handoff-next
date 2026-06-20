@@ -36,10 +36,12 @@ export interface SectionLink {
     title: string;
     path: string;
     image: string;
+    icon?: string;
     menu?: {
       title: string;
       path: string;
       image: string;
+      icon?: string;
     }[];
   }[];
 }
