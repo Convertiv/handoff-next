@@ -119,13 +119,6 @@ export const knownPaths = [
   'foundations/typography',
   'system',
   'system/component',
-  'system/tokens',
-  'system/tokens/foundations',
-  'system/tokens/foundations/colors',
-  'system/tokens/foundations/effects',
-  'system/tokens/foundations/spacing',
-  'system/tokens/foundations/typography',
-  'system/tokens/components',
   'system/pattern',
   'design',
   'playground',
@@ -292,10 +285,8 @@ export const staticBuildMenu = () => {
                 return [{ title: sub.title, menu: componentMenuSections }];
               }
               if (sub.tokens) {
-                return [{
-                  title: 'Tokens',
-                  menu: staticBuildTokensMenu(),
-                }];
+                // tokens: true is a no-op — /system/tokens/* removed; tokens live at /foundations/*.
+                return [];
               }
               if (sub.patterns) {
                 const patternMenu = staticBuildPatternMenu();
@@ -439,75 +430,10 @@ const staticBuildComponentMenu = (type?: boolean | string) => {
   return buildComponentSubmenusFromSummaries(components, type);
 };
 
-const staticBuildTokensMenu = () => {
-  const basePath = buildBasePath();
-
-  const menu = [
-    {
-      title: `Foundations`,
-      path: `${basePath}system/tokens/foundations`,
-      menu: [
-        {
-          title: `Colors`,
-          path: `${basePath}system/tokens/foundations/colors`,
-        },
-        {
-          title: `Effects`,
-          path: `${basePath}system/tokens/foundations/effects`,
-        },
-        {
-          title: `Spacing`,
-          path: `${basePath}system/tokens/foundations/spacing`,
-        },
-        {
-          title: `Typography`,
-          path: `${basePath}system/tokens/foundations/typography`,
-        },
-      ],
-    },
-  ];
-
-  const componentMenuItems = [];
-  const components = fetchComponents({ includeApi: false });
-  // Build the submenu of exportables (components)
-  const groupedComponents = groupBy(components, (e) => e.group ?? '');
-  Object.keys(groupedComponents).forEach((group) => {
-    groupedComponents[group].forEach((component) => {
-      const docs = fetchDocPageMetadataAndContent('docs/system/', component.id);
-      let title = startCase(component.id);
-      if (docs.metadata.title) {
-        title = docs.metadata.title;
-      }
-      if (component.name) {
-        title = component.name;
-      }
-      componentMenuItems.push({ path: `${basePath}system/tokens/components/${component.id}`, title });
-    });
-  });
-
-  if (componentMenuItems.length > 0) {
-    menu.push({
-      title: `Components`,
-      path: `${basePath}system/tokens/components`,
-      menu: componentMenuItems,
-    });
-  }
-
-  return menu;
-};
-
-const staticBuildTokenMenu = () => {
-  const basePath = buildBasePath();
-
-  let subSections = {
-    title: 'Tokens',
-    path: `${basePath}system/tokens`,
-    menu: [],
-  };
-  const tokens = getTokens();
-
-  return subSections;
-};
+// The /system/tokens/* route group has been removed (IA consolidation — tokens live at /foundations/*).
+// tokens: true in system.md frontmatter is now a no-op; the Design System sidebar routes to
+// /foundations via the utility link injected by injectSystemUtilityLinks.
+const staticBuildTokensMenu = (): never[] => [];
 
 /**
  * Fetch patterns from the patterns.json API file

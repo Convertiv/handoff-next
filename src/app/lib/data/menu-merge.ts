@@ -367,7 +367,7 @@ export function injectSystemUtilityLinks(menu: SectionLink[], basePath: string):
     { title: 'Overview',   path: `${basePath}/system` },
     { title: 'Health',     path: `${basePath}/system/health` },
     { title: 'Changelog',  path: `${basePath}/system/changelog` },
-    { title: 'Tokens',     path: `${basePath}/system/tokens/foundations` },
+    { title: 'Tokens',     path: `${basePath}/foundations` },
   ];
 
   return menu.map((section) => {

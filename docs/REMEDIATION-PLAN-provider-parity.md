@@ -52,14 +52,14 @@ Fix options (pick one):
 
 ---
 
-## Phase 3 — IA consolidation ✅ MOSTLY DONE
+## Phase 3 — IA consolidation ✅ DONE
 
 1. ✅ `/assets` moved to `/foundations/assets`; `/assets/page.tsx` redirects to `/foundations/assets`.
-2. 🔶 `/system/tokens/*` route group still exists (`system/tokens/foundations/{colors,typography,...}`, `system/tokens/components`). These are the legacy plain-table token views. Per decision, they should be removed — the foundation pages are the single home for token presentation. **Still outstanding.**
-
-**Outstanding:**
-- ⬜ Drop `/system/tokens/*` route group and all nav entries pointing to it.
-- ⬜ Confirm `staticBuildTokensMenu()` in `util/index.ts` no longer references `/system/tokens/foundations` in the nav (it currently does — this is the source of the Tokens link in the Design System sidebar pointing at the old table view rather than the foundation page).
+2. ✅ `/system/tokens/*` route group deleted. All nav paths pointing at `/system/tokens/*` updated:
+   - `injectSystemUtilityLinks` Tokens link → `/foundations`
+   - `staticBuildTokensMenu()` replaced with a no-op stub; `tokens: true` in system.md frontmatter is now a no-op — the old submenu is gone
+   - `dynamic-provider.ts` `tokens()` resolver returns `[]`
+   - Known-paths list in `util/index.ts` cleaned of all `system/tokens*` entries
 
 ---
 
@@ -71,9 +71,9 @@ Fix options (pick one):
 4. ✅ `tokens:build` CSS brand parser (resolvet + hagyard → DTCG); brand metadata in manifest.
 5. 🔶 `getTokens()` still used by some non-foundation displays (design page, settings). These eventually need to read from DTCG or be retired. Not blocking for Phase 5.
 
-**Outstanding:**
-- ⬜ **Normalization layer for importers** — Figma/Token Studio/Penpot all normalize into DTCG at the edge. Currently only a CSS brand parser exists; Figma `localStyles` import is still a separate code path.
-- ⬜ **Retire `localStyles` runtime dependency** — once Phase 5 wires all displays from DTCG, remove the `getDbTokensSnapshot()` call from `DynamicDataProvider.getTokens()`.
+**Outstanding (Phase 5 prerequisites — do not close until Phase 5 is complete):**
+- ⬜ **Retire `localStyles` runtime dependency** — `foundations/colors`, `foundations/typography`, and `foundations/effects` pages still call `getTokensForRuntime()` to get `tokens.localStyles`. Once Phase 5 wires these displays from DTCG, remove those calls and the `DynamicDataProvider.getTokens()` / `getDbTokensSnapshot()` code path.
+- ⬜ **Normalization layer for importers** — Figma/Token Studio/Penpot all normalize into DTCG at the edge. Currently only the CSS brand parser exists; Figma `localStyles` import is still a parallel path. Address after the localStyles retirement above.
 
 ---
 

@@ -574,35 +574,11 @@ export class DynamicDataProvider implements DataProvider {
         }>;
         return groups.filter((g) => Array.isArray(g.menu) && g.menu.length > 0);
       },
-      tokens: () => {
-        // The token sidebar layout is static (Foundations/Components groupings) —
-        // staticBuildTokensMenu reads the filesystem to enumerate component
-        // sub-menus, which we can't do in registry mode without the same source.
-        // Mirror its top-level shape from the live component list.
-        const componentItems = merged.map((c) => ({
-          title: c.title || c.id,
-          path: `${basePath}/system/tokens/components/${c.id}`,
-        }));
-        const items: Array<{ title: string; path?: string; menu?: Array<{ path: string; title: string }> }> = [
-          {
-            title: 'Foundations',
-            path: `${basePath}/system/tokens/foundations`,
-            menu: [
-              { title: 'Colors', path: `${basePath}/system/tokens/foundations/colors` },
-              { title: 'Effects', path: `${basePath}/system/tokens/foundations/effects` },
-              { title: 'Typography', path: `${basePath}/system/tokens/foundations/typography` },
-            ],
-          },
-        ];
-        if (componentItems.length > 0) {
-          items.push({
-            title: 'Components',
-            path: `${basePath}/system/tokens/components`,
-            menu: componentItems.sort((a, b) => a.title.localeCompare(b.title)),
-          });
-        }
-        return items;
-      },
+      // tokens: true in workspace system.md is a legacy marker — the /system/tokens/*
+      // route group has been removed. Foundation token pages now live at /foundations/*.
+      // Return empty so no orphaned tokens submenu appears in the Design System sidebar
+      // (the "Tokens" utility link in injectSystemUtilityLinks already points → /foundations).
+      tokens: () => [],
       // Patterns left undefined — DynamicDataProvider can fetch them via
       // getPatterns() if a project needs it. Kept off by default until we
       // see a workspace that uses `patterns: true` in registry mode.
