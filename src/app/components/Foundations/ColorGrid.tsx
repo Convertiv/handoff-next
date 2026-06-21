@@ -18,7 +18,7 @@ import {
 import { Separator } from '../ui/separator';
 import { Sheet, SheetClose, SheetContent, SheetHeader } from '../ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
-import { hexToRgb } from '../util/colors';
+import { hexToRgb, hexToRgbaCss } from '../util/colors';
 import ColorContrast from './ColorContrast';
 import ColorInfo from './ColorInfo';
 import ColorSpaces from './ColorSpaces';
@@ -124,7 +124,7 @@ const ColorDropdown: React.FC<{ color: CoreTypes.IColorObject; openSheet: (color
         <Copy className="text-gray-400" /> HEX
         <DropdownMenuShortcut className="max-w-[100px] truncate">{color.value}</DropdownMenuShortcut>
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => navigator.clipboard.writeText('rgba(0, 49, 82, 1)')}>
+      <DropdownMenuItem onClick={() => navigator.clipboard.writeText(hexToRgbaCss(color.value) ?? '')}>
         <Copy className="text-gray-400" /> RGBA
         <DropdownMenuShortcut className="max-w-[100px] truncate">{hexToRgb(color.value)}</DropdownMenuShortcut>
       </DropdownMenuItem>

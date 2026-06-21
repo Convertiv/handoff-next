@@ -1,10 +1,8 @@
-import groupBy from 'lodash/groupBy';
 import upperFirst from 'lodash/upperFirst';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
-import ColorGrid from '../../../components/Foundations/ColorGrid';
-import BrandColorSwatches from '../../../components/Foundations/BrandColorSwatches';
+import { ColorsDisplay } from '../../../components/Foundations/ColorsDisplay';
 import { ProvenanceBadge } from '../../../components/Foundations/ProvenanceBadge';
 import { TokenOutputTabs } from '../../../components/Foundations/TokenOutputTabs';
 import { DownloadTokens } from '../../../components/DownloadTokens';
@@ -13,7 +11,7 @@ import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import AnchorNav from '../../../components/Navigation/AnchorNav';
 import PrevNextNav from '../../../components/Navigation/PrevNextNav';
-import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
+import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
 import { fetchDtcgBrands, fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
 
 export async function generateMetadata() {
@@ -22,28 +20,24 @@ export async function generateMetadata() {
 }
 
 export default async function ColorsPage() {
-  const [{ props }, tokens] = await Promise.all([
+  const [{ props }, dtcg, manifest, brands] = await Promise.all([
     fetchFoundationDocPageMarkdownAsync('docs/foundations/', 'colors', '/foundations'),
-    getTokensForRuntime(),
+    fetchDtcgTokenStrings('color'),
+    fetchDtcgManifest(),
+    fetchDtcgBrands(),
   ]);
-  const config   = getClientRuntimeConfig();
-  const design   = tokens.localStyles;
+  const config = getClientRuntimeConfig();
   const { content, menu, metadata, current, scss, css, styleDictionary, types } = props;
 
-  const dtcg     = await fetchDtcgTokenStrings('color');
-  const manifest = await fetchDtcgManifest();
-  const brands   = await fetchDtcgBrands();
   const brandNames = (manifest?.brands ?? []).filter((b) => b !== 'shared');
 
-  const colorGroups = Object.fromEntries(
-    Object.entries(groupBy(design?.color ?? [], 'group'))
-      .map(([groupKey, colors]) => [groupKey, colors.map((c) => ({ ...c }))] as const)
-      .sort((a, b) => {
-        const l = (config?.app?.color_sort ?? []).indexOf(a[0]) >>> 0;
-        const r = (config?.app?.color_sort ?? []).indexOf(b[0]) >>> 0;
-        return l !== r ? l - r : a[0].localeCompare(b[0]);
-      })
-  );
+  // Pre-compute anchor groups from the first brand for the static sidebar nav.
+  // The sidebar won't update when the user switches brands (client-side), which is acceptable.
+  const firstBrand = brandNames[0];
+  const firstBrandGroups = firstBrand && brands ? brands[firstBrand] : null;
+  const anchorGroupEntries = firstBrandGroups
+    ? Object.keys(firstBrandGroups).map((g) => ({ [`${g}-colors`]: `${upperFirst(g.replace(/-/g, ' '))} Colors` }))
+    : [];
 
   return (
     <Layout config={config} menu={menu} metadata={metadata} current={current}>
@@ -68,18 +62,13 @@ export default async function ColorsPage() {
 
       <div className="lg:gap-10 lg:py-8 xl:grid xl:grid-cols-[1fr_280px]">
         <div className="flex flex-col gap-0">
-          {brands && brandNames.length > 0 && (
-            <BrandColorSwatches brands={brands} brandNames={brandNames} />
+          {brands && brandNames.length > 0 ? (
+            <ColorsDisplay brands={brands} brandNames={brandNames} />
+          ) : (
+            <p className="py-6 text-sm text-muted-foreground">
+              No color tokens have been pushed to this registry yet.
+            </p>
           )}
-          {Object.keys(colorGroups).map((group) => (
-            <ColorGrid
-              title={upperFirst(group)}
-              group={group}
-              description="Colors that are used most frequently across all pages and components."
-              colors={colorGroups[group]}
-              key={group}
-            />
-          ))}
 
           {dtcg && (
             <TokenOutputTabs
@@ -93,11 +82,7 @@ export default async function ColorsPage() {
 
           <PrevNextNav previous={null} next={{ title: 'Typography', href: '/foundations/typography' }} />
         </div>
-        <AnchorNav
-          groups={[
-            Object.assign({}, ...[...Object.keys(colorGroups).map((group) => ({ [`${group}-colors`]: `${upperFirst(group)} Colors` }))]),
-          ]}
-        />
+        <AnchorNav groups={anchorGroupEntries.length > 0 ? [Object.assign({}, ...anchorGroupEntries)] : []} />
         <div className="prose">
           <ReactMarkdown components={MarkdownComponents} remarkPlugins={[remarkGfm, remarkCodeMeta]} rehypePlugins={[rehypeRaw]}>
             {content}

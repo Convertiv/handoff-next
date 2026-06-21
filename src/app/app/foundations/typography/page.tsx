@@ -13,6 +13,7 @@ import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown
 import AnchorNav from '../../../components/Navigation/AnchorNav';
 import { anchorSlugify } from '../../../components/Navigation/anchor-slugify';
 import HeadersType from '../../../components/Typography/Headers';
+import PrevNextNav from '../../../components/Navigation/PrevNextNav';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokensForRuntime } from '../../../components/util';
 import { fetchDtcgManifest, fetchDtcgTokenStrings } from '../../../components/util/dtcg';
 
@@ -97,6 +98,10 @@ export default async function TypographyPage() {
               name="typography"
             />
           )}
+          <PrevNextNav
+            previous={{ title: 'Colors', href: '/foundations/colors' }}
+            next={{ title: 'Spacing', href: '/foundations/spacing' }}
+          />
         </div>
         <AnchorNav groups={[{ typefaces: 'Typefaces' }, { 'typography-scale': 'Typography Scale' }]} />
         <div className="prose">

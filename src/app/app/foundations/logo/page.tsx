@@ -8,6 +8,7 @@ import { InlineEditHeader } from '../../../components/InlineEdit/InlineEditHeade
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
 import { buttonVariants } from '../../../components/ui/button';
+import PrevNextNav from '../../../components/Navigation/PrevNextNav';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig, getTokens } from '../../../components/util';
 import type { LogoVariant, LogoSet } from '../../../lib/data/types';
 
@@ -178,6 +179,7 @@ export default async function LogoPage() {
               {content}
             </ReactMarkdown>
           </div>
+          <PrevNextNav previous={{ title: 'Icons', href: '/foundations/icons' }} next={null} />
         </div>
       ) : (
         /* ── Legacy assets.logos fallback ─────────────────────────────── */
@@ -194,7 +196,6 @@ export default async function LogoPage() {
             ))}
           </div>
           <hr />
-          <hr />
           <div className="prose dark:prose-invert">
             <ReactMarkdown
               components={MarkdownComponents}
@@ -204,6 +205,7 @@ export default async function LogoPage() {
               {content}
             </ReactMarkdown>
           </div>
+          <PrevNextNav previous={{ title: 'Icons', href: '/foundations/icons' }} next={null} />
         </>
       )}
     </Layout>

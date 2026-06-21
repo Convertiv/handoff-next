@@ -4,9 +4,10 @@ import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkGfm from 'remark-gfm';
 import IconCatalogGrid from '../../../components/Foundations/IconCatalogGrid';
+import { InlineEditHeader } from '../../../components/InlineEdit/InlineEditHeader';
 import Layout from '../../../components/Layout/Main';
 import { MarkdownComponents, remarkCodeMeta } from '../../../components/Markdown/MarkdownComponents';
-import HeadersType from '../../../components/Typography/Headers';
+import PrevNextNav from '../../../components/Navigation/PrevNextNav';
 import { buttonVariants } from '../../../components/ui/button';
 import { fetchFoundationDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
 import { getDataProvider } from '../../../lib/data';
@@ -25,28 +26,33 @@ export default async function IconsPage() {
   const { content, menu, metadata, current } = props;
 
   return (
-    <Layout config={config} menu={menu} current={current} metadata={metadata}>
-      <div className="flex flex-col gap-2 pb-7">
-        <HeadersType.H1>{metadata.title}</HeadersType.H1>
-        <p className="max-w-[800px] text-lg font-light text-gray-500 dark:text-gray-300">{metadata.description}</p>
-        <div className="mt-3 flex flex-row gap-3">
-          <Link
-            className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' font-normal [&_svg]:size-3!'}
-            href={config?.assets_zip_links?.icons ?? '/icons.zip'}
-          >
-            Download Icons <Download strokeWidth={1.5} />
-          </Link>
-        </div>
+    <Layout config={config} menu={menu} metadata={metadata} current={current}>
+      <InlineEditHeader
+        slug="foundations/icons"
+        initialTitle={String(metadata.title ?? '')}
+        initialDescription={String(metadata.description ?? '')}
+        initialFrontmatter={metadata as Record<string, unknown>}
+        markdown={content}
+      >
+        <Link
+          className={buttonVariants({ variant: 'outline', size: 'sm' }) + ' font-normal [&_svg]:size-3!'}
+          href={config?.assets_zip_links?.icons ?? '/icons.zip'}
+        >
+          Download Icons <Download strokeWidth={1.5} />
+        </Link>
+      </InlineEditHeader>
+
+      <div className="lg:py-8">
+        {content && (
+          <div className="prose mb-8">
+            <ReactMarkdown components={MarkdownComponents} remarkPlugins={[remarkGfm, remarkCodeMeta]} rehypePlugins={[rehypeRaw]}>
+              {content}
+            </ReactMarkdown>
+          </div>
+        )}
+        <IconCatalogGrid catalog={iconCatalog} />
+        <PrevNextNav previous={null} next={{ title: 'Logo', href: '/foundations/logo' }} />
       </div>
-      <hr className="mb-10" />
-      {content && (
-        <div className="prose mb-8">
-          <ReactMarkdown components={MarkdownComponents} remarkPlugins={[remarkGfm, remarkCodeMeta]} rehypePlugins={[rehypeRaw]}>
-            {content}
-          </ReactMarkdown>
-        </div>
-      )}
-      <IconCatalogGrid catalog={iconCatalog} />
     </Layout>
   );
 }
