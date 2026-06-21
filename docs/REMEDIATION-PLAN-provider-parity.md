@@ -42,13 +42,17 @@ The reported problems reduce to **one disease**: Handoff maintains redundant par
 
 ---
 
-## Phase 2.5 — Workspace component sidebar (path resolution) ⬜ OPEN
+## Phase 2.5 — Workspace component sidebar (path resolution) ✅ DONE
 
 `staticBuildComponentMenu()` reads from `getPublicApiDir()/components.json` = `process.cwd()/public/api/components.json`. When the workspace Next.js dev server or Vercel build runs from the materialized `.handoff/app` directory, this resolves correctly. When `process.cwd()` is the project root (e.g. Vercel without Root Directory configured), `components.json` isn't found → `fetchComponents()` returns `[]` → no component groups appear in the Design System sidebar (utility links from Phase 2 still show correctly).
 
-Fix options (pick one):
-1. **Fallback path** — when `getPublicApiDir()` returns a path that doesn't exist, retry with `HANDOFF_WORKING_PATH/.handoff/app/public/api` before returning empty. Near-term, low-risk.
-2. **Async DataProvider interface** — add `getComponentSummaries()` to the `DataProvider` interface so both providers use the same async path (static reads filesystem, dynamic reads DB), and the menu builder is fed from whichever is available. Right long-term architecture.
+**Fix implemented (Option B — DataProvider interface):**
+- `ComponentMenuSummary` moved to `lib/data/types.ts`; re-exported from `components/util` for backward compat.
+- `getComponentSummaries(): Promise<ComponentMenuSummary[]>` added to `DataProvider` interface.
+- `StaticDataProvider.getComponentSummaries()` resolves `components.json` from `getPublicApiDir()` with a `HANDOFF_WORKING_PATH/.handoff/app/public/api` fallback when the primary path is missing.
+- `DynamicDataProvider.getComponentSummaries()` delegates to `mergedComponentsToMenuSummaries(await this.getComponents())` (DB-backed).
+- `staticBuildMenu(componentSummaries?)` and `staticBuildComponentMenu(type?, summaries?)` accept optional pre-fetched summaries; filesystem read is the fallback when summaries are absent.
+- `StaticDataProvider.getMenu()` now awaits `this.getComponentSummaries()` and passes the result into `staticBuildMenu(summaries)` — the menu builder no longer reads the filesystem directly for component data.
 
 ---
 

@@ -362,6 +362,10 @@ export class DynamicDataProvider implements DataProvider {
     return mergeComponentLists(staticList, dbRows);
   }
 
+  async getComponentSummaries(): Promise<ComponentMenuSummary[]> {
+    return mergedComponentsToMenuSummaries(await this.getComponents());
+  }
+
   async getComponent(id: string): Promise<ComponentObject | null> {
     const rows = await safeDbComponents();
     const row = rows.find((r) => r.id === id);

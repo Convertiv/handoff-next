@@ -150,9 +150,33 @@ export class StaticDataProvider implements DataProvider {
     return getClientRuntimeConfig();
   }
 
+  async getComponentSummaries(): Promise<import('./types').ComponentMenuSummary[]> {
+    // Primary path: works when CWD is the materialized Next app root (.handoff/app).
+    let file = path.join(getPublicApiDir(), 'components.json');
+
+    // Fallback: when running from the project root (not .handoff/app), try the workspace path.
+    if (!fs.existsSync(file) && process.env.HANDOFF_WORKING_PATH) {
+      const fallback = path.join(process.env.HANDOFF_WORKING_PATH, '.handoff', 'app', 'public', 'api', 'components.json');
+      if (fs.existsSync(fallback)) file = fallback;
+    }
+
+    if (!fs.existsSync(file)) return [];
+    try {
+      const raw = JSON.parse(await fs.readFile(file, 'utf-8')) as import('@handoff/transformers/preview/types').ComponentListObject[];
+      return raw.map((c) => ({
+        id: c.id,
+        type: c.type,
+        group: c.group ?? '',
+        name: c.title ?? '',
+        description: c.description ?? '',
+      }));
+    } catch { return []; }
+  }
+
   async getMenu(): Promise<SectionLink[]> {
     const basePath = (process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '').replace(/\/+$/, '');
-    return injectSystemUtilityLinks(staticBuildMenu(), basePath);
+    const summaries = await this.getComponentSummaries();
+    return injectSystemUtilityLinks(staticBuildMenu(summaries), basePath);
   }
 
   async getIconCatalog(): Promise<import('./types').IconCatalog> {

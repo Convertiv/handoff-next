@@ -236,7 +236,7 @@ const buildMenuFromDirectory = (dirPath: string, urlPrefix: string): any[] => {
  * Build the static menu for rendering pages
  * @returns SectionLink[]
  */
-export const staticBuildMenu = () => {
+export const staticBuildMenu = (componentSummaries?: ComponentMenuSummary[]) => {
   const docRoot = getDefaultDocsDir();
   if (!docRoot || !fs.existsSync(docRoot)) {
     return [];
@@ -278,7 +278,7 @@ export const staticBuildMenu = () => {
             .flatMap((key) => {
               const sub = metadata.menu[key];
               if (sub.components) {
-                const componentMenuSections = staticBuildComponentMenu(sub.components);
+                const componentMenuSections = staticBuildComponentMenu(sub.components, componentSummaries);
                 if (sub.components === true) {
                   return componentMenuSections;
                 }
@@ -381,8 +381,7 @@ const buildComponentGroupsMenu = (components: { id: string; name: string; group:
   return groups;
 };
 
-/** Summary shape used to build the Design System → Components sidebar (grouped by type and group). */
-export type ComponentMenuSummary = { id: string; type?: string; group: string; name: string; description?: string };
+export type { ComponentMenuSummary } from '../../lib/data/types';
 
 /**
  * Build component sidebar sections from an explicit list (e.g. merged DB + static in dynamic mode).
@@ -418,7 +417,10 @@ export const buildComponentSubmenusFromSummaries = (components: ComponentMenuSum
   return buildComponentGroupsMenu(list, basePath);
 };
 
-const staticBuildComponentMenu = (type?: boolean | string) => {
+const staticBuildComponentMenu = (type?: boolean | string, summaries?: ComponentMenuSummary[]) => {
+  if (summaries) {
+    return buildComponentSubmenusFromSummaries(summaries, type);
+  }
   const raw = fetchComponents({ includeTokens: false }) ?? [];
   const components: ComponentMenuSummary[] = raw.map((c) => ({
     id: c.id,

@@ -84,10 +84,14 @@ export type LogoSet = {
   variants: LogoVariant[];
 };
 
+/** Summary shape used to build the Design System → Components sidebar (grouped by type and group). */
+export type ComponentMenuSummary = { id: string; type?: string; group: string; name: string; description?: string };
+
 /** Unified data access for the Handoff app (filesystem and/or DB-backed sources at runtime). */
 export interface DataProvider {
   getComponents(): Promise<ComponentListObject[]>;
   getComponent(id: string): Promise<ComponentObject | null>;
+  getComponentSummaries(): Promise<ComponentMenuSummary[]>;
   getPatterns(): Promise<PatternListObject[]>;
   getPattern(id: string): Promise<PatternObject | null>;
   getTokens(): Promise<CoreTypes.IDocumentationObject>;
