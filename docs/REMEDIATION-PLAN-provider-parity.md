@@ -77,35 +77,33 @@ Fix options (pick one):
 
 ---
 
-## Phase 5 — Display reconciliation ⬜ OPEN
+## Phase 5 — Display reconciliation ✅ MOSTLY DONE
 
-The original scope was Colors + Typography. Code audit reveals Icons and Logos have the same problem: new UI was invented instead of extending existing patterns. All four need to be addressed together.
+The original scope was Colors + Typography. Code audit reveals Icons and Logos had the same problem: new UI was invented instead of extending existing patterns. All four addressed together.
 
-### 5a — Colors
+### 5a — Colors ✅ DONE
 
-- ⬜ **Fix hardcoded `rgba(0, 49, 82, 1)` in `ColorGrid.tsx:127`** — copies the hardcoded string instead of the actual swatch color.
-- ⬜ **Lead-display decision** — page currently stacks `BrandColorSwatches` above `ColorGrid` groups. Recommendation: `ColorGrid` (with its "…" menu → `ColorSheet` drawer) as the single lead; fold brand-awareness into `ColorGrid` rather than two competing models.
-- ⬜ **Wire `ColorGrid` from DTCG** — required for resolvet (no Figma `localStyles.color`; colors live only in the brand CSS pipeline). Map DTCG color tokens into the `ColorGrid`/drawer shape.
-- ⬜ **Wire `ColorSheet` placeholders** — description and Figma breadcrumb currently hardcoded; needs DTCG metadata enrichment (Phase 4 enrichment task).
+- ✅ **Fix hardcoded `rgba(0, 49, 82, 1)` in `ColorGrid.tsx:127`** — now copies `hexToRgbaCss(color.value)`.
+- ✅ **Lead-display** — removed `BrandColorSwatches` (separate model); created `ColorsDisplay` client component that maps DTCG brand tokens → `IColorObject[]` and feeds `ColorGrid` with brand-selector tabs for multi-brand registries.
+- ✅ **Removed `getTokensForRuntime()` / `localStyles`** from colors page — DTCG brands are the sole color source.
+- ⬜ **Wire `ColorSheet` placeholders** — description and Figma breadcrumb still hardcoded; needs DTCG metadata enrichment (deferred).
 
-### 5b — Typography
+### 5b — Typography 🔶 PARTIAL
 
-- ⬜ **Wire `TypographySheet` placeholders** — description + Figma breadcrumb hardcoded (`Primitives / Text / Heading`); needs DTCG metadata.
-- ⬜ **Specimen sign-off** — confirm the scale + specimen matches the cynosure V1 target; optionally revive the per-weight specimen block (dead in git at `53a951ca^`).
+- ✅ **Added `PrevNextNav`** (Colors → Typography → Spacing chain).
+- 🔶 **`getTokensForRuntime()` still called** for Typefaces + Scale specimen sections. Full DTCG migration of typography requires composite token support (`$type: typography` with structured `$value`). Current DTCG model stores each property as a separate flat token, so specimens can't be reconstructed. Blocked pending DTCG typography composite token format decision.
+- ⬜ **Wire `TypographySheet` placeholders** — description + Figma breadcrumb hardcoded; needs DTCG metadata.
 
-### 5c — Icons (same problem as Colors/Typography)
+### 5c — Icons ✅ DONE
 
-The icons page shows a grid of icons but uses custom UI that diverges from the established foundation page pattern. **Extend the existing foundation page structure** rather than maintain a parallel display model.
+- ✅ Replaced custom H1/button header with `InlineEditHeader` (established pattern).
+- ✅ Added `PrevNextNav` (Icons → Logo).
+- ✅ Kept `IconCatalogGrid` for display — icons are catalog data, not tokens; no DTCG/ProvenanceBadge applies.
 
-- ⬜ Audit current icon page vs target pattern; document the delta.
-- ⬜ Reconcile icon grid display to match the foundation page component conventions (InlineEditHeader, AnchorNav, PrevNextNav, DownloadTokens, ProvenanceBadge pattern).
+### 5d — Logos ✅ DONE
 
-### 5d — Logos (same problem)
-
-Same issue as icons — logo page uses new UI instead of extending existing patterns.
-
-- ⬜ Audit logos page vs target pattern.
-- ⬜ Reconcile to foundation page conventions.
+- ✅ Added `PrevNextNav` in both LogoSet and legacy rendering branches (Icons → Logo).
+- 🔶 `getTokens()` legacy fallback retained for workspaces without a pushed LogoSet (low priority to remove).
 
 ### 5e — Sign-off
 
