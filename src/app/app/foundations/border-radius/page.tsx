@@ -16,16 +16,35 @@ interface RadiusToken {
   description: string;
 }
 
+function flattenDtcgLeaves(
+  obj: Record<string, unknown>,
+  prefix = '',
+): RadiusToken[] {
+  return Object.entries(obj).flatMap(([key, token]) => {
+    if (!token || typeof token !== 'object') return [];
+    const t = token as Record<string, unknown>;
+    const fullKey = prefix ? `${prefix}-${key}` : key;
+    if ('$value' in t) {
+      const value = typeof t.$value === 'string' ? t.$value : '0px';
+      const raw = parseFloat(value);
+      const px = value === '9999px' ? 9999 : Math.round(isNaN(raw) ? 0 : raw);
+      return [{ key: fullKey, name: `border-radius-${fullKey}`, value, px, description: (t.$description as string) ?? '' }];
+    }
+    return flattenDtcgLeaves(t as Record<string, unknown>, fullKey);
+  });
+}
+
 function parseRadiusTokens(dtcgJson: string): RadiusToken[] {
   try {
-    const obj = JSON.parse(dtcgJson) as Record<string, { $type?: string; $value: string; $description?: string }>;
-    return Object.entries(obj)
-      .map(([key, token]) => {
-        const value = token.$value ?? '0px';
-        const raw = parseFloat(value);
-        const px = value === '9999px' ? 9999 : Math.round(isNaN(raw) ? 0 : raw);
-        return { key, name: `border-radius-${key}`, value, px, description: token.$description ?? '' };
-      });
+    const obj = JSON.parse(dtcgJson) as Record<string, unknown>;
+    // Style Dictionary wraps tokens under a top-level 'border-radius' group key.
+    const root =
+      obj['border-radius'] &&
+      typeof obj['border-radius'] === 'object' &&
+      !('$value' in (obj['border-radius'] as object))
+        ? (obj['border-radius'] as Record<string, unknown>)
+        : obj;
+    return flattenDtcgLeaves(root).sort((a, b) => a.px - b.px);
   } catch {
     return [];
   }

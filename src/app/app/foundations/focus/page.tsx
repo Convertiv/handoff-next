@@ -1,3 +1,4 @@
+import type React from 'react';
 import { DownloadTokens } from '../../../components/DownloadTokens';
 import { ProvenanceBadge } from '../../../components/Foundations/ProvenanceBadge';
 import { TokenOutputTabs } from '../../../components/Foundations/TokenOutputTabs';

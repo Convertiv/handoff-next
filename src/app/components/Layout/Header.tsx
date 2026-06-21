@@ -74,7 +74,7 @@ export function Header() {
   const { authEnabled } = useAuthUi();
   const { data: session } = useSession();
   const [isScrolled, setIsScrolled] = useState(false);
-  const showDevelopLocally = authEnabled && Boolean(session?.user);
+  const showDevelopLocally = !authEnabled || Boolean(session?.user);
   const developLocallyActive = pathname.includes('developer/local-setup');
 
   useEffect(() => {
