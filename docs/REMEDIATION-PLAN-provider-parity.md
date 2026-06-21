@@ -63,7 +63,7 @@ Fix options (pick one):
 
 ---
 
-## Phase 4 — DTCG as canonical source of truth ✅ MOSTLY DONE
+## Phase 4 — DTCG as canonical source of truth ✅ DONE (with intentional deferral)
 
 1. ✅ `getDbTokensSnapshot()` filters by `localStyles` shape; DTCG decoupled from snapshot table.
 2. ✅ All foundation pages read from `fetchDtcgTokenStrings()`.
@@ -72,8 +72,9 @@ Fix options (pick one):
 5. 🔶 `getTokens()` still used by some non-foundation displays (design page, settings). These eventually need to read from DTCG or be retired. Not blocking for Phase 5.
 
 **Outstanding (Phase 5 prerequisites — do not close until Phase 5 is complete):**
-- ⬜ **Retire `localStyles` runtime dependency** — `foundations/colors`, `foundations/typography`, and `foundations/effects` pages still call `getTokensForRuntime()` to get `tokens.localStyles`. Once Phase 5 wires these displays from DTCG, remove those calls and the `DynamicDataProvider.getTokens()` / `getDbTokensSnapshot()` code path.
-- ⬜ **Normalization layer for importers** — Figma/Token Studio/Penpot all normalize into DTCG at the edge. Currently only the CSS brand parser exists; Figma `localStyles` import is still a parallel path. Address after the localStyles retirement above.
+- 🔶 **Retire `localStyles` runtime dependency (typography + effects)** — Colors ✅ done. Typography and Effects pages still call `getTokensForRuntime()` to feed visual specimen components (`TypographyExamples`, effect swatches). These need per-style structured data (fontFamily, fontSize, fontWeight, shadow values) that the current flat DTCG model can't supply.
+  - **Decision (2026-06-20):** Keep typography and effects Figma-dependent for now — show graceful empty state when no Figma data. Do NOT implement composite DTCG typography/shadow tokens yet. Revisit as part of a future token-source expansion initiative (Token Studio / Penpot import, authoring tooling).
+- ⬜ **Normalization layer for importers** — Future initiative: expand beyond CSS brand parser to support Figma localStyles, Token Studio, and Penpot as DTCG sources. Authoring tooling (in-app token editor) also scoped for that initiative.
 
 ---
 
