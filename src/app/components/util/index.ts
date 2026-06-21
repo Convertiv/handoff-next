@@ -381,7 +381,8 @@ const buildComponentGroupsMenu = (components: { id: string; name: string; group:
   return groups;
 };
 
-export type { ComponentMenuSummary } from '../../lib/data/types';
+import type { ComponentMenuSummary } from '../../lib/data/types';
+export type { ComponentMenuSummary };
 
 /**
  * Build component sidebar sections from an explicit list (e.g. merged DB + static in dynamic mode).
