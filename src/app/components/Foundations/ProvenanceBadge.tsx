@@ -21,9 +21,9 @@ function sourceLabel(source: string): string {
 }
 
 export function ProvenanceBadge({ manifest }: ProvenanceBadgeProps) {
-  const source = manifest.sources[0] ?? 'unknown';
+  const source = (manifest.sources ?? [])[0] ?? 'unknown';
   const label  = sourceLabel(source);
-  const synced = timeAgo(manifest.generatedAt);
+  const synced = manifest.generatedAt ? timeAgo(manifest.generatedAt) : 'unknown';
 
   return (
     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
