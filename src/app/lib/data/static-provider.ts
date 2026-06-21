@@ -27,11 +27,26 @@ function filterTailwindLines(content: string, prefix: string): string {
 
 // Workspace mode only — reads from filesystem, zero database access.
 export class StaticDataProvider implements DataProvider {
-  async getComponents(): Promise<ComponentListObject[]> {
-    const file = path.join(getPublicApiDir(), 'components.json');
-    if (!fs.existsSync(file)) {
-      return [];
+  /**
+   * Resolve a path relative to the public/api directory.
+   * Primary: process.cwd()/public/api (works when CWD is the materialized .handoff/app root AND
+   * the workspace has materialized public/api into it).
+   * Fallback: HANDOFF_WORKING_PATH/public/api (the workspace keeps its built artifacts here and
+   * the app reads them via the env var when public/api isn't inside the app root itself).
+   */
+  private resolvePublicApiFile(...segments: string[]): string {
+    const primary = path.join(getPublicApiDir(), ...segments);
+    if (fs.existsSync(primary)) return primary;
+    if (process.env.HANDOFF_WORKING_PATH) {
+      const fallback = path.join(process.env.HANDOFF_WORKING_PATH, 'public', 'api', ...segments);
+      if (fs.existsSync(fallback)) return fallback;
     }
+    return primary; // return primary (missing) path so callers can check existsSync uniformly
+  }
+
+  async getComponents(): Promise<ComponentListObject[]> {
+    const file = this.resolvePublicApiFile('components.json');
+    if (!fs.existsSync(file)) return [];
     try {
       return JSON.parse(await fs.readFile(file, 'utf-8')) as ComponentListObject[];
     } catch {
@@ -52,10 +67,8 @@ export class StaticDataProvider implements DataProvider {
   }
 
   async getPatterns(): Promise<PatternListObject[]> {
-    const file = path.join(getPublicApiDir(), 'patterns.json');
-    if (!fs.existsSync(file)) {
-      return [];
-    }
+    const file = this.resolvePublicApiFile('patterns.json');
+    if (!fs.existsSync(file)) return [];
     try {
       return JSON.parse(await fs.readFile(file, 'utf-8')) as PatternListObject[];
     } catch {
@@ -64,10 +77,8 @@ export class StaticDataProvider implements DataProvider {
   }
 
   async getPattern(id: string): Promise<PatternObject | null> {
-    const file = path.join(getPublicApiDir(), 'pattern', `${id}.json`);
-    if (!fs.existsSync(file)) {
-      return null;
-    }
+    const file = this.resolvePublicApiFile('pattern', `${id}.json`);
+    if (!fs.existsSync(file)) return null;
     try {
       return JSON.parse(await fs.readFile(file, 'utf-8')) as PatternObject;
     } catch {
@@ -151,27 +162,14 @@ export class StaticDataProvider implements DataProvider {
   }
 
   async getComponentSummaries(): Promise<import('./types').ComponentMenuSummary[]> {
-    // Primary path: works when CWD is the materialized Next app root (.handoff/app).
-    let file = path.join(getPublicApiDir(), 'components.json');
-
-    // Fallback: when the app root doesn't have public/api/ (the workspace keeps it one level up),
-    // read from HANDOFF_WORKING_PATH/public/api directly.
-    if (!fs.existsSync(file) && process.env.HANDOFF_WORKING_PATH) {
-      const fallback = path.join(process.env.HANDOFF_WORKING_PATH, 'public', 'api', 'components.json');
-      if (fs.existsSync(fallback)) file = fallback;
-    }
-
-    if (!fs.existsSync(file)) return [];
-    try {
-      const raw = JSON.parse(await fs.readFile(file, 'utf-8')) as import('@handoff/transformers/preview/types').ComponentListObject[];
-      return raw.map((c) => ({
-        id: c.id,
-        type: c.type,
-        group: c.group ?? '',
-        name: c.title ?? '',
-        description: c.description ?? '',
-      }));
-    } catch { return []; }
+    const components = await this.getComponents();
+    return components.map((c) => ({
+      id: c.id,
+      type: c.type,
+      group: c.group ?? '',
+      name: c.title ?? '',
+      description: c.description ?? '',
+    }));
   }
 
   async getMenu(): Promise<SectionLink[]> {
