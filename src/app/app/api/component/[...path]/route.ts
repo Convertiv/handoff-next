@@ -74,12 +74,11 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ pa
     });
   }
 
-  // Workspace mode: serve from disk
-  // segments[0] is the component id, segments[1] is the filename
-  // e.g. ['button', 'button-default.html'] or ['main.css'] (shared)
+  // Workspace mode: serve from disk.
+  // getPublicApiComponentDir() and getComponentDistDir() both fall back to HANDOFF_WORKING_PATH
+  // when the primary cwd-based path doesn't exist, so no per-call fallback logic is needed here.
   let diskPath: string;
   if (segments.length === 1) {
-    // Shared global file (main.css, main.js, shared.css)
     diskPath = path.join(getPublicApiComponentDir(), segments[0]);
   } else {
     const [componentId, ...rest] = segments;

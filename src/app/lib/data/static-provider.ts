@@ -27,25 +27,8 @@ function filterTailwindLines(content: string, prefix: string): string {
 
 // Workspace mode only — reads from filesystem, zero database access.
 export class StaticDataProvider implements DataProvider {
-  /**
-   * Resolve a path relative to the public/api directory.
-   * Primary: process.cwd()/public/api (works when CWD is the materialized .handoff/app root AND
-   * the workspace has materialized public/api into it).
-   * Fallback: HANDOFF_WORKING_PATH/public/api (the workspace keeps its built artifacts here and
-   * the app reads them via the env var when public/api isn't inside the app root itself).
-   */
-  private resolvePublicApiFile(...segments: string[]): string {
-    const primary = path.join(getPublicApiDir(), ...segments);
-    if (fs.existsSync(primary)) return primary;
-    if (process.env.HANDOFF_WORKING_PATH) {
-      const fallback = path.join(process.env.HANDOFF_WORKING_PATH, 'public', 'api', ...segments);
-      if (fs.existsSync(fallback)) return fallback;
-    }
-    return primary; // return primary (missing) path so callers can check existsSync uniformly
-  }
-
   async getComponents(): Promise<ComponentListObject[]> {
-    const file = this.resolvePublicApiFile('components.json');
+    const file = path.join(getPublicApiDir(), 'components.json');
     if (!fs.existsSync(file)) return [];
     try {
       return JSON.parse(await fs.readFile(file, 'utf-8')) as ComponentListObject[];
@@ -56,9 +39,7 @@ export class StaticDataProvider implements DataProvider {
 
   async getComponent(id: string): Promise<ComponentObject | null> {
     const file = path.join(getComponentDistDir(id), `${id}.json`);
-    if (!fs.existsSync(file)) {
-      return null;
-    }
+    if (!fs.existsSync(file)) return null;
     try {
       return JSON.parse(await fs.readFile(file, 'utf-8')) as ComponentObject;
     } catch {
@@ -67,7 +48,7 @@ export class StaticDataProvider implements DataProvider {
   }
 
   async getPatterns(): Promise<PatternListObject[]> {
-    const file = this.resolvePublicApiFile('patterns.json');
+    const file = path.join(getPublicApiDir(), 'patterns.json');
     if (!fs.existsSync(file)) return [];
     try {
       return JSON.parse(await fs.readFile(file, 'utf-8')) as PatternListObject[];
@@ -77,7 +58,7 @@ export class StaticDataProvider implements DataProvider {
   }
 
   async getPattern(id: string): Promise<PatternObject | null> {
-    const file = this.resolvePublicApiFile('pattern', `${id}.json`);
+    const file = path.join(getPublicApiDir(), 'pattern', `${id}.json`);
     if (!fs.existsSync(file)) return null;
     try {
       return JSON.parse(await fs.readFile(file, 'utf-8')) as PatternObject;
