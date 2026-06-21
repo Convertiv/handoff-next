@@ -154,9 +154,10 @@ export class StaticDataProvider implements DataProvider {
     // Primary path: works when CWD is the materialized Next app root (.handoff/app).
     let file = path.join(getPublicApiDir(), 'components.json');
 
-    // Fallback: when running from the project root (not .handoff/app), try the workspace path.
+    // Fallback: when the app root doesn't have public/api/ (the workspace keeps it one level up),
+    // read from HANDOFF_WORKING_PATH/public/api directly.
     if (!fs.existsSync(file) && process.env.HANDOFF_WORKING_PATH) {
-      const fallback = path.join(process.env.HANDOFF_WORKING_PATH, '.handoff', 'app', 'public', 'api', 'components.json');
+      const fallback = path.join(process.env.HANDOFF_WORKING_PATH, 'public', 'api', 'components.json');
       if (fs.existsSync(fallback)) file = fallback;
     }
 
