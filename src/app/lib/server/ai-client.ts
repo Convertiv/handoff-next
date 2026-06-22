@@ -94,13 +94,35 @@ export async function openAiImageEdit({
     formData.append('image[]', blob, image.filename);
   }
 
-  const response = await fetch('https://api.openai.com/v1/images/edits', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: formData,
-  });
+  // Hard ceiling below the 300s SSE/function deadline so a stalled OpenAI
+  // request surfaces as a real error event instead of the worker hanging
+  // until the stream closes (which the client reports as "No image returned.").
+  let response: Response;
+  try {
+    response = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: formData,
+      signal: AbortSignal.timeout(240_000),
+    });
+  } catch (err) {
+    const isTimeout = err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError');
+    await logAiEvent({
+      eventType,
+      actorUserId,
+      route,
+      model,
+      durationMs: Date.now() - startedAt,
+      status: 'error',
+      error: isTimeout ? 'OpenAI image request timed out.' : `OpenAI image request failed: ${err instanceof Error ? err.message : String(err)}`,
+      requestPrompt: prompt,
+      imageCount: images.length,
+      metadata: { size, quality },
+    });
+    throw new Error(isTimeout ? 'OpenAI image generation timed out; try a lower quality or simpler prompt.' : 'OpenAI image request failed.');
+  }
 
   if (!response.ok) {
     const body = await response.text();

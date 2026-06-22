@@ -29,13 +29,15 @@ async function fetchGoogleFontTtf(family: string, weight: number): Promise<Array
 
   const promise = (async (): Promise<ArrayBuffer | null> => {
     try {
+      // Hard timeout: on serverless, an unbounded outbound font fetch can stall
+      // forever and hang the entire design-generation worker (see renderFoundationsImage).
       const cssUrl = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weight}`;
-      const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': GOOGLE_FONTS_UA } });
+      const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': GOOGLE_FONTS_UA }, signal: AbortSignal.timeout(8000) });
       if (!cssRes.ok) return null;
       const css = await cssRes.text();
       const match = css.match(/src:\s*url\(([^)]+)\)\s*format\(['"](?:truetype|opentype)['"]\)/);
       if (!match?.[1]) return null;
-      const fontRes = await fetch(match[1]);
+      const fontRes = await fetch(match[1], { signal: AbortSignal.timeout(8000) });
       if (!fontRes.ok) return null;
       return fontRes.arrayBuffer();
     } catch {
@@ -598,7 +600,7 @@ function FoundationsDoc({ ctx }: { ctx: DesignWorkbenchFoundationContext }) {
  * Rasterize foundation tokens into a PNG for vision models (e.g. GPT-image).
  * Returns null when there is nothing to render.
  */
-export async function renderFoundationsImage(ctx: DesignWorkbenchFoundationContext): Promise<Buffer | null> {
+async function renderFoundationsImageInner(ctx: DesignWorkbenchFoundationContext): Promise<Buffer | null> {
   if (!shouldRasterizeFoundations(ctx)) return null;
   const height = estimateHeight(ctx);
   const fonts = await loadFontsForContext(ctx);
@@ -619,5 +621,33 @@ export async function renderFoundationsImage(ctx: DesignWorkbenchFoundationConte
     });
     const png = resvg.render();
     return Buffer.from(png.asPng());
+  }
+}
+
+/** Overall ceiling for foundation rasterization (font fetches + satori + resvg). */
+const FOUNDATION_RENDER_TIMEOUT_MS = 30_000;
+
+/**
+ * Rasterize foundation tokens into a PNG for vision models (e.g. GPT-image).
+ * Returns null when there is nothing to render — or when rendering exceeds
+ * FOUNDATION_RENDER_TIMEOUT_MS, so a stalled font fetch or slow rasterize can
+ * never hang the design-generation worker. The foundations still reach the
+ * model as text in the prompt, so degrading to null is safe.
+ */
+export async function renderFoundationsImage(ctx: DesignWorkbenchFoundationContext): Promise<Buffer | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[foundation-image] rasterization exceeded ${FOUNDATION_RENDER_TIMEOUT_MS}ms — skipping foundation image.`);
+      resolve(null);
+    }, FOUNDATION_RENDER_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([renderFoundationsImageInner(ctx), timeout]);
+  } catch (err) {
+    console.error('[foundation-image] renderFoundationsImage failed:', err);
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
