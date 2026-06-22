@@ -78,6 +78,87 @@ export function serializeFoundationsFromTokens(payload: unknown): DesignWorkbenc
   return { colors, typography, effects, spacing };
 }
 
+/**
+ * Extract a compact foundation context from DTCG brand tokens + optional DTCG
+ * spacing/typography strings. Used as a fallback for registries that only have
+ * DTCG data (no Figma V1 snapshot) so the design workbench still gets branded
+ * color and spacing context to send to the image generation model.
+ */
+export function serializeFoundationsFromDtcgData(opts: {
+  /** DtcgBrandTokens: Record<brandName, Record<groupKey, {$type, $value}>> */
+  brands: Record<string, Record<string, Record<string, unknown>>> | null;
+  /** Parsed resolved DTCG JSON for spacing tokens */
+  spacingDtcg?: unknown;
+  /** Parsed resolved DTCG JSON for typography tokens */
+  typographyDtcg?: unknown;
+}): DesignWorkbenchFoundationContext {
+  const colors: DesignWorkbenchFoundationContext['colors'] = [];
+  const spacing: DesignWorkbenchFoundationContext['spacing'] = [];
+  const typography: DesignWorkbenchFoundationContext['typography'] = [];
+
+  // ── Colors from brand tokens ──────────────────────────────────────────────
+  if (opts.brands) {
+    for (const [brandName, brandGroups] of Object.entries(opts.brands)) {
+      const group = brandName === 'default' ? '' : brandName;
+      if (!brandGroups || typeof brandGroups !== 'object') continue;
+      for (const [groupKey, token] of Object.entries(brandGroups)) {
+        if (!token || typeof token !== 'object') continue;
+        // Leaf token: has $type and $value
+        if ('$type' in token && '$value' in token && token.$type === 'color') {
+          const value = typeof token.$value === 'string' ? token.$value : '';
+          if (value) colors.push({ name: groupKey, value, group, subgroup: '' });
+        }
+      }
+    }
+  }
+
+  // ── Spacing from DTCG resolved JSON ──────────────────────────────────────
+  const walkDtcgLeaves = (
+    obj: Record<string, unknown>,
+    prefix: string,
+    out: { name: string; value: string }[]
+  ) => {
+    for (const [key, val] of Object.entries(obj)) {
+      if (key.startsWith('$')) continue;
+      const fullKey = prefix ? `${prefix}-${key}` : key;
+      const node = val as Record<string, unknown>;
+      if (node && typeof node === 'object') {
+        if ('$value' in node) {
+          const v = typeof node.$value === 'string' ? node.$value :
+                    typeof node.$value === 'number' ? String(node.$value) : '';
+          if (v) out.push({ name: fullKey, value: v });
+        } else {
+          walkDtcgLeaves(node as Record<string, unknown>, fullKey, out);
+        }
+      }
+    }
+  };
+
+  if (opts.spacingDtcg && typeof opts.spacingDtcg === 'object') {
+    // getDtcgTokenStrings wraps output under the type key ('spacing')
+    const root = opts.spacingDtcg as Record<string, unknown>;
+    const inner = root['spacing'] && typeof root['spacing'] === 'object'
+      ? root['spacing'] as Record<string, unknown>
+      : root;
+    walkDtcgLeaves(inner, '', spacing);
+  }
+
+  // ── Typography from DTCG resolved JSON ───────────────────────────────────
+  if (opts.typographyDtcg && typeof opts.typographyDtcg === 'object') {
+    const root = opts.typographyDtcg as Record<string, unknown>;
+    const inner = root['typography'] && typeof root['typography'] === 'object'
+      ? root['typography'] as Record<string, unknown>
+      : root;
+    const leaves: { name: string; value: string }[] = [];
+    walkDtcgLeaves(inner, '', leaves);
+    for (const l of leaves.slice(0, 24)) {
+      typography.push({ name: l.name, line: l.value });
+    }
+  }
+
+  return { colors: colors.slice(0, 120), typography, effects: [], spacing: spacing.slice(0, 32) };
+}
+
 function formatFoundationsBlock(ctx: DesignWorkbenchFoundationContext, customFoundationImageIncluded = false): string {
   if (customFoundationImageIncluded) {
     return [

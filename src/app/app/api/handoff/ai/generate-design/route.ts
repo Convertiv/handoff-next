@@ -12,6 +12,9 @@ import type {
 } from '@/lib/server/design-prompt-builder';
 import type { DesignGenerationRequestParams } from '@/lib/server/design-generation-worker';
 
+// Vercel max function duration — gpt-image generation can take 3-4 minutes at high quality.
+export const maxDuration = 300;
+
 const MAX_PER_USER_PER_MINUTE = 10;
 const timestampsByUser = new Map<string, number[]>();
 

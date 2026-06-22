@@ -3,7 +3,7 @@ import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../compone
 import { auth } from '@/lib/auth';
 import { getDataProvider } from '../../lib/data';
 import { isServerAiConfigured } from '../../lib/server/ai-client';
-import { serializeFoundationsFromTokens } from '../../lib/server/design-prompt-builder';
+import { serializeFoundationsFromTokens, serializeFoundationsFromDtcgData } from '../../lib/server/design-prompt-builder';
 import type { Metadata as DocMetadata } from '../../components/util';
 import CloudFeatureGate from '../../components/CloudFeatureGate';
 import { getHandoffCapabilities } from '@/lib/handoff-capabilities';
@@ -90,6 +90,26 @@ export default async function DesignPage({ searchParams }: DesignPageProps) {
     const [list, tokens] = await Promise.all([provider.getComponents(), provider.getTokens()]);
     components = buildComponentRows(list as ComponentListObject[]);
     foundations = serializeFoundationsFromTokens(tokens as unknown);
+
+    // Fallback for DTCG-only registries (no Figma V1 snapshot): read brand color
+    // tokens + spacing/typography from the DTCG pipeline output instead.
+    const isEmpty = foundations.colors.length === 0 && foundations.typography.length === 0 && foundations.spacing.length === 0;
+    if (isEmpty) {
+      const [brands, spacingStr, typographyStr] = await Promise.all([
+        provider.getDtcgBrands().catch(() => null),
+        provider.getDtcgTokenStrings('spacing').catch(() => null),
+        provider.getDtcgTokenStrings('typography').catch(() => null),
+      ]);
+      const parseDtcg = (s: { dtcg: string } | null) => {
+        if (!s?.dtcg) return null;
+        try { return JSON.parse(s.dtcg); } catch { return null; }
+      };
+      foundations = serializeFoundationsFromDtcgData({
+        brands: brands as Record<string, Record<string, Record<string, unknown>>> | null,
+        spacingDtcg: parseDtcg(spacingStr),
+        typographyDtcg: parseDtcg(typographyStr),
+      });
+    }
   } catch {
     components = [];
     foundations = { colors: [], typography: [], effects: [], spacing: [] };

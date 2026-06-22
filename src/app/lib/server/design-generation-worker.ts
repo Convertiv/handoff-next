@@ -191,9 +191,15 @@ export async function runDesignGenerationJob(jobId: number, actorUserId: string)
       }
     }
 
+    // gpt-image-2 requires at least one input image even for text-to-image generation.
+    // When no context images exist (empty settings, first generation), use a minimal
+    // white canvas so the API accepts the request and generates from the prompt alone.
     if (images.length === 0) {
-      await updateDesignGenerationJob(jobId, { status: 'failed', stage: 'done', error: 'No reference images available to generate from.' });
-      return;
+      // 8×8 px white PNG (smallest valid canvas gpt-image accepts)
+      const WHITE_PNG_B64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAADklEQVQI12P4z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==';
+      images.push({ filename: 'canvas.png', contentType: 'image/png', data: Buffer.from(WHITE_PNG_B64, 'base64') });
+      imageOrderLabels.push('canvas.png: blank starting canvas — generate the design from the prompt alone.');
     }
 
     await updateDesignGenerationJob(jobId, { stage: 'building_prompt' });

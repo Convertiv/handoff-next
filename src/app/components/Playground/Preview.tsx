@@ -129,6 +129,8 @@ export function renderReactPreview(
   blockId?: string | null
 ): string {
   const props = JSON.stringify(data || component.data || {});
+  // Escape the static HTML so it's safe inside a JSON script tag.
+  const fallbackHtml = JSON.stringify(component.html || '');
   const previewCssLink = component.options?.preview?.css
     ? `\n    <link rel="stylesheet" href="${component.options.preview.css}" />`
     : '';
@@ -138,6 +140,7 @@ export function renderReactPreview(
   return `<!DOCTYPE html>
 <html>
   <head>
+    <link rel="stylesheet" href="${basePath}/api/registry/theme.css" />
     <link rel="stylesheet" href="${basePath}/api/component/main.css" />
     <link rel="stylesheet" href="${basePath}/api/component/${component.id}.css" />
     <link rel="stylesheet" href="${basePath}/assets/css/preview.css" />${previewCssLink}
@@ -145,19 +148,26 @@ export function renderReactPreview(
   <body>
     <div id="root"></div>
     <script id="__PROPS__" type="application/json">${props}</script>
+    <script id="__FALLBACK__" type="application/json">${fallbackHtml}</script>
     <script type="module">
-      import { render, update } from '${basePath}/api/component/${component.id}.module.js';
-
       const container = document.getElementById('root');
-      const initialProps = JSON.parse(document.getElementById('__PROPS__').textContent);
-      render(container, initialProps);
+      const initialProps = JSON.parse(document.getElementById('__PROPS__').textContent || '{}');
+      const fallbackHtml = JSON.parse(document.getElementById('__FALLBACK__').textContent || '""');
 
-      window.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'update-props') {
-          ${blockFilter}
-          update(event.data.props);
-        }
-      });
+      import('${basePath}/api/component/${component.id}.module.js')
+        .then(({ render, update }) => {
+          render(container, initialProps);
+          window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'update-props') {
+              ${blockFilter}
+              update(event.data.props);
+            }
+          });
+        })
+        .catch(() => {
+          // module.js not available — render static HTML snapshot instead
+          if (fallbackHtml) container.innerHTML = fallbackHtml;
+        });
     </script>
   </body>
 </html>`;
@@ -254,25 +264,36 @@ export async function constructComponentPreview(
       const suffix = `_pg_${reactIdx++}`;
       const rootId = `root${suffix}`;
       const propsId = `__PROPS__${suffix}`;
+      const fallbackId = `__FALLBACK__${suffix}`;
       const propsJson = JSON.stringify(component.data ?? {});
+      const fallbackHtml = JSON.stringify(component.html || '');
       componentCssIds.add(component.id);
       const bid = component.uniqueId || '';
       blockHtml =
         `<script id="${propsId}" type="application/json">${propsJson}</script>` +
+        `<script id="${fallbackId}" type="application/json">${fallbackHtml}</script>` +
         `<div id="${rootId}"></div>`;
       reactScripts.push(`    <script type="module">
-      import { render, update } from '${basePath}/api/component/${component.id}.module.js';
       (function(){
         var blockId = ${JSON.stringify(bid)};
         var container = document.getElementById(${JSON.stringify(rootId)});
         var el = document.getElementById(${JSON.stringify(propsId)});
         var initialProps = el ? JSON.parse(el.textContent || '{}') : {};
-        render(container, initialProps);
-        window.addEventListener('message', function (event) {
-          if (!event.data || event.data.type !== 'update-props') return;
-          if (event.data.blockId && event.data.blockId !== blockId) return;
-          update(event.data.props);
-        });
+        var fb = document.getElementById(${JSON.stringify(fallbackId)});
+        var fallbackHtml = fb ? JSON.parse(fb.textContent || '""') : '';
+        import('${basePath}/api/component/${component.id}.module.js')
+          .then(function(m) {
+            m.render(container, initialProps);
+            window.addEventListener('message', function (event) {
+              if (!event.data || event.data.type !== 'update-props') return;
+              if (event.data.blockId && event.data.blockId !== blockId) return;
+              m.update(event.data.props);
+            });
+          })
+          .catch(function() {
+            // module.js not available — render static HTML snapshot instead
+            if (fallbackHtml) container.innerHTML = fallbackHtml;
+          });
       })();
     </script>`);
     } else if (component.rendered) {
@@ -301,6 +322,7 @@ export async function constructComponentPreview(
 
   return `<html>
     <head>
+      <link rel="stylesheet" href="${basePath}/api/registry/theme.css" />
       <link rel="stylesheet" href="${basePath}/api/component/main.css" />
       <link rel="stylesheet" href="${basePath}/assets/css/preview.css" />${perComponentCss}${cssOverrideLinks}
       ${controlsStyle}
