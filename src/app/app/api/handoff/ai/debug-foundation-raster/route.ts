@@ -3,6 +3,7 @@ import { authOrCloudToken } from '@/lib/sync-auth';
 import { getDataProvider } from '@/lib/data';
 import { serializeFoundationsFromTokens, serializeFoundationsFromDtcgData } from '@/lib/server/design-prompt-builder';
 import { renderFoundationsImage, shouldRasterizeFoundations } from '@/lib/server/foundation-image';
+import { openAiImageEdit } from '@/lib/server/ai-client';
 import type { DesignWorkbenchFoundationContext } from '@/app/design/workbench-types';
 
 // Allow up to the full function budget so we can observe a real hang in dev/preview.
@@ -81,6 +82,59 @@ export async function GET(request: NextRequest) {
     renderError = e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e);
   }
   const ms = Date.now() - startedAt;
+
+  // ── Optional: inline OpenAI generation probe (?generate=1) ────────────────
+  // Runs the full rasterize → openAiImageEdit path synchronously, bypassing the
+  // job row / SSE poll / detached-worker machinery. Isolates whether the OpenAI
+  // call itself works from whether the orchestration delivers its result.
+  const wantGenerate = new URL(request.url).searchParams.get('generate') === '1';
+  if (wantGenerate) {
+    const userId = ctx instanceof NextResponse ? undefined : ctx.userId;
+    const images = png
+      ? [{ filename: 'design-system-foundations.png', contentType: 'image/png' as const, data: png }]
+      : [{
+          filename: 'canvas.png',
+          contentType: 'image/png' as const,
+          data: Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAADklEQVQI12P4z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==',
+            'base64'
+          ),
+        }];
+    const genStart = Date.now();
+    try {
+      const imageUrl = await openAiImageEdit({
+        prompt: 'Generate a simple, polished hero section for a web page using the attached design system foundations for styling only. Headline, short subtext, one primary button.',
+        images,
+        model: 'gpt-image-2',
+        size: '2048x1152',
+        quality: 'low',
+        actorUserId: userId,
+        route: 'debug:foundation-raster',
+        eventType: 'ai.generate_design',
+      });
+      return NextResponse.json({
+        ok: true,
+        stage: 'generate',
+        rasterMs: ms,
+        generateMs: Date.now() - genStart,
+        imageUrlPrefix: imageUrl.slice(0, 64),
+        imageUrlLength: imageUrl.length,
+        counts,
+      });
+    } catch (e) {
+      return NextResponse.json(
+        {
+          ok: false,
+          stage: 'generate',
+          rasterMs: ms,
+          generateMs: Date.now() - genStart,
+          error: e instanceof Error ? `${e.message}\n${e.stack ?? ''}` : String(e),
+          counts,
+        },
+        { status: 500 }
+      );
+    }
+  }
 
   if (wantJson || renderError || !png) {
     return NextResponse.json(

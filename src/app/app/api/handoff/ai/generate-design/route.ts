@@ -1,4 +1,4 @@
-import { after, NextResponse, type NextRequest } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 import { authOrCloudToken, rateLimitUserId } from '@/lib/sync-auth';
 import { shouldProxyAi } from '@/lib/server/ai-client';
 import { proxyAiToCloud } from '@/lib/server/ai-proxy';
@@ -160,20 +160,27 @@ export async function POST(request: NextRequest) {
 
   record(userId, now);
 
-  // Schedule the worker to run after the response is sent
-  after(() => {
-    void runDesignGenerationJob(jobId, userId).catch((e) => {
-      console.error('[generate-design] worker uncaught', jobId, e);
-    });
-  });
-
-  // Open an SSE stream that polls the job row
+  // Open an SSE stream that polls the job row.
+  //
+  // IMPORTANT: the worker is kicked off *inside* the stream, NOT via after().
+  // after() callbacks only run once the response has finished streaming, but
+  // this response is a long-lived SSE poll that waits for the worker to finish
+  // — using after() deadlocks (worker never starts → 300s timeout → no image).
+  // A detached promise here runs concurrently in the same invocation; the open
+  // stream keeps the function alive for its duration.
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
       const emit = (stage: SseStage, payload?: Record<string, unknown>) => {
         try { controller.enqueue(enc.encode(sseEvent(stage, payload))); } catch { /* closed */ }
       };
+
+      // Fire-and-forget the worker; it writes status/stage to the job row that
+      // the poll loop below reads. Failures are persisted to the job as 'failed'
+      // by runDesignGenerationJob's own try/catch.
+      void runDesignGenerationJob(jobId, userId).catch((e) => {
+        console.error('[generate-design] worker uncaught', jobId, e);
+      });
 
       const deadline = Date.now() + POLL_TIMEOUT_MS;
       let lastStage = '';
