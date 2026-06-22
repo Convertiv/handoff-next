@@ -463,3 +463,126 @@ export async function pushRegistryLogos(handoff: Handoff): Promise<void> {
   await postJson(`${baseUrl}/api/registry/logos`, bearer, { logoSet });
   Logger.success('Registry logo set pushed.');
 }
+
+// ─── Fonts ──────────────────────────────────────────────────────────────────
+
+const FONT_EXT_RE = /\.(woff2|woff|ttf|otf)$/i;
+
+function weightFromVariant(variant: string): number {
+  const s = variant.toLowerCase().replace(/(slanted|slant|italic|oblique)/g, '').trim();
+  const num = s.match(/([1-9]00)/);
+  if (num) return parseInt(num[1], 10);
+  if (/thin|hairline/.test(s)) return 100;
+  if (/extralight|ultralight/.test(s)) return 200;
+  if (/semibold|demibold|demi/.test(s)) return 600;
+  if (/extrabold|ultrabold/.test(s)) return 800;
+  if (/black|heavy/.test(s)) return 900;
+  if (/medium/.test(s)) return 500;
+  if (/light/.test(s)) return 300;
+  if (/bold/.test(s)) return 700;
+  return 400; // regular / normal / book / unmatched
+}
+
+/** 'PPTelegraf' → 'PP Telegraf' (best-effort camelCase split for display). */
+function camelToWords(s: string): string {
+  return s
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim();
+}
+
+function parseFontFilename(fileName: string):
+  | { familyKey: string; family: string; weight: number; style: string; format: string }
+  | null {
+  const m = fileName.match(FONT_EXT_RE);
+  if (!m) return null;
+  const format = m[1].toLowerCase();
+  let base = fileName.slice(0, fileName.length - m[0].length);
+  base = base.replace(/^subset-/i, '');
+  const parts = base.split('-');
+  let variant = '';
+  let familyRaw = base;
+  if (parts.length > 1) {
+    variant = parts[parts.length - 1];
+    familyRaw = parts.slice(0, -1).join('-');
+  }
+  const style = /(slant|italic|oblique)/i.test(variant) ? 'italic' : 'normal';
+  const weight = weightFromVariant(variant);
+  const familyKey = familyRaw.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!familyKey) return null;
+  return { familyKey, family: camelToWords(familyRaw), weight, style, format };
+}
+
+/**
+ * Collect font files from the workspace and push them to the registry so:
+ *   - theme.css @font-face `url('/fonts/<file>')` references resolve, and
+ *   - the foundation rasterizer can render branded type samples (satori).
+ *
+ * Scans <workingPath>/public/fonts, <workingPath>/fonts, and
+ * <workingPath>/.handoff/app/public/fonts (whichever exist). De-duplicates by
+ * filename, preferring the first occurrence found.
+ */
+export async function pushRegistryFonts(handoff: Handoff): Promise<void> {
+  const candidateDirs = [
+    path.join(handoff.workingPath, 'public', 'fonts'),
+    path.join(handoff.workingPath, 'fonts'),
+    path.join(handoff.workingPath, '.handoff', 'app', 'public', 'fonts'),
+  ];
+
+  const seen = new Map<string, { dir: string }>();
+  for (const dir of candidateDirs) {
+    if (!(await fs.pathExists(dir))) continue;
+    let names: string[];
+    try {
+      names = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (!FONT_EXT_RE.test(name)) continue;
+      if (!seen.has(name)) seen.set(name, { dir });
+    }
+  }
+
+  if (seen.size === 0) {
+    Logger.warn(
+      `No font files found (checked ${candidateDirs.map((d) => path.relative(handoff.workingPath, d)).join(', ')}). Skipping font push.`
+    );
+    return;
+  }
+
+  const fonts: {
+    filename: string;
+    familyKey: string;
+    family: string;
+    weight: number;
+    style: string;
+    format: string;
+    data: string;
+  }[] = [];
+
+  for (const [filename, { dir }] of seen) {
+    const parsed = parseFontFilename(filename);
+    if (!parsed) continue;
+    try {
+      const buf = await fs.readFile(path.join(dir, filename));
+      fonts.push({ filename, ...parsed, data: buf.toString('base64') });
+    } catch (e) {
+      Logger.warn(`Could not read font ${filename}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  if (fonts.length === 0) {
+    Logger.warn('No readable font files to push. Skipping.');
+    return;
+  }
+
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer = await getSyncBearerToken(handoff.workingPath);
+  const families = Array.from(new Set(fonts.map((f) => f.family))).join(', ');
+  const totalKb = Math.round(fonts.reduce((n, f) => n + f.data.length * 0.75, 0) / 1024);
+  Logger.info(`Pushing ${fonts.length} font file(s) [${families}] (~${totalKb}KB)…`);
+  await postJson(`${baseUrl}/api/registry/fonts`, bearer, { fonts });
+  Logger.success('Registry fonts pushed.');
+}

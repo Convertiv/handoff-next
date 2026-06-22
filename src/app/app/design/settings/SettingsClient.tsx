@@ -1,7 +1,7 @@
 'use client';
 
 import type { ClientConfig } from '@handoff/types/config';
-import { ArrowLeftIcon, Trash2Icon, UploadIcon } from 'lucide-react';
+import { ArrowLeftIcon, ImageIcon, Trash2Icon, UploadIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import Layout from '@/components/Layout/Main';
@@ -217,6 +217,16 @@ export default function DesignSettingsClient({ config, menu, metadata, foundatio
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <a
+                href={`${basePath}/api/handoff/ai/debug-foundation-raster`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open the rasterized foundation reference image (sent to the image model) in a new tab"
+                className="inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition cursor-pointer bg-background hover:bg-muted"
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                Preview raster
+              </a>
               <label
                 className={`inline-flex h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-sm transition ${
                   includeFoundations

@@ -648,3 +648,28 @@ export const handoffRegistryLogos = pgTable('handoff_registry_logos', {
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
   updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 });
+
+/**
+ * Font files pushed from the workspace (one row per file). Served at
+ * `/fonts/<filename>` so theme.css @font-face URLs resolve on the registry,
+ * and read directly by the foundation rasterizer (satori) for branded previews.
+ * The `.handoff` app is built clean (no workspace files), so fonts must arrive
+ * over the push API — see pushRegistryFonts.
+ */
+export const handoffRegistryFonts = pgTable('handoff_registry_font', {
+  /** e.g. 'subset-PPTelegraf-Regular.woff2' — also the public URL segment */
+  filename: text('filename').primaryKey(),
+  /** Normalized family for lookup: lowercase, no spaces (e.g. 'pptelegraf') */
+  familyKey: text('family_key').notNull(),
+  /** Display family name (e.g. 'PP Telegraf') */
+  family: text('family').notNull(),
+  weight: integer('weight').notNull().default(400),
+  /** 'normal' | 'italic' */
+  style: text('style').notNull().default('normal'),
+  /** 'woff2' | 'woff' | 'ttf' | 'otf' */
+  format: text('format').notNull(),
+  /** Base64-encoded font bytes */
+  data: text('data').notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});

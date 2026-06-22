@@ -247,6 +247,24 @@ async function resolveFontBuffer(family: string, weight: SatoriWeight): Promise<
   const promise = (async (): Promise<ArrayBuffer | null> => {
     const local = await readLocalFontBuffer(family, weight);
     if (local) return local;
+
+    // Registry fonts pushed via `pushRegistryFonts`. Only reachable on the hosted
+    // registry (DATABASE_URL set); the workspace `.handoff` app has no DB and
+    // relies on local files instead. Returns satori-usable formats (ttf/otf/woff).
+    if (process.env.DATABASE_URL?.trim()) {
+      try {
+        const familyKey = family.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const { getRegistryFontForSatori } = await import('@/lib/db/registry-queries');
+        const buf = await getRegistryFontForSatori(familyKey, weight);
+        if (buf && buf.byteLength > 0) {
+          console.log(`[foundation-image] loaded "${family}" w${weight} from registry (${buf.byteLength} bytes)`);
+          return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+        }
+      } catch (e) {
+        console.warn('[foundation-image] registry font lookup failed:', e instanceof Error ? e.message : String(e));
+      }
+    }
+
     return fetchGoogleFontTtf(family, weight);
   })();
 

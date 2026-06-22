@@ -1,12 +1,13 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { desc, eq } from 'drizzle-orm';
+import { asc, desc, eq } from 'drizzle-orm';
 import { getDb } from './index';
 import {
   handoffRegistryConfig,
   handoffRegistryTheme,
   handoffRegistryNavigation,
   handoffRegistryDtcg,
+  handoffRegistryFonts,
   handoffTokenChanges,
   handoffTokensSnapshots,
 } from './schema-pg';
@@ -204,4 +205,121 @@ export async function insertTokensSnapshot(payload: unknown, trigger = 'push'): 
     modifiedKeys,
     snapshotId,
   });
+}
+
+// ─── Registry fonts ──────────────────────────────────────────────────────────
+
+export type RegistryFontInput = {
+  filename: string;
+  familyKey: string;
+  family: string;
+  weight: number;
+  style: string;
+  format: string;
+  /** Base64-encoded bytes */
+  data: string;
+};
+
+export type RegistryFontMeta = Omit<RegistryFontInput, 'data'> & { bytes: number; updatedAt: string | null };
+
+/** Bulk upsert font files (one row per file), keyed by filename. */
+export async function upsertRegistryFonts(fonts: RegistryFontInput[], userId: string | null = null): Promise<number> {
+  if (!fonts.length) return 0;
+  const db = getDb();
+  for (const f of fonts) {
+    await db
+      .insert(handoffRegistryFonts)
+      .values({
+        filename: f.filename,
+        familyKey: f.familyKey,
+        family: f.family,
+        weight: f.weight,
+        style: f.style,
+        format: f.format,
+        data: f.data,
+        updatedAt: new Date(),
+        updatedByUserId: userId,
+      })
+      .onConflictDoUpdate({
+        target: handoffRegistryFonts.filename,
+        set: {
+          familyKey: f.familyKey,
+          family: f.family,
+          weight: f.weight,
+          style: f.style,
+          format: f.format,
+          data: f.data,
+          updatedAt: new Date(),
+          updatedByUserId: userId,
+        },
+      });
+  }
+  return fonts.length;
+}
+
+/** List font metadata (no bytes), ordered by family then weight. */
+export async function listRegistryFonts(): Promise<RegistryFontMeta[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      filename: handoffRegistryFonts.filename,
+      familyKey: handoffRegistryFonts.familyKey,
+      family: handoffRegistryFonts.family,
+      weight: handoffRegistryFonts.weight,
+      style: handoffRegistryFonts.style,
+      format: handoffRegistryFonts.format,
+      data: handoffRegistryFonts.data,
+      updatedAt: handoffRegistryFonts.updatedAt,
+    })
+    .from(handoffRegistryFonts)
+    .orderBy(asc(handoffRegistryFonts.familyKey), asc(handoffRegistryFonts.weight));
+  return rows.map((r) => ({
+    filename: r.filename,
+    familyKey: r.familyKey,
+    family: r.family,
+    weight: r.weight,
+    style: r.style,
+    format: r.format,
+    bytes: Math.floor((r.data?.length ?? 0) * 0.75),
+    updatedAt: r.updatedAt?.toISOString() ?? null,
+  }));
+}
+
+/** Serve a single font file's bytes by filename. */
+export async function getRegistryFontFile(filename: string): Promise<{ data: Buffer; format: string } | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ data: handoffRegistryFonts.data, format: handoffRegistryFonts.format })
+    .from(handoffRegistryFonts)
+    .where(eq(handoffRegistryFonts.filename, filename))
+    .limit(1);
+  if (!row?.data) return null;
+  return { data: Buffer.from(row.data, 'base64'), format: row.format };
+}
+
+/**
+ * Resolve a satori-usable font (ttf/otf/woff — NOT woff2, which satori can't
+ * parse) for a family + requested weight, picking the closest available weight.
+ */
+export async function getRegistryFontForSatori(familyKey: string, weight: number): Promise<Buffer | null> {
+  const db = getDb();
+  const rows = await db
+    .select({ weight: handoffRegistryFonts.weight, format: handoffRegistryFonts.format, data: handoffRegistryFonts.data, style: handoffRegistryFonts.style })
+    .from(handoffRegistryFonts)
+    .where(eq(handoffRegistryFonts.familyKey, familyKey));
+  const usable = rows.filter(
+    (r) => r.style === 'normal' && ['ttf', 'otf', 'woff'].includes((r.format || '').toLowerCase()) && r.data
+  );
+  if (!usable.length) return null;
+  const pick =
+    usable.find((r) => r.weight === weight) ??
+    [...usable].sort((a, b) => Math.abs(a.weight - weight) - Math.abs(b.weight - weight))[0];
+  return pick?.data ? Buffer.from(pick.data, 'base64') : null;
+}
+
+/** All distinct family keys present in the registry (for diagnostics). */
+export async function listRegistryFontFamilyKeys(): Promise<string[]> {
+  const db = getDb();
+  const rows = await db.select({ familyKey: handoffRegistryFonts.familyKey }).from(handoffRegistryFonts);
+  return Array.from(new Set(rows.map((r) => r.familyKey)));
 }

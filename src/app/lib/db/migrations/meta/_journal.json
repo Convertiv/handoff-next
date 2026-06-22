@@ -92,6 +92,13 @@
       "when": 1781800000000,
       "tag": "0012_icon_logo_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1781900000000,
+      "tag": "0013_registry_fonts",
+      "breakpoints": true
     }
   ]
 }
