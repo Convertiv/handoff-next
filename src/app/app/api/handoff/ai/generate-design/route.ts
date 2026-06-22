@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { authOrCloudToken, rateLimitUserId } from '@/lib/sync-auth';
 import { shouldProxyAi } from '@/lib/server/ai-client';
 import { proxyAiToCloud } from '@/lib/server/ai-proxy';
-import { insertDesignGenerationJob, updateDesignGenerationJob } from '@/lib/db/queries';
+import { insertDesignGenerationJob } from '@/lib/db/queries';
 import { runDesignGenerationJob, serializeAttachedImages, type StoredImage } from '@/lib/server/design-generation-worker';
 import type { ImageEditQuality } from '@/lib/server/ai-client';
 import type {
@@ -52,9 +52,6 @@ type SseStage = 'preparing' | 'building_prompt' | 'generating' | 'done' | 'error
 function sseEvent(stage: SseStage, payload?: Record<string, unknown>): string {
   return `data: ${JSON.stringify({ stage, ...payload })}\n\n`;
 }
-
-const POLL_INTERVAL_MS = 1200;
-const POLL_TIMEOUT_MS = 300_000;
 
 export async function POST(request: NextRequest) {
   const ctx = await authOrCloudToken(request);
@@ -160,14 +157,14 @@ export async function POST(request: NextRequest) {
 
   record(userId, now);
 
-  // Open an SSE stream that polls the job row.
+  // Open an SSE stream that runs the worker INLINE.
   //
-  // IMPORTANT: the worker is kicked off *inside* the stream, NOT via after().
-  // after() callbacks only run once the response has finished streaming, but
-  // this response is a long-lived SSE poll that waits for the worker to finish
-  // — using after() deadlocks (worker never starts → 300s timeout → no image).
-  // A detached promise here runs concurrently in the same invocation; the open
-  // stream keeps the function alive for its duration.
+  // We do NOT detach the worker (neither via after() nor a fire-and-forget
+  // promise). On Vercel's streaming model, background promises the response
+  // body does not await are not guaranteed compute — the worker silently never
+  // runs (no AI log, 300s timeout, "No image returned."). Awaiting it here is
+  // exactly what the working inline path does, so it is reliable. maxDuration
+  // (300s) covers the ~25s generation; a heartbeat keeps the connection warm.
   const stream = new ReadableStream({
     async start(controller) {
       const enc = new TextEncoder();
@@ -175,42 +172,28 @@ export async function POST(request: NextRequest) {
         try { controller.enqueue(enc.encode(sseEvent(stage, payload))); } catch { /* closed */ }
       };
 
-      // Fire-and-forget the worker; it writes status/stage to the job row that
-      // the poll loop below reads. Failures are persisted to the job as 'failed'
-      // by runDesignGenerationJob's own try/catch.
-      void runDesignGenerationJob(jobId, userId).catch((e) => {
-        console.error('[generate-design] worker uncaught', jobId, e);
-      });
-
-      const deadline = Date.now() + POLL_TIMEOUT_MS;
-      let lastStage = '';
-
       emit('preparing', { jobId });
 
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        try {
-          const { getDesignGenerationJob } = await import('@/lib/db/queries');
-          const job = await getDesignGenerationJob(jobId);
-          if (!job) { emit('error', { error: 'Job not found.' }); break; }
+      // Heartbeat: re-emit the current stage every few seconds so proxies don't
+      // treat the long generation as an idle connection and drop it.
+      emit('generating');
+      const heartbeat = setInterval(() => emit('generating'), 5000);
 
-          if (job.stage !== lastStage) {
-            lastStage = job.stage;
-            emit(job.stage as SseStage);
-          }
+      try {
+        await runDesignGenerationJob(jobId, userId);
+        clearInterval(heartbeat);
 
-          if (job.status === 'done') {
-            emit('done', { imageUrl: job.imageUrl ?? '', jobId, artifactId: job.artifactId });
-            break;
-          }
-          if (job.status === 'failed') {
-            emit('error', { error: job.error || 'Generation failed.' });
-            break;
-          }
-        } catch (e) {
-          emit('error', { error: e instanceof Error ? e.message : 'Poll error.' });
-          break;
+        const { getDesignGenerationJob } = await import('@/lib/db/queries');
+        const job = await getDesignGenerationJob(jobId);
+        if (job?.status === 'done' && job.imageUrl) {
+          emit('done', { imageUrl: job.imageUrl, jobId, artifactId: job.artifactId });
+        } else {
+          emit('error', { error: job?.error || 'Generation failed.' });
         }
+      } catch (e) {
+        clearInterval(heartbeat);
+        console.error('[generate-design] worker error', jobId, e);
+        emit('error', { error: e instanceof Error ? e.message : 'Generation failed.' });
       }
 
       try { controller.close(); } catch { /* already closed */ }
