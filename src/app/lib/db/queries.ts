@@ -8,6 +8,7 @@ import {
   figmaFetchJobs,
   handoffAssetCollections,
   handoffAssets,
+  handoffAssetBlobs,
   handoffAssetUsages,
   handoffIconSets,
   handoffComponents,
@@ -1013,6 +1014,105 @@ export async function getAsset(id: string) {
   return row ?? null;
 }
 
+// ── DB-backed asset bytes (used when S3 is not configured) ───────────────────
+
+/** Store/replace the raw bytes for an asset. */
+export async function upsertAssetBlob(input: {
+  assetId: string;
+  /** Base64-encoded bytes */
+  data: string;
+  contentType: string;
+  contentHash?: string | null;
+}): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(handoffAssetBlobs)
+    .values({
+      assetId: input.assetId,
+      data: input.data,
+      contentType: input.contentType,
+      contentHash: input.contentHash ?? null,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: handoffAssetBlobs.assetId,
+      set: { data: input.data, contentType: input.contentType, contentHash: input.contentHash ?? null, updatedAt: new Date() },
+    });
+}
+
+/** Fetch decoded bytes + content type for a DB-backed asset. */
+export async function getAssetBlob(assetId: string): Promise<{ data: Buffer; contentType: string } | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ data: handoffAssetBlobs.data, contentType: handoffAssetBlobs.contentType })
+    .from(handoffAssetBlobs)
+    .where(eq(handoffAssetBlobs.assetId, assetId))
+    .limit(1);
+  if (!row?.data) return null;
+  return { data: Buffer.from(row.data, 'base64'), contentType: row.contentType };
+}
+
+/** Find an existing DB-backed asset by content hash (dedupe across components). */
+export async function findAssetIdByContentHash(contentHash: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ assetId: handoffAssetBlobs.assetId })
+    .from(handoffAssetBlobs)
+    .where(eq(handoffAssetBlobs.contentHash, contentHash))
+    .limit(1);
+  return row?.assetId ?? null;
+}
+
+/**
+ * Ingest a component-referenced image as a DB-backed library asset and link its
+ * usage to the component. Idempotent: the asset id is content-addressed, so the
+ * same image pushed by multiple components collapses to one asset + one blob,
+ * with a usage row per component.
+ */
+export async function ingestReferencedImageAsset(input: {
+  assetId: string;
+  filename: string;
+  mimeType: string;
+  contentHash: string;
+  dataBase64: string;
+  componentId: string;
+  refs: string[];
+  userId?: string | null;
+}): Promise<void> {
+  const db = getDb();
+  const storageUrl = `/api/handoff/assets/${input.assetId}/raw`;
+  // Asset row — content-addressed + immutable, so do nothing on conflict.
+  await db
+    .insert(handoffAssets)
+    .values({
+      id: input.assetId,
+      title: input.filename,
+      assetType: 'image',
+      mimeType: input.mimeType,
+      storageUrl,
+      sourceType: 'component',
+      status: 'active',
+      createdBy: input.userId ?? null,
+      tags: ['component-referenced'] as typeof handoffAssets.$inferInsert.tags,
+      updatedAt: new Date(),
+    })
+    .onConflictDoNothing({ target: handoffAssets.id });
+
+  await upsertAssetBlob({
+    assetId: input.assetId,
+    data: input.dataBase64,
+    contentType: input.mimeType,
+    contentHash: input.contentHash,
+  });
+
+  await upsertAssetUsage({
+    assetId: input.assetId,
+    componentId: input.componentId,
+    usageType: 'design_preview',
+    notes: input.refs.length ? `Referenced as: ${input.refs.join(', ')}` : null,
+  });
+}
+
 export async function getAssetWithUsages(id: string) {
   const db = getDb();
   const [asset] = await db.select().from(handoffAssets).where(eq(handoffAssets.id, id));
@@ -1178,11 +1278,17 @@ export async function getAssetUsages(assetId: string) {
 
 export async function getComponentAssetUsages(componentId: string) {
   const db = getDb();
-  return db
+  const rows = await db
     .select()
     .from(handoffAssetUsages)
     .leftJoin(handoffAssets, eq(handoffAssetUsages.assetId, handoffAssets.id))
     .where(eq(handoffAssetUsages.componentId, componentId));
+  // Flatten drizzle's join shape ({ handoff_asset_usage, handoff_asset }) into a
+  // usage row with a nested `asset` (or null) for easy client consumption.
+  return rows.map((r) => ({
+    ...r.handoff_asset_usage,
+    asset: r.handoff_asset ?? null,
+  }));
 }
 
 export async function deleteAssetUsage(id: number): Promise<boolean> {

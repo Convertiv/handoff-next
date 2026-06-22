@@ -144,7 +144,12 @@ export default function AssetDetailClient({ menu, config, asset }: Props) {
                       className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 text-sm"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="font-medium">{u.componentId}</span>
+                        <Link
+                          href={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/system/component/${u.componentId}`}
+                          className="font-medium text-primary hover:underline"
+                        >
+                          {u.componentId}
+                        </Link>
                         <Badge variant="secondary" className="text-xs capitalize">
                           {u.usageType}
                         </Badge>

@@ -467,6 +467,23 @@ export const handoffAssets = pgTable('handoff_asset', {
 });
 
 /**
+ * DB-backed bytes for an asset (used when S3 is not configured). Sibling table
+ * so the large base64 payload never bloats handoff_asset list/detail selects.
+ * When present, the asset's storageUrl points at /api/handoff/assets/<id>/raw.
+ */
+export const handoffAssetBlobs = pgTable('handoff_asset_blob', {
+  assetId: text('asset_id')
+    .primaryKey()
+    .references(() => handoffAssets.id, { onDelete: 'cascade' }),
+  /** Base64-encoded bytes */
+  data: text('data').notNull(),
+  contentType: text('content_type').notNull(),
+  /** sha256 of the raw bytes — enables content-addressed dedupe across components */
+  contentHash: text('content_hash'),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
+/**
  * Eager component↔asset usage records.
  * One row per (asset, component, propKey) triplet — same asset used at different
  * sizes in different components produces distinct rows.

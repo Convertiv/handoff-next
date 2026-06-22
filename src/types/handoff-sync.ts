@@ -35,9 +35,27 @@ export type ComponentSyncData = {
   buildArtifacts?: Record<string, string>;
   /** Handoff-layer source files from components/[id]/ (excl. dist/) keyed by relative path */
   sourceFiles?: Record<string, string>;
+  /**
+   * Workspace images referenced by this component (resolved + content-addressed).
+   * The server ingests these as library assets and links usages; references in
+   * buildArtifacts are already rewritten to each asset's served URL.
+   */
+  referencedImages?: ReferencedImagePayload[];
   /** Granular change classification for selective pull */
   changeType?: SyncChangeType;
   source?: string;
+};
+
+export type ReferencedImagePayload = {
+  /** Content-addressed asset id: `img_<sha256[:12]>` */
+  assetId: string;
+  filename: string;
+  contentHash: string;
+  mime: string;
+  /** Base64-encoded bytes */
+  dataBase64: string;
+  /** Original reference strings (for usage notes/propKey) */
+  refs: string[];
 };
 
 export type PatternSyncData = {

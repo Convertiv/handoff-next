@@ -2,6 +2,7 @@
 
 import { BuildStatusBanner } from '@handoff/app/components/Component/BuildStatusBanner';
 import { ComponentVersionHistory } from './ComponentVersionHistory';
+import ComponentAssetsPanel from './ComponentAssetsPanel';
 import { CodeEditor } from '@handoff/app/components/Component/CodeEditor';
 import { InlineComponentEditor } from '@handoff/app/components/Component/InlineComponentEditor';
 import { ComponentPreview } from '@handoff/app/components/Component/Preview';
@@ -314,6 +315,7 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
               <ValidationFrameworkResults results={component.validationResults} />
             </section>
           )}
+          <ComponentAssetsPanel componentId={id} basePath={normalizedBasePath} />
           <ComponentVersionHistory componentId={id} basePath={normalizedBasePath} />
           <hr className="mt-8" />
           <PrevNextNav previous={previousLink} next={nextLink} />

@@ -2,7 +2,7 @@
 
 export type AssetType = 'logo' | 'icon' | 'image' | 'video';
 export type AssetStatus = 'pending' | 'active';
-export type AssetSourceType = 'figma' | 'upload' | 'url' | 'wordpress' | 'cloudinary';
+export type AssetSourceType = 'figma' | 'upload' | 'url' | 'wordpress' | 'cloudinary' | 'component';
 export type AssetUsageType = 'thumbnail' | 'design_preview' | 'prop_default' | 'documentation' | 'icon';
 export type CollectionSourceType = 'figma' | 'manual';
 

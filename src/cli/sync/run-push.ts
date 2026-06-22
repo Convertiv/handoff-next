@@ -10,7 +10,9 @@ import {
   collectComponentSourceFiles,
   collectPatternBuildArtifacts,
   collectSharedComponentAssets,
+  isBinaryArtifactFilename,
 } from './collect-build-artifacts.js';
+import { applyImageRewrites, collectReferencedImages } from './collect-referenced-images.js';
 import {
   resolveComponentDeclarationForSync,
   resolvePatternDeclarationForSync,
@@ -210,6 +212,25 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
       if (!opts?.metadataOnly) {
         const collected = await collectComponentBuildArtifacts(handoff, id);
         for (const w of collected.warnings) Logger.warn(w);
+        const sourceFiles = await collectComponentSourceFiles(handoff, id);
+
+        // Discover workspace images referenced by this component (relative paths,
+        // /images/… absolutes, CSS url(…)), resolve them to bytes, and rewrite the
+        // references in the text artifacts to the asset's served URL so they
+        // resolve on the registry (where the workspace public/ dir doesn't exist).
+        const textArtifacts = Object.entries(collected.files)
+          .filter(([name]) => !isBinaryArtifactFilename(name))
+          .map(([, content]) => content);
+        const { images, rewriteMap } = await collectReferencedImages(handoff, textArtifacts, sourceFiles);
+        if (Object.keys(rewriteMap).length > 0) {
+          for (const name of Object.keys(collected.files)) {
+            if (!isBinaryArtifactFilename(name)) {
+              collected.files[name] = applyImageRewrites(collected.files[name], rewriteMap);
+            }
+          }
+          Logger.info(`Component "${id}": linked ${images.length} referenced image(s) to the asset library.`);
+        }
+
         if (!sharedAssets && Object.keys(collected.files).length > 0) {
           sharedAssets = await collectSharedComponentAssets(handoff);
         }
@@ -220,9 +241,11 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
         const sharedForThis = sharedAttached ? undefined : sharedAssets;
         payload = attachArtifacts(payload, collected.files, sharedForThis) as ComponentSyncData;
         if (sharedAssets && Object.keys(sharedAssets).length > 0) sharedAttached = true;
-        const sourceFiles = await collectComponentSourceFiles(handoff, id);
         if (Object.keys(sourceFiles).length > 0) {
           payload = { ...payload, sourceFiles };
+        }
+        if (images.length > 0) {
+          payload = { ...payload, referencedImages: images };
         }
       }
       payload = {
