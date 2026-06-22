@@ -15,13 +15,20 @@ interface GridTokenMap {
   breakpoints: Array<{ key: string; label: string; bp: string; bpPx: number; container: string; containerPx: number }>;
 }
 
-function remToPx(rem: string): number {
-  return Math.round(parseFloat(rem) * 16);
+function remToPx(value: string): number {
+  const n = parseFloat(value);
+  return value.endsWith('px') ? Math.round(n) : Math.round(n * 16);
 }
 
 function parseGridTokens(dtcgJson: string): GridTokenMap | null {
   try {
-    const obj = JSON.parse(dtcgJson) as Record<string, { $type?: string; $value: unknown; $description?: string }>;
+    const raw = JSON.parse(dtcgJson) as Record<string, unknown>;
+    // getDtcgTokenStrings wraps group-matched tokens under the group key ('grid')
+    const obj = (
+      raw['grid'] && typeof raw['grid'] === 'object' && !('$value' in (raw['grid'] as object))
+        ? raw['grid']
+        : raw
+    ) as Record<string, { $type?: string; $value: unknown; $description?: string }>;
 
     const cols = obj['columns']?.$value;
     const gutter = String(obj['gutter']?.$value ?? '2.625rem');
