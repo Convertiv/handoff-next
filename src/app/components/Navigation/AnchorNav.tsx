@@ -65,6 +65,10 @@ export interface AnchorNavProps {
 }
 
 export const AnchorNav: React.FC<AnchorNavProps> = ({ title, groups }) => {
+  // Render nothing when there are no links — avoids a confusing empty
+  // "On This Page" shell on pages whose token data is empty.
+  const hasItems = (groups ?? []).some((g) => Object.keys(g).length > 0);
+  if (!hasItems) return null;
   return (
     <div className="hidden text-sm xl:block">
       <div className="sticky top-24">

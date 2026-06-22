@@ -582,7 +582,33 @@ export async function pushRegistryFonts(handoff: Handoff): Promise<void> {
   const bearer = await getSyncBearerToken(handoff.workingPath);
   const families = Array.from(new Set(fonts.map((f) => f.family))).join(', ');
   const totalKb = Math.round(fonts.reduce((n, f) => n + f.data.length * 0.75, 0) / 1024);
-  Logger.info(`Pushing ${fonts.length} font file(s) [${families}] (~${totalKb}KB)…`);
-  await postJson(`${baseUrl}/api/registry/fonts`, bearer, { fonts });
+
+  // Batch by cumulative base64 size to stay under Vercel's ~4.5MB function
+  // payload limit (the endpoint upserts by filename, so multiple POSTs are safe
+  // and cumulative). A single font larger than the cap is still sent alone.
+  const MAX_BATCH_BYTES = 3_500_000;
+  const batches: (typeof fonts)[] = [];
+  let current: typeof fonts = [];
+  let currentBytes = 0;
+  for (const font of fonts) {
+    const size = font.data.length; // base64 chars ≈ bytes on the wire
+    if (current.length > 0 && currentBytes + size > MAX_BATCH_BYTES) {
+      batches.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(font);
+    currentBytes += size;
+  }
+  if (current.length > 0) batches.push(current);
+
+  Logger.info(`Pushing ${fonts.length} font file(s) [${families}] (~${totalKb}KB) in ${batches.length} batch(es)…`);
+  let pushed = 0;
+  for (let i = 0; i < batches.length; i += 1) {
+    const batch = batches[i];
+    await postJson(`${baseUrl}/api/registry/fonts`, bearer, { fonts: batch });
+    pushed += batch.length;
+    if (batches.length > 1) Logger.info(`  fonts batch ${i + 1}/${batches.length} (${pushed}/${fonts.length}) pushed.`);
+  }
   Logger.success('Registry fonts pushed.');
 }

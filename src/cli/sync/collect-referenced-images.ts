@@ -25,9 +25,18 @@ export type CollectReferencedImagesResult = {
   images: ReferencedImage[];
   /** originalRef → served asset URL, for rewriting artifact text. */
   rewriteMap: Record<string, string>;
+  /** Human-readable notices (e.g. images skipped for being oversized). */
+  warnings: string[];
 };
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
+
+/**
+ * Per-image size cap. Referenced images ride on the component push payload,
+ * which must stay under Vercel's ~4.5MB function limit. Oversized images are
+ * skipped (reference left unrewritten) until image upload is decoupled.
+ */
+const MAX_IMAGE_BYTES = 1_500_000;
 
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
@@ -129,12 +138,21 @@ export async function collectReferencedImages(
 
   const images: ReferencedImage[] = [];
   const rewriteMap: Record<string, string> = {};
+  const warnings: string[] = [];
 
   for (const { abs, refs } of byFile.values()) {
     let buf: Buffer;
     try {
       buf = await fs.readFile(abs);
     } catch {
+      continue;
+    }
+    if (buf.length > MAX_IMAGE_BYTES) {
+      // Skip: too large to ride on the component push payload. Leave the
+      // reference unrewritten (it will not resolve on the registry) and flag it.
+      warnings.push(
+        `Skipped oversized image "${path.basename(abs)}" (${Math.round(buf.length / 1024)}KB > ${Math.round(MAX_IMAGE_BYTES / 1024)}KB cap) — its reference was left as-is and will not resolve on the registry.`
+      );
       continue;
     }
     const contentHash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 12);
@@ -154,7 +172,7 @@ export async function collectReferencedImages(
     for (const ref of refs) rewriteMap[ref] = url;
   }
 
-  return { images, rewriteMap };
+  return { images, rewriteMap, warnings };
 }
 
 /** Apply a rewrite map to artifact text, replacing every original ref string. */

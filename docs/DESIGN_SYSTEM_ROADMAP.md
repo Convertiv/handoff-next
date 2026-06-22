@@ -212,3 +212,59 @@ Phase 0 (structure) ──┬── Phase 1 (DTCG + transforms) ── Phase 2 (
 Phases 0→1→2 are the critical path for the feature work the team wants. 3→4→5 layer the
 machine-facing and multi-source capabilities on top and can proceed partly in parallel once
 the canonical structure (Phase 0) is solid.
+
+---
+
+## Active build track — Workbench, Assets & Registry plumbing
+
+The phases above are the destination. This section is the **near-term operational work**
+hardening the live POC (8x8, SSC) so the workbench, playground, and registry are demo-solid.
+It feeds Phase 2 (native foundation/asset capability) and Phase 3 (registry API plumbing).
+
+### Shipped
+- **Workbench generation reliability** — root-caused the silent "No image returned." hang: the
+  worker is now `await`ed inline inside the SSE stream (not `after()`/a detached promise, which
+  Vercel doesn't reliably execute). Plus `maxDuration=300`, default quality `low`, blank-canvas
+  fallback for empty context, a 240s abort on the OpenAI image fetch, and a 30s watchdog + 8s
+  Google-font-fetch timeouts on foundation rasterization.
+- **DTCG → workbench foundations** — `serializeFoundationsFromDtcgData` feeds brand colors +
+  spacing/typography to the image model when there's no Figma snapshot (DTCG-only registries).
+- **Foundation raster diagnostics** — `/api/handoff/ai/debug-foundation-raster` (PNG, plus
+  `?json` and `?generate` probes) and a "Preview raster" button on `/design/settings`.
+- **Registry fonts** — `handoff_registry_font` table + `/api/registry/fonts` push API +
+  public `/fonts/<file>` serving (so theme.css `@font-face` resolves on the registry) + the
+  foundation rasterizer pulls satori-usable fonts (ttf/otf/woff) from the registry. Upload is
+  **batched** under Vercel's ~4.5MB function limit.
+- **Playground React components** — render via dynamic `import()` with a static `component.html`
+  fallback + `theme.css`, so 8x8's React blocks display instead of going blank.
+- **Component referenced-images → asset library** — DB-backed assets (`handoff_asset_blob` +
+  `/api/handoff/assets/[id]/raw`, S3-optional); a CLI scanner resolves workspace image refs,
+  content-addresses them, and rewrites references to the asset URL; the server ingests them as
+  library assets with `handoff_asset_usage` links; bidirectional cross-reference UI (asset ↔
+  component). Per-image **1.5MB cap** — oversize images are skipped + flagged (see backlog).
+- **Library in the workbench** — saved designs now live in the sidebar Library tab (linking to
+  `/design/library/[id]`); the standalone list page redirects there. Failed/stuck generations
+  are deletable at the DB level; the "start fresh" unsaved-session restore bug is fixed.
+- **Nav cleanup** — dropped Patterns from the tools nav; "Templates" → "Saved Patterns";
+  `AnchorNav` renders nothing when a page has no headings/groups.
+
+### In progress / pending decision
+- **Focus + elevation token extraction** — derive `focus` (ringWidth/ringOffset/ringColor) and
+  `elevation` (box-shadow scale) DTCG tokens from the existing Tailwind utility usage in 8x8's
+  components. The registry already has the foundation pages + DTCG types waiting; the gap is the
+  `tokens:build` extractor. *Not yet built.*
+- **Foundations right-hand TOC** — confirm whether it's missing on data-rich pages (Colors) at
+  full width; if so, lower the `xl`→`lg` visibility breakpoint. (Empty pages now correctly show
+  nothing; populated focus/elevation pages will gain a TOC once the extractor above lands.)
+
+### Backlog
+- **Decoupled batch image endpoint** — move component-referenced images off the component push
+  payload onto a dedicated, batched upload endpoint (mirroring the fonts pattern). The component
+  push would then carry only the rewritten refs. This removes the 1.5MB per-image cap and the
+  payload-size coupling that currently risks a 413 on image-heavy components, and lets large hero
+  images (e.g. 2560×1400 backgrounds) be registry-hosted. *Chosen approach when picked up.*
+- **Push-cache invalidation on CLI capability changes** — the push cache keys on workspace
+  source-file hashes, so a new CLI feature that changes push *output* (e.g. image scanning)
+  doesn't invalidate it; components are skipped until source changes or `--force` is passed.
+  Consider stamping a cache/feature version so a plain `push:all` picks up output-changing
+  capabilities once after a CLI upgrade.

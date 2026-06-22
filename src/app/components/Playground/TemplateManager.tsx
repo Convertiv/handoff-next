@@ -68,12 +68,12 @@ export default function TemplateManager() {
       <SheetTrigger asChild>
         <Button variant="outline" className="gap-2">
           <ListIcon className="h-4 w-4" />
-          Templates
+          Saved Patterns
         </Button>
       </SheetTrigger>
       <SheetContent side="right" className="max-w-[400px] overflow-y-auto sm:max-w-[30vw]">
         <SheetHeader>
-          <SheetTitle>Saved layouts</SheetTitle>
+          <SheetTitle>Saved Patterns</SheetTitle>
           <SheetDescription>
             {isDynamicApp ? 'Patterns from the database and local browser templates.' : 'Local templates stored in this browser.'}
           </SheetDescription>

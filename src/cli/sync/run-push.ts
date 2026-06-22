@@ -221,7 +221,8 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
         const textArtifacts = Object.entries(collected.files)
           .filter(([name]) => !isBinaryArtifactFilename(name))
           .map(([, content]) => content);
-        const { images, rewriteMap } = await collectReferencedImages(handoff, textArtifacts, sourceFiles);
+        const { images, rewriteMap, warnings: imageWarnings } = await collectReferencedImages(handoff, textArtifacts, sourceFiles);
+        for (const w of imageWarnings) Logger.warn(`Component "${id}": ${w}`);
         if (Object.keys(rewriteMap).length > 0) {
           for (const name of Object.keys(collected.files)) {
             if (!isBinaryArtifactFilename(name)) {

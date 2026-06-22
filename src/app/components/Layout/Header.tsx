@@ -39,7 +39,6 @@ function ToolsSubNav() {
   const tools = [
     { href: `${basePath}/design`, label: 'Workbench' },
     { href: `${basePath}/playground`, label: 'Playground' },
-    { href: `${basePath}/patterns`, label: 'Patterns' },
   ];
 
   return (
