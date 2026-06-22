@@ -14,6 +14,7 @@ import {
   MoreHorizontalIcon,
   PaperclipIcon,
   PlusIcon,
+  RefreshCwIcon,
   RotateCcwIcon,
   SettingsIcon,
   Trash2Icon,
@@ -67,6 +68,16 @@ import { COMPONENT_REFERENCE_SETTINGS, CUSTOM_FOUNDATION_IMAGE_FILENAME } from '
 
 type LayoutWizardStatus = 'idle' | 'analyzing' | 'generating' | 'done';
 type SidebarTab = 'session' | 'layout' | 'library';
+
+/** A saved design listed in the Library sidebar tab. */
+type LibraryArtifactRow = {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  imageUrl: string;
+  updatedAt: string;
+};
 
 type LayoutAnalysisResult = {
   description: string;
@@ -210,6 +221,10 @@ const DesignWorkbenchPage = ({
   const [draftArtifactId, setDraftArtifactId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<WorkbenchSession | null>(null);
   const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
+  const [libraryArtifacts, setLibraryArtifacts] = useState<LibraryArtifactRow[]>([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [libraryLoaded, setLibraryLoaded] = useState(false);
 
   useEffect(() => {
     selectedGeneratedImageIdRef.current = selectedGeneratedImageId;
@@ -223,6 +238,12 @@ const DesignWorkbenchPage = ({
     if (loadArtifactId?.trim()) return;
     const saved = loadWorkbenchSession();
     if (!saved) return;
+    // Only offer to restore a session with genuine unsaved work — an active
+    // canvas image or an in-progress conversation thread. Bare generation
+    // thumbnails are re-hydrated from the jobs API, so a session containing
+    // only those (or nothing) shouldn't trigger the restore prompt.
+    const hasMeaningfulWork = Boolean(saved.imageSrc) || (saved.conversationHistory?.length ?? 0) > 0;
+    if (!hasMeaningfulWork) return;
     setResumeSession(saved);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -266,6 +287,27 @@ const DesignWorkbenchPage = ({
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
+
+  const fetchLibrary = useCallback(async () => {
+    setLibraryLoading(true);
+    setLibraryError(null);
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact?limit=100'), { credentials: 'include' });
+      const json = (await res.json().catch(() => ({}))) as { artifacts?: LibraryArtifactRow[]; error?: string };
+      if (!res.ok) throw new Error(json.error || `Failed to load (${res.status})`);
+      setLibraryArtifacts(json.artifacts ?? []);
+      setLibraryLoaded(true);
+    } catch (e) {
+      setLibraryError(e instanceof Error ? e.message : 'Failed to load library.');
+    } finally {
+      setLibraryLoading(false);
+    }
+  }, []);
+
+  // Lazily load the library the first time its tab is opened.
+  useEffect(() => {
+    if (activeSidebarTab === 'library' && !libraryLoaded && isLoggedIn) void fetchLibrary();
+  }, [activeSidebarTab, libraryLoaded, isLoggedIn, fetchLibrary]);
 
   useEffect(() => {
     const recentImages = generatedImages
@@ -883,6 +925,10 @@ const DesignWorkbenchPage = ({
   };
 
   const handleDeleteGeneratedImage = (imageId: string) => {
+    // Capture the job id before removing from state so we can also delete the
+    // backing job row — otherwise stuck/failed jobs reappear from the jobs API
+    // on the next mount.
+    const target = generatedImages.find((image) => image.id === imageId);
     setGeneratedImages((current) => current.filter((image) => image.id !== imageId));
     if (selectedGeneratedImageIdRef.current === imageId) {
       selectedGeneratedImageIdRef.current = null;
@@ -891,6 +937,29 @@ const DesignWorkbenchPage = ({
       setLayoutWizardDisplayWireframeUrl('');
       setLayoutWizardDisplayDescription('');
     }
+    if (target?.jobId) {
+      void fetch(handoffApiUrl(`/api/handoff/ai/design-generation-job/${target.jobId}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      }).catch(() => { /* best-effort; item is already removed from the UI */ });
+    }
+  };
+
+  const handleStartFresh = () => {
+    // Clear both the persisted session AND the in-memory state that feeds the
+    // auto-save effect. Without clearing state, the effect would immediately
+    // re-persist imageSrc/conversationHistory and the restore bar would return
+    // on the next visit. Generation thumbnails are left alone (jobs API-backed).
+    clearWorkbenchSession();
+    setResumeSession(null);
+    setImageSrc(null);
+    setConversationHistory([]);
+    setDraftArtifactId(null);
+    draftArtifactIdRef.current = null;
+    selectedGeneratedImageIdRef.current = null;
+    setSelectedGeneratedImageId(null);
+    setLayoutWizardDisplayWireframeUrl('');
+    setLayoutWizardDisplayDescription('');
   };
 
   const handleDownloadGeneratedImage = (img: GeneratedImage) => {
@@ -945,6 +1014,8 @@ const DesignWorkbenchPage = ({
       setSaveDefaultTitle('');
       setSaveDescription('');
       setSaveImageSrc(null);
+      // Refresh the Library tab so the newly saved design appears immediately.
+      void fetchLibrary();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
@@ -994,7 +1065,7 @@ const DesignWorkbenchPage = ({
               size="sm"
               variant="ghost"
               className="h-7 text-xs"
-              onClick={() => { clearWorkbenchSession(); setResumeSession(null); }}
+              onClick={handleStartFresh}
             >
               Start fresh
             </Button>
@@ -1204,10 +1275,65 @@ const DesignWorkbenchPage = ({
                 </Button>
               </div>
             </TabsContent>
-            <TabsContent value="library" className="m-0 flex min-h-0 flex-1 flex-col p-4">
-              <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center">
-                <p className="text-sm font-medium">Library</p>
-                <p className="mt-1 text-xs text-muted-foreground">Library items will appear here.</p>
+            <TabsContent value="library" className="m-0 flex min-h-0 flex-1 flex-col">
+              <div className="flex items-center justify-between border-b px-3 py-2">
+                <p className="text-xs font-medium text-muted-foreground">Saved designs</p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => void fetchLibrary()}
+                  disabled={libraryLoading}
+                  aria-label="Refresh library"
+                  title="Refresh library"
+                >
+                  <RefreshCwIcon className={`h-4 w-4 ${libraryLoading ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+              <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
+                {libraryError ? (
+                  <p className="text-xs text-destructive">{libraryError}</p>
+                ) : libraryLoading && libraryArtifacts.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Loading saved designs…</p>
+                ) : libraryArtifacts.length === 0 ? (
+                  <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center">
+                    <p className="text-sm font-medium">No saved designs yet</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Use “Add to Library” on a generation to save it here.
+                    </p>
+                  </div>
+                ) : (
+                  libraryArtifacts.map((a) => (
+                    <Link
+                      key={a.id}
+                      href={`${basePath}/design/library/${a.id}/`}
+                      className="group block rounded-lg border bg-muted/20 p-1 transition hover:border-primary"
+                    >
+                      {a.imageUrl ? (
+                        <Image
+                          src={a.imageUrl}
+                          alt={a.title}
+                          width={192}
+                          height={108}
+                          unoptimized
+                          className="h-20 w-full rounded-md object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-20 w-full items-center justify-center rounded-md bg-muted text-xs text-muted-foreground">
+                          No preview
+                        </div>
+                      )}
+                      <div className="px-1 py-1.5">
+                        <p className="truncate text-xs font-medium" title={a.title}>{a.title}</p>
+                        <div className="mt-0.5 flex items-center justify-between gap-2">
+                          <span className="text-[11px] capitalize text-muted-foreground">{a.status}</span>
+                          <span className="text-[11px] text-muted-foreground">{formatGenerationTimestamp(a.updatedAt)}</span>
+                        </div>
+                      </div>
+                    </Link>
+                  ))
+                )}
               </div>
             </TabsContent>
           </Tabs>

@@ -842,6 +842,16 @@ export async function getActiveDesignGenerationJobsForUser(userId: string): Prom
     .limit(20);
 }
 
+/** Delete a generation job row (e.g. dismissing a failed/stuck job). Owner-scoped. */
+export async function deleteDesignGenerationJob(jobId: number, userId: string): Promise<boolean> {
+  const db = getDb();
+  const deleted = await db
+    .delete(handoffDesignGenerationJobs)
+    .where(and(eq(handoffDesignGenerationJobs.id, jobId), eq(handoffDesignGenerationJobs.userId, userId)))
+    .returning({ id: handoffDesignGenerationJobs.id });
+  return deleted.length > 0;
+}
+
 // ── Kill / force-fail stuck build tasks ──────────────────────────────────────
 
 /** Mark a component Vite build job as failed (admin kill). Only affects queued/building rows. */

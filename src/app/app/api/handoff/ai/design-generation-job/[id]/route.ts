@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDesignGenerationJob } from '@/lib/db/queries';
+import { getDesignGenerationJob, deleteDesignGenerationJob } from '@/lib/db/queries';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -32,4 +32,20 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       updatedAt: job.updatedAt,
     },
   });
+}
+
+/** Remove a generation job (dismiss a failed/stuck job so it stops reappearing). */
+export async function DELETE(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { id } = await params;
+  const jobId = Number(id);
+  if (!Number.isFinite(jobId) || jobId <= 0) {
+    return NextResponse.json({ error: 'Invalid job id' }, { status: 400 });
+  }
+
+  const deleted = await deleteDesignGenerationJob(jobId, session.user.id);
+  if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  return NextResponse.json({ ok: true });
 }
