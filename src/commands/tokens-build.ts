@@ -4,6 +4,7 @@ import { CommandModule } from 'yargs';
 import Handoff from '@handoff/index';
 import { migrateLegacyTokens } from '@handoff/cli/tokens/migrate-legacy';
 import { transformTokens } from '@handoff/cli/tokens/transform';
+import { ensureDefaultBrand } from '@handoff/cli/tokens/ensure-default-brand';
 import { parseCssBrands } from '@handoff/cli/tokens/parse-css-brands';
 import { Logger } from '@handoff/utils/logger';
 import { SharedArgs } from './types.js';
@@ -102,6 +103,14 @@ const command: CommandModule<{}, TokensBuildArgs> = {
     // ── Step 3: Style Dictionary transform ───────────────────────────────
     Logger.info('Transforming tokens to CSS / SCSS / Tailwind / DTCG...');
     await transformTokens(workingPath);
+
+    // ── Step 4: Ensure at least one brand exists ──────────────────────────
+    // ColorsDisplay requires brand-structured token data. If no brands/
+    // directory was configured (common for Figma-only or migrated projects),
+    // synthesise a "default" brand from the resolved color tokens so the
+    // colors foundation page always renders swatches.
+    await ensureDefaultBrand(workingPath);
+
     Logger.success('tokens:build complete → design-system/dist/');
   },
 };
