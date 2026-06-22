@@ -30,8 +30,9 @@ function flattenDtcgLeaves(
     const t = token as Record<string, unknown>;
     const fullKey = prefix ? `${prefix}-${key}` : key;
     if ('$value' in t) {
-      const value = typeof t.$value === 'string' ? t.$value : '0rem';
-      const px = Math.round(parseFloat(value) * 16);
+      const value = typeof t.$value === 'string' ? t.$value : '0px';
+      const raw = parseFloat(value);
+      const px = value.endsWith('rem') ? Math.round(raw * 16) : Math.round(raw);
       return [{ key: fullKey, name: `spacing-${fullKey}`, value, px, description: (t.$description as string) ?? '' }];
     }
     // Non-leaf group: recurse, stripping the outer key into the prefix

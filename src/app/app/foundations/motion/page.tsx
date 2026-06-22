@@ -13,19 +13,40 @@ interface EasingToken  { key: string; name: string; bezier: [number, number, num
 
 interface MotionTokenMap { durations: DurationToken[]; easings: EasingToken[] }
 
-function parseMotionTokens(dtcgJson: string): MotionTokenMap {
-  try {
-    const obj = JSON.parse(dtcgJson) as Record<string, { $type?: string; $value: unknown; $description?: string }>;
-    const durations: DurationToken[] = [];
-    const easings: EasingToken[] = [];
-    for (const [key, token] of Object.entries(obj)) {
+function collectMotionLeaves(
+  obj: Record<string, unknown>,
+  prefix: string,
+  durations: DurationToken[],
+  easings: EasingToken[],
+): void {
+  for (const [key, val] of Object.entries(obj)) {
+    if (!val || typeof val !== 'object') continue;
+    const token = val as Record<string, unknown>;
+    const fullKey = prefix ? `${prefix}-${key}` : key;
+    if ('$value' in token) {
       if (token.$type === 'duration') {
         const value = String(token.$value ?? '0ms');
-        durations.push({ key, name: `motion-${key}`, value, ms: parseInt(value, 10), description: token.$description ?? '' });
+        durations.push({ key: fullKey, name: `motion-${fullKey}`, value, ms: parseInt(value, 10), description: (token.$description as string) ?? '' });
       } else if (token.$type === 'cubicBezier' && Array.isArray(token.$value)) {
-        easings.push({ key, name: `motion-${key}`, bezier: token.$value as [number, number, number, number], description: token.$description ?? '' });
+        easings.push({ key: fullKey, name: `motion-${fullKey}`, bezier: token.$value as [number, number, number, number], description: (token.$description as string) ?? '' });
       }
+    } else {
+      collectMotionLeaves(token as Record<string, unknown>, fullKey, durations, easings);
     }
+  }
+}
+
+function parseMotionTokens(dtcgJson: string): MotionTokenMap {
+  try {
+    const obj = JSON.parse(dtcgJson) as Record<string, unknown>;
+    const durations: DurationToken[] = [];
+    const easings: EasingToken[] = [];
+    // Unwrap top-level 'motion' wrapper if present (from getDtcgTokenStrings group matching)
+    const root =
+      obj['motion'] && typeof obj['motion'] === 'object' && !('$value' in (obj['motion'] as object))
+        ? (obj['motion'] as Record<string, unknown>)
+        : obj;
+    collectMotionLeaves(root, '', durations, easings);
     durations.sort((a, b) => a.ms - b.ms);
     return { durations, easings };
   } catch {
