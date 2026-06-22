@@ -260,12 +260,23 @@ export function mergeDbNavIntoSkeleton(
   const merged: SectionLink[] = skeleton.map((section) => {
     const dbNode = dbBySlug.get(normalizeNavPath(section.path));
     if (!dbNode) return section;
-    // If the project pushed an explicit definition for this section, it wins
-    // over the skeleton's auto-derived subSections.
+    // If the project pushed an explicit definition for this section, its items
+    // (titles/icons) win — BUT structural skeleton pages (e.g. the built-in
+    // Foundations pages like Grid/Effects) must never be dropped just because an
+    // auto-derived DB definition omits them, and they should keep their
+    // canonical position. We union by SKELETON order: each skeleton subSection
+    // uses the DB-coerced version when matched (preserving customization),
+    // otherwise the skeleton version; any genuine DB-only items append after.
     if (dbNode.definition !== undefined && dbNode.definition !== null) {
       const coerced = coerceDefinitionToSubSections(dbNode.definition, opts);
       if (coerced.length > 0) {
-        return { ...section, title: dbNode.title || section.title, subSections: coerced };
+        const coercedByPath = new Map(coerced.map((s) => [normalizeNavPath(s.path ?? ''), s]));
+        const skeletonSubs = section.subSections ?? [];
+        const skeletonPaths = new Set(skeletonSubs.map((s) => normalizeNavPath(s.path ?? '')));
+        const ordered = skeletonSubs.map((s) => coercedByPath.get(normalizeNavPath(s.path ?? '')) ?? s);
+        const dbOnly = coerced.filter((s) => !skeletonPaths.has(normalizeNavPath(s.path ?? '')));
+        const subSections = skeletonSubs.length > 0 ? [...ordered, ...dbOnly] : coerced;
+        return { ...section, title: dbNode.title || section.title, subSections };
       }
     }
     const dbChildren = Array.isArray(dbNode.children) ? (dbNode.children as DbNavNode[]) : [];

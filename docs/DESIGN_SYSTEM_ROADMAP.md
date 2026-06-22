@@ -201,6 +201,55 @@ and canonical is visible and actionable in the UI.
 
 ---
 
+## Strategic initiative — Handoff ⇄ Claude Design
+
+**The opportunity.** Claude's design/prototyping mode generates UI, but it produces
+*generic* output unless it's framed by a real design system. Handoff already holds that
+system — tokens, foundations, components, assets — and already exposes it over an **MCP server**
+(Phase 3). The unlock: wire Handoff's MCP into Claude Design so anyone can prototype in Claude
+*with their own design system as the frame* — real tokens, real components, real brand — instead
+of from scratch. This is the north-star consumer that makes the whole "canonical DS, machine-
+consumable" thesis pay off, and it's largely an integration play on top of capability we already
+have rather than net-new platform work.
+
+**What "frames the design" means (the context Claude Design needs).** Working assumption —
+*validate against what Claude Design actually consumes:*
+1. **Token context** — resolved, typed tokens (color/spacing/type/elevation/focus/…) in a form
+   the model can apply: a compact brief plus an on-demand "give me this as Tailwind/CSS/DTCG"
+   export. Handoff's MCP `tools` already do alias resolution + format export.
+2. **Component vocabulary** — the available components, their props/variants, and a preview or
+   static HTML so generated layouts compose *real* components (ties to the playground + the
+   component-referenced-image/asset work in the active track).
+3. **Brand & usage guidance** — voice, do/don'ts, layout rules — the `Design.md` / brand-voice
+   content the workbench settings already capture, surfaced as agent-readable context.
+
+**Integration surfaces to evaluate (pick based on what Claude Design supports):**
+- **MCP-native (preferred if supported):** Claude Design connects directly to a project's Handoff
+  MCP server and pulls resources/tools live — always current, no export step. Question: does
+  Claude Design accept a user-supplied MCP design-system source, and with what resource/tool shape?
+- **Generated system brief (`DESIGN.md` + token export):** a compact, version-pinned artifact
+  Handoff emits (ties to Phase 5's DESIGN.md export) that Claude Design loads as framing context.
+  Lower-fidelity but works without a live MCP connection.
+- **Hybrid:** brief for framing + MCP tools for on-demand detail (resolve a token, fetch a
+  component's props/preview) during generation.
+
+**Open questions / spike before committing:**
+- What exactly does Claude Design ingest to "frame" a design today, and is that surface
+  user-extensible (MCP? a system file? a connector)? *This gates everything — spike first.*
+- Auth/connection model for a per-project registry MCP from within Claude Design.
+- How component *code/preview* is surfaced so prototypes use real components, not lookalikes —
+  and the round-trip back (can a Claude-Design prototype save into the Handoff library/workbench?).
+- Token fidelity: does Claude Design want raw DTCG, a Tailwind `@theme`, or a natural-language brief?
+
+**Dependencies:** Phase 3 (MCP read model — exists), Phase 5 (DESIGN.md export adapter), and the
+active-track component/asset/registry work (so components and assets are real and resolvable).
+
+**Acceptance (north star):** a user points Claude Design at their Handoff registry and prototypes
+a screen that uses their actual tokens and components, with brand framing applied — no manual
+setup of the design system inside Claude.
+
+---
+
 ## Dependency summary
 
 ```

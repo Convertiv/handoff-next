@@ -61,7 +61,7 @@ export default function ComponentAssetsPanel({ componentId, basePath }: { compon
           return (
             <Link
               key={u.id}
-              href={`${basePath}/design/assets/${u.assetId}`}
+              href={`${basePath}/foundations/assets/${u.assetId}`}
               className="group flex w-40 flex-col rounded-lg border border-border bg-card p-2 transition hover:border-primary"
               title={a?.title || u.assetId}
             >

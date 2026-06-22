@@ -287,7 +287,9 @@ export default function AssetDetailClient({ id }: { id: string }) {
                       key={u.id}
                       className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
                     >
-                      <span className="truncate">{u.componentId}</span>
+                      <Link href={`${BASE}/system/component/${u.componentId}`} className="truncate text-primary hover:underline">
+                        {u.componentId}
+                      </Link>
                       {u.figmaContainerWidth && u.figmaContainerHeight && (
                         <span className="shrink-0 text-[10px]">
                           {u.figmaContainerWidth}×{u.figmaContainerHeight}
