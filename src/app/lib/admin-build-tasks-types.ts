@@ -29,4 +29,13 @@ export type AdminBuildTaskRow =
       completedAt: Date | string | null;
       iteration: number;
       visualScore: number | null;
+    }
+  | {
+      kind: 'figma_fetch';
+      jobId: number;
+      triggeredByUserId: string | null;
+      status: string;
+      error: string | null;
+      createdAt: Date | string | null;
+      completedAt: Date | string | null;
     };

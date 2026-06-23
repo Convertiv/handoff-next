@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle, ImageIcon, Loader2, Package, Sparkles, XCircle, Clock, StopCircle } from 'lucide-react';
+import { CheckCircle, ImageIcon, Loader2, Package, RefreshCw, Sparkles, XCircle, Clock, StopCircle } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '../../../components/Layout/Main';
@@ -116,9 +116,41 @@ function ComponentGenerationStatusBadge({ status }: { status: string }) {
   }
 }
 
+function FigmaFetchStatusBadge({ status }: { status: string }) {
+  switch (status) {
+    case 'queued':
+      return (
+        <Badge variant="outline" className="gap-1 border-amber-300 text-amber-700 dark:border-amber-700 dark:text-amber-400">
+          <Clock className="h-3 w-3" /> Queued
+        </Badge>
+      );
+    case 'running':
+      return (
+        <Badge variant="outline" className="gap-1 border-sky-300 text-sky-700 dark:border-sky-700 dark:text-sky-400">
+          <Loader2 className="h-3 w-3 animate-spin" /> Running
+        </Badge>
+      );
+    case 'complete':
+      return (
+        <Badge variant="outline" className="gap-1 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400">
+          <CheckCircle className="h-3 w-3" /> Complete
+        </Badge>
+      );
+    case 'failed':
+      return (
+        <Badge variant="outline" className="gap-1 border-red-300 text-red-700 dark:border-red-700 dark:text-red-400">
+          <XCircle className="h-3 w-3" /> Failed
+        </Badge>
+      );
+    default:
+      return <Badge variant="outline">{status}</Badge>;
+  }
+}
+
 function StatusCell({ row }: { row: AdminBuildTaskRow }) {
   if (row.kind === 'component_build') return <ComponentStatusBadge status={row.status} />;
   if (row.kind === 'component_generation') return <ComponentGenerationStatusBadge status={row.status} />;
+  if (row.kind === 'figma_fetch') return <FigmaFetchStatusBadge status={row.status} />;
   return <AssetExtractionStatusBadge status={row.status} />;
 }
 
@@ -150,7 +182,8 @@ export default function BuildsClient({
     return (
       tasks.some((t) => t.kind === 'design_asset_extraction' && (t.status === 'pending' || t.status === 'extracting')) ||
       tasks.some((t) => t.kind === 'component_build' && (t.status === 'queued' || t.status === 'building')) ||
-      tasks.some((t) => t.kind === 'component_generation' && genActive(t.status))
+      tasks.some((t) => t.kind === 'component_generation' && genActive(t.status)) ||
+      tasks.some((t) => t.kind === 'figma_fetch' && (t.status === 'queued' || t.status === 'running'))
     );
   }, [tasks]);
 
@@ -217,7 +250,7 @@ export default function BuildsClient({
       <div className="mx-auto max-w-5xl">
         <h1 className="mb-1 text-xl font-semibold">Builds</h1>
         <p className="mb-4 text-sm text-muted-foreground">
-          Component preview (Vite) jobs, saved-design <strong>asset extraction</strong>, and <strong>design-to-component</strong> AI generation. Rows
+          Component preview (Vite) jobs, <strong>Figma sync</strong>, saved-design <strong>asset extraction</strong>, and <strong>design-to-component</strong> AI generation. Rows
           refresh automatically while jobs are in progress.
         </p>
         {killError ? (
@@ -346,6 +379,37 @@ export default function BuildsClient({
                           </Button>
                         ) : null}
                       </TableCell>
+                    </TableRow>
+                  );
+                }
+                if (row.kind === 'figma_fetch') {
+                  const terminal = row.status === 'complete' || row.status === 'failed';
+                  return (
+                    <TableRow key={`ff-${row.jobId}`}>
+                      <TableCell className="text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1.5">
+                          <RefreshCw className="h-3.5 w-3.5 shrink-0" />
+                          Figma sync
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-muted-foreground">#{row.jobId}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {row.triggeredByUserId ? (
+                          <span className="font-mono">{row.triggeredByUserId}</span>
+                        ) : (
+                          <span className="text-muted-foreground/60">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <StatusCell row={row} />
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{formatDate(row.createdAt)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">{terminal ? formatDate(row.completedAt) : '—'}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {terminal ? durationMs(row.createdAt, row.completedAt) : '—'}
+                      </TableCell>
+                      <TableCell className="max-w-xs truncate text-xs text-red-500">{row.error ?? '—'}</TableCell>
+                      <TableCell />
                     </TableRow>
                   );
                 }

@@ -156,6 +156,11 @@ function adminBuildTaskSortTime(row: AdminBuildTaskRow): number {
     if (t) return new Date(t).getTime();
     return row.generationJobId;
   }
+  if (row.kind === 'figma_fetch') {
+    const t = row.completedAt ?? row.createdAt;
+    if (t) return new Date(t).getTime();
+    return row.jobId;
+  }
   if (row.updatedAt) return new Date(row.updatedAt).getTime();
   if (row.createdAt) return new Date(row.createdAt).getTime();
   return 0;
@@ -174,12 +179,14 @@ export async function getRecentComponentGenerationJobs(limit = 80) {
 export async function getMergedAdminBuildTasks(
   componentJobLimit = 100,
   artifactJobLimit = 100,
-  generationJobLimit = 80
+  generationJobLimit = 80,
+  figmaFetchLimit = 30
 ): Promise<AdminBuildTaskRow[]> {
-  const [jobs, artifacts, genJobs] = await Promise.all([
+  const [jobs, artifacts, genJobs, fetchJobs] = await Promise.all([
     getRecentBuildJobs(componentJobLimit),
     getRecentDesignArtifactAssetJobs(artifactJobLimit),
     getRecentComponentGenerationJobs(generationJobLimit),
+    listRecentFigmaFetchJobs(figmaFetchLimit),
   ]);
 
   const rows: AdminBuildTaskRow[] = [
@@ -217,6 +224,17 @@ export async function getMergedAdminBuildTasks(
         completedAt: g.completedAt ?? null,
         iteration: g.iteration,
         visualScore: g.visualScore != null ? Number(g.visualScore) : null,
+      })
+    ),
+    ...fetchJobs.map(
+      (f): AdminBuildTaskRow => ({
+        kind: 'figma_fetch',
+        jobId: f.id,
+        triggeredByUserId: f.triggeredByUserId ?? null,
+        status: f.status,
+        error: f.error ?? null,
+        createdAt: f.createdAt ?? null,
+        completedAt: f.completedAt ?? null,
       })
     ),
   ];
@@ -257,6 +275,11 @@ export async function getDbTokensSnapshot(): Promise<unknown | null> {
     (r) => r.payload && typeof r.payload === 'object' && 'localStyles' in (r.payload as Record<string, unknown>)
   );
   return withLocalStyles?.payload ?? null;
+}
+
+export async function listRecentFigmaFetchJobs(limit = 50) {
+  const db = getDb();
+  return db.select().from(figmaFetchJobs).orderBy(desc(figmaFetchJobs.id)).limit(limit);
 }
 
 export async function insertFigmaFetchJob(triggeredByUserId: string): Promise<number> {
