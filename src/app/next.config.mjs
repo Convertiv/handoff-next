@@ -74,6 +74,7 @@ const HANDOFF_DIST = path.resolve(HANDOFF_MODULE_PATH, 'dist');
 /** Next bundles @handoff/* from compiled dist (.js); the materialized app uses @handoff/app → APP_DIR. */
 const handoffResolveAlias = () => ({
   '@handoff/app': APP_DIR,
+  '@handoff/index': path.join(HANDOFF_DIST, 'index.js'),
   '@handoff/transformers': path.join(HANDOFF_DIST, 'transformers'),
   '@handoff/config': path.join(HANDOFF_DIST, 'config'),
   '@handoff/types': path.join(HANDOFF_DIST, 'types'),
