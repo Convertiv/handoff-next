@@ -1,7 +1,6 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { Badge } from '../../../components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { auth } from '../../../lib/auth';
 import { usePostgres } from '../../../lib/db/dialect';
@@ -66,11 +65,9 @@ export default async function AccountAiCostPage() {
       </div>
 
       {aiByUser.length > 0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">By user</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <section className="space-y-3">
+          <h2 className="text-sm font-medium">By user</h2>
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -95,19 +92,19 @@ export default async function AccountAiCostPage() {
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       {aiEvents.length === 0 ? (
         <p className="text-sm text-muted-foreground">No AI events in the last 30 days.</p>
       ) : (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Recent events</CardTitle>
-            <CardDescription>Up to 200 most recent AI calls from the last 30 days.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-medium">Recent events</h2>
+            <p className="text-sm text-muted-foreground">Up to 200 most recent AI calls from the last 30 days.</p>
+          </div>
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -136,8 +133,8 @@ export default async function AccountAiCostPage() {
                 ))}
               </TableBody>
             </Table>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
     </>
   );

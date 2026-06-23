@@ -5,7 +5,6 @@ import { useState, useTransition } from 'react';
 import { handoffApiUrl } from '../../../lib/api-path';
 import type { UserRowDto } from '../../../lib/server/admin-users';
 import { Button } from '../../../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -106,10 +105,10 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
   };
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-10">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
+          <h1 className="text-xl font-semibold">Users</h1>
           <p className="text-sm text-muted-foreground">Invite members, assign roles, and remove accounts.</p>
         </div>
         <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
@@ -157,58 +156,52 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
         </Dialog>
       </div>
 
-      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All users</CardTitle>
-          <CardDescription>{users.length} account(s)</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Verified</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Verified</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {users.map((u) => (
+              <TableRow key={u.id}>
+                <TableCell className="font-medium">{u.name ?? '-'}</TableCell>
+                <TableCell>{u.email}</TableCell>
+                <TableCell>
+                  <Select
+                    value={u.role}
+                    onValueChange={(v) => {
+                      const next = v as 'admin' | 'member';
+                      if (next !== u.role) handleRoleChange(u.id, next);
+                    }}
+                  >
+                    <SelectTrigger className="w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="text-muted-foreground">{u.emailVerified ? 'Yes' : 'No'}</TableCell>
+                <TableCell className="text-right">
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(u.id)}>
+                    Remove
+                  </Button>
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.name ?? '—'}</TableCell>
-                  <TableCell>{u.email}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={u.role}
-                      onValueChange={(v) => {
-                        const next = v as 'admin' | 'member';
-                        if (next !== u.role) handleRoleChange(u.id, next);
-                      }}
-                    >
-                      <SelectTrigger className="w-[120px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="member">Member</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{u.emailVerified ? 'Yes' : 'No'}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(u.id)}>
-                      Remove
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   );
 }
