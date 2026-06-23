@@ -1069,6 +1069,46 @@ export async function findAssetIdByContentHash(contentHash: string): Promise<str
  * same image pushed by multiple components collapses to one asset + one blob,
  * with a usage row per component.
  */
+export async function ingestFigmaFillAsset(input: {
+  assetId: string;
+  filename: string;
+  mimeType: string;
+  contentHash: string;
+  dataBase64: string;
+  figmaFileKey: string;
+  figmaImageRef: string;
+  userId?: string | null;
+}): Promise<void> {
+  const db = getDb();
+  const storageUrl = `/api/handoff/assets/${input.assetId}/raw`;
+  await db
+    .insert(handoffAssets)
+    .values({
+      id: input.assetId,
+      title: input.filename,
+      assetType: 'image',
+      mimeType: input.mimeType,
+      storageUrl,
+      sourceType: 'figma',
+      sourceMetadata: {
+        figmaFileKey: input.figmaFileKey,
+        figmaImageRef: input.figmaImageRef,
+      } as typeof handoffAssets.$inferInsert.sourceMetadata,
+      status: 'active',
+      createdBy: input.userId ?? null,
+      tags: ['figma-image-fill'] as typeof handoffAssets.$inferInsert.tags,
+      updatedAt: new Date(),
+    })
+    .onConflictDoNothing({ target: handoffAssets.id });
+
+  await upsertAssetBlob({
+    assetId: input.assetId,
+    data: input.dataBase64,
+    contentType: input.mimeType,
+    contentHash: input.contentHash,
+  });
+}
+
 export async function ingestReferencedImageAsset(input: {
   assetId: string;
   filename: string;

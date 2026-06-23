@@ -650,3 +650,73 @@ export async function pushRegistryFonts(handoff: Handoff): Promise<void> {
     Logger.success(`Registry fonts pushed (${pushed}).`);
   }
 }
+
+// ─── Figma image fills ──────────────────────────────────────────────────────
+
+type FigmaFillManifestEntry = {
+  assetId: string;
+  imageRef: string;
+  filename: string;
+  contentHash: string;
+  mimeType: string;
+};
+
+type FigmaFillManifest = {
+  figmaFileKey: string;
+  fills: FigmaFillManifestEntry[];
+};
+
+/**
+ * Push Figma image fills cached during `handoff-app fetch` to the asset DAM.
+ * Reads `figma-fills/fills.json` + image files written by `fetchAndSaveFigmaImageFills`.
+ * Each image is sent individually to stay under Vercel's 4.5MB body limit.
+ */
+export async function pushFigmaImageFills(handoff: Handoff): Promise<void> {
+  const fillsDir = path.join(handoff.getOutputPath(), 'figma-fills');
+  const manifestPath = path.join(fillsDir, 'fills.json');
+
+  if (!(await fs.pathExists(manifestPath))) {
+    Logger.warn(
+      `No Figma image fills manifest at ${manifestPath}. ` +
+      `Run \`handoff-app fetch\` first to download image fills. Skipping.`
+    );
+    return;
+  }
+
+  const manifest = (await fs.readJson(manifestPath)) as FigmaFillManifest;
+  if (!Array.isArray(manifest.fills) || manifest.fills.length === 0) {
+    Logger.info('No Figma image fills to push.');
+    return;
+  }
+
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer = await getSyncBearerToken(handoff.workingPath);
+  const url = `${baseUrl}/api/registry/assets/ingest-figma-fills`;
+
+  Logger.info(`Pushing ${manifest.fills.length} Figma image fill(s) to asset library…`);
+  let ok = 0;
+  for (const fill of manifest.fills) {
+    try {
+      const filePath = path.join(fillsDir, fill.filename);
+      if (!(await fs.pathExists(filePath))) {
+        Logger.warn(`  Fill "${fill.imageRef}": file not found at ${filePath} — skipping.`);
+        continue;
+      }
+      const bytes = await fs.readFile(filePath);
+      const dataBase64 = bytes.toString('base64');
+      await postJson(url, bearer, {
+        assetId: fill.assetId,
+        filename: fill.filename,
+        contentHash: fill.contentHash,
+        mimeType: fill.mimeType,
+        dataBase64,
+        figmaFileKey: manifest.figmaFileKey,
+        figmaImageRef: fill.imageRef,
+      });
+      ok++;
+    } catch (e) {
+      Logger.warn(`  Fill "${fill.imageRef}": ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  Logger.success(`Figma image fills pushed: ${ok}/${manifest.fills.length} succeeded.`);
+}

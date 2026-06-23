@@ -7,6 +7,7 @@ import Handoff from '@handoff/index';
 import { getAppPath } from '@handoff/app-builder/paths';
 import { Logger } from '@handoff/utils/logger';
 import { migrateLegacyTokens } from '@handoff/cli/tokens/migrate-legacy';
+import { fetchAndSaveFigmaImageFills } from '@handoff/figma/image-fills';
 import { zipAssets } from './archive.js';
 import { createDocumentationObject } from './documentation.js';
 
@@ -131,6 +132,22 @@ export const figmaExtract = async (handoff: Handoff): Promise<HandoffTypes.IDocu
     await migrateLegacyTokens(handoff);
   } catch (e) {
     Logger.warn(`Could not write DTCG tokens: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // Fetch all image fills from the Figma library file and cache them locally
+  // so `push:all` can ingest them into the asset DAM.
+  try {
+    Logger.info('Fetching Figma image fills...');
+    const fills = await fetchAndSaveFigmaImageFills(
+      handoff.config.figma_project_id,
+      handoff.config.dev_access_token,
+      handoff.getOutputPath(),
+    );
+    if (fills && fills.fills.length > 0) {
+      Logger.success(`Figma image fills: cached ${fills.fills.length} image(s) for push.`);
+    }
+  } catch (e) {
+    Logger.warn(`Could not fetch Figma image fills: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // define the output folder (materialized Next app `public/`)

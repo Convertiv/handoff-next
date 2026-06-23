@@ -11,6 +11,7 @@ import {
   pushRegistryIcons,
   pushRegistryLogos,
   pushRegistryFonts,
+  pushFigmaImageFills,
 } from '@handoff/cli/sync/push-registry-content';
 import { Logger } from '@handoff/utils/logger';
 import { SharedArgs } from './types.js';
@@ -28,6 +29,7 @@ export interface PushAllArgs extends SharedArgs {
   skipIcons?: boolean;
   skipLogos?: boolean;
   skipFonts?: boolean;
+  skipFigmaFills?: boolean;
 }
 
 const command: CommandModule<{}, PushAllArgs> = {
@@ -56,7 +58,8 @@ const command: CommandModule<{}, PushAllArgs> = {
       .option('skip-dtcg', { type: 'boolean', default: false, describe: 'Skip /api/registry/dtcg push (DTCG token pipeline output).' })
       .option('skip-icons', { type: 'boolean', default: false, describe: 'Skip /api/registry/icons push (icon catalog).' })
       .option('skip-logos', { type: 'boolean', default: false, describe: 'Skip /api/registry/logos push (logo set).' })
-      .option('skip-fonts', { type: 'boolean', default: false, describe: 'Skip /api/registry/fonts push (font files served at /fonts/<file>).' }),
+      .option('skip-fonts', { type: 'boolean', default: false, describe: 'Skip /api/registry/fonts push (font files served at /fonts/<file>).' })
+      .option('skip-figma-fills', { type: 'boolean', default: false, describe: 'Skip Figma image fills push (images fetched during `fetch` step).' }),
   handler: async (args: PushAllArgs) => {
     const handoff = new Handoff(args.debug, args.force);
     handoff.preRunner();
@@ -129,6 +132,11 @@ const command: CommandModule<{}, PushAllArgs> = {
     // 10. Fonts (served at /fonts/<file>; consumed by theme.css + foundation raster)
     if (!args.skipFonts) {
       await tryStep('fonts', () => pushRegistryFonts(handoff));
+    }
+
+    // 11. Figma image fills (downloaded during `fetch`, pushed to asset DAM)
+    if (!args.skipFigmaFills) {
+      await tryStep('figma-fills', () => pushFigmaImageFills(handoff));
     }
 
     if (failures > 0) {
