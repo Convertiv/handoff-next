@@ -21,7 +21,7 @@ if (!preload || !worker) {
   process.exit(1);
 }
 
-const child = spawn(process.execPath, ['--require', preload, '--import', 'tsx', worker, ...workerArgs], {
+const child = spawn('node', ['--require', preload, '--import', 'tsx', worker, ...workerArgs], {
   stdio: 'inherit',
   cwd: process.cwd(),
   env: process.env,

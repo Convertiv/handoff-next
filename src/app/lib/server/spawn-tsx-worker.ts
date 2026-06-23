@@ -1,28 +1,14 @@
 import { spawn, type ChildProcess } from 'child_process';
-import { existsSync } from 'fs';
 import path from 'path';
-
-/**
- * Resolve a usable Node.js binary path.
- *
- * On some Vercel runtimes (Node 22+) process.execPath is e.g.
- * `/var/lang/bin/node` but the actual binary is `/var/lang/bin/node22`.
- * Fall back to searching PATH so spawning doesn't fail with ENOENT.
- */
-function resolveNodeBin(): string {
-  if (existsSync(process.execPath)) return process.execPath;
-  const dirs = (process.env.PATH ?? '').split(path.delimiter);
-  for (const dir of dirs) {
-    const candidate = path.join(dir, 'node');
-    if (existsSync(candidate)) return candidate;
-  }
-  // Last resort — let the OS shell resolve it via PATH
-  return 'node';
-}
 
 /**
  * Spawns a `.ts` worker in a separate Node process (preload + tsx), without putting
  * `['--require', ...]` in the parent `spawn` argv — Turbopack mis-parses that as a module graph.
+ *
+ * Uses 'node' (resolved via PATH) rather than process.execPath: on newer Vercel runtimes
+ * (Node 22+) process.execPath may be `/var/lang/bin/node` which does not exist as a file,
+ * while 'node' in PATH resolves to the correct versioned binary. A literal string also
+ * prevents Turbopack from treating the argument as a dynamic module reference.
  */
 export function spawnTsxWorker(params: {
   repoRoot: string;
@@ -34,8 +20,7 @@ export function spawnTsxWorker(params: {
   const { repoRoot, workerScript, workerArgs, env } = params;
   const preload = path.join(repoRoot, 'src/app/lib/server/component-build-preload.cjs');
   const launcher = path.join(repoRoot, 'src/app/lib/server/node-tsx-worker-launcher.cjs');
-  const nodeBin = resolveNodeBin();
-  return spawn(nodeBin, [launcher], {
+  return spawn('node', [launcher], {
     cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
