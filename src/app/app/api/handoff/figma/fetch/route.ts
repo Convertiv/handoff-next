@@ -1,7 +1,7 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { after, NextResponse, type NextRequest } from 'next/server';
 import { countQueuedOrRunningFigmaFetchJobs, getFigmaFetchJob, insertFigmaFetchJob } from '@/lib/db/queries';
 import { hasFigmaConnection } from '@/lib/server/figma-auth';
-import { spawnFigmaFetchWorker } from '@/lib/server/figma-fetch';
+import { runFigmaFetchJob } from '@/lib/server/figma-fetch-runner';
 import { getLinkedFigmaFileInfo } from '@/lib/server/figma-audit-api';
 import { logEvent } from '@/lib/server/event-log';
 
@@ -63,7 +63,13 @@ export async function POST(_request: NextRequest) {
       entityType: 'figma_fetch_job',
       entityId: String(jobId),
     });
-    spawnFigmaFetchWorker(jobId);
+    after(async () => {
+      try {
+        await runFigmaFetchJob(jobId);
+      } catch (e) {
+        console.error('[figma-fetch route] Background job error:', e);
+      }
+    });
     return NextResponse.json({ jobId, status: 'queued' });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';
