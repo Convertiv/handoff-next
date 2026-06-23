@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { killComponentBuildJob, killComponentGenerationJob, killDesignAssetExtractionJob } from '@/lib/db/queries';
+import { killComponentBuildJob, killComponentGenerationJob, killDesignAssetExtractionJob, killFigmaFetchJob } from '@/lib/db/queries';
 
 type KillBody =
   | { kind: 'component_build'; id: number }
   | { kind: 'component_generation'; id: number }
-  | { kind: 'design_asset_extraction'; id: string };
+  | { kind: 'design_asset_extraction'; id: string }
+  | { kind: 'figma_fetch'; id: number };
 
 export async function POST(request: NextRequest) {
   const session = await auth();
@@ -26,6 +27,9 @@ export async function POST(request: NextRequest) {
     } else if (body.kind === 'design_asset_extraction') {
       if (typeof body.id !== 'string' || !body.id.trim()) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
       killed = await killDesignAssetExtractionJob(body.id);
+    } else if (body.kind === 'figma_fetch') {
+      if (!Number.isFinite(body.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+      killed = await killFigmaFetchJob(body.id);
     } else {
       return NextResponse.json({ error: 'Unknown kind' }, { status: 400 });
     }

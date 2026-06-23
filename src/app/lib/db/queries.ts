@@ -879,6 +879,16 @@ export async function deleteDesignGenerationJob(jobId: number, userId: string): 
 // ── Kill / force-fail stuck build tasks ──────────────────────────────────────
 
 /** Mark a component Vite build job as failed (admin kill). Only affects queued/building rows. */
+export async function killFigmaFetchJob(id: number): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .update(figmaFetchJobs)
+    .set({ status: 'failed', error: 'Killed by admin', completedAt: new Date() })
+    .where(and(eq(figmaFetchJobs.id, id), or(eq(figmaFetchJobs.status, 'queued'), eq(figmaFetchJobs.status, 'running'))))
+    .returning({ id: figmaFetchJobs.id });
+  return rows.length > 0;
+}
+
 export async function killComponentBuildJob(id: number): Promise<boolean> {
   const db = getDb();
   const rows = await db

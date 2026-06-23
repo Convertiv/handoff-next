@@ -157,7 +157,8 @@ function StatusCell({ row }: { row: AdminBuildTaskRow }) {
 type KillableTask =
   | { kind: 'component_build'; id: number }
   | { kind: 'component_generation'; id: number }
-  | { kind: 'design_asset_extraction'; id: string };
+  | { kind: 'design_asset_extraction'; id: string }
+  | { kind: 'figma_fetch'; id: number };
 
 export default function BuildsClient({
   initialTasks,
@@ -220,6 +221,8 @@ export default function BuildsClient({
             if (task.kind === 'component_generation' && t.kind === 'component_generation' && t.generationJobId === task.id)
               return { ...t, status: 'failed', error: 'Killed by admin' };
             if (task.kind === 'design_asset_extraction' && t.kind === 'design_asset_extraction' && t.artifactId === task.id)
+              return { ...t, status: 'failed', error: 'Killed by admin' };
+            if (task.kind === 'figma_fetch' && t.kind === 'figma_fetch' && t.jobId === task.id)
               return { ...t, status: 'failed', error: 'Killed by admin' };
             return t;
           })
@@ -384,6 +387,8 @@ export default function BuildsClient({
                 }
                 if (row.kind === 'figma_fetch') {
                   const terminal = row.status === 'complete' || row.status === 'failed';
+                  const active = !terminal;
+                  const killKey = `figma_fetch-${row.jobId}`;
                   return (
                     <TableRow key={`ff-${row.jobId}`}>
                       <TableCell className="text-xs text-muted-foreground">
@@ -409,7 +414,20 @@ export default function BuildsClient({
                         {terminal ? durationMs(row.createdAt, row.completedAt) : '—'}
                       </TableCell>
                       <TableCell className="max-w-xs truncate text-xs text-red-500">{row.error ?? '—'}</TableCell>
-                      <TableCell />
+                      <TableCell>
+                        {active ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 px-2 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40"
+                            disabled={killing === killKey}
+                            onClick={() => void killTask({ kind: 'figma_fetch', id: row.jobId })}
+                          >
+                            {killing === killKey ? <Loader2 className="h-3 w-3 animate-spin" /> : <StopCircle className="h-3 w-3" />}
+                            Kill
+                          </Button>
+                        ) : null}
+                      </TableCell>
                     </TableRow>
                   );
                 }
