@@ -5,7 +5,6 @@ import { useState, useTransition } from 'react';
 import { handoffApiUrl } from '../../../lib/api-path';
 import type { UserRowDto } from '../../../lib/server/admin-users';
 import { Button } from '../../../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../../components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -33,6 +32,7 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'admin' | 'member'>('member');
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const refresh = () => {
@@ -49,6 +49,7 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
 
   const handleInvite = () => {
     setError(null);
+    setSuccess(null);
     startTransition(async () => {
       const res = await fetch(handoffApiUrl('/api/handoff/admin/invite'), {
         method: 'POST',
@@ -62,15 +63,37 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
         return;
       }
       setInviteOpen(false);
+      const sentTo = inviteEmail;
       setInviteEmail('');
       setInviteRole('member');
+      setSuccess(`Invite sent to ${sentTo}. They'll receive an email with a link to set their password.`);
       refresh();
+    });
+  };
+
+  const handleResend = (user: UserRowDto) => {
+    setError(null);
+    setSuccess(null);
+    startTransition(async () => {
+      const res = await fetch(handoffApiUrl('/api/handoff/admin/resend-invite'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        setError(data.error ?? 'Resend failed');
+        return;
+      }
+      setSuccess(`Invite resent to ${user.email}.`);
     });
   };
 
   const handleDelete = (id: string) => {
     if (!confirm('Remove this user? They will no longer be able to sign in.')) return;
     setError(null);
+    setSuccess(null);
     startTransition(async () => {
       const res = await fetch(handoffApiUrl('/api/handoff/admin/remove'), {
         method: 'POST',
@@ -89,6 +112,7 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
 
   const handleRoleChange = (id: string, role: 'admin' | 'member') => {
     setError(null);
+    setSuccess(null);
     startTransition(async () => {
       const res = await fetch(handoffApiUrl('/api/handoff/admin/role'), {
         method: 'POST',
@@ -106,10 +130,10 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
   };
 
   return (
-    <div className="container mx-auto max-w-5xl px-4 py-10">
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
+          <h1 className="text-xl font-semibold">Users</h1>
           <p className="text-sm text-muted-foreground">Invite members, assign roles, and remove accounts.</p>
         </div>
         <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
@@ -157,58 +181,64 @@ export default function UsersClient({ initialUsers }: { initialUsers: UserRowDto
         </Dialog>
       </div>
 
-      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {success ? (
+        <p className="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+          {success}
+        </p>
+      ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All users</CardTitle>
-          <CardDescription>{users.length} account(s)</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Verified</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {users.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.name ?? '—'}</TableCell>
-                  <TableCell>{u.email}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={u.role}
-                      onValueChange={(v) => {
-                        const next = v as 'admin' | 'member';
-                        if (next !== u.role) handleRoleChange(u.id, next);
-                      }}
-                    >
-                      <SelectTrigger className="w-[120px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="member">Member</SelectItem>
-                        <SelectItem value="admin">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{u.emailVerified ? 'Yes' : 'No'}</TableCell>
-                  <TableCell className="text-right">
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Role</TableHead>
+              <TableHead>Verified</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {users.map((u) => (
+              <TableRow key={u.id}>
+                <TableCell className="font-medium">{u.name ?? '-'}</TableCell>
+                <TableCell>{u.email}</TableCell>
+                <TableCell>
+                  <Select
+                    value={u.role}
+                    onValueChange={(v) => {
+                      const next = v as 'admin' | 'member';
+                      if (next !== u.role) handleRoleChange(u.id, next);
+                    }}
+                  >
+                    <SelectTrigger className="w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="member">Member</SelectItem>
+                      <SelectItem value="admin">Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </TableCell>
+                <TableCell className="text-muted-foreground">{u.emailVerified ? 'Yes' : 'Pending'}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    {!u.emailVerified && (
+                      <Button variant="ghost" size="sm" disabled={pending} onClick={() => handleResend(u)}>
+                        Resend invite
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDelete(u.id)}>
                       Remove
                     </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-    </div>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </>
   );
 }

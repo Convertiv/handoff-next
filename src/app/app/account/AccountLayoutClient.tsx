@@ -1,6 +1,6 @@
 'use client';
 
-import { Bot, Plug, UserCircle } from 'lucide-react';
+import { Bot, Plug, UserCircle, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Layout from '../../components/Layout/Main';
@@ -17,15 +17,31 @@ import {
   SidebarProvider,
 } from '../../components/ui/sidebar';
 
-const accountNavItems = [
-  { href: '/account', label: 'Profile', icon: UserCircle, adminOnly: false, exact: true },
-  { href: '/account/integrations', label: 'Integrations', icon: Plug, adminOnly: true, exact: false },
-  { href: '/account/ai-cost', label: 'AI Cost', icon: Bot, adminOnly: true, exact: false },
+const accountNavGroups = [
+  {
+    label: 'Account',
+    items: [
+      { href: '/account', label: 'Profile', icon: UserCircle, adminOnly: false, exact: true },
+      { href: '/account/integrations', label: 'Integrations', icon: Plug, adminOnly: true, exact: false },
+    ],
+  },
+  {
+    label: 'Workspace',
+    items: [
+      { href: '/account/users', label: 'Users', icon: Users, adminOnly: true, exact: false },
+      { href: '/account/ai-cost', label: 'AI Cost', icon: Bot, adminOnly: true, exact: false },
+    ],
+  },
 ];
 
 function AccountSidebar({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
-  const visibleItems = accountNavItems.filter((item) => !item.adminOnly || isAdmin);
+  const visibleGroups = accountNavGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.adminOnly || isAdmin),
+    }))
+    .filter((group) => group.items.length > 0);
 
   const isActive = (href: string, exact: boolean) => {
     return exact ? pathname === href || pathname === `${href}/` : pathname.startsWith(href);
@@ -34,25 +50,27 @@ function AccountSidebar({ isAdmin }: { isAdmin: boolean }) {
   return (
     <Sidebar className="sticky left-auto">
       <SidebarContent className="px-4 pt-5">
-        <SidebarGroup>
-          <SidebarGroupLabel className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-            Account
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {visibleItems.map(({ href, label, icon: Icon, exact }) => (
-                <SidebarMenuItem key={href}>
-                  <SidebarMenuButton asChild isActive={isActive(href, exact)}>
-                    <Link href={href} className="gap-2.5">
-                      <Icon className="h-4 w-4 opacity-60" strokeWidth={1.5} />
-                      <span>{label}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleGroups.map((group) => (
+          <SidebarGroup key={group.label}>
+            <SidebarGroupLabel className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+              {group.label}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {group.items.map(({ href, label, icon: Icon, exact }) => (
+                  <SidebarMenuItem key={href}>
+                    <SidebarMenuButton asChild isActive={isActive(href, exact)}>
+                      <Link href={href} className="gap-2.5">
+                        <Icon className="h-4 w-4 opacity-60" strokeWidth={1.5} />
+                        <span>{label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
     </Sidebar>
   );

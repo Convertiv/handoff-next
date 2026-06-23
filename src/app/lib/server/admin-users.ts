@@ -104,6 +104,42 @@ export async function removeUser(session: Session | null, userId: string): Promi
   return { ok: true };
 }
 
+export async function resendInvite(
+  session: Session | null,
+  userId: string
+): Promise<{ ok: true } | { error: string }> {
+  const s = requireAdmin(session);
+  const db = getDb();
+  if (!userId) return { error: 'Missing user id.' };
+
+  const [target] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!target) return { error: 'User not found.' };
+  if (target.emailVerified) return { error: 'User has already accepted their invite.' };
+
+  // Delete existing reset tokens and issue a fresh one.
+  await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+
+  const raw = randomBytes(32).toString('hex');
+  const tokenHash = sha256Hex(raw);
+  await db.insert(passwordResetTokens).values({
+    userId,
+    tokenHash,
+    expiresAt: new Date(Date.now() + INVITE_EXPIRY_MS),
+  });
+
+  const base = appBaseUrl();
+  const inviteUrl = `${base}/reset-password?token=${encodeURIComponent(raw)}`;
+
+  try {
+    await sendInviteEmail(target.email, inviteUrl, s.user?.name ?? s.user?.email ?? null);
+  } catch (e) {
+    console.error('[admin] resend invite email failed', e);
+    return { error: 'Could not send the invite email.' };
+  }
+
+  return { ok: true };
+}
+
 export async function updateUserRole(
   session: Session | null,
   userId: string,
