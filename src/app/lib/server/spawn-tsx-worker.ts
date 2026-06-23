@@ -1,35 +1,40 @@
 import { spawn, type ChildProcess } from 'child_process';
+import { fileURLToPath } from 'url';
 import path from 'path';
 
+// Resolve sibling CJS files relative to this module's location at runtime.
+// Using import.meta.url (not repoRoot) ensures Turbopack traces these files into
+// the Lambda bundle and the paths are correct at both build time and runtime.
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 /**
- * Spawns a `.ts` worker in a separate Node process (preload + tsx), without putting
- * `['--require', ...]` in the parent `spawn` argv — Turbopack mis-parses that as a module graph.
+ * Spawns a `.ts` worker in a separate Node process (preload + tsx).
  *
- * Uses `/bin/sh -c 'node "$@"'` rather than spawning node directly. Two reasons:
+ * Key design decisions:
  *
- * 1. On Vercel Node 22+, `process.execPath` is `/var/lang/bin/node` which does not exist
- *    as a spawnable file (ENOENT). The shell resolves `node` from PATH which always works.
+ * 1. Uses `/bin/sh -c 'node "$@"'` rather than spawning node directly.
+ *    On Vercel Node 22+, `process.execPath` is `/var/lang/bin/node` (ENOENT).
+ *    The shell resolves `node` from PATH correctly. `/bin/sh` as an absolute path
+ *    also avoids Turbopack treating the first spawn() arg as a module to bundle.
  *
- * 2. Turbopack's static analyser treats any string literal first arg to spawn() as a
- *    potential module to bundle, causing "Can't resolve <dynamic>" build errors for
- *    `spawn('node', ...)` or `spawn(computedVar, ...)`. An absolute path starting with
- *    `/` is unambiguously a binary, not a module name, so Turbopack ignores it.
+ * 2. No `cwd` option — omitting it defaults to `process.cwd()` which is always
+ *    valid at Lambda runtime. Setting `cwd: repoRoot` caused every spawn to fail
+ *    with ENOENT (reported on the binary) because `/vercel/path0` doesn't exist
+ *    at Lambda runtime — only at build time.
  *
- * The shell wrapper is: `sh -c 'node "$@"' -- <launcher>`, which sets $1=launcher and
- * executes `node <launcher>` — equivalent to the original direct spawn but PATH-resolved.
+ * 3. Launcher and preload paths are resolved from `__dirname` (this module's
+ *    directory) so Turbopack traces them into the deployment bundle.
  */
 export function spawnTsxWorker(params: {
-  repoRoot: string;
   workerScript: string;
   workerArgs: string[];
   /** Merged on top of `process.env` for the child process */
   env: Record<string, string>;
 }): ChildProcess {
-  const { repoRoot, workerScript, workerArgs, env } = params;
-  const preload = path.join(repoRoot, 'src/app/lib/server/component-build-preload.cjs');
-  const launcher = path.join(repoRoot, 'src/app/lib/server/node-tsx-worker-launcher.cjs');
+  const { workerScript, workerArgs, env } = params;
+  const preload = path.join(__dirname, 'component-build-preload.cjs');
+  const launcher = path.join(__dirname, 'node-tsx-worker-launcher.cjs');
   return spawn('/bin/sh', ['-c', 'node "$@"', '--', launcher], {
-    cwd: repoRoot,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: {
       ...process.env,

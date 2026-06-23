@@ -1,6 +1,9 @@
 import { spawnTsxWorker } from './spawn-tsx-worker';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { resolveHandoffRepoRoot } from './component-builder';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const WORKER_ENV_KEYS = [
   'DATABASE_URL',
@@ -43,10 +46,8 @@ function buildDesignAssetWorkerEnv(): Record<string, string> {
  * Runs design asset extraction in a separate Node process so slow OpenAI calls do not block the Next request.
  */
 export function spawnDesignAssetWorker(artifactId: string): void {
-  const repoRoot = resolveHandoffRepoRoot();
-  const worker = path.join(repoRoot, 'src/app/lib/server/design-asset-worker.ts');
+  const worker = path.join(__dirname, 'design-asset-worker.ts');
   const child = spawnTsxWorker({
-    repoRoot,
     workerScript: worker,
     workerArgs: [artifactId],
     env: buildDesignAssetWorkerEnv(),

@@ -1,9 +1,11 @@
 import { spawnTsxWorker } from './spawn-tsx-worker';
 import path from 'path';
-import { resolveHandoffRepoRoot } from './component-builder';
+import { fileURLToPath } from 'url';
 import { getDb } from '../db';
 import { figmaFetchJobs } from '../db/schema';
 import { eq } from 'drizzle-orm';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const WORKER_ENV_ALLOWLIST = [
   'DATABASE_URL',
@@ -50,10 +52,8 @@ function buildWorkerEnv(): Record<string, string> {
 
 /** Spawn background Figma fetch worker for one DB job id. */
 export function spawnFigmaFetchWorker(jobId: number): void {
-  const repoRoot = resolveHandoffRepoRoot();
-  const worker = path.join(repoRoot, 'src/app/lib/server/figma-fetch-worker.ts');
+  const worker = path.join(__dirname, 'figma-fetch-worker.ts');
   const child = spawnTsxWorker({
-    repoRoot,
     workerScript: worker,
     workerArgs: [String(jobId)],
     env: buildWorkerEnv(),

@@ -2,9 +2,12 @@ import { spawnTsxWorker } from './spawn-tsx-worker';
 import { eq } from 'drizzle-orm';
 import fs from 'fs-extra';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { getDb } from '../db';
 import { componentBuildJobs } from '../db/schema';
 import { resolveHandoffRepoRoot } from './handoff-config-load';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export { resolveHandoffRepoRoot };
 
@@ -75,10 +78,8 @@ function buildWorkerEnv(): Record<string, string> {
  * avoiding conflicts between tsx's module transforms and Vite/sass internals.
  */
 export function spawnComponentBuildWorker(jobId: number): void {
-  const repoRoot = resolveHandoffRepoRoot();
-  const worker = path.join(repoRoot, 'src/app/lib/server/component-build-worker.ts');
+  const worker = path.join(__dirname, 'component-build-worker.ts');
   const child = spawnTsxWorker({
-    repoRoot,
     workerScript: worker,
     workerArgs: [String(jobId)],
     env: buildWorkerEnv(),
