@@ -33,7 +33,8 @@ export async function fetchLocalStylesColors(): Promise<Array<{
 }> | null> {
   try {
     const tokens = await getDataProvider().getTokens();
-    const colors = (tokens as unknown as Record<string, unknown>)?.localStyles?.color;
+    const localStyles = (tokens as unknown as Record<string, unknown>)?.localStyles;
+    const colors = (localStyles as Record<string, unknown> | undefined)?.color;
     return Array.isArray(colors) ? (colors as Array<{ name: string; machineName: string; value: string; group: string }>) : null;
   } catch {
     return null;
