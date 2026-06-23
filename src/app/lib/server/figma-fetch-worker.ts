@@ -57,13 +57,29 @@ async function main() {
     await Promise.race([
       handoff.fetch(),
       new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Figma fetch timeout after 120s')), 120_000);
+        setTimeout(() => reject(new Error('Figma fetch timeout after 240s')), 240_000);
       }),
     ]);
 
     const tokensPath = handoff.getTokensFilePath();
     const payload = (await fs.readJSON(tokensPath)) as unknown;
     await db.insert(handoffTokensSnapshots).values({ payload: payload as Record<string, unknown> });
+
+    try {
+      const { ingestFigmaFillsFromManifest } = await import('./figma-fills-ingest');
+      const { ingested, skipped } = await ingestFigmaFillsFromManifest(
+        handoff.getOutputPath(),
+        job.triggeredByUserId,
+      );
+      if (ingested > 0) {
+        console.log(`[figma-fetch-worker] Ingested ${ingested} Figma image fill(s) into asset library.`);
+      }
+      if (skipped > 0) {
+        console.warn(`[figma-fetch-worker] Skipped ${skipped} Figma image fill(s) (file missing or ingest error).`);
+      }
+    } catch (fillErr) {
+      console.error('[figma-fetch-worker] Figma fills ingest failed:', fillErr);
+    }
 
     try {
       const { regenerateAllReferenceMaterialsPersisted } = await import('./reference-material-persist');

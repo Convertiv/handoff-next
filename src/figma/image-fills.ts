@@ -90,37 +90,56 @@ export async function fetchAndSaveFigmaImageFills(
     return empty;
   }
 
-  Logger.info(`[figma-image-fills] Found ${refs.length} image fill(s) — downloading…`);
+  Logger.info(`[figma-image-fills] Found ${refs.length} image fill(s) — downloading (concurrency=5)…`);
 
   const fillsDir = path.join(outputDir, 'figma-fills');
   await fs.ensureDir(fillsDir);
 
   const fills: FigmaFillManifestEntry[] = [];
+  // Mutex for the shared fills array (concurrent workers push to it)
+  const queue = [...refs];
+  const CONCURRENCY = 5;
+  const PER_IMAGE_TIMEOUT_MS = 15_000;
 
-  for (const [imageRef, cdnUrl] of refs) {
-    try {
-      const imgResp = await fetch(cdnUrl);
-      if (!imgResp.ok) {
-        Logger.warn(`[figma-image-fills] Download failed for ref ${imageRef} (${imgResp.status})`);
-        continue;
+  async function downloadWorker() {
+    while (queue.length > 0) {
+      const entry = queue.shift();
+      if (!entry) break;
+      const [imageRef, cdnUrl] = entry;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), PER_IMAGE_TIMEOUT_MS);
+        let imgResp: Response;
+        try {
+          imgResp = await fetch(cdnUrl, { signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!imgResp.ok) {
+          Logger.warn(`[figma-image-fills] Download failed for ref ${imageRef} (${imgResp.status})`);
+          continue;
+        }
+        const rawMime = imgResp.headers.get('content-type')?.split(';')[0].trim() ?? 'image/png';
+        const mimeType = EXT_FROM_MIME[rawMime] ? rawMime : 'image/png';
+        const ext = EXT_FROM_MIME[mimeType] ?? 'png';
+
+        const buffer = Buffer.from(await imgResp.arrayBuffer());
+        const contentHash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 12);
+        const assetId = `img_${contentHash}`;
+        // Sanitize imageRef for use as a filename (Figma refs contain colons, slashes, etc.)
+        const safeRef = imageRef.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+        const filename = `${safeRef}.${ext}`;
+
+        await fs.writeFile(path.join(fillsDir, filename), buffer);
+        fills.push({ assetId, imageRef, filename, contentHash, mimeType });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        Logger.warn(`[figma-image-fills] Error processing ${imageRef}: ${msg}`);
       }
-      const rawMime = imgResp.headers.get('content-type')?.split(';')[0].trim() ?? 'image/png';
-      const mimeType = EXT_FROM_MIME[rawMime] ? rawMime : 'image/png';
-      const ext = EXT_FROM_MIME[mimeType] ?? 'png';
-
-      const buffer = Buffer.from(await imgResp.arrayBuffer());
-      const contentHash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 12);
-      const assetId = `img_${contentHash}`;
-      // Sanitize imageRef for use as a filename (Figma refs contain colons, slashes, etc.)
-      const safeRef = imageRef.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
-      const filename = `${safeRef}.${ext}`;
-
-      await fs.writeFile(path.join(fillsDir, filename), buffer);
-      fills.push({ assetId, imageRef, filename, contentHash, mimeType });
-    } catch (e) {
-      Logger.warn(`[figma-image-fills] Error processing ${imageRef}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, refs.length) }, downloadWorker));
 
   const manifest: FigmaFillManifest = {
     figmaFileKey: fk,

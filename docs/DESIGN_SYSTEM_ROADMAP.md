@@ -317,3 +317,89 @@ It feeds Phase 2 (native foundation/asset capability) and Phase 3 (registry API 
   doesn't invalidate it; components are skipped until source changes or `--force` is passed.
   Consider stamping a cache/feature version so a plain `push:all` picks up output-changing
   capabilities once after a CLI upgrade.
+
+---
+
+## Feature initiative — Image sizing guide
+
+One of the biggest gaps in any handoff process: designers know exactly what size an image
+should be, but that knowledge lives only in the Figma file. Content teams guess, placeholders
+get the wrong aspect ratio, and image slots get blown up by wrongly-proportioned photos.
+
+Figma already encodes everything needed — every image fill node carries `absoluteBoundingBox`,
+`fills[].scaleMode`, `layoutSizingHorizontal/Vertical`, and `minWidth`/`minHeight`. The node
+tree is already walked during `fetch` to extract `imageRef` fills. The gap is capturing the
+sizing metadata alongside the image reference and surfacing it as first-class guidance.
+
+**Data model decision: `handoff_image_slot` table (Option B)**
+
+A new table rather than augmenting `handoff_asset_usage`, because a slot is a *specification*
+that exists independent of whether an image has been assigned to it. Fields: `id`, `componentId`,
+`variantKey`, `slotName`, `nodeId`, `recommendedWidth`, `recommendedHeight`, `aspectRatioW`,
+`aspectRatioH`, `scaleMode`, `isResponsive`, `minWidth`, `minHeight`.
+
+**Phase A — Capture: augment the node tree walk**
+
+`imageAssetsFromNodeTree()` in `component-linking.ts` already visits every image fill node.
+Extend `FigmaImageAsset` to carry:
+- `boundingBox: { width: number; height: number }` — from `absoluteBoundingBox`
+- `scaleMode: 'FILL' | 'FIT' | 'CROP' | 'TILE'` — from `fills[].scaleMode`
+- `isResponsive: boolean` — `layoutSizingHorizontal === 'FILL'`
+- `minWidth?: number`, `minHeight?: number` — if set on the node
+
+These are zero-additional-API-calls — data already present in the downloaded node tree, just
+not being saved. Compute and store the GCD-simplified aspect ratio (`16:9`, `4:3`, `1:1`) at
+this stage. Write image slot specs into the fetch output alongside `figma-fills/`.
+
+**Phase B — Store: push `handoff_image_slot` records**
+
+During `push:all`, read the slot spec manifest from the fetch output and POST to a new
+`/api/registry/assets/image-slots` endpoint. The registry upserts by `(componentId, slotName,
+variantKey)` — re-pushing is always idempotent. The push follows the same per-record pattern
+as font files and Figma image fills.
+
+**Phase C — Surface: per-component "Image Slots" tab**
+
+On the component detail view, add an "Image Slots" tab alongside Props, Variants, etc.
+For each slot:
+- Aspect ratio (the headline — `16:9`, `12:5`, `1:1`)
+- Recommended pixel dimensions at canvas scale (`1440 × 600 px`)
+- Fill mode (`FILL — image crops to fit`, `FIT — letterboxed`, etc.)
+- Responsive indicator + minimum dimensions when applicable
+- Variant breakdown if the slot size differs across Figma variants (mobile vs. desktop)
+- Deep link back to the Figma node
+- CSS snippet: `aspect-ratio: 16 / 9; object-fit: cover;`
+
+**Phase D — Foundation page: `/foundation/assets/sizing`**
+
+A cross-component sizing reference page — the page content teams bookmark. Lists all image
+slots across the whole design system, filterable by aspect ratio (e.g. "show me all 16:9
+slots" or "show me all avatar/circular slots"). Each row links to the component where the
+slot lives. Built as a native foundation page inside the handoff app (consistent with the
+Phase 2 foundation-page-anatomy pattern).
+
+**Tertiary: inline in the asset DAM**
+
+When viewing an uploaded image asset, show which component slots reference it alongside a
+sizing conformance indicator — does the uploaded image's actual pixel dimensions match the
+slot's spec? Flag mismatches. This closes the loop: a content author uploads an image, the
+DAM tells them immediately whether it will work in the hero slot.
+
+**Validation: placeholder dimensions as ground truth**
+
+For projects like SSC that have correctly-sized placeholder images, the push step can read
+pixel dimensions directly from PNG/JPEG headers (no Figma API needed). Cross-reference
+against the Figma-derived slot spec. If they agree, mark the slot as validated. If they
+differ, flag it — either the placeholder is wrong or Figma was updated since the placeholder
+was set.
+
+**Future (not in these phases)**
+
+- Per-component Figma image fetch — rather than downloading all image fills from the library
+  file at once, associate fetched images with specific component image slots. Gated on the
+  broader work connecting components to Figma nodes bidirectionally (the "components ↔ figma
+  pull/push" initiative).
+- Breakpoint-aware sizing recommendations — for responsive slots, emit recommended dimensions
+  at each configured breakpoint rather than just the canvas design size.
+- Image optimization guidance — based on slot dimensions, recommend appropriate format
+  (WebP/AVIF), compression targets, and srcset breakpoints.
