@@ -506,6 +506,35 @@ export const handoffAssetUsages = pgTable('handoff_asset_usage', {
 });
 
 /**
+ * Image sizing specifications extracted from Figma for each image slot within a component.
+ * A "slot" is any node that contains an IMAGE fill — it represents a named place in the
+ * component where content authors will supply a real image. Storing sizing specs here lets
+ * the registry serve guidelines (aspect ratio, recommended px, responsive behaviour) without
+ * access to the original Figma file.
+ *
+ * Upserted on push:all from the tokens snapshot. Keyed by (componentId, slotName, nodeId)
+ * so re-pushing is always idempotent. The `id` is a deterministic slug derived from those
+ * three fields.
+ */
+export const handoffImageSlots = pgTable('handoff_image_slot', {
+  id: text('id').primaryKey(),
+  componentId: text('component_id').notNull(),
+  slotName: text('slot_name').notNull(),
+  nodeId: text('node_id'),
+  variantKey: text('variant_key'),
+  recommendedWidth: integer('recommended_width'),
+  recommendedHeight: integer('recommended_height'),
+  aspectRatioW: integer('aspect_ratio_w'),
+  aspectRatioH: integer('aspect_ratio_h'),
+  /** FILL | FIT | CROP | TILE — how the image fill scales within its container */
+  scaleMode: text('scale_mode'),
+  isResponsive: boolean('is_responsive').default(false),
+  minWidth: integer('min_width'),
+  minHeight: integer('min_height'),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+});
+
+/**
  * Per-project registry config — singleton row (id='default' until ADR-001 §7+
  * adds multi-tenancy). Stores project metadata that today comes from
  * handoff.config.js at build time and gets pushed via /api/registry/config

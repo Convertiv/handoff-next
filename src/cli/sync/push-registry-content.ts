@@ -720,3 +720,137 @@ export async function pushFigmaImageFills(handoff: Handoff): Promise<void> {
   }
   Logger.success(`Figma image fills pushed: ${ok}/${manifest.fills.length} succeeded.`);
 }
+
+// ─── Image slots ────────────────────────────────────────────────────────────────
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+function toAspectRatio(w: number, h: number): { w: number; h: number } | null {
+  const wi = Math.round(w);
+  const hi = Math.round(h);
+  if (!wi || !hi) return null;
+  const d = gcd(wi, hi);
+  const rw = wi / d;
+  const rh = hi / d;
+  // If either component exceeds 99, the ratio is too irreducible to be meaningful
+  // (e.g. 1366×768 → 683:384). Fall back to rounding to nearest common ratio.
+  if (rw > 99 || rh > 99) {
+    const decimal = wi / hi;
+    const commonRatios: [number, number][] = [
+      [1, 1], [4, 3], [3, 2], [16, 10], [5, 3], [16, 9], [2, 1],
+      [21, 9], [3, 1], [9, 16], [3, 4], [2, 3], [9, 21], [4, 5],
+    ];
+    let best: [number, number] = [wi, hi];
+    let bestDiff = Infinity;
+    for (const [cw, ch] of commonRatios) {
+      const diff = Math.abs(decimal - cw / ch);
+      if (diff < bestDiff) { bestDiff = diff; best = [cw, ch]; }
+    }
+    return { w: best[0], h: best[1] };
+  }
+  return { w: rw, h: rh };
+}
+
+type FigmaImageFill = {
+  name?: string;
+  nodeId?: string;
+  width?: number;
+  height?: number;
+  scaleMode?: string;
+  isResponsive?: boolean;
+  minWidth?: number;
+  minHeight?: number;
+};
+
+type DocumentationComponent = {
+  id?: string;
+  figmaImages?: FigmaImageFill[];
+};
+
+/**
+ * Extract image sizing specs from the Figma tokens snapshot and push them to
+ * the registry's /api/registry/image-slots endpoint. Reads from the workspace's
+ * output tokens.json (written by `handoff-app fetch`). Batches components to
+ * avoid oversized requests.
+ */
+export async function pushImageSlots(handoff: Handoff): Promise<void> {
+  const tokensPath = handoff.getTokensFilePath();
+  if (!(await fs.pathExists(tokensPath))) {
+    Logger.warn(`No tokens file at ${tokensPath}. Run \`handoff-app fetch\` first. Skipping image slots push.`);
+    return;
+  }
+
+  const snapshot = await fs.readJson(tokensPath) as { components?: DocumentationComponent[] };
+  const components = Array.isArray(snapshot.components) ? snapshot.components : [];
+
+  const allSlots: Array<{ componentId: string; slot: FigmaImageFill }> = [];
+  for (const comp of components) {
+    const compId = comp.id;
+    if (!compId || !Array.isArray(comp.figmaImages)) continue;
+    for (const img of comp.figmaImages) {
+      if (img.width && img.height) {
+        allSlots.push({ componentId: compId, slot: img });
+      }
+    }
+  }
+
+  if (allSlots.length === 0) {
+    Logger.info('No Figma image slots with sizing data found — nothing to push.');
+    return;
+  }
+
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer = await getSyncBearerToken(handoff.workingPath);
+  const url = `${baseUrl}/api/registry/image-slots`;
+
+  // Build deduplicated slot records, keyed by (componentId, slotName, nodeId)
+  const seen = new Set<string>();
+  const slots = allSlots
+    .map(({ componentId, slot }) => {
+      const slotName = slot.name ?? 'image';
+      const nodeId = slot.nodeId ?? null;
+      const key = `${componentId}:${slotName}:${nodeId ?? ''}`;
+      if (seen.has(key)) return null;
+      seen.add(key);
+
+      const ratio = slot.width && slot.height ? toAspectRatio(slot.width, slot.height) : null;
+      const idHash = Buffer.from(key).toString('base64url').slice(0, 32);
+
+      return {
+        id: idHash,
+        componentId,
+        slotName,
+        nodeId,
+        variantKey: null,
+        recommendedWidth: slot.width ?? null,
+        recommendedHeight: slot.height ?? null,
+        aspectRatioW: ratio?.w ?? null,
+        aspectRatioH: ratio?.h ?? null,
+        scaleMode: slot.scaleMode ?? null,
+        isResponsive: slot.isResponsive ?? false,
+        minWidth: slot.minWidth ?? null,
+        minHeight: slot.minHeight ?? null,
+      };
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null);
+
+  const componentIds = [...new Set(slots.map((s) => s.componentId))];
+
+  Logger.info(`Pushing ${slots.length} image slot(s) across ${componentIds.length} component(s)…`);
+
+  // Batch by component: send up to 50 components at a time
+  const BATCH = 50;
+  for (let i = 0; i < componentIds.length; i += BATCH) {
+    const batchCompIds = componentIds.slice(i, i + BATCH);
+    const batchSlots = slots.filter((s) => batchCompIds.includes(s.componentId));
+    try {
+      await postJson(url, bearer, { componentIds: batchCompIds, slots: batchSlots });
+    } catch (e) {
+      Logger.warn(`  Image slots batch ${Math.floor(i / BATCH) + 1}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  Logger.success(`Image slots pushed (${slots.length} slot(s)).`);
+}

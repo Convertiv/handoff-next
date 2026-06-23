@@ -12,6 +12,7 @@ import {
   pushRegistryLogos,
   pushRegistryFonts,
   pushFigmaImageFills,
+  pushImageSlots,
 } from '@handoff/cli/sync/push-registry-content';
 import { Logger } from '@handoff/utils/logger';
 import { SharedArgs } from './types.js';
@@ -30,6 +31,7 @@ export interface PushAllArgs extends SharedArgs {
   skipLogos?: boolean;
   skipFonts?: boolean;
   skipFigmaFills?: boolean;
+  skipImageSlots?: boolean;
 }
 
 const command: CommandModule<{}, PushAllArgs> = {
@@ -59,7 +61,8 @@ const command: CommandModule<{}, PushAllArgs> = {
       .option('skip-icons', { type: 'boolean', default: false, describe: 'Skip /api/registry/icons push (icon catalog).' })
       .option('skip-logos', { type: 'boolean', default: false, describe: 'Skip /api/registry/logos push (logo set).' })
       .option('skip-fonts', { type: 'boolean', default: false, describe: 'Skip /api/registry/fonts push (font files served at /fonts/<file>).' })
-      .option('skip-figma-fills', { type: 'boolean', default: false, describe: 'Skip Figma image fills push (images fetched during `fetch` step).' }),
+      .option('skip-figma-fills', { type: 'boolean', default: false, describe: 'Skip Figma image fills push (images fetched during `fetch` step).' })
+      .option('skip-image-slots', { type: 'boolean', default: false, describe: 'Skip image slot sizing specs push (extracted from figmaImages in tokens snapshot).' }),
   handler: async (args: PushAllArgs) => {
     const handoff = new Handoff(args.debug, args.force);
     handoff.preRunner();
@@ -137,6 +140,11 @@ const command: CommandModule<{}, PushAllArgs> = {
     // 11. Figma image fills (downloaded during `fetch`, pushed to asset DAM)
     if (!args.skipFigmaFills) {
       await tryStep('figma-fills', () => pushFigmaImageFills(handoff));
+    }
+
+    // 12. Image slot sizing specs (extracted from figmaImages in tokens snapshot)
+    if (!args.skipImageSlots) {
+      await tryStep('image-slots', () => pushImageSlots(handoff));
     }
 
     if (failures > 0) {

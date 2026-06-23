@@ -1,6 +1,6 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { asc, desc, eq } from 'drizzle-orm';
+import { asc, desc, eq, inArray } from 'drizzle-orm';
 import { getDb } from './index';
 import {
   handoffRegistryConfig,
@@ -10,6 +10,7 @@ import {
   handoffRegistryDtcg,
   handoffRegistryFonts,
   handoffRegistryLogos,
+  handoffImageSlots,
   handoffTokenChanges,
   handoffTokensSnapshots,
 } from './schema-pg';
@@ -397,4 +398,73 @@ export async function upsertRegistryAppearance(
       target: handoffRegistryAppearance.id,
       set: { settings, css, updatedAt: new Date(), updatedByUserId: userId },
     });
+}
+
+// ─── Image slots ───────────────────────────────────────────────────────────────
+
+export type ImageSlotRow = typeof handoffImageSlots.$inferSelect;
+
+export type ImageSlotInput = {
+  id: string;
+  componentId: string;
+  slotName: string;
+  nodeId?: string | null;
+  variantKey?: string | null;
+  recommendedWidth?: number | null;
+  recommendedHeight?: number | null;
+  aspectRatioW?: number | null;
+  aspectRatioH?: number | null;
+  scaleMode?: string | null;
+  isResponsive?: boolean;
+  minWidth?: number | null;
+  minHeight?: number | null;
+};
+
+export async function upsertComponentImageSlots(slots: ImageSlotInput[]): Promise<void> {
+  if (slots.length === 0) return;
+  const db = getDb();
+  for (const slot of slots) {
+    await db
+      .insert(handoffImageSlots)
+      .values({ ...slot, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: handoffImageSlots.id,
+        set: {
+          slotName: slot.slotName,
+          nodeId: slot.nodeId ?? null,
+          variantKey: slot.variantKey ?? null,
+          recommendedWidth: slot.recommendedWidth ?? null,
+          recommendedHeight: slot.recommendedHeight ?? null,
+          aspectRatioW: slot.aspectRatioW ?? null,
+          aspectRatioH: slot.aspectRatioH ?? null,
+          scaleMode: slot.scaleMode ?? null,
+          isResponsive: slot.isResponsive ?? false,
+          minWidth: slot.minWidth ?? null,
+          minHeight: slot.minHeight ?? null,
+          updatedAt: new Date(),
+        },
+      });
+  }
+}
+
+export async function getImageSlotsForComponent(componentId: string): Promise<ImageSlotRow[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(handoffImageSlots)
+    .where(eq(handoffImageSlots.componentId, componentId))
+    .orderBy(asc(handoffImageSlots.slotName));
+}
+
+/** Delete all slots for the given component ids and replace with the provided batch. */
+export async function replaceImageSlotsForComponents(
+  componentIds: string[],
+  slots: ImageSlotInput[],
+): Promise<void> {
+  if (componentIds.length === 0) return;
+  const db = getDb();
+  await db.delete(handoffImageSlots).where(inArray(handoffImageSlots.componentId, componentIds));
+  if (slots.length > 0) {
+    await db.insert(handoffImageSlots).values(slots.map((s) => ({ ...s, updatedAt: new Date() })));
+  }
 }

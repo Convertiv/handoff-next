@@ -20,6 +20,14 @@ export type FigmaImageAsset = {
   height?: number;
   nodeId?: string;
   part?: string;
+  /** How the image fill scales within its container (from Figma fill.scaleMode). */
+  scaleMode?: 'FILL' | 'FIT' | 'CROP' | 'TILE';
+  /** True when the container uses FILL horizontal sizing (stretches with layout). */
+  isResponsive?: boolean;
+  /** Minimum width constraint on the containing node (px). */
+  minWidth?: number;
+  /** Minimum height constraint on the containing node (px). */
+  minHeight?: number;
 };
 
 export type FigmaComponentLinkData = {
@@ -729,6 +737,7 @@ function imageAssetsFromNodeTree(node: FigmaNodeDocument | undefined, pathSegmen
   const nextPath = [...pathSegments, nodeName];
   const dimensions = findDimensions(node) ?? {};
   const fills = Array.isArray(node.fills) ? node.fills : [];
+  const nodeAny = node as Record<string, unknown>;
   const ownImages = fills
     .filter((fill) => fill?.type === 'IMAGE' && fill.visible !== false)
     .map((fill): FigmaImageAsset => ({
@@ -739,6 +748,10 @@ function imageAssetsFromNodeTree(node: FigmaNodeDocument | undefined, pathSegmen
       height: dimensions.height,
       nodeId: cleanToken(node.id) ?? undefined,
       part: nextPath.join('/'),
+      scaleMode: ((): FigmaImageAsset['scaleMode'] => { const sm = (fill as Record<string, unknown>).scaleMode; return ['FILL', 'FIT', 'CROP', 'TILE'].includes(sm as string) ? sm as FigmaImageAsset['scaleMode'] : undefined; })(),
+      isResponsive: nodeAny.layoutSizingHorizontal === 'FILL',
+      minWidth: toFiniteNumber(nodeAny.minWidth),
+      minHeight: toFiniteNumber(nodeAny.minHeight),
     }));
 
   const childImages = (node.children ?? []).flatMap((child) => imageAssetsFromNodeTree(child, nextPath));

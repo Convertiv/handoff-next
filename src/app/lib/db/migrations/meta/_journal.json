@@ -113,6 +113,13 @@
       "when": 1782100000000,
       "tag": "0015_appearance",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1782200000000,
+      "tag": "0016_image_slots",
+      "breakpoints": true
     }
   ]
 }
