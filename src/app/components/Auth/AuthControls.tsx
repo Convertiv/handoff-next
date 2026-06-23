@@ -74,7 +74,7 @@ export function AuthControls() {
         {displayRole === 'admin' ? (
           <>
             <DropdownMenuItem asChild>
-              <Link href="/admin/users">Manage users</Link>
+              <Link href="/account/users">Manage users</Link>
             </DropdownMenuItem>
             <DropdownMenuItem asChild>
               <Link href="/admin/builds">Builds</Link>
@@ -150,7 +150,7 @@ export function AuthControlsMobile() {
       )}
       {displayRole === 'admin' ? (
         <>
-          <Link href="/admin/users" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
+          <Link href="/account/users" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">
             Manage users
           </Link>
           <Link href="/admin/builds" className="rounded-md px-4 py-2 text-sm hover:bg-accent/50">

@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { handoffApiUrl } from '../../lib/api-path';
@@ -53,71 +52,65 @@ export default function AccountClient({ user }: { user: AccountUserInfo }) {
   const avatarInitials = initials(name || user.name, user.email);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Profile</CardTitle>
-        <CardDescription>Your name and avatar are visible to teammates.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
-        <div className="flex items-center gap-4">
-          {imageUrl ? (
-            <img
-              src={imageUrl}
-              alt={name || user.email}
-              className="h-16 w-16 rounded-full object-cover ring-1 ring-border"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-            />
-          ) : (
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-xl font-semibold">
-              {avatarInitials}
-            </div>
-          )}
-          <div>
-            <p className="text-sm font-medium">{name || user.email}</p>
-            <Badge variant="secondary" className="mt-1 text-[10px]">{user.role}</Badge>
+    <div className="space-y-5">
+      <div className="flex items-center gap-4">
+        {imageUrl ? (
+          <img
+            src={imageUrl}
+            alt={name || user.email}
+            className="h-16 w-16 rounded-full object-cover ring-1 ring-border"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+          />
+        ) : (
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-xl font-semibold">
+            {avatarInitials}
           </div>
+        )}
+        <div>
+          <p className="text-sm font-medium">{name || user.email}</p>
+          <Badge variant="secondary" className="mt-1 text-[10px]">{user.role}</Badge>
         </div>
+      </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" value={user.email} disabled className="bg-muted" />
-          <p className="text-xs text-muted-foreground">Email cannot be changed here.</p>
-        </div>
+      <div className="space-y-1">
+        <Label htmlFor="email">Email</Label>
+        <Input id="email" value={user.email} disabled className="bg-muted" />
+        <p className="text-xs text-muted-foreground">Email cannot be changed here.</p>
+      </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="name">Display name</Label>
-          <Input
-            id="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Your name"
-            maxLength={100}
-          />
-        </div>
+      <div className="space-y-1">
+        <Label htmlFor="name">Display name</Label>
+        <Input
+          id="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Your name"
+          maxLength={100}
+        />
+      </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="image">Avatar URL</Label>
-          <Input
-            id="image"
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-            placeholder="https://example.com/avatar.png"
-            type="url"
-          />
-          <p className="text-xs text-muted-foreground">Link to an image (HTTPS). Leave blank to use initials.</p>
-        </div>
+      <div className="space-y-1">
+        <Label htmlFor="image">Avatar URL</Label>
+        <Input
+          id="image"
+          value={imageUrl}
+          onChange={(e) => setImageUrl(e.target.value)}
+          placeholder="https://example.com/avatar.png"
+          type="url"
+        />
+        <p className="text-xs text-muted-foreground">Link to an image (HTTPS). Leave blank to use initials.</p>
+      </div>
 
-        <div className="flex items-center gap-3">
-          <Button onClick={handleSave} disabled={saving} size="sm">
-            {saving ? 'Saving…' : 'Save changes'}
-          </Button>
-          {saveMsg && (
-            <p className={`text-xs ${saveMsg === 'Saved.' ? 'text-green-600' : 'text-destructive'}`}>
-              {saveMsg}
-            </p>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+      <div className="flex items-center gap-3">
+        <Button onClick={handleSave} disabled={saving} size="sm">
+          {saving ? 'Saving…' : 'Save changes'}
+        </Button>
+        {saveMsg && (
+          <p className={`text-xs ${saveMsg === 'Saved.' ? 'text-green-600' : 'text-destructive'}`}>
+            {saveMsg}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }

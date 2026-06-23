@@ -61,7 +61,7 @@ Full team mode when `DATABASE_URL` is set:
 - **NextAuth v5** (`/api/auth/[...nextauth]`)
 - Credentials + optional OAuth providers
 - **Roles** (`admin` / `member`) — admin gates for builds, component PATCH, integrations
-- **User admin** — invite, remove, role changes (`/admin/users`)
+- **User admin** — invite, remove, role changes (`/account/users`)
 - **Password reset** — email via Resend (`request-reset`, `reset-password`)
 - **Middleware** — JWT gate on `/admin` in Postgres mode; open in local SQLite mode
 - **Extensible middleware hook** (`middleware-hook.mjs`) for host-specific rules
@@ -70,7 +70,7 @@ Full team mode when `DATABASE_URL` is set:
 
 | Route | Purpose |
 |-------|---------|
-| `/admin/users` | User management |
+| `/account/users` | User management |
 | `/admin/builds` | Component build job queue |
 | `/admin/integrations` | Figma OAuth, Playground AI key, sync secrets |
 | `/admin/ai-cost` | AI usage / cost analytics |
