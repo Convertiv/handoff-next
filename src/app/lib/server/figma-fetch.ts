@@ -1,6 +1,9 @@
 import { spawnTsxWorker } from './spawn-tsx-worker';
 import path from 'path';
 import { resolveHandoffRepoRoot } from './component-builder';
+import { getDb } from '../db';
+import { figmaFetchJobs } from '../db/schema';
+import { eq } from 'drizzle-orm';
 
 const WORKER_ENV_ALLOWLIST = [
   'DATABASE_URL',
@@ -61,7 +64,27 @@ export function spawnFigmaFetchWorker(jobId: number): void {
   child.stdout?.on('data', (chunk) => {
     console.log(`[figma-fetch ${jobId}]`, chunk.toString());
   });
+  async function failJob(reason: string) {
+    try {
+      await getDb()
+        .update(figmaFetchJobs)
+        .set({ status: 'failed', error: reason.slice(0, 8000), completedAt: new Date() })
+        .where(eq(figmaFetchJobs.id, jobId));
+    } catch (dbErr) {
+      console.error(`[figma-fetch ${jobId}] DB update failed after worker error:`, dbErr);
+    }
+  }
+
   child.on('error', (err) => {
     console.error(`[figma-fetch ${jobId}] spawn error`, err);
+    void failJob(err.message);
+  });
+
+  child.on('exit', (code, signal) => {
+    if (code !== 0) {
+      const reason = signal ? `Worker killed by signal ${signal}` : `Worker exited with code ${code}`;
+      console.error(`[figma-fetch ${jobId}]`, reason);
+      void failJob(reason);
+    }
   });
 }
