@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import Handoff from '@handoff/index';
-import buildApp from '@handoff/app-builder/index';
 import { Logger } from '@handoff/utils/logger';
 import { figmaExtract, validateFigmaAuth } from './figma.js';
 import { buildCustomFonts, buildStyles } from './styles.js';
@@ -8,8 +7,6 @@ import { validateHandoffRequirements } from './validation.js';
 
 // Re-exports used by other modules
 export { readPrevJSONFile, zip, zipAssets } from './archive.js';
-export { buildComponents } from './components.js';
-export { buildPatterns } from './patterns.js';
 
 /**
  * Run the entire Figma data pipeline:
@@ -32,6 +29,8 @@ const pipeline = async (handoff: Handoff, build?: boolean) => {
   await buildStyles(handoff, documentationObject);
   // await buildComponents(handoff);
   if (build) {
+    // Lazy import: app-builder pulls in vite/esbuild which must not load in Lambda.
+    const { default: buildApp } = await import(/* turbopackIgnore: true */ '@handoff/app-builder/index');
     await buildApp(handoff);
   }
 };

@@ -74,7 +74,9 @@ const HANDOFF_DIST = path.resolve(HANDOFF_MODULE_PATH, 'dist');
 /** Next bundles @handoff/* from compiled dist (.js); the materialized app uses @handoff/app → APP_DIR. */
 const handoffResolveAlias = () => ({
   '@handoff/app': APP_DIR,
-  '@handoff/index': HANDOFF_DIST,
+  // Prefix alias (not exact): import '@handoff/root/index.js' appends suffix → dist/index.js.
+  // Turbopack handles prefix-match absolute aliases correctly; exact-match ones fail as "server relative".
+  '@handoff/root': HANDOFF_DIST,
   '@handoff/transformers': path.join(HANDOFF_DIST, 'transformers'),
   '@handoff/config': path.join(HANDOFF_DIST, 'config'),
   '@handoff/types': path.join(HANDOFF_DIST, 'types'),
@@ -119,6 +121,12 @@ const nextConfig = {
     'drizzle-orm/better-sqlite3/migrator',
     // Native CLI tool; Turbopack must not parse optional @esbuild/* binaries or README assets.
     'esbuild',
+    // Build-tool deps: vite and its native-addon sub-deps (lightningcss, rolldown, fsevents)
+    // are only used by handoff CLI/build paths — never by Lambda request handlers.
+    // Marking vite external stops Turbopack from following its entire import graph.
+    'vite',
+    // Native macOS addon — can't be placed in ESM chunks. Only used by chokidar/watcher paths.
+    'fsevents',
   ],
   experimental: {
     externalDir: true,

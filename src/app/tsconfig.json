@@ -29,6 +29,9 @@
       "@handoff/app/*": [
         "./*"
       ],
+      "@handoff/root/*": [
+        "./../../dist/*"
+      ],
       "@handoff/*": [
         "./../../src/*"
       ],

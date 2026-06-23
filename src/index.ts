@@ -3,13 +3,15 @@ import fs from 'fs-extra';
 import { Types as CoreTypes, Handoff as HandoffRunner, Providers } from 'handoff-core';
 import path from 'path';
 import { fileURLToPath } from 'node:url';
-import buildApp, { BuildMode, devApp, watchApp } from './app-builder/index.js';
 import { getPathContract as resolveHandoffPathContract, type PathContract } from './app-builder/path-contract.js';
 import { ejectConfig, ejectPages, ejectTheme } from './cli/eject.js';
 import { makeComponent, makePage, makeTemplate } from './cli/make.js';
+// These are lazy-imported in the methods that need them to avoid bundling vite/esbuild in Lambda.
+type BuildMode = import('./app-builder/index.js').BuildMode;
+type ProcessComponents = typeof import('./transformers/preview/component/builder.js').default;
+type ComponentSegmentType = typeof import('./transformers/preview/component/builder.js').ComponentSegment;
 import { initConfigWithMetadata, initRuntimeConfig, validateConfig } from './config/index.js';
-import pipeline, { buildComponents, buildPatterns } from './pipeline/index.js';
-import processComponents, { ComponentSegment } from './transformers/preview/component/builder.js';
+import pipeline from './pipeline/index.js';
 import { Config, ConfigFileEntry, RuntimeConfig } from './types/config.js';
 import { Logger } from './utils/logger.js';
 import { generateFilesystemSafeId, normalizePathForCompare } from './utils/path.js';
@@ -107,8 +109,10 @@ class Handoff {
 
     if (name) {
       name = name.replace('.hbs', '');
+      const { default: processComponents } = await import(/* turbopackIgnore: true */ './transformers/preview/component/builder.js');
       await processComponents(this, name);
     } else {
+      const { buildComponents } = await import(/* turbopackIgnore: true */ './pipeline/components.js');
       await buildComponents(this);
     }
 
@@ -117,12 +121,14 @@ class Handoff {
 
   async pattern(): Promise<Handoff> {
     this.preRunner();
+    const { buildPatterns } = await import(/* turbopackIgnore: true */ './pipeline/patterns.js');
     await buildPatterns(this);
     return this;
   }
 
   async build(skipComponents?: boolean, mode: BuildMode = 'dynamic'): Promise<Handoff> {
     this.preRunner();
+    const { default: buildApp } = await import(/* turbopackIgnore: true */ './app-builder/index.js');
     await buildApp(this, skipComponents, mode);
     return this;
   }
@@ -165,12 +171,14 @@ class Handoff {
 
   async start(): Promise<Handoff> {
     this.preRunner();
+    const { watchApp } = await import(/* turbopackIgnore: true */ './app-builder/index.js');
     await watchApp(this);
     return this;
   }
 
   async dev(): Promise<Handoff> {
     this.preRunner();
+    const { devApp } = await import(/* turbopackIgnore: true */ './app-builder/index.js');
     await devApp(this);
     return this;
   }
@@ -178,6 +186,7 @@ class Handoff {
   async validateComponents(skipBuild?: boolean): Promise<Handoff> {
     this.preRunner();
     if (!skipBuild) {
+      const { default: processComponents, ComponentSegment } = await import(/* turbopackIgnore: true */ './transformers/preview/component/builder.js');
       await processComponents(this, undefined, ComponentSegment.Validation);
     }
     return this;
