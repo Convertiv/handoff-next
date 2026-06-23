@@ -1,6 +1,6 @@
 'use client';
 
-import { Bot, Paintbrush, Plug, UserCircle, Users } from 'lucide-react';
+import { Bot, FileText, Hammer, Paintbrush, Plug, UserCircle, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Layout from '../../components/Layout/Main';
@@ -31,6 +31,13 @@ const accountNavGroups = [
       { href: '/account/users', label: 'Users', icon: Users, adminOnly: true, exact: false },
       { href: '/account/appearance', label: 'Appearance', icon: Paintbrush, adminOnly: true, exact: false },
       { href: '/account/ai-cost', label: 'AI Cost', icon: Bot, adminOnly: true, exact: false },
+    ],
+  },
+  {
+    label: 'Tools',
+    items: [
+      { href: '/admin/pages', label: 'Page Manager', icon: FileText, adminOnly: false, exact: false },
+      { href: '/admin/builds', label: 'Builds', icon: Hammer, adminOnly: true, exact: false },
     ],
   },
 ];
