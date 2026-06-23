@@ -1,6 +1,6 @@
 'use client';
 
-import { Bot, Plug, UserCircle, Users } from 'lucide-react';
+import { Bot, Paintbrush, Plug, UserCircle, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Layout from '../../components/Layout/Main';
@@ -29,6 +29,7 @@ const accountNavGroups = [
     label: 'Workspace',
     items: [
       { href: '/account/users', label: 'Users', icon: Users, adminOnly: true, exact: false },
+      { href: '/account/appearance', label: 'Appearance', icon: Paintbrush, adminOnly: true, exact: false },
       { href: '/account/ai-cost', label: 'AI Cost', icon: Bot, adminOnly: true, exact: false },
     ],
   },

@@ -539,6 +539,20 @@ export const handoffRegistryTheme = pgTable('handoff_registry_theme', {
 });
 
 /**
+ * Appearance settings — singleton row. Stores structured UI customization
+ * (logo selection, color overrides, font overrides) set via the /account/appearance
+ * page. The `css` column holds the generated CSS override block which the
+ * /api/registry/theme.css route appends to the workspace-pushed theme.
+ */
+export const handoffRegistryAppearance = pgTable('handoff_registry_appearance', {
+  id: text('id').primaryKey().default('default'),
+  settings: jsonb('settings').notNull().default({}),
+  css: text('css').notNull().default(''),
+  updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+});
+
+/**
  * Navigation tree — singleton row. Stored as a JSON tree of:
  *   { slug, title, type, children: [...] }
  * where `type` is 'markdown' | 'mdx' | 'html' | 'plugin' | 'category' (ADR-001 §7).

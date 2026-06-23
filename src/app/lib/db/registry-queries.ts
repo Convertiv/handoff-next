@@ -5,9 +5,11 @@ import { getDb } from './index';
 import {
   handoffRegistryConfig,
   handoffRegistryTheme,
+  handoffRegistryAppearance,
   handoffRegistryNavigation,
   handoffRegistryDtcg,
   handoffRegistryFonts,
+  handoffRegistryLogos,
   handoffTokenChanges,
   handoffTokensSnapshots,
 } from './schema-pg';
@@ -322,4 +324,77 @@ export async function listRegistryFontFamilyKeys(): Promise<string[]> {
   const db = getDb();
   const rows = await db.select({ familyKey: handoffRegistryFonts.familyKey }).from(handoffRegistryFonts);
   return Array.from(new Set(rows.map((r) => r.familyKey)));
+}
+
+// ─── Registry logos ───────────────────────────────────────────────────────────
+
+export type LogoVariant = {
+  id: string;
+  name: string;
+  variant: string;
+  form: string;
+  svg: string;
+  background?: string;
+  usage?: string;
+  description?: string;
+};
+
+export type LogoSet = {
+  name: string;
+  description?: string;
+  variants: LogoVariant[];
+};
+
+export async function getRegistryLogoSet(): Promise<LogoSet | null> {
+  const db = getDb();
+  const [row] = await db.select().from(handoffRegistryLogos).where(eq(handoffRegistryLogos.id, SINGLETON_ID)).limit(1);
+  if (!row?.logoSet) return null;
+  return row.logoSet as LogoSet;
+}
+
+// ─── Registry appearance ──────────────────────────────────────────────────────
+
+export type AppearanceSettings = {
+  /** ID of a LogoVariant from the logo set */
+  logoVariantId?: string;
+  /** Custom SVG string uploaded by the user */
+  customLogoSvg?: string;
+  /** Map of CSS variable name → hex color value */
+  colorOverrides?: Record<string, string>;
+  /** Font family display name for --font-sans */
+  fontSans?: string;
+  /** Font family display name for --font-mono */
+  fontMono?: string;
+};
+
+export type AppearanceRow = {
+  settings: AppearanceSettings;
+  css: string;
+  updatedAt: Date | null;
+};
+
+export async function getRegistryAppearance(): Promise<AppearanceRow | null> {
+  const db = getDb();
+  const [row] = await db.select().from(handoffRegistryAppearance).where(eq(handoffRegistryAppearance.id, SINGLETON_ID)).limit(1);
+  if (!row) return null;
+  return {
+    settings: (row.settings ?? {}) as AppearanceSettings,
+    css: row.css ?? '',
+    updatedAt: row.updatedAt ?? null,
+  };
+}
+
+export async function upsertRegistryAppearance(
+  settings: AppearanceSettings,
+  css: string,
+  userId: string | null = null,
+): Promise<void> {
+  const db = getDb();
+  await db
+    .insert(handoffRegistryAppearance)
+    .values({ id: SINGLETON_ID, settings, css, updatedAt: new Date(), updatedByUserId: userId })
+    .onConflictDoUpdate({
+      target: handoffRegistryAppearance.id,
+      set: { settings, css, updatedAt: new Date(), updatedByUserId: userId },
+    });
 }

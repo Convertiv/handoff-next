@@ -93,8 +93,12 @@ export function Header() {
           <Link href="/" className="inline-flex shrink-0 items-center">
             <img
               className="h-5 w-auto max-w-[160px] object-contain object-left"
-              src={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/logo.svg`}
+              src={`${process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? ''}/api/registry/logo.svg`}
               alt={context.config?.app?.title}
+              onError={(e) => {
+                (e.target as HTMLImageElement).src =
+                  `${process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? ''}/logo.svg`;
+              }}
             />
           </Link>
           <div className="hidden items-center gap-4 @2xl:flex">
