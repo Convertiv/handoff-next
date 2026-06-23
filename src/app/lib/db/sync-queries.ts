@@ -2,8 +2,6 @@ import { desc, eq, gt, sql } from 'drizzle-orm';
 import type { SyncAction, SyncChange, SyncChangeset, SyncEntityType, SyncStatusResponse } from '@handoff/types/handoff-sync';
 import { deleteComponentArtifacts, upsertComponentArtifacts } from './component-artifact-queries';
 import { recordComponentVersion } from './component-version-queries';
-import { ingestReferencedImageAsset } from './queries';
-import type { ReferencedImagePayload } from '@handoff/types/handoff-sync';
 import { getDb } from './index';
 import {
   handoffComponents,
@@ -181,29 +179,6 @@ export async function applyUploadedChange(input: {
     if (d.sourceFiles && typeof d.sourceFiles === 'object' && !Array.isArray(d.sourceFiles)) {
       Object.assign(incomingSourceFiles, d.sourceFiles as Record<string, string>);
       await upsertComponentSources(row.id, incomingSourceFiles, userId ?? null);
-    }
-
-    // Ingest referenced workspace images as DB-backed library assets and link
-    // their usage to this component. The references in buildArtifacts were
-    // already rewritten to each asset's served URL by the CLI.
-    if (Array.isArray(d.referencedImages)) {
-      for (const img of d.referencedImages as ReferencedImagePayload[]) {
-        if (!img?.assetId || !img.dataBase64) continue;
-        try {
-          await ingestReferencedImageAsset({
-            assetId: img.assetId,
-            filename: img.filename || img.assetId,
-            mimeType: img.mime || 'application/octet-stream',
-            contentHash: img.contentHash || '',
-            dataBase64: img.dataBase64,
-            componentId: row.id,
-            refs: Array.isArray(img.refs) ? img.refs : [],
-            userId: userId ?? null,
-          });
-        } catch {
-          // Non-fatal: a bad image shouldn't fail the whole component push.
-        }
-      }
     }
 
     // Record a version snapshot if anything changed from the previous push.

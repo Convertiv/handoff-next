@@ -60,10 +60,17 @@ const NormalMenuItem = ({ title, icon, path }) => {
 const CollapsibleMenuItem = ({ title, icon, path, menu }) => {
   const pathname = usePathname();
   const isActive = menu.some(
-    (item) => normalizePathForMatch(pathname).startsWith(normalizePathForMatch(item.path))
+    (item) => item.path && normalizePathForMatch(pathname).startsWith(normalizePathForMatch(item.path))
+  );
+  // Check one level deeper — if any child has a nested menu whose items match
+  // (component type groups: section → group → leaf), also open by default.
+  const isDeepActive = !isActive && menu.some((item) =>
+    Array.isArray(item.menu) && item.menu.some(
+      (sub) => sub.path && normalizePathForMatch(pathname).startsWith(normalizePathForMatch(sub.path))
+    )
   );
   return (
-    <Collapsible defaultOpen={false} className="group/collapsible">
+    <Collapsible defaultOpen={isActive || isDeepActive} className="group/collapsible">
       <SidebarMenuItem>
         <CollapsibleTrigger asChild>
           <SidebarMenuButton className="h-9 gap-3">

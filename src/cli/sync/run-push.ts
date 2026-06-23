@@ -13,6 +13,7 @@ import {
   isBinaryArtifactFilename,
 } from './collect-build-artifacts.js';
 import { applyImageRewrites, collectReferencedImages } from './collect-referenced-images.js';
+import { pushComponentImages } from './push-registry-content.js';
 import {
   resolveComponentDeclarationForSync,
   resolvePatternDeclarationForSync,
@@ -245,8 +246,13 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
         if (Object.keys(sourceFiles).length > 0) {
           payload = { ...payload, sourceFiles };
         }
+        // Push referenced images via dedicated per-image endpoint (decoupled from
+        // the component payload so there's no size cap per image).
         if (images.length > 0) {
-          payload = { ...payload, referencedImages: images };
+          const pushed = await pushComponentImages(handoff, id, images);
+          if (pushed > 0) {
+            Logger.info(`Component "${id}": pushed ${pushed}/${images.length} referenced image(s) to asset library.`);
+          }
         }
       }
       payload = {

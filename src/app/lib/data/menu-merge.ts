@@ -270,13 +270,23 @@ export function mergeDbNavIntoSkeleton(
     if (dbNode.definition !== undefined && dbNode.definition !== null) {
       const coerced = coerceDefinitionToSubSections(dbNode.definition, opts);
       if (coerced.length > 0) {
-        const coercedByPath = new Map(coerced.map((s) => [normalizeNavPath(s.path ?? ''), s]));
         const skeletonSubs = section.subSections ?? [];
+        // When every coerced item has an empty path (i.e. they are all dynamic
+        // component-catalog markers resolved by the resolver — these always emit
+        // path:''), the path-based merge below produces degenerate output: all
+        // coerced items hash to the same key ('/'), so the Map only retains the
+        // last one, and EVERY skeleton sub gets replaced by that single item.
+        // Detect this case and short-circuit: use coerced directly, since these
+        // sections are built from live data and supersede the auto-generated skeleton.
+        const allCoercedHaveRootPaths = coerced.every(s => normalizeNavPath(s.path ?? '') === '/');
+        if (allCoercedHaveRootPaths || skeletonSubs.length === 0) {
+          return { ...section, title: dbNode.title || section.title, subSections: coerced };
+        }
+        const coercedByPath = new Map(coerced.map((s) => [normalizeNavPath(s.path ?? ''), s]));
         const skeletonPaths = new Set(skeletonSubs.map((s) => normalizeNavPath(s.path ?? '')));
         const ordered = skeletonSubs.map((s) => coercedByPath.get(normalizeNavPath(s.path ?? '')) ?? s);
         const dbOnly = coerced.filter((s) => !skeletonPaths.has(normalizeNavPath(s.path ?? '')));
-        const subSections = skeletonSubs.length > 0 ? [...ordered, ...dbOnly] : coerced;
-        return { ...section, title: dbNode.title || section.title, subSections };
+        return { ...section, title: dbNode.title || section.title, subSections: [...ordered, ...dbOnly] };
       }
     }
     const dbChildren = Array.isArray(dbNode.children) ? (dbNode.children as DbNavNode[]) : [];

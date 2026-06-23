@@ -31,12 +31,10 @@ export type CollectReferencedImagesResult = {
 
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|svg|avif)$/i;
 
-/**
- * Per-image size cap. Referenced images ride on the component push payload,
- * which must stay under Vercel's ~4.5MB function limit. Oversized images are
- * skipped (reference left unrewritten) until image upload is decoupled.
- */
-const MAX_IMAGE_BYTES = 1_500_000;
+// Images are now pushed via a dedicated per-image endpoint rather than bundled
+// with the component payload. Cap at 4MB to stay within Vercel's request limit
+// for any single image. Images larger than this are skipped with a warning.
+const MAX_IMAGE_BYTES = 4_000_000;
 
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
@@ -94,6 +92,12 @@ async function resolveRefToFile(handoff: Handoff, ref: string): Promise<string |
   const tail = refToTail(ref);
   if (!tail) return null;
   const roots = [path.join(handoff.workingPath, 'public'), handoff.workingPath];
+  // Bootstrap/Handlebars projects (e.g. SS&C) keep component assets under an
+  // 'integration/' directory alongside their component source files rather than
+  // under 'public/'. Add it as a fallback root when the directory exists so
+  // image refs like /images/content/hero.jpg resolve correctly.
+  const integrationDir = path.join(handoff.workingPath, 'integration');
+  if (await fs.pathExists(integrationDir)) roots.push(integrationDir);
   for (const root of roots) {
     const candidate = path.join(root, tail);
     // Guard against path traversal escaping the root.
@@ -151,7 +155,7 @@ export async function collectReferencedImages(
       // Skip: too large to ride on the component push payload. Leave the
       // reference unrewritten (it will not resolve on the registry) and flag it.
       warnings.push(
-        `Skipped oversized image "${path.basename(abs)}" (${Math.round(buf.length / 1024)}KB > ${Math.round(MAX_IMAGE_BYTES / 1024)}KB cap) — its reference was left as-is and will not resolve on the registry.`
+        `Skipped oversized image "${path.basename(abs)}" (${Math.round(buf.length / 1024)}KB > ${Math.round(MAX_IMAGE_BYTES / 1024)}KB limit per image) — its reference was left as-is and will not resolve on the registry.`
       );
       continue;
     }

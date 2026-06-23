@@ -19,3 +19,23 @@ export async function fetchDtcgManifest() {
 export async function fetchDtcgBrands() {
   return getDataProvider().getDtcgBrands();
 }
+
+/**
+ * Fetch raw localStyles color objects from the pushed tokens snapshot.
+ * Used as a fallback on the colors page when no DTCG brand tokens have been
+ * pushed (e.g. projects that use primitive/semantic token dirs instead of brands/).
+ */
+export async function fetchLocalStylesColors(): Promise<Array<{
+  name: string;
+  machineName: string;
+  value: string;
+  group: string;
+}> | null> {
+  try {
+    const tokens = await getDataProvider().getTokens();
+    const colors = (tokens as unknown as Record<string, unknown>)?.localStyles?.color;
+    return Array.isArray(colors) ? (colors as Array<{ name: string; machineName: string; value: string; group: string }>) : null;
+  } catch {
+    return null;
+  }
+}

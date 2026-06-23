@@ -466,6 +466,52 @@ export async function pushRegistryLogos(handoff: Handoff): Promise<void> {
 
 // ─── Fonts ──────────────────────────────────────────────────────────────────
 
+// ─── Component-referenced images ───────────────────────────────────────────
+
+export type ReferencedImageInput = {
+  assetId: string;
+  filename: string;
+  contentHash: string;
+  mime: string;
+  dataBase64: string;
+  refs: string[];
+};
+
+/**
+ * Push component-referenced images to the registry's dedicated ingest endpoint.
+ * Each image is sent individually so no request exceeds Vercel's 4.5MB limit.
+ * Returns the number of images successfully ingested.
+ */
+export async function pushComponentImages(
+  handoff: Handoff,
+  componentId: string,
+  images: ReferencedImageInput[]
+): Promise<number> {
+  if (images.length === 0) return 0;
+  const baseUrl = await resolveSyncRemoteUrl(handoff.workingPath);
+  const bearer = await getSyncBearerToken(handoff.workingPath);
+  let ok = 0;
+  for (const img of images) {
+    try {
+      await postJson(`${baseUrl}/api/registry/assets/ingest`, bearer, {
+        assetId: img.assetId,
+        filename: img.filename,
+        contentHash: img.contentHash,
+        mimeType: img.mime,
+        dataBase64: img.dataBase64,
+        componentId,
+        refs: img.refs,
+      });
+      ok++;
+    } catch (e) {
+      Logger.warn(`  Image "${img.filename}" for component "${componentId}": ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return ok;
+}
+
+// ─── Fonts ──────────────────────────────────────────────────────────────────
+
 const FONT_EXT_RE = /\.(woff2|woff|ttf|otf)$/i;
 
 function weightFromVariant(variant: string): number {
@@ -583,32 +629,24 @@ export async function pushRegistryFonts(handoff: Handoff): Promise<void> {
   const families = Array.from(new Set(fonts.map((f) => f.family))).join(', ');
   const totalKb = Math.round(fonts.reduce((n, f) => n + f.data.length * 0.75, 0) / 1024);
 
-  // Batch by cumulative base64 size to stay under Vercel's ~4.5MB function
-  // payload limit (the endpoint upserts by filename, so multiple POSTs are safe
-  // and cumulative). A single font larger than the cap is still sent alone.
-  const MAX_BATCH_BYTES = 3_500_000;
-  const batches: (typeof fonts)[] = [];
-  let current: typeof fonts = [];
-  let currentBytes = 0;
-  for (const font of fonts) {
-    const size = font.data.length; // base64 chars ≈ bytes on the wire
-    if (current.length > 0 && currentBytes + size > MAX_BATCH_BYTES) {
-      batches.push(current);
-      current = [];
-      currentBytes = 0;
-    }
-    current.push(font);
-    currentBytes += size;
-  }
-  if (current.length > 0) batches.push(current);
-
-  Logger.info(`Pushing ${fonts.length} font file(s) [${families}] (~${totalKb}KB) in ${batches.length} batch(es)…`);
+  // Send one font per request — each font file is typically 50–400KB, well under
+  // Vercel's 4.5MB request limit. Sending individually avoids any batching math
+  // and makes partial failures easy to diagnose without losing the whole push.
+  Logger.info(`Pushing ${fonts.length} font file(s) [${families}] (~${totalKb}KB)…`);
   let pushed = 0;
-  for (let i = 0; i < batches.length; i += 1) {
-    const batch = batches[i];
-    await postJson(`${baseUrl}/api/registry/fonts`, bearer, { fonts: batch });
-    pushed += batch.length;
-    if (batches.length > 1) Logger.info(`  fonts batch ${i + 1}/${batches.length} (${pushed}/${fonts.length}) pushed.`);
+  let failed = 0;
+  for (const font of fonts) {
+    try {
+      await postJson(`${baseUrl}/api/registry/fonts`, bearer, { fonts: [font] });
+      pushed++;
+    } catch (e) {
+      failed++;
+      Logger.warn(`  Failed to push font "${font.filename}": ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
-  Logger.success('Registry fonts pushed.');
+  if (failed > 0) {
+    Logger.warn(`Registry fonts: ${pushed} pushed, ${failed} failed.`);
+  } else {
+    Logger.success(`Registry fonts pushed (${pushed}).`);
+  }
 }
