@@ -42,7 +42,13 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
   try {
     const accessToken = await getValidFigmaAccessTokenForUser(job.triggeredByUserId);
     const handoff = new Handoff(false, true);
-    const projectId = process.env.HANDOFF_FIGMA_PROJECT_ID ?? handoff.config?.figma_project_id ?? null;
+    // HANDOFF_FIGMA_PROJECT_ID = explicit override; HANDOFF_PROJECT_ID = baked at build time from
+    // handoff.getProjectId() (equals figma_project_id for materialized deployments).
+    const projectId =
+      process.env.HANDOFF_FIGMA_PROJECT_ID ??
+      handoff.config?.figma_project_id ??
+      process.env.HANDOFF_PROJECT_ID ??
+      null;
 
     if (!projectId) {
       throw new Error('Missing HANDOFF_FIGMA_PROJECT_ID (or figma_project_id in handoff config).');

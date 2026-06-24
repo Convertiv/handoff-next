@@ -23,7 +23,10 @@ function withBearerToken(token: string | null | undefined): string | null {
 }
 
 function getConfiguredFigmaFileKey(): string | null {
-  return process.env.HANDOFF_FIGMA_PROJECT_ID?.trim() || null;
+  // HANDOFF_FIGMA_PROJECT_ID is the explicit override (Vercel env var or .env).
+  // HANDOFF_PROJECT_ID is baked at build time from handoff.getProjectId() — equals figma_project_id
+  // when set, so it works for materialized deployments without a separate env var.
+  return process.env.HANDOFF_FIGMA_PROJECT_ID?.trim() || process.env.HANDOFF_PROJECT_ID?.trim() || null;
 }
 
 function linkedFigmaFileUrl(fileKey: string): string {

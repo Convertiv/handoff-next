@@ -1,6 +1,6 @@
 'use client';
 
-import { CheckCircle, Loader2, RefreshCw, Unplug } from 'lucide-react';
+import { CheckCircle, ExternalLink, Loader2, RefreshCw, Unplug } from 'lucide-react';
 import { signIn, useSession } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../../components/ui/button';
@@ -12,9 +12,16 @@ type FetchJob = {
   error: string | null;
 };
 
+type LinkedFigmaFile = {
+  fileKey: string;
+  title: string;
+  url: string;
+};
+
 type StatusPayload = {
   connected: boolean;
   oauthConfigured: boolean;
+  linkedFile?: LinkedFigmaFile | null;
 };
 
 export function FigmaFetchControls() {
@@ -23,6 +30,7 @@ export function FigmaFetchControls() {
 
   const [connected, setConnected] = useState(false);
   const [oauthConfigured, setOauthConfigured] = useState(false);
+  const [linkedFile, setLinkedFile] = useState<LinkedFigmaFile | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [triggerBusy, setTriggerBusy] = useState(false);
   const [job, setJob] = useState<FetchJob | null>(null);
@@ -43,6 +51,7 @@ export function FigmaFetchControls() {
       const data = (await res.json()) as StatusPayload;
       setConnected(Boolean(data.connected));
       setOauthConfigured(Boolean(data.oauthConfigured));
+      setLinkedFile(data.linkedFile ?? null);
     } finally {
       setLoadingStatus(false);
     }
@@ -109,6 +118,14 @@ export function FigmaFetchControls() {
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      {linkedFile ? (
+        <Button asChild variant="ghost" size="sm" className="gap-1.5 text-muted-foreground">
+          <a href={linkedFile.url} target="_blank" rel="noreferrer">
+            <ExternalLink className="h-3.5 w-3.5" />
+            {linkedFile.title}
+          </a>
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="outline"
