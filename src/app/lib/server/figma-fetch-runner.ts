@@ -4,6 +4,7 @@ import Handoff from '@handoff/root/index.js';
 import { getDb } from '../db';
 import { figmaFetchJobs, handoffTokensSnapshots } from '../db/schema';
 import { getValidFigmaAccessTokenForUser } from './figma-auth';
+import { loadHandoffConfigFile } from './handoff-config-load';
 import { logEvent } from './event-log';
 
 /**
@@ -41,9 +42,17 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
 
   try {
     const accessToken = await getValidFigmaAccessTokenForUser(job.triggeredByUserId);
-    const handoff = new Handoff(false, true);
-    // HANDOFF_WORKING_PATH is baked at build time as an absolute path on the Vercel build server —
-    // it won't exist in the Lambda runtime. Fall back to /tmp, which is writable in all Lambda envs.
+
+    // Load the committed handoff.config.* via the app's runtime-safe loader (cwd-relative
+    // discovery), then inject it as a Handoff override. Handoff's own CLI loader looks at
+    // the baked HANDOFF_WORKING_PATH, which doesn't exist in the Lambda — so we can't rely
+    // on it. The override is merged over whatever Handoff loads, guaranteeing figma_project_id
+    // and transformer options are present regardless.
+    const loaded = loadHandoffConfigFile();
+    const handoff = new Handoff(false, true, loaded?.config ?? undefined);
+
+    // Writes (exported tokens/assets) go to a writable dir. HANDOFF_WORKING_PATH is a baked
+    // build-server path that doesn't exist at runtime, so fall back to /tmp.
     if (!fs.existsSync(handoff.workingPath)) {
       handoff.workingPath = '/tmp';
     }
@@ -54,11 +63,15 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
     const projectId =
       resolveId(process.env.HANDOFF_FIGMA_PROJECT_ID) ??
       resolveId(handoff.config?.figma_project_id) ??
+      resolveId(loaded?.config?.figma_project_id) ??
       resolveId(process.env.HANDOFF_PROJECT_ID) ??
       null;
 
     if (!projectId) {
-      throw new Error('Missing HANDOFF_FIGMA_PROJECT_ID — set it as a Vercel environment variable.');
+      throw new Error(
+        'Could not resolve figma_project_id. Ensure handoff.config.* is committed at the repo root, ' +
+        'or set HANDOFF_FIGMA_PROJECT_ID as a Vercel environment variable.'
+      );
     }
     if (!handoff.config) {
       throw new Error('Handoff config not initialized.');

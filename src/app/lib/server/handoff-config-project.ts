@@ -27,14 +27,38 @@ function configFileExists(root: string, name: string): boolean {
   return fs.existsSync(/* turbopackIgnore: true */ full);
 }
 
+/** Does any handoff.config.* exist directly in `dir`? */
+function dirHasConfig(dir: string): boolean {
+  return CONFIG_NAMES.some((name) => configFileExists(dir, name));
+}
+
 /** Project root used for component export / entry-dir resolution (linked client or handoff-app). */
 export function getComponentExportProjectRoot(): string {
-  const w = process.env.HANDOFF_WORKING_PATH?.trim();
-  if (w) return path.resolve(/* turbopackIgnore: true */ w);
-  const mp = process.env.HANDOFF_MODULE_PATH?.trim();
-  if (mp) return path.resolve(/* turbopackIgnore: true */ mp);
-  // Materialized Handoff apps always set the env vars above; cwd fallback is dev-only.
-  return path.resolve(/* turbopackIgnore: true */ process.cwd());
+  // HANDOFF_WORKING_PATH / HANDOFF_MODULE_PATH are baked at build time. In a materialized
+  // workspace they're correct; in a direct registry deploy they're absolute build-server
+  // paths (e.g. /vercel/path0/...) that don't exist in the Lambda. Prefer them ONLY when
+  // they actually exist and contain a config; otherwise fall back to runtime cwd-relative
+  // discovery (same approach as getDefaultDocsDir for config/docs).
+  const baked = [process.env.HANDOFF_WORKING_PATH?.trim(), process.env.HANDOFF_MODULE_PATH?.trim()].filter(Boolean) as string[];
+  for (const dir of baked) {
+    const resolved = path.resolve(/* turbopackIgnore: true */ dir);
+    if (dirHasConfig(resolved)) return resolved;
+  }
+
+  // Runtime fallbacks: standalone output runs with cwd at the bundle root, with the repo
+  // root traced one or two levels relative to it. Pick the first that contains a config.
+  const cwd = process.cwd();
+  const candidates = [
+    cwd,
+    path.join(/* turbopackIgnore: true */ cwd, 'src', 'app'),
+    path.resolve(/* turbopackIgnore: true */ cwd, '..', '..'),
+  ];
+  for (const dir of candidates) {
+    if (dirHasConfig(dir)) return dir;
+  }
+
+  // Last resort: baked working path (even if missing) or cwd, to preserve prior behavior.
+  return path.resolve(/* turbopackIgnore: true */ baked[0] ?? cwd);
 }
 
 /**
