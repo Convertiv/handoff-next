@@ -8,6 +8,21 @@ import { loadHandoffConfigFile } from './handoff-config-load';
 import { logEvent } from './event-log';
 
 /**
+ * Read figma_project_id from the registry config blob in the DB (written by the
+ * workspace push). Returns null when no registry config / no id / DB unavailable.
+ */
+async function getRegistryFigmaProjectId(): Promise<string | null> {
+  try {
+    const { getRegistryConfig } = await import('../db/registry-queries');
+    const cfg = await getRegistryConfig();
+    const id = cfg?.figma_project_id;
+    return typeof id === 'string' && id.trim() ? id.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Run a figma fetch job in-process (no child process required).
  * Designed to be called from `after()` in the API route so it runs
  * after the HTTP response is sent without blocking the caller.
@@ -57,11 +72,16 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
       handoff.workingPath = '/tmp';
     }
 
-    // Resolve figma project ID. HANDOFF_PROJECT_ID may be the unsubstituted placeholder
-    // default ('default') in direct registry deploys — treat that as unset.
-    const resolveId = (v: string | undefined | null) => (v?.trim() && v.trim() !== 'default' ? v.trim() : null);
+    // Resolve the Figma file id. The registry is DB-backed: the workspace push writes
+    // figma_project_id into the registry config (handoff_registry_config.data), so that's
+    // the canonical source for a registry deploy. Order: explicit env override → registry
+    // DB → loaded config (dev/materialized) → baked HANDOFF_PROJECT_ID. 'default' is the
+    // unsubstituted placeholder in direct deploys, so treat it as unset.
+    const resolveId = (v: unknown) => (typeof v === 'string' && v.trim() && v.trim() !== 'default' ? v.trim() : null);
+    const registryFigmaId = await getRegistryFigmaProjectId();
     const projectId =
       resolveId(process.env.HANDOFF_FIGMA_PROJECT_ID) ??
+      resolveId(registryFigmaId) ??
       resolveId(handoff.config?.figma_project_id) ??
       resolveId(loaded?.config?.figma_project_id) ??
       resolveId(process.env.HANDOFF_PROJECT_ID) ??
@@ -69,8 +89,8 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
 
     if (!projectId) {
       throw new Error(
-        'Could not resolve the Figma file id. Set HANDOFF_FIGMA_PROJECT_ID in the deployment ' +
-        'environment variables (Vercel → Settings → Environment Variables), then redeploy.'
+        'Could not resolve the Figma file id. Push the workspace config to the registry ' +
+        '(it carries figma_project_id), or set HANDOFF_FIGMA_PROJECT_ID as an environment variable.'
       );
     }
     if (!handoff.config) {

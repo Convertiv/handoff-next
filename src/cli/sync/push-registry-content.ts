@@ -43,6 +43,14 @@ export async function pushRegistryConfig(handoff: Handoff): Promise<void> {
   // registry needs to identify this project at runtime.
   const data: Record<string, unknown> = { ...(handoff.config?.app ?? {}) };
 
+  // figma_project_id is a top-level config field (not under `app`). The registry
+  // is DB-backed and has no handoff.config file at runtime, so the Figma file id
+  // must be carried in the pushed config — the fetch runner reads it back from
+  // getRegistryConfig(). Stored at the top level of the blob, alongside `app`.
+  if (handoff.config?.figma_project_id) {
+    data.figma_project_id = handoff.config.figma_project_id;
+  }
+
   // Derive a validation manifest from the workspace's validation config.
   // The registry uses this to:
   //  (a) decide whether to show the /system/health page link
