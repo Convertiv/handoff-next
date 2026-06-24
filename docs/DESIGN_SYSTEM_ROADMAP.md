@@ -317,6 +317,27 @@ It feeds Phase 2 (native foundation/asset capability) and Phase 3 (registry API 
   doesn't invalidate it; components are skipped until source changes or `--force` is passed.
   Consider stamping a cache/feature version so a plain `push:all` picks up output-changing
   capabilities once after a CLI upgrade.
+- **OAuth-backed Figma tokens for the local CLI fetch** — today `handoff-app fetch` needs a
+  Figma *dev access token* (`HANDOFF_DEV_ACCESS_TOKEN` / `figma_project_id` auth). Figma's
+  personal access tokens are now short-lived (~30-day max), so users have to keep regenerating
+  and re-pasting them — a recurring papercut. The registry already runs a full Figma OAuth flow
+  (connect/refresh, scopes incl. `current_user:read`, `file_content:read`, etc.) and stores
+  refreshable tokens per user in the DB. Idea: let the CLI authenticate against the registry's
+  OAuth connection and mint short-term Figma access tokens on demand for the local fetch, instead
+  of requiring a hand-managed PAT.
+  - **Shape to investigate:** the CLI is already OAuth-able to the registry for `push`/`pull`
+    (sync bearer token). Add a registry endpoint (e.g. `/api/figma/cli-token`) that, for an
+    authenticated CLI session, returns a fresh short-lived Figma access token derived from the
+    user's stored OAuth grant (reusing `getValidFigmaAccessTokenForUser` + the refresh path in
+    `figma-auth.ts`). The CLI uses it as a bearer for the fetch and discards it.
+  - **Open questions:** (1) Figma OAuth tokens are user-scoped — does the connected user have
+    access to the target `figma_project_id`? (2) Token lifetime vs. a long fetch — may need
+    refresh mid-run. (3) Security: minting Figma tokens for a CLI caller widens the blast radius
+    of a leaked sync token; scope/audit it. (4) Offline/no-registry workflows must still accept a
+    manual PAT as a fallback. (5) Figma OAuth scopes are read-only by design — confirm they cover
+    everything the extractor needs (styles, components, image fills, asset URLs).
+  - **Why it matters:** removes the single most common source of fetch friction and unifies auth
+    — one Figma connection (the registry's) instead of a per-developer PAT treadmill.
 
 ---
 

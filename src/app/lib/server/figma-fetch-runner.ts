@@ -95,13 +95,13 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
     const loaded = loadHandoffConfigFile();
     const handoff = new Handoff(false, true, loaded?.config ?? undefined);
 
-    // Writes (exported tokens/assets) go to a writable dir. HANDOFF_WORKING_PATH is a baked
-    // build-server path that doesn't exist at runtime, so fall back to an isolated /tmp dir.
-    if (!fs.existsSync(handoff.workingPath)) {
-      scratchDir = path.join('/tmp', 'handoff-fetch', String(jobId));
-      await fs.emptyDir(scratchDir);
-      handoff.workingPath = scratchDir;
-    }
+    // Always use a per-job scratch dir. The registry fetch runner runs in a serverless Lambda
+    // where HANDOFF_WORKING_PATH is baked to the build-server path (doesn't exist at runtime)
+    // and process.cwd() may be /tmp or /var/task — both wrong. There is no registry context
+    // where the baked working path is useful for writes, so skip the existsSync check entirely.
+    scratchDir = path.join('/tmp', 'handoff-fetch', String(jobId));
+    await fs.emptyDir(scratchDir);
+    handoff.workingPath = scratchDir;
 
     // Resolve the Figma file id. The registry is DB-backed: the workspace push writes
     // figma_project_id into the registry config (handoff_registry_config.data), so that's
