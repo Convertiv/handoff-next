@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
 
 const resolveBasePath = (rawBasePath) => {
   if (!rawBasePath || rawBasePath.startsWith('%HANDOFF_')) {
@@ -71,44 +70,6 @@ const HANDOFF_MODULE_PATH = resolveAbsoluteFromApp('%HANDOFF_MODULE_PATH_REL%', 
 const HANDOFF_EXPORT_PATH = resolveAbsoluteFromApp('%HANDOFF_EXPORT_PATH_REL%', '');
 const HANDOFF_TURBOPACK_ROOT = resolveAbsoluteFromApp('%HANDOFF_TURBOPACK_ROOT_REL%', REPO_ROOT_FROM_APP);
 const HANDOFF_DIST = path.resolve(HANDOFF_MODULE_PATH, 'dist');
-
-/**
- * Read figma_project_id from the committed handoff.config.* at build time.
- *
- * In a direct registry deploy the config file is NOT traced into the serverless Lambda,
- * and the runtime HANDOFF_WORKING_PATH is a dead build-server path — so the runner has no
- * way to read the config at request time. Reading it here (build runs in Node with fs/require
- * access) and baking the value into `env` makes figma_project_id available at runtime without
- * shipping the file. Returns '' when no config or no id is found.
- */
-const readFigmaProjectIdFromConfig = () => {
-  const names = ['handoff.config.cjs', 'handoff.config.js', 'handoff.config.json'];
-  // Repo root (registry deploy) first, then the materialized working path.
-  const roots = [REPO_ROOT_FROM_APP, HANDOFF_WORKING_PATH];
-  for (const root of roots) {
-    for (const name of names) {
-      const full = path.join(root, name);
-      if (!fs.existsSync(full)) continue;
-      try {
-        if (full.endsWith('.json')) {
-          const cfg = JSON.parse(fs.readFileSync(full, 'utf8'));
-          if (cfg?.figma_project_id) return String(cfg.figma_project_id);
-        } else {
-          const req = createRequire(import.meta.url);
-          delete req.cache?.[req.resolve(full)];
-          const mod = req(full);
-          const cfg = mod?.default ?? mod;
-          if (cfg?.figma_project_id) return String(cfg.figma_project_id);
-        }
-      } catch {
-        /* ignore unreadable/uncompilable config; fall through to env fallback */
-      }
-    }
-  }
-  return '';
-};
-
-const HANDOFF_FIGMA_PROJECT_ID_BAKED = process.env.HANDOFF_FIGMA_PROJECT_ID || readFigmaProjectIdFromConfig();
 
 /** Next bundles @handoff/* from compiled dist (.js); the materialized app uses @handoff/app → APP_DIR. */
 const handoffResolveAlias = () => ({
@@ -207,9 +168,10 @@ const nextConfig = {
   },
   env: {
     HANDOFF_PROJECT_ID: resolveEnvPlaceholder('%HANDOFF_PROJECT_ID%', 'default'),
-    // Baked from handoff.config.* at build time (or an existing env var). Sole runtime
-    // source of the figma file id in direct registry deploys where the config isn't bundled.
-    HANDOFF_FIGMA_PROJECT_ID: HANDOFF_FIGMA_PROJECT_ID_BAKED,
+    // NOTE: do NOT add HANDOFF_FIGMA_PROJECT_ID here. Listing it in `env` inlines the
+    // build-time value into the bundle and shadows the runtime Vercel env var. The
+    // figma-fetch runner reads process.env.HANDOFF_FIGMA_PROJECT_ID directly at request
+    // time, which Vercel injects from the project's Environment Variables.
     HANDOFF_APP_BASE_PATH: resolveEnvPlaceholder('%HANDOFF_APP_BASE_PATH%', ''),
     HANDOFF_APP_ROOT: HANDOFF_APP_ROOT,
     HANDOFF_WORKING_PATH: HANDOFF_WORKING_PATH,
