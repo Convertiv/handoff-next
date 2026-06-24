@@ -144,6 +144,9 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
 
     handoff.config.dev_access_token = `Bearer ${accessToken}`;
     handoff.config.figma_project_id = projectId;
+    // Skip disk-based fill downloads — 1000+ fills at ~400KB each would exceed Lambda /tmp.
+    // We stream them directly to DB after the fetch (see below).
+    handoff.config.skip_image_fills = true;
 
     // Pre-flight: validate token and file access before starting the full fetch.
     // handoff-core throws without the response body, so we surface the actual Figma error here.
@@ -174,15 +177,16 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
     await db.insert(handoffTokensSnapshots).values({ payload: payload as Record<string, unknown> });
 
     try {
-      const { ingestFigmaFillsFromManifest } = await import('./figma-fills-ingest');
-      const { ingested, skipped } = await ingestFigmaFillsFromManifest(
-        handoff.getOutputPath(),
+      const { streamFigmaFillsToDb } = await import('./figma-fills-ingest');
+      const { ingested, skipped } = await streamFigmaFillsToDb(
+        projectId,
+        accessToken,
         job.triggeredByUserId,
       );
-      if (ingested > 0) console.log(`[figma-fetch] Ingested ${ingested} image fill(s).`);
+      if (ingested > 0) console.log(`[figma-fetch] Streamed ${ingested} image fill(s) to DB.`);
       if (skipped > 0) console.warn(`[figma-fetch] Skipped ${skipped} image fill(s).`);
     } catch (fillErr) {
-      console.error('[figma-fetch] Fills ingest failed:', fillErr);
+      console.error('[figma-fetch] Fills stream failed:', fillErr);
     }
 
     try {

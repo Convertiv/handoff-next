@@ -136,18 +136,24 @@ export const figmaExtract = async (handoff: Handoff): Promise<HandoffTypes.IDocu
 
   // Fetch all image fills from the Figma library file and cache them locally
   // so `push:all` can ingest them into the asset DAM.
-  try {
-    Logger.info('Fetching Figma image fills...');
-    const fills = await fetchAndSaveFigmaImageFills(
-      handoff.config.figma_project_id,
-      handoff.config.dev_access_token,
-      handoff.getOutputPath(),
-    );
-    if (fills && fills.fills.length > 0) {
-      Logger.success(`Figma image fills: cached ${fills.fills.length} image(s) for push.`);
+  // When skip_image_fills is true (server/registry context) the caller handles fills
+  // directly (streaming from Figma CDN → DB) to avoid writing to Lambda /tmp.
+  if (handoff.config.skip_image_fills) {
+    Logger.info('[figma-image-fills] Skipping disk download (skip_image_fills=true) — fills will be streamed directly.');
+  } else {
+    try {
+      Logger.info('Fetching Figma image fills...');
+      const fills = await fetchAndSaveFigmaImageFills(
+        handoff.config.figma_project_id,
+        handoff.config.dev_access_token,
+        handoff.getOutputPath(),
+      );
+      if (fills && fills.fills.length > 0) {
+        Logger.success(`Figma image fills: cached ${fills.fills.length} image(s) for push.`);
+      }
+    } catch (e) {
+      Logger.warn(`Could not fetch Figma image fills: ${e instanceof Error ? e.message : String(e)}`);
     }
-  } catch (e) {
-    Logger.warn(`Could not fetch Figma image fills: ${e instanceof Error ? e.message : String(e)}`);
   }
 
   // define the output folder (materialized Next app `public/`)

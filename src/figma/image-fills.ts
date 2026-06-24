@@ -40,6 +40,100 @@ export type FigmaFillManifest = {
 };
 
 /**
+ * Fetch all image fill CDN URLs from a Figma library file and stream each image buffer
+ * to the provided callback without writing anything to disk.
+ *
+ * Used in server/registry contexts where Lambda /tmp is constrained — the caller
+ * ingests each fill directly into the DB asset store as it arrives.
+ */
+export async function fetchFigmaImageFillsStreaming(
+  fileKey: string | undefined | null,
+  accessToken: string | undefined | null,
+  onFill: (entry: FigmaFillManifestEntry, buffer: Buffer) => Promise<void>,
+): Promise<{ fetched: number; skipped: number }> {
+  const headers = buildFigmaApiHeaders(accessToken);
+  const fk = cleanToken(fileKey);
+
+  if (!headers || !fk) {
+    Logger.warn('[figma-image-fills] Missing fileKey or accessToken — skipping image fill fetch.');
+    return { fetched: 0, skipped: 0 };
+  }
+
+  let imageMap: Record<string, string>;
+  try {
+    const resp = await fetch(`https://api.figma.com/v1/files/${encodeURIComponent(fk)}/images`, { headers });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      Logger.warn(`[figma-image-fills] GET /v1/files/${fk}/images failed (${resp.status}): ${text.slice(0, 200)}`);
+      return { fetched: 0, skipped: 0 };
+    }
+    const json = (await resp.json()) as { err?: string | null; meta?: { images?: Record<string, string> } };
+    if (json.err) {
+      Logger.warn(`[figma-image-fills] Figma error: ${json.err}`);
+      return { fetched: 0, skipped: 0 };
+    }
+    imageMap = json.meta?.images ?? {};
+  } catch (e) {
+    Logger.warn(`[figma-image-fills] Network error: ${e instanceof Error ? e.message : String(e)}`);
+    return { fetched: 0, skipped: 0 };
+  }
+
+  const refs = Object.entries(imageMap).filter(([, url]) => typeof url === 'string' && url.startsWith('http'));
+  if (refs.length === 0) {
+    Logger.info('[figma-image-fills] No image fills found in file.');
+    return { fetched: 0, skipped: 0 };
+  }
+
+  Logger.info(`[figma-image-fills] Found ${refs.length} image fill(s) — streaming to DB (concurrency=5)…`);
+
+  let fetched = 0;
+  let skipped = 0;
+  const queue = [...refs];
+  const CONCURRENCY = 5;
+  const PER_IMAGE_TIMEOUT_MS = 15_000;
+
+  async function streamWorker() {
+    while (queue.length > 0) {
+      const entry = queue.shift();
+      if (!entry) break;
+      const [imageRef, cdnUrl] = entry;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), PER_IMAGE_TIMEOUT_MS);
+        let imgResp: Response;
+        try {
+          imgResp = await fetch(cdnUrl, { signal: controller.signal });
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!imgResp.ok) {
+          Logger.warn(`[figma-image-fills] Download failed for ref ${imageRef} (${imgResp.status})`);
+          skipped++;
+          continue;
+        }
+        const rawMime = imgResp.headers.get('content-type')?.split(';')[0].trim() ?? 'image/png';
+        const mimeType = EXT_FROM_MIME[rawMime] ? rawMime : 'image/png';
+        const ext = EXT_FROM_MIME[mimeType] ?? 'png';
+        const buffer = Buffer.from(await imgResp.arrayBuffer());
+        const contentHash = crypto.createHash('sha256').update(buffer).digest('hex').slice(0, 12);
+        const assetId = `img_${contentHash}`;
+        const safeRef = imageRef.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
+        const filename = `${safeRef}.${ext}`;
+        await onFill({ assetId, imageRef, filename, contentHash, mimeType }, buffer);
+        fetched++;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        Logger.warn(`[figma-image-fills] Error streaming ${imageRef}: ${msg}`);
+        skipped++;
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, refs.length) }, streamWorker));
+  return { fetched, skipped };
+}
+
+/**
  * Fetch all image fill CDN URLs from a Figma library file, download each image,
  * content-address it, and write results to `{outputDir}/figma-fills/`.
  *

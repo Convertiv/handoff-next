@@ -137,6 +137,9 @@ export interface Config {
   devAccessToken?: string | null | undefined;
   figma_project_id?: string | null | undefined;
   figmaProjectId?: string | null | undefined;
+  /** When true, skip downloading image fills to disk during fetch. Use in server contexts
+   *  where fills are streamed directly to the DB asset store instead. */
+  skip_image_fills?: boolean;
   exportsOutputDirectory?: string;
   sitesOutputDirectory?: string;
   useVariables?: boolean;
