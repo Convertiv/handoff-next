@@ -33,7 +33,7 @@ class Handoff {
   debug: boolean = false;
   force: boolean = false;
   modulePath: string = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  workingPath: string = process.cwd();
+  workingPath: string = process.env.HANDOFF_WORKING_PATH ?? process.cwd();
   exportsDirectory: string = 'exported';
   sitesDirectory: string = 'out';
   runtimeConfig?: RuntimeConfig | null;
@@ -70,7 +70,7 @@ class Handoff {
   }
 
   init(configOverride?: Partial<Config>): Handoff {
-    const configResult = initConfigWithMetadata(configOverride ?? {});
+    const configResult = initConfigWithMetadata(configOverride ?? {}, this.workingPath);
     const config = configResult.config;
     this.config = config;
     this._mainConfigFilePath = configResult.configPath;

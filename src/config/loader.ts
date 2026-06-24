@@ -72,9 +72,9 @@ const loadConfigFile = (configPath: string): Config => {
   return (importedConfig.default || importedConfig) as Config;
 };
 
-const resolveConfigFilePath = (): { selected?: string; ignored: string[] } => {
+const resolveConfigFilePath = (cwd: string = process.cwd()): { selected?: string; ignored: string[] } => {
   const existing = CONFIG_FILE_PREFERENCE
-    .map((fileName) => path.resolve(process.cwd(), fileName))
+    .map((fileName) => path.resolve(cwd, fileName))
     .filter((filePath) => fs.existsSync(filePath));
 
   if (!existing.length) {
@@ -88,9 +88,9 @@ const resolveConfigFilePath = (): { selected?: string; ignored: string[] } => {
 /**
  * Loads the handoff configuration from the project root and returns metadata.
  */
-export const initConfigWithMetadata = (configOverride?: Partial<Config>): ConfigLoadResult => {
+export const initConfigWithMetadata = (configOverride?: Partial<Config>, workingPath?: string): ConfigLoadResult => {
   let config: Partial<Config> = {};
-  const { selected: configPath, ignored } = resolveConfigFilePath();
+  const { selected: configPath, ignored } = resolveConfigFilePath(workingPath);
 
   if (ignored.length > 0 && configPath) {
     Logger.warn(
@@ -126,6 +126,6 @@ export const initConfigWithMetadata = (configOverride?: Partial<Config>): Config
  * @param configOverride - Optional partial config to override file-loaded values.
  * @returns The fully resolved Config object.
  */
-export const initConfig = (configOverride?: Partial<Config>): Config => {
-  return initConfigWithMetadata(configOverride).config;
+export const initConfig = (configOverride?: Partial<Config>, workingPath?: string): Config => {
+  return initConfigWithMetadata(configOverride, workingPath).config;
 };
