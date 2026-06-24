@@ -42,6 +42,12 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
   try {
     const accessToken = await getValidFigmaAccessTokenForUser(job.triggeredByUserId);
     const handoff = new Handoff(false, true);
+    // HANDOFF_WORKING_PATH is baked at build time as an absolute path on the Vercel build server —
+    // it won't exist in the Lambda runtime. Fall back to /tmp, which is writable in all Lambda envs.
+    if (!fs.existsSync(handoff.workingPath)) {
+      handoff.workingPath = '/tmp';
+    }
+
     // HANDOFF_FIGMA_PROJECT_ID = explicit override; HANDOFF_PROJECT_ID = baked at build time from
     // handoff.getProjectId() (equals figma_project_id for materialized deployments).
     const projectId =
