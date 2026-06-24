@@ -69,8 +69,8 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
 
     if (!projectId) {
       throw new Error(
-        'Could not resolve figma_project_id. Ensure handoff.config.* is committed at the repo root, ' +
-        'or set HANDOFF_FIGMA_PROJECT_ID as a Vercel environment variable.'
+        'Could not resolve the Figma file id. Set HANDOFF_FIGMA_PROJECT_ID in the deployment ' +
+        'environment variables (Vercel → Settings → Environment Variables), then redeploy.'
       );
     }
     if (!handoff.config) {
