@@ -24,21 +24,36 @@ async function getRegistryFigmaProjectId(): Promise<string | null> {
 }
 
 /**
- * Reclaim Lambda /tmp space leaked by earlier fetches on this warm instance. Targets the
- * legacy shared scratch dirs from when workingPath was '/tmp' directly — safe to remove
- * because the current code writes only to per-job dirs under /tmp/handoff-fetch/<jobId>,
- * which each job cleans in its own finally. Best-effort; never throws.
+ * Reclaim Lambda /tmp space leaked by earlier fetches on this warm instance. Best-effort; never throws.
  *
- * NOTE: deliberately does NOT touch /tmp/handoff-fetch — a starting job must not delete a
- * concurrent job's active scratch dir (up to MAX_CONCURRENT_FETCH_JOBS run at once).
+ * Cleans two categories:
+ *   1. Legacy shared scratch dirs from when workingPath was '/tmp' directly.
+ *   2. Abandoned per-job dirs under /tmp/handoff-fetch/ from jobs that crashed before their
+ *      finally block ran. Called before the current job's scratchDir is created, so all
+ *      entries present are from previous runs on this warm Lambda instance and are safe to
+ *      delete. On Vercel, concurrent invocations each get their own /tmp, so there is no
+ *      risk of deleting a concurrent job's active dir.
  */
-async function reclaimTmpSpace(): Promise<void> {
+async function reclaimTmpSpace(currentJobId: number): Promise<void> {
   const stale = [
     path.join('/tmp', '.handoff'),
     path.join('/tmp', 'exported'),
     path.join('/tmp', 'design-system'),
   ];
   await Promise.all(stale.map((p) => fs.remove(p).catch(() => {})));
+
+  // Clean abandoned per-job scratch dirs from previous warm-instance runs.
+  const fetchBase = path.join('/tmp', 'handoff-fetch');
+  try {
+    const entries = await fs.readdir(fetchBase);
+    await Promise.all(
+      entries
+        .filter((e) => e !== String(currentJobId))
+        .map((e) => fs.remove(path.join(fetchBase, e)).catch(() => {}))
+    );
+  } catch {
+    // fetchBase doesn't exist yet — nothing to clean
+  }
 }
 
 /**
@@ -83,9 +98,8 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
   try {
     const accessToken = await getValidFigmaAccessTokenForUser(job.triggeredByUserId);
 
-    // Reclaim space leaked by earlier runs on this warm Lambda: legacy shared dirs (when
-    // workingPath was '/tmp') and any abandoned per-job scratch dirs.
-    await reclaimTmpSpace();
+    // Reclaim space leaked by earlier runs on this warm Lambda instance.
+    await reclaimTmpSpace(jobId);
 
     // Load the committed handoff.config.* via the app's runtime-safe loader (cwd-relative
     // discovery), then inject it as a Handoff override. Handoff's own CLI loader looks at
