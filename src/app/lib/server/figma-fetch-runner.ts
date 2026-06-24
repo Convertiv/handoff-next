@@ -66,6 +66,23 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
     handoff.config.dev_access_token = `Bearer ${accessToken}`;
     handoff.config.figma_project_id = projectId;
 
+    // Pre-flight: validate token and file access before starting the full fetch.
+    // handoff-core throws without the response body, so we surface the actual Figma error here.
+    const meRes = await fetch('https://api.figma.com/v1/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!meRes.ok) {
+      const body = await meRes.text().catch(() => '');
+      throw new Error(`Figma token rejected (${meRes.status}): ${body}. Reconnect Figma on the System page.`);
+    }
+    const fileRes = await fetch(`https://api.figma.com/v1/files/${projectId}?depth=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!fileRes.ok) {
+      const body = await fileRes.text().catch(() => '');
+      throw new Error(`Figma file access denied (${fileRes.status}) for file "${projectId}": ${body}`);
+    }
+
     await Promise.race([
       handoff.fetch(),
       new Promise<never>((_, reject) => {
