@@ -48,16 +48,17 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
       handoff.workingPath = '/tmp';
     }
 
-    // HANDOFF_FIGMA_PROJECT_ID = explicit override; HANDOFF_PROJECT_ID = baked at build time from
-    // handoff.getProjectId() (equals figma_project_id for materialized deployments).
+    // Resolve figma project ID. HANDOFF_PROJECT_ID may be the unsubstituted placeholder
+    // default ('default') in direct registry deploys — treat that as unset.
+    const resolveId = (v: string | undefined | null) => (v?.trim() && v.trim() !== 'default' ? v.trim() : null);
     const projectId =
-      process.env.HANDOFF_FIGMA_PROJECT_ID ??
-      handoff.config?.figma_project_id ??
-      process.env.HANDOFF_PROJECT_ID ??
+      resolveId(process.env.HANDOFF_FIGMA_PROJECT_ID) ??
+      resolveId(handoff.config?.figma_project_id) ??
+      resolveId(process.env.HANDOFF_PROJECT_ID) ??
       null;
 
     if (!projectId) {
-      throw new Error('Missing HANDOFF_FIGMA_PROJECT_ID (or figma_project_id in handoff config).');
+      throw new Error('Missing HANDOFF_FIGMA_PROJECT_ID — set it as a Vercel environment variable.');
     }
     if (!handoff.config) {
       throw new Error('Handoff config not initialized.');

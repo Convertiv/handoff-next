@@ -25,8 +25,10 @@ function withBearerToken(token: string | null | undefined): string | null {
 function getConfiguredFigmaFileKey(): string | null {
   // HANDOFF_FIGMA_PROJECT_ID is the explicit override (Vercel env var or .env).
   // HANDOFF_PROJECT_ID is baked at build time from handoff.getProjectId() — equals figma_project_id
-  // when set, so it works for materialized deployments without a separate env var.
-  return process.env.HANDOFF_FIGMA_PROJECT_ID?.trim() || process.env.HANDOFF_PROJECT_ID?.trim() || null;
+  // for materialized deployments. In direct registry deploys the placeholder is never substituted
+  // and resolves to the fallback 'default', which must be treated as unset.
+  const resolve = (v: string | undefined) => (v?.trim() && v.trim() !== 'default' ? v.trim() : null);
+  return resolve(process.env.HANDOFF_FIGMA_PROJECT_ID) ?? resolve(process.env.HANDOFF_PROJECT_ID);
 }
 
 function linkedFigmaFileUrl(fileKey: string): string {
