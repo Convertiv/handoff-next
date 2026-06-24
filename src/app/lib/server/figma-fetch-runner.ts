@@ -180,7 +180,7 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
       const { streamFigmaFillsToDb } = await import('./figma-fills-ingest');
       const { ingested, skipped } = await streamFigmaFillsToDb(
         projectId,
-        accessToken,
+        `Bearer ${accessToken}`,
         job.triggeredByUserId,
       );
       if (ingested > 0) console.log(`[figma-fetch] Streamed ${ingested} image fill(s) to DB.`);
