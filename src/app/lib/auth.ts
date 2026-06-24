@@ -37,7 +37,7 @@ function linkedAccountProviders(): NextAuthConfig['providers'] {
       authorization: {
         url: 'https://www.figma.com/oauth',
         params: {
-          scope: 'file_content:read,file_metadata:read,library_assets:read,library_content:read,team_library_content:read',
+          scope: 'current_user:read,file_content:read,file_metadata:read,library_assets:read,library_content:read,team_library_content:read',
           response_type: 'code',
         },
       },
