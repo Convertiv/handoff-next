@@ -4,7 +4,7 @@ import type { Session } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import GitHub from 'next-auth/providers/github';
 import Google from 'next-auth/providers/google';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
 import * as schema from './db/schema';
 import { usePostgres } from './db/dialect';
@@ -47,10 +47,13 @@ function linkedAccountProviders(): NextAuthConfig['providers'] {
       userinfo: {
         url: 'https://api.figma.com/v1/me',
       },
-      profile(profile: { id?: string; email?: string; handle?: string; img_url?: string }) {
-        const profileId = String(profile.id ?? profile.email ?? profile.handle ?? '');
+      profile(profile: { id?: string | number; email?: string; handle?: string; img_url?: string }) {
+        // Figma returns id as a number — coerce to string. Fall back to email/handle so
+        // providerAccountId is never the generic 'figma-user' literal (which would make
+        // all Figma accounts collide on the same row).
+        const profileId = profile.id != null ? String(profile.id) : (profile.email ?? profile.handle ?? null);
         return {
-          id: profileId || 'figma-user',
+          id: profileId ?? 'figma-user',
           name: profile.handle ?? profile.email ?? 'Figma User',
           email: profile.email ?? null,
           image: profile.img_url ?? null,
@@ -150,6 +153,28 @@ function buildNextAuth(): NextAuthInstance {
     },
     async jwt({ token, user, account }) {
       if (account?.provider === 'figma') {
+        // NextAuth skips linkAccount on reconnect (existing row found), so the stored
+        // token is never refreshed. Explicitly overwrite it here on every Figma OAuth
+        // completion so reconnect actually replaces the old invalid token.
+        if (account.access_token && account.providerAccountId) {
+          const db = getDb();
+          if (db) {
+            await db
+              .update(schema.accounts)
+              .set({
+                access_token: account.access_token,
+                refresh_token: (account.refresh_token as string | null) ?? null,
+                expires_at: (account.expires_at as number | null) ?? null,
+                scope: (account.scope as string | null) ?? null,
+              })
+              .where(
+                and(
+                  eq(schema.accounts.provider, 'figma'),
+                  eq(schema.accounts.providerAccountId, account.providerAccountId),
+                )
+              );
+          }
+        }
         return token;
       }
       if (user) {
