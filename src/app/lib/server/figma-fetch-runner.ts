@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import fs from 'fs-extra';
+import path from 'path';
 import Handoff from '@handoff/root/index.js';
 import { getDb } from '../db';
 import { figmaFetchJobs, handoffTokensSnapshots } from '../db/schema';
@@ -20,6 +21,24 @@ async function getRegistryFigmaProjectId(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Reclaim Lambda /tmp space leaked by earlier fetches on this warm instance. Targets the
+ * legacy shared scratch dirs from when workingPath was '/tmp' directly — safe to remove
+ * because the current code writes only to per-job dirs under /tmp/handoff-fetch/<jobId>,
+ * which each job cleans in its own finally. Best-effort; never throws.
+ *
+ * NOTE: deliberately does NOT touch /tmp/handoff-fetch — a starting job must not delete a
+ * concurrent job's active scratch dir (up to MAX_CONCURRENT_FETCH_JOBS run at once).
+ */
+async function reclaimTmpSpace(): Promise<void> {
+  const stale = [
+    path.join('/tmp', '.handoff'),
+    path.join('/tmp', 'exported'),
+    path.join('/tmp', 'design-system'),
+  ];
+  await Promise.all(stale.map((p) => fs.remove(p).catch(() => {})));
 }
 
 /**
@@ -55,8 +74,18 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
 
   await db.update(figmaFetchJobs).set({ status: 'running' }).where(eq(figmaFetchJobs.id, jobId));
 
+  // Per-job scratch dir under /tmp. Lambda /tmp is small (~512MB) and PERSISTS across warm
+  // invocations, so a shared workingPath accumulates and eventually throws ENOSPC. Isolating
+  // each job (and cleaning it in finally) bounds usage to one fetch and avoids same-projectId
+  // collisions between concurrent jobs.
+  let scratchDir: string | null = null;
+
   try {
     const accessToken = await getValidFigmaAccessTokenForUser(job.triggeredByUserId);
+
+    // Reclaim space leaked by earlier runs on this warm Lambda: legacy shared dirs (when
+    // workingPath was '/tmp') and any abandoned per-job scratch dirs.
+    await reclaimTmpSpace();
 
     // Load the committed handoff.config.* via the app's runtime-safe loader (cwd-relative
     // discovery), then inject it as a Handoff override. Handoff's own CLI loader looks at
@@ -67,9 +96,11 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
     const handoff = new Handoff(false, true, loaded?.config ?? undefined);
 
     // Writes (exported tokens/assets) go to a writable dir. HANDOFF_WORKING_PATH is a baked
-    // build-server path that doesn't exist at runtime, so fall back to /tmp.
+    // build-server path that doesn't exist at runtime, so fall back to an isolated /tmp dir.
     if (!fs.existsSync(handoff.workingPath)) {
-      handoff.workingPath = '/tmp';
+      scratchDir = path.join('/tmp', 'handoff-fetch', String(jobId));
+      await fs.emptyDir(scratchDir);
+      handoff.workingPath = scratchDir;
     }
 
     // Resolve the Figma file id. The registry is DB-backed: the workspace push writes
@@ -183,5 +214,10 @@ export async function runFigmaFetchJob(jobId: number): Promise<void> {
       durationMs: job.createdAt ? Date.now() - job.createdAt.getTime() : null,
       error: msg,
     });
+  } finally {
+    // Always reclaim this job's scratch space, even on failure/timeout.
+    if (scratchDir) {
+      await fs.remove(scratchDir).catch(() => {});
+    }
   }
 }
