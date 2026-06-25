@@ -8,6 +8,7 @@ import { loadStackGuideMarkdown } from '@/lib/mcp/stack-guides';
 import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queries';
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
 import { getDataProvider } from '@/lib/data';
+import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
 import { usePostgres } from '@/lib/db/dialect';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
 import { applyUploadedChange } from '@/lib/db/sync-queries';
@@ -103,7 +104,8 @@ function slimTokensForMcp(doc: unknown, include: string[] = []): AnyRecord {
   }
 
   out._note =
-    'Foundation tokens only. Use `sass` or `reference` to reference a token in code, `value` for the resolved value. ' +
+    'Foundation tokens. colors/typography/effects: use `sass` or `reference` to reference in code, `value` for the resolved value. ' +
+    'spacing/borderRadius/grid (when present) come from DTCG: use `cssVariable` (e.g. var(--spacing-2)), `value` for resolved. ' +
     'Icons → handoff_get_icon_catalog / handoff_search_icons. Logos → handoff_get_logo_set. ' +
     'Per-component token usage → handoff_get_component. ' +
     'Pass include:["assets","components","map"] to opt back into the heavy raw sections.';
@@ -111,6 +113,52 @@ function slimTokensForMcp(doc: unknown, include: string[] = []): AnyRecord {
   if (include.includes('assets')) out.assets = d.assets;
   if (include.includes('components')) out.components = d.components;
   if (include.includes('map')) out.$map = ls.$map;
+  return out;
+}
+
+// ── DTCG dimension tokens (spacing / border-radius / grid) ──────────────────
+// These live in the DTCG pipeline (getDtcgTokenStrings), a separate path from the
+// Figma localStyles snapshot that get_tokens reads — so they were invisible to MCP
+// consumers. Flatten the resolved DTCG for each dimension type into a compact list
+// with the deployed CSS-variable name, resolved value, and description.
+
+function flattenDtcgLeaves(node: unknown, path: string[], out: AnyRecord[]): void {
+  if (!node || typeof node !== 'object') return;
+  const obj = node as AnyRecord;
+  if ('$value' in obj) {
+    out.push({
+      name: path.join('.'),
+      value: obj.$value,
+      cssVariable: `--${path.join('-')}`,
+      description: obj.$description,
+    });
+    return;
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    if (k.startsWith('$')) continue;
+    flattenDtcgLeaves(v, [...path, k], out);
+  }
+}
+
+async function dtcgDimensionTokens(
+  provider: { getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null> },
+  type: DtcgTokenType
+): Promise<AnyRecord[]> {
+  let strings: DtcgTokenStrings | null = null;
+  try {
+    strings = await provider.getDtcgTokenStrings(type);
+  } catch {
+    return [];
+  }
+  if (!strings?.dtcg) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(strings.dtcg);
+  } catch {
+    return [];
+  }
+  const out: AnyRecord[] = [];
+  flattenDtcgLeaves(parsed, [], out);
   return out;
 }
 
@@ -349,7 +397,18 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     async ({ include }) => {
       const provider = getDataProvider();
       const tokens = await provider.getTokens();
-      return textResult(slimTokensForMcp(tokens, include ?? []));
+      const out = slimTokensForMcp(tokens, include ?? []);
+      // Merge DTCG dimension tokens (spacing/radius/grid) — a separate source from
+      // the Figma snapshot, otherwise invisible to MCP consumers.
+      const [spacing, borderRadius, grid] = await Promise.all([
+        dtcgDimensionTokens(provider, 'spacing'),
+        dtcgDimensionTokens(provider, 'border-radius'),
+        dtcgDimensionTokens(provider, 'grid'),
+      ]);
+      if (spacing.length) out.spacing = spacing;
+      if (borderRadius.length) out.borderRadius = borderRadius;
+      if (grid.length) out.grid = grid;
+      return textResult(out);
     }
   );
 
