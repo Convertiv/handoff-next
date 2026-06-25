@@ -93,6 +93,33 @@ export async function generatePresignedUploadUrl(
   return { uploadUrl, storageKey: key, publicUrl: getAssetPublicUrl(key, cfg) };
 }
 
+// ── Server-side upload ────────────────────────────────────────────────────────
+
+/**
+ * Upload a buffer directly to S3 from the server (Lambda → S3).
+ * Uses content-addressed caching headers — safe since all keys are immutable
+ * hashes. Returns the public CDN URL for the object.
+ */
+export async function putToS3(
+  key: string,
+  buffer: Buffer,
+  contentType: string,
+): Promise<string> {
+  const cfg = getConfig();
+  if (!cfg) throw new Error('S3 is not configured. Set HANDOFF_S3_BUCKET, HANDOFF_S3_REGION, HANDOFF_S3_ACCESS_KEY_ID, HANDOFF_S3_SECRET_ACCESS_KEY.');
+  const s3 = makeS3Client(cfg);
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: cfg.bucket,
+      Key: key,
+      Body: buffer,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+    })
+  );
+  return getAssetPublicUrl(key, cfg);
+}
+
 // ── Delete ────────────────────────────────────────────────────────────────────
 
 /**

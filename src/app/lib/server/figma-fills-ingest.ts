@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs-extra';
 import path from 'path';
 import { ingestFigmaFillAsset } from '../db/queries';
+import { isS3Configured, putToS3, buildAssetKey, buildThumbnailKey } from './s3-assets';
 
 type FigmaFillManifestEntry = {
   assetId: string;
@@ -65,7 +66,8 @@ export async function streamFigmaFillsToDb(
   const refs = Object.entries(imageMap).filter(([, url]) => typeof url === 'string' && url.startsWith('http'));
   if (refs.length === 0) return { ingested: 0, skipped: 0 };
 
-  console.log(`[figma-fills] Streaming ${refs.length} image fill(s) directly to DB (concurrency=5)…`);
+  const s3 = isS3Configured();
+  console.log(`[figma-fills] Streaming ${refs.length} image fill(s) → ${s3 ? 'S3 + DB' : 'DB blob'} (concurrency=5)…`);
 
   let ingested = 0;
   let skipped = 0;
@@ -100,16 +102,36 @@ export async function streamFigmaFillsToDb(
         const assetId = `img_${contentHash}`;
         const safeRef = imageRef.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64);
         const filename = `${safeRef}.${ext}`;
-        await ingestFigmaFillAsset({
-          assetId,
-          filename,
-          mimeType,
-          contentHash,
-          dataBase64: buffer.toString('base64'),
-          figmaFileKey: fileKey,
-          figmaImageRef: imageRef,
-          userId: userId ?? null,
-        });
+
+        if (s3) {
+          // Generate a 200px thumbnail in memory, upload original + thumb to S3.
+          // sharp is a native module — dynamic import avoids bundler issues.
+          const sharp = (await import('sharp')).default;
+          const thumbBuffer = await sharp(buffer)
+            .resize(200, 200, { fit: 'inside', withoutEnlargement: true })
+            .png({ quality: 85 })
+            .toBuffer();
+
+          const storageKey = buildAssetKey(assetId, filename);
+          const thumbKey = buildThumbnailKey(assetId);
+          const [storageUrl, thumbnailUrl] = await Promise.all([
+            putToS3(storageKey, buffer, mimeType),
+            putToS3(thumbKey, thumbBuffer, 'image/png'),
+          ]);
+
+          await ingestFigmaFillAsset({
+            assetId, filename, mimeType, contentHash,
+            storageUrl, storageKey, thumbnailUrl,
+            figmaFileKey: fileKey, figmaImageRef: imageRef, userId: userId ?? null,
+          });
+        } else {
+          // Fallback: store bytes in the DB blob table, served via /api/.../raw.
+          await ingestFigmaFillAsset({
+            assetId, filename, mimeType, contentHash,
+            dataBase64: buffer.toString('base64'),
+            figmaFileKey: fileKey, figmaImageRef: imageRef, userId: userId ?? null,
+          });
+        }
         ingested++;
       } catch (e) {
         console.warn(`[figma-fills] Error streaming ${imageRef}: ${e instanceof Error ? e.message : String(e)}`);
@@ -119,7 +141,7 @@ export async function streamFigmaFillsToDb(
   }
 
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, refs.length) }, worker));
-  console.log(`[figma-fills] Streamed ${ingested}/${refs.length} fill(s) to DB.`);
+  console.log(`[figma-fills] Streamed ${ingested}/${refs.length} fill(s)${s3 ? ' to S3' : ' to DB'}.`);
   return { ingested, skipped };
 }
 

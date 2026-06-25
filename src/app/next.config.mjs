@@ -127,6 +127,8 @@ const nextConfig = {
     'vite',
     // Native macOS addon — can't be placed in ESM chunks. Only used by chokidar/watcher paths.
     'fsevents',
+    // Native image processing — used for thumbnail generation in the fill streaming path.
+    'sharp',
   ],
   experimental: {
     externalDir: true,

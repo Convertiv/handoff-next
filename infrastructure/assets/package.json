@@ -4,10 +4,12 @@
   "private": true,
   "scripts": {
     "cdk": "cdk",
+    "bootstrap": "cdk bootstrap",
     "deploy": "cdk deploy --require-approval never",
     "diff": "cdk diff",
     "synth": "cdk synth",
-    "destroy": "cdk destroy"
+    "destroy": "cdk destroy",
+    "get-env": "bash scripts/get-env.sh"
   },
   "dependencies": {
     "aws-cdk": "2.165.0",

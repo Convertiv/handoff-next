@@ -67,7 +67,8 @@
     "db:migrate:kit": "drizzle-kit migrate",
     "db:seed": "tsx src/app/lib/db/seed.ts",
     "db:bootstrap": "tsx src/app/lib/db/bootstrap-admin.ts",
-    "design-asset-worker": "tsx src/app/lib/server/design-asset-worker.ts"
+    "design-asset-worker": "tsx src/app/lib/server/design-asset-worker.ts",
+    "cdk:deploy": "cd infrastructure/assets && npx cdk deploy"
   },
   "prettier": {
     "printWidth": 140,
@@ -170,6 +171,7 @@
     "sass": "^1.85.0",
     "satori": "^0.26.0",
     "server-only": "^0.0.1",
+    "sharp": "^0.35.2",
     "style-dictionary": "^4.4.0",
     "tailwind-merge": "^2.5.5",
     "tailwindcss": "^4.1.14",

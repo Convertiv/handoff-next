@@ -1107,13 +1107,23 @@ export async function ingestFigmaFillAsset(input: {
   filename: string;
   mimeType: string;
   contentHash: string;
-  dataBase64: string;
+  /** Base64 bytes — required when S3 is not configured (DB blob path). */
+  dataBase64?: string | null;
+  /** Explicit CDN/S3 URL — when provided, overrides the /api/.../raw default and
+   *  skips the DB blob write. Set this when uploading to S3. */
+  storageUrl?: string | null;
+  /** S3 object key — stored for lifecycle management and future invalidations. */
+  storageKey?: string | null;
+  /** CDN URL for the pre-generated thumbnail. */
+  thumbnailUrl?: string | null;
   figmaFileKey: string;
   figmaImageRef: string;
   userId?: string | null;
 }): Promise<void> {
   const db = getDb();
-  const storageUrl = `/api/handoff/assets/${input.assetId}/raw`;
+  const useS3 = Boolean(input.storageUrl);
+  const resolvedStorageUrl = input.storageUrl ?? `/api/handoff/assets/${input.assetId}/raw`;
+
   await db
     .insert(handoffAssets)
     .values({
@@ -1121,7 +1131,9 @@ export async function ingestFigmaFillAsset(input: {
       title: input.filename,
       assetType: 'image',
       mimeType: input.mimeType,
-      storageUrl,
+      storageUrl: resolvedStorageUrl,
+      storageKey: input.storageKey ?? null,
+      thumbnailUrl: input.thumbnailUrl ?? null,
       sourceType: 'figma',
       sourceMetadata: {
         figmaFileKey: input.figmaFileKey,
@@ -1134,12 +1146,14 @@ export async function ingestFigmaFillAsset(input: {
     })
     .onConflictDoNothing({ target: handoffAssets.id });
 
-  await upsertAssetBlob({
-    assetId: input.assetId,
-    data: input.dataBase64,
-    contentType: input.mimeType,
-    contentHash: input.contentHash,
-  });
+  if (!useS3 && input.dataBase64) {
+    await upsertAssetBlob({
+      assetId: input.assetId,
+      data: input.dataBase64,
+      contentType: input.mimeType,
+      contentHash: input.contentHash,
+    });
+  }
 }
 
 export async function ingestReferencedImageAsset(input: {
