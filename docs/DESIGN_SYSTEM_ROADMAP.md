@@ -21,6 +21,21 @@ pluggable ingest from many sources and DTCG/DSDS as I/O adapters.
    *inside* the handoff app. The standalone static generators (image browser, etc.) are
    POCs that proved the shape — they are not the destination. Migrate their capability into
    the native app as we go.
+6. **The data lifecycle is the product.** Everything flows one direction through four stages,
+   and every feature is an investment in one of them:
+
+   > **Well-structured data → easy for devs/designers/PMs to update it → validate & track it
+   > → feed it out to UI, MCP, and REST consumers.**
+
+   *Structure first:* every entity (token, component, preview, icon, asset, doc) has a
+   canonical schema carrying a provenance envelope — never a loose display artifact. *Easy to
+   update:* humans (and LLMs) author/edit through ergonomic surfaces — UI forms, file edits,
+   imports — not by hand-editing internal stores. *Validate & track:* schema-validate on the
+   way in, track provenance/sync-state, detect drift. *Feed out:* UI, MCP, and REST are all
+   thin read models over the one canonical store — no consumer-specific source of truth.
+   Corollary to principle 2: data is authored once, in structured form, and *projected* to
+   every consumer. If a consumer (e.g. the MCP) can't see something, the fix is to enrich the
+   canonical data, not to special-case the consumer.
 
 ---
 
@@ -638,6 +653,71 @@ It feeds Phase 2 (native foundation/asset capability) and Phase 3 (registry API 
     everything the extractor needs (styles, components, image fills, asset URLs).
   - **Why it matters:** removes the single most common source of fetch friction and unifies auth
     — one Figma connection (the registry's) instead of a per-developer PAT treadmill.
+
+---
+
+## Feature initiative — Previews as first-class semantic data
+
+**The reframe.** Today a component's previews are *display artifacts* — pre-rendered images
+attached for the gallery. The opportunity is to make previews the **primary mechanism for
+capturing what a component configuration *means*** — and to make that meaning authorable by
+PMs and designers, validated against the component's real contract, and projected out to UI,
+MCP, and REST. This is the data-lifecycle principle (Guiding Principle 6) applied to the
+component layer, and it turns out to be the *general* answer to the semantic-meaning gap the
+Phase A spike surfaced (two models disagreed on whether the primary button is yellow or blue —
+see [MCP_CLAUDE_SPIKE_REPORT.md](MCP_CLAUDE_SPIKE_REPORT.md) Finding 4).
+
+**The model.**
+1. **Properties = the functional shape.** A component declares N properties (the contract —
+   `Type`, `Label`, `url`, `Size`, …), each with type, default, and validation rules. This
+   already exists.
+2. **A preview = a named set of property values** bound to that shape. `{ Type: "primary",
+   Label: "Request a demo", Size: "medium" }`. A component has N previews.
+3. **Previews are validated against the property schema.** A preview's values must conform to
+   the component's declared properties (right keys, valid enum members, within rules). An
+   invalid preview is a caught error, not a silent bad render — this is "validate previews
+   against real semantic value."
+4. **Previews carry semantic meaning + rationale.** A preview can be tagged (`primary`,
+   `secondary`, `destructive`, `empty-state`, …) with a written explanation of *why* it exists
+   and when to use it. **This is the data that tells the MCP what a configuration means** —
+   e.g. "Primary = `Type:primary`, amber background, used for the main page CTA," so a model
+   no longer has to guess yellow-vs-blue.
+5. **Users contribute previews; rendering moves client-side.** Today previews are server-built
+   image artifacts. The destination: PMs/designers create and edit previews directly in the
+   interface — passing real values (text, images, data), rendered client-side from the
+   component template + tokens — and even use LLMs to generate candidate previews. Previews
+   stop being a build output and become authored, structured content.
+
+**Why this is the keystone, not a side feature.** Once previews are structured, validated,
+semantic data:
+- **MCP** can answer "show me the primary button" / "what variants exist and what are they
+  for" with real values + rationale, and generate grounded UI.
+- **REST/UI** render the same previews (client-side) with no separate image pipeline.
+- **#4 (semantic component tokens) is largely subsumed** — a semantic preview ("this is the
+  primary button, here's why, here are the values") is the user-maintainable, general form of
+  a hand-authored `button.primary.background` token. We may still emit semantic tokens as a
+  *projection* of preview data, but the authoring happens once, as a preview.
+
+**Phasing (to be detailed — spike the schema first):**
+- **P1 — Preview as data.** Formalize the preview schema (component ref + property-value set +
+  optional semantic tag + rationale + provenance), validate values against the property
+  schema, persist as structured data (not just the image artifact). Back-fill existing
+  previews into the schema.
+- **P2 — Authoring UI.** In-app editor to create/edit a preview by setting property values,
+  with live validation and a client-side render. Semantic tag + rationale fields.
+- **P3 — Client-side rendering.** Render previews from template + tokens in the browser; retire
+  the server image-build path for previews that can render natively.
+- **P4 — MCP/REST projection.** Expose previews (values + semantic tag + rationale) through the
+  MCP and REST so consumers get the *meaning*, not just an image. Optionally project semantic
+  component tokens from tagged previews.
+- **P5 — Generative + contributable.** LLM-assisted preview generation; broader contributor
+  roles (PMs author views with real content).
+
+**Open questions:** preview schema shape and where it lives (DTCG has no component concept —
+this is DSDS-layer / internal-model territory); how client-side render resolves the component
+template + theme.css safely; validation rule coverage; how semantic tags map to (or generate)
+the token tier. *Spike the schema before building — it's the structure the other four
+lifecycle stages hang off of.*
 
 ---
 
