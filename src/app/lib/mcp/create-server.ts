@@ -10,7 +10,6 @@ import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/refe
 import { getDataProvider } from '@/lib/data';
 import { usePostgres } from '@/lib/db/dialect';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
-import type { SyncUploadBody } from '@handoff/types/handoff-sync';
 import { applyUploadedChange } from '@/lib/db/sync-queries';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
@@ -45,6 +44,74 @@ function requireScope(auth: McpAuthContext, scope: string) {
     return textResult({ error: `Forbidden — missing scope: ${scope}` });
   }
   return null;
+}
+
+// ── Token slimming for MCP ──────────────────────────────────────────────────
+// The raw token snapshot (IDocumentationObject) carries ~22K tokens of payload:
+// full icon/logo SVG source, per-component token usage, and a duplicate SCSS
+// `$map`. None of that is useful as *foundation token context* for a model, and
+// it overflows context windows. Strip to the foundation styles (colors,
+// typography, effects, plus any future areas like spacing/radius/grid) and drop
+// per-entry Figma noise. Icons/logos/components have dedicated tools. ~77% smaller.
+
+type AnyRecord = Record<string, unknown>;
+
+function slimColor(c: AnyRecord) {
+  return {
+    name: c.name,
+    value: c.value,
+    group: c.group,
+    sass: c.sass,
+    reference: c.reference,
+    machineName: c.machineName,
+  };
+}
+
+function slimTypography(t: AnyRecord) {
+  const v = (t.values ?? {}) as AnyRecord;
+  return {
+    name: t.name,
+    reference: t.reference,
+    machineName: t.machine_name ?? t.machineName,
+    values: {
+      fontFamily: v.fontFamily,
+      fontSize: v.fontSize,
+      fontWeight: v.fontWeight,
+      fontStyle: v.fontStyle,
+      lineHeightPx: v.lineHeightPx,
+      letterSpacing: v.letterSpacing,
+    },
+  };
+}
+
+function slimEffect(e: AnyRecord) {
+  return { name: e.name, effects: e.effects, reference: e.reference, machineName: e.machineName };
+}
+
+function slimTokensForMcp(doc: unknown, include: string[] = []): AnyRecord {
+  const d = (doc ?? {}) as AnyRecord;
+  const ls = (d.localStyles ?? {}) as AnyRecord;
+  const out: AnyRecord = { timestamp: d.timestamp };
+
+  if (Array.isArray(ls.color)) out.colors = (ls.color as AnyRecord[]).map(slimColor);
+  if (Array.isArray(ls.typography)) out.typography = (ls.typography as AnyRecord[]).map(slimTypography);
+  if (Array.isArray(ls.effect)) out.effects = (ls.effect as AnyRecord[]).map(slimEffect);
+  // Forward any other foundation arrays untouched (future: spacing, radius, grid).
+  for (const [k, v] of Object.entries(ls)) {
+    if (['color', 'typography', 'effect', '$map'].includes(k)) continue;
+    out[k] = v;
+  }
+
+  out._note =
+    'Foundation tokens only. Use `sass` or `reference` to reference a token in code, `value` for the resolved value. ' +
+    'Icons → handoff_get_icon_catalog / handoff_search_icons. Logos → handoff_get_logo_set. ' +
+    'Per-component token usage → handoff_get_component. ' +
+    'Pass include:["assets","components","map"] to opt back into the heavy raw sections.';
+
+  if (include.includes('assets')) out.assets = d.assets;
+  if (include.includes('components')) out.components = d.components;
+  if (include.includes('map')) out.$map = ls.$map;
+  return out;
 }
 
 export function createHandoffMcpServer(auth: McpAuthContext, request: Request): McpServer {
@@ -208,13 +275,21 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_get_tokens',
     {
-      description: 'Design tokens snapshot for the deployment.',
-      inputSchema: {},
+      description:
+        'Foundation design tokens (colors, typography, effects, and any spacing/radius/grid when extracted). ' +
+        'Slimmed for context use — excludes icon/logo SVGs, per-component token usage, and the SCSS $map. ' +
+        'Use handoff_get_icon_catalog/handoff_get_logo_set/handoff_get_component for those.',
+      inputSchema: {
+        include: z
+          .array(z.enum(['assets', 'components', 'map']))
+          .optional()
+          .describe('Opt back into heavy raw sections normally excluded. Default: none.'),
+      },
     },
-    async () => {
+    async ({ include }) => {
       const provider = getDataProvider();
       const tokens = await provider.getTokens();
-      return textResult(tokens);
+      return textResult(slimTokensForMcp(tokens, include ?? []));
     }
   );
 
@@ -245,7 +320,18 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     'handoff_sync_push',
     {
       description: 'Upload sync changes (requires sync:write). Registry mode only.',
-      inputSchema: { body: z.custom<SyncUploadBody>() },
+      inputSchema: {
+        body: z.object({
+          changes: z.array(
+            z.object({
+              entityType: z.enum(['page', 'component', 'pattern']),
+              entityId: z.string(),
+              action: z.enum(['create', 'update', 'delete']),
+              data: z.record(z.string(), z.unknown()).optional(),
+            })
+          ),
+        }),
+      },
     },
     async ({ body }) => {
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
