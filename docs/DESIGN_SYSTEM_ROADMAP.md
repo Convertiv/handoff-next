@@ -245,7 +245,13 @@ Code / Cursor. Connection requires only a single JSON stanza.
 
 ---
 
-### Phase A — Spike: end-to-end connection with the Claude DS registry
+### Phase A — Spike: end-to-end connection with the Claude DS registry  ✅ DONE (2026-06-25)
+
+**Result: PASS** — ran against the live SS&C registry. 6/6 realistic developer prompts produced
+output fully grounded in real registry data; every agent reached for the right tools unprompted.
+Full write-up: [MCP_CLAUDE_SPIKE_REPORT.md](MCP_CLAUDE_SPIKE_REPORT.md). The spike also fixed two
+real blockers it surfaced (a `tools/list` crash from `z.custom`, and a 22K-token `get_tokens`
+dump → slimmed 77%) and found a third (Finding 1 below) now driving Phase C.
 
 *Gate: before any tool additions, verify the connection actually works well.*
 
@@ -330,6 +336,15 @@ concise design-system framing brief that fits in a system prompt.
 
 The current `handoff_get_component` returns the full component DB row, which includes Figma
 metadata and internal fields that aren't useful for generation. Three improvements:
+
+**C0 — Slim `handoff_get_component` ⟵ *proven urgent by the Phase A spike, do first***
+Verified: `get_component` returns ~143K tokens per call, of which **97% is a single
+`sharedStyles` field** (the entire compiled DS CSS, repeated on every call). The useful
+implementation fields total ~630 tokens (0.4%). Strip `sharedStyles`, `validationResults`, and
+the `figma*` bag from the MCP response (keep `code`, `html`, `sass`, `css`, `properties`,
+`group`, `type`, `title`, `description`, do/don'ts); add an `include` escape hatch. Same pattern
+as the `handoff_get_tokens` slim already shipped. This is the single highest-impact fix from the
+spike — three component lookups currently blow ~430K tokens.
 
 **C1 — `handoff_get_component_template`**
 ```
