@@ -114,6 +114,44 @@ function slimTokensForMcp(doc: unknown, include: string[] = []): AnyRecord {
   return out;
 }
 
+// ── Component slimming for MCP ──────────────────────────────────────────────
+// handoff_get_component returns the full component row — ~143K tokens, of which
+// ~97% is a single `sharedStyles` field (the entire compiled DS CSS, repeated on
+// every call). The implementation data a code-gen consumer needs (code, html,
+// sass, css, properties, identity, guidance) is ~630 tokens. Strip the heavy /
+// internal fields; ~99% smaller. `include` re-adds fields by name, 'figma' for
+// all Figma sync metadata, or 'all' for the raw row.
+
+const COMPONENT_HEAVY_FIELDS = new Set([
+  'sharedStyles', // ~139K tokens — the entire compiled design-system CSS
+  'validationResults', // build/lint output noise
+  'handoffConfig', // internal config dump
+]);
+
+function slimComponentForMcp(row: unknown, include: string[] = []): unknown {
+  if (!row || typeof row !== 'object') return row;
+  const src = row as AnyRecord;
+  if (include.includes('all')) return src;
+  const out: AnyRecord = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (include.includes(k)) {
+      out[k] = v;
+      continue;
+    }
+    if (COMPONENT_HEAVY_FIELDS.has(k)) continue;
+    if (/^figma/i.test(k)) {
+      if (include.includes('figma')) out[k] = v; // internal Figma sync metadata
+      continue;
+    }
+    out[k] = v;
+  }
+  out._note =
+    'Slimmed: excludes sharedStyles (the full compiled DS CSS), validationResults, and Figma ' +
+    'sync metadata. include:["figma"] adds Figma fields, include:["all"] returns the raw row, ' +
+    'or pass any field name to re-add it. Foundation tokens → handoff_get_tokens.';
+  return out;
+}
+
 export function createHandoffMcpServer(auth: McpAuthContext, request: Request): McpServer {
   const server = new McpServer({ name: 'handoff', version: '2.0.0' }, { capabilities: { tools: {} } });
 
@@ -261,14 +299,23 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_get_component',
     {
-      description: 'Full component row by id.',
-      inputSchema: { id: z.string() },
+      description:
+        'Component implementation data by id — code/html/sass/css, properties, variants, and ' +
+        'usage guidance. Slimmed for context use: excludes the compiled sharedStyles CSS ' +
+        '(~97% of the raw row), validationResults, and Figma sync metadata.',
+      inputSchema: {
+        id: z.string(),
+        include: z
+          .array(z.string())
+          .optional()
+          .describe('Re-add excluded fields by name, "figma" for all Figma metadata, or "all" for the raw row.'),
+      },
     },
-    async ({ id }) => {
+    async ({ id, include }) => {
       const provider = getDataProvider();
       const row = await provider.getComponent(id.trim());
       if (!row) return textResult({ error: 'Not found' });
-      return textResult(row);
+      return textResult(slimComponentForMcp(row, include ?? []));
     }
   );
 
