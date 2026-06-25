@@ -193,12 +193,25 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_get_reference',
     {
-      description: 'Fetch generated reference material: catalog | tokens | icons | property-patterns.',
-      inputSchema: { id: z.enum(['catalog', 'tokens', 'icons', 'property-patterns']) },
+      description:
+        'Fetch generated reference material by id: catalog | tokens | icons | property-patterns. ' +
+        '(May also be passed as "type".)',
+      inputSchema: {
+        id: z.enum(['catalog', 'tokens', 'icons', 'property-patterns']).optional(),
+        type: z
+          .enum(['catalog', 'tokens', 'icons', 'property-patterns'])
+          .optional()
+          .describe('Alias for id.'),
+      },
     },
-    async ({ id }) => {
-      if (!isReferenceMaterialId(id)) return textResult({ error: 'Invalid reference id' });
-      const row = await getReferenceMaterialById(id);
+    async ({ id, type }) => {
+      const ref = id ?? type;
+      if (!ref || !isReferenceMaterialId(ref)) {
+        return textResult({
+          error: 'Missing or invalid reference id. Use id (or type): catalog | tokens | icons | property-patterns.',
+        });
+      }
+      const row = await getReferenceMaterialById(ref);
       if (!row) return textResult({ error: 'Not found — regenerate reference materials in admin' });
       return textResult({ id: row.id, content: row.content, generatedAt: row.generatedAt, metadata: row.metadata });
     }
