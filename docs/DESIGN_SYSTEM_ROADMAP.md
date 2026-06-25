@@ -201,52 +201,337 @@ and canonical is visible and actionable in the UI.
 
 ---
 
-## Strategic initiative — Handoff ⇄ Claude Design
+## Strategic initiative — Handoff as the Claude design system
 
-**The opportunity.** Claude's design/prototyping mode generates UI, but it produces
-*generic* output unless it's framed by a real design system. Handoff already holds that
-system — tokens, foundations, components, assets — and already exposes it over an **MCP server**
-(Phase 3). The unlock: wire Handoff's MCP into Claude Design so anyone can prototype in Claude
-*with their own design system as the frame* — real tokens, real components, real brand — instead
-of from scratch. This is the north-star consumer that makes the whole "canonical DS, machine-
-consumable" thesis pay off, and it's largely an integration play on top of capability we already
-have rather than net-new platform work.
+**The opportunity.** Claude's AI coding tools (Claude Code, Claude Desktop, Cursor) generate UI,
+but produce *generic* output unless framed by a real design system. Handoff already holds that
+system — tokens, foundations, components, assets — and already exposes it over a **live MCP
+server** at `/api/mcp`. The unlock: wire any Handoff registry into Claude Code/Desktop as an MCP
+server so any developer on the project gets real tokens, real components, and brand framing
+baked into every AI-assisted component they write.
 
-**What "frames the design" means (the context Claude Design needs).** Working assumption —
-*validate against what Claude Design actually consumes:*
-1. **Token context** — resolved, typed tokens (color/spacing/type/elevation/focus/…) in a form
-   the model can apply: a compact brief plus an on-demand "give me this as Tailwind/CSS/DTCG"
-   export. Handoff's MCP `tools` already do alias resolution + format export.
-2. **Component vocabulary** — the available components, their props/variants, and a preview or
-   static HTML so generated layouts compose *real* components (ties to the playground + the
-   component-referenced-image/asset work in the active track).
-3. **Brand & usage guidance** — voice, do/don'ts, layout rules — the `Design.md` / brand-voice
-   content the workbench settings already capture, surfaced as agent-readable context.
+The first target is the **Claude product's own design system** — an eat-your-own-dogfood
+deployment that proves the thesis and gives us a high-fidelity reference registry for testing.
 
-**Integration surfaces to evaluate (pick based on what Claude Design supports):**
-- **MCP-native (preferred if supported):** Claude Design connects directly to a project's Handoff
-  MCP server and pulls resources/tools live — always current, no export step. Question: does
-  Claude Design accept a user-supplied MCP design-system source, and with what resource/tool shape?
-- **Generated system brief (`DESIGN.md` + token export):** a compact, version-pinned artifact
-  Handoff emits (ties to Phase 5's DESIGN.md export) that Claude Design loads as framing context.
-  Lower-fidelity but works without a live MCP connection.
-- **Hybrid:** brief for framing + MCP tools for on-demand detail (resolve a token, fetch a
-  component's props/preview) during generation.
+**What we already have (the foundation — do not re-build).** The MCP server is live and
+significantly capable:
 
-**Open questions / spike before committing:**
-- What exactly does Claude Design ingest to "frame" a design today, and is that surface
-  user-extensible (MCP? a system file? a connector)? *This gates everything — spike first.*
-- Auth/connection model for a per-project registry MCP from within Claude Design.
-- How component *code/preview* is surfaced so prototypes use real components, not lookalikes —
-  and the round-trip back (can a Claude-Design prototype save into the Handoff library/workbench?).
-- Token fidelity: does Claude Design want raw DTCG, a Tailwind `@theme`, or a natural-language brief?
+| Tool | Category | Status |
+|------|----------|--------|
+| `handoff_get_project_context` | Context | Live — stack profile, paths, Figma key, translation rules |
+| `handoff_get_stack_guide` | Context | Live — Markdown authoring rules for bootstrap/react stacks |
+| `handoff_get_design_guidelines` | Context | Live — Design.MD from workspace settings |
+| `handoff_get_brand_voice` | Context | Live — formatted copy guidelines |
+| `handoff_get_tokens` | Tokens | Live — raw token snapshot |
+| `handoff_get_reference` | Tokens | Live — generated catalog, tokens, icons, property-patterns |
+| `handoff_search_components` | Components | Live — filter by id/title/group/tag |
+| `handoff_get_component` | Components | Live — full component row |
+| `handoff_get_component_reference` | Components | Live — reference images for buttons/inputs/iconography |
+| `handoff_get_icon_catalog` | Icons | Live — full catalog with SVG content |
+| `handoff_search_icons` | Icons | Live — substring search |
+| `handoff_get_logo_set` | Logos | Live — all variants with SVG + usage guidance |
+| `handoff_search_assets` | Assets | Live — fills, images, logos with CDN URLs |
+| `handoff_get_asset` | Assets | Live — single asset with component usages |
+| `handoff_list_asset_collections` | Assets | Live — Figma section groupings |
+| `handoff_list_design_artifacts` | Design | Live — saved workbench generations |
+| `handoff_get_design_artifact` | Design | Live — single artifact |
+| `handoff_create_design_artifact` | Design | Live — save a new design |
+| `handoff_get_component_spec` | Design | Live — structured spec + markdown for a design |
+| `handoff_generate_component_from_design` | Design | Live — full generation brief with queued spec |
+| `handoff_sync_status/pull/push` | Sync | Live — registry sync cursor + change streaming |
 
-**Dependencies:** Phase 3 (MCP read model — exists), Phase 5 (DESIGN.md export adapter), and the
-active-track component/asset/registry work (so components and assets are real and resolvable).
+The developer page at `/developer/mcp` documents all tools and shows the setup snippet for Claude
+Code / Cursor. Connection requires only a single JSON stanza.
 
-**Acceptance (north star):** a user points Claude Design at their Handoff registry and prototypes
-a screen that uses their actual tokens and components, with brand framing applied — no manual
-setup of the design system inside Claude.
+---
+
+### Phase A — Spike: end-to-end connection with the Claude DS registry
+
+*Gate: before any tool additions, verify the connection actually works well.*
+
+**Goal:** Claude Code connected to a real Handoff registry responds to "build a hero section" by
+using registry tokens, components, and brand guidance instead of generic defaults.
+
+**Steps:**
+1. Deploy a Handoff registry for the Claude design system (or use an existing SSC/8x8 registry).
+2. Generate a scoped service-account token (read-only, `reference:read design:read`).
+3. Add the MCP config to the project's `.claude/settings.json` or `CLAUDE.md`:
+   ```json
+   {
+     "mcpServers": {
+       "handoff": {
+         "url": "https://registry.vercel.app/api/mcp",
+         "transport": "http",
+         "headers": { "Authorization": "Bearer <token>" }
+       }
+     }
+   }
+   ```
+4. Run a structured prompt session — 10 standard prompts covering:
+   - "What colors are available in this design system?"
+   - "Build a primary button using this design system's tokens"
+   - "Build a hero section with a headline and CTA"
+   - "What components are available for navigation?"
+   - "Show me the icon for [search/close/arrow-right]"
+   - "What's the brand voice / tone for copy?"
+5. Score each response against the actual design system: did it use real tokens? Real components?
+   Real brand colors?
+
+**Deliverables:** a written spike report documenting what worked, what produced generic output,
+and which tool gaps were most responsible. This report directly drives Phase B and C scope.
+
+**Acceptance:** at least 7/10 prompts produce output that references actual registry data (correct
+token names, real component ids, actual brand colors) without the developer having to manually
+provide that context.
+
+---
+
+### Phase B — Token surface: queryable, alias-resolved, exportable
+
+The current `handoff_get_tokens` returns a raw snapshot that's hard to use in generation prompts.
+Three additions make tokens genuinely useful to a model:
+
+**B1 — `handoff_query_tokens`**
+```
+query?: string               // substring match on name
+type?: 'color' | 'dimension' | 'typography' | 'shadow' | 'duration' | ...
+tier?: 'primitive' | 'semantic' | 'component'
+resolve_aliases?: boolean    // default true — dereference alias chains to concrete values
+limit?: number
+```
+Returns matched tokens with `name`, `value` (resolved), `$type`, `tier`, `aliasOf` (the alias
+chain), `cssVariable`. Covers "what are all semantic color tokens?" and "what is `--color-primary`
+resolved to?" without returning the entire snapshot.
+
+**B2 — `handoff_export_tokens_as`**
+```
+format: 'tailwind' | 'css' | 'dtcg' | 'brief'
+tier?: 'primitive' | 'semantic' | 'component'
+type?: string
+```
+Returns the token set in a specific output format on-demand. `format: 'brief'` returns a
+compact (~4K token) natural-language summary of the key design decisions — colors by role,
+spacing scale, type scale — suitable for injecting into a system prompt without blowing context.
+This is the "framing brief" that replaces the unstructured large dump.
+
+**B3 — Reference material quality pass**
+`handoff_get_reference('tokens')` already exists but the generated content needs to be audited:
+is it compact enough for a context window? Is it alias-resolved? Does it group by semantic role
+(brand, neutral, feedback, surface) rather than raw Figma layer order? Update the reference
+material generator to produce a model-friendly format rather than a dump.
+
+**Acceptance:** a model can ask "what are all the semantic color tokens, resolved?" and get a
+clean, compact list under 2K tokens in response. `handoff_export_tokens_as('brief')` produces a
+concise design-system framing brief that fits in a system prompt.
+
+---
+
+### Phase C — Component surface: implementation-ready data
+
+The current `handoff_get_component` returns the full component DB row, which includes Figma
+metadata and internal fields that aren't useful for generation. Three improvements:
+
+**C1 — `handoff_get_component_template`**
+```
+id: string
+stack?: 'bootstrap-handlebars' | 'react-tailwind' | 'react-scss'
+```
+Returns the compiled `component.html` template for the component (the actual renderable output
+from the last `handoff-app build`). This is the ground truth for what a generated component
+should look like — the model can use it as a starting point rather than inferring structure from
+metadata.
+
+**C2 — Component search improvements**
+`handoff_search_components` currently returns `{ id, title, group, type }`. Add:
+- `cssClasses: string[]` — the `.hds-*` utility classes the component uses
+- `tokens: string[]` — the CSS variable names the component references
+- `preview?: string` — small thumbnail URL if available
+- `variants?: string[]` — variant key list (so the model knows what props exist)
+
+**C3 — `handoff_get_component_usage`**
+```
+id: string
+```
+Returns where the component is used across the design system: which pages reference it, what
+variants are used, and any usage guidelines from the component's documentation. Helps the model
+understand *when* to use a component, not just *what* it looks like.
+
+**Acceptance:** "build a card component" prompt produces HTML that uses the registry's actual card
+class names, correct token variables, and the right variant structure — not a generic Bootstrap
+card.
+
+---
+
+### Phase D — DESIGN.md framing artifact (project-level context)
+
+The DESIGN.md concept from Phase 5 has a specific role in the Claude integration: it's the
+file checked into the client project that gives Claude framing context without an MCP call.
+
+**D1 — `handoff_export_design_md` tool**
+```
+// no params — exports the current registry state
+```
+Returns a structured Markdown document (~2–4K words) covering:
+- **System identity** — project name, stack, version
+- **Token compact brief** — colors by semantic role, spacing scale, type scale (the `brief`
+  format from B2)
+- **Component vocabulary** — list of components with one-line description + primary CSS class
+- **Brand voice** — key principles, do/don'ts for copy
+- **Do/don'ts** — top-level design rules (from `designMd` workspace field)
+- **Figma source** — link to the source file for reference
+
+This document should be committable to the client project as `DESIGN.md` and referenced in
+`CLAUDE.md` so Claude Code loads it as project context even without the MCP server configured.
+
+**D2 — Regenerate-on-push**
+Wire the `handoff-app push:all` pipeline to regenerate `DESIGN.md` and write it to the client
+project's `handoff-output/` directory alongside the existing `theme.css`, `tokens.json`, etc.
+Developers can then commit the generated DESIGN.md as part of their design sync workflow.
+
+**D3 — CLAUDE.md stanza generator**
+Add a `/developer/setup` page section (or `handoff-app init-claude` CLI command) that prints the
+`CLAUDE.md` lines to add to a project for both:
+- The MCP config block (live connection)
+- The `# Design System` section referencing the generated `DESIGN.md`
+
+**Acceptance:** a developer runs `handoff-app push:all` and gets a `handoff-output/DESIGN.md`
+they can commit. When they add two lines to `CLAUDE.md`, Claude Code has full design system
+context without an MCP server configured.
+
+---
+
+### Phase E — Quality framework
+
+Quality here means: *does AI-generated code actually use the design system?* Subjective review
+doesn't scale. We need repeatable, automated measurement.
+
+**E1 — Golden prompt set**
+A committed set of 20 representative prompts covering the full tool surface:
+- Token lookup (5): "what's the primary button background color?", "what's the base font size?"
+- Component generation (8): hero, card, button, nav, form, table, badge, modal
+- Icon/logo lookup (3): retrieve a specific icon by name, find all icons in a category
+- Brand framing (4): "write a CTA headline for a signup page", "what's the color for error states?"
+
+Each prompt has an **expected behavior spec**: list of token names, class names, or brand
+principles that should appear in the response (not exact string match — coverage check).
+
+**E2 — Automated coverage scoring**
+A Node.js test script (`scripts/mcp-quality-test.ts`) that:
+1. Connects to a registry via MCP
+2. Runs each golden prompt through a lightweight model call (haiku or equivalent)
+3. Parses the response for coverage markers (token names present in `handoff_get_tokens`, class
+   names from component catalog, brand colors from logo/token data)
+4. Reports: `passes: 17/20, coverage: 85%, tool_calls_used: 12`
+
+**E3 — Regression gate**
+The quality test runs in CI when the MCP server code changes (`src/app/lib/mcp/**`). A score drop
+below 80% coverage blocks merge. This prevents tool changes from silently degrading the output
+quality the AI produces.
+
+**E4 — Tool call audit**
+Instrument which MCP tools get called during a typical Claude Code session (log at the transport
+layer). If the model isn't calling `handoff_get_tokens` before writing token-dependent code, the
+tool descriptions are wrong — iterate on them.
+
+**Acceptance:** quality test suite is committed, runs in CI, and scores ≥80% on a reference
+registry (8x8 or SSC). Tool call audit shows models are hitting token + component tools before
+generating UI code.
+
+---
+
+### Phase F — Distribution & developer experience
+
+Once the integration quality is solid, make it easy to set up for any Handoff registry user.
+
+**F1 — One-click MCP token generation**
+Add a "Generate MCP Token" button to `/developer/mcp` that creates a read-only service-account
+token scoped to `reference:read design:read` and shows the ready-to-paste config snippet. No
+manual token management.
+
+**F2 — Stack-specific CLAUDE.md templates**
+For each supported stack (`bootstrap-handlebars`, `react-tailwind`, `react-scss`, `tailwind-handlebars`),
+provide a pre-written `CLAUDE.md` section that includes:
+- The MCP connection stanza
+- Stack-specific authoring rules (already in `stack-guides/`)
+- A `# Design System` section referencing `DESIGN.md`
+Available on the `/developer/mcp` page as copy-paste blocks.
+
+**F3 — `handoff-app init-claude` CLI command**
+Writes the MCP config stanza + CLAUDE.md additions directly to the project directory. Takes
+`--registry-url` and `--token` and optionally `--stack`. The developer runs one command after
+`handoff-app login` and they're connected.
+
+**F4 — Validation: `handoff-app check-mcp`**
+Verifies the MCP endpoint is reachable, the token has the right scopes, and a sample tool call
+(`handoff_get_project_context`) returns valid data. Gives a clear pass/fail before the developer
+tries to use Claude Code.
+
+**Acceptance:** a new developer can go from zero to "Claude Code is using my design system" in
+under 5 minutes, following the `/developer/mcp` setup guide.
+
+---
+
+### Phase G — Claude Design native integration (future-gated)
+
+*This phase is blocked on Anthropic opening a design-system connector surface in Claude's design
+mode. Do not build against assumptions — spike first when that surface becomes available.*
+
+**The question to spike:** Does Claude.ai's design/prototyping mode accept a user-supplied MCP
+server as a design system source? If yes, what resource/tool shape does it expect?
+
+**If MCP-native is supported:**
+- Verify the existing tools map to what Claude Design expects (it may want resources, not just
+  tools — add `resources` for tokens, components, and logos alongside the existing tools)
+- Wire per-project registry auth into the Claude Design connector
+- Test: "prototype a signup page using my design system" → does output use real brand colors?
+
+**If MCP-native is not supported:**
+- `DESIGN.md` (Phase D) becomes the primary framing channel — Claude Design loads it as context
+- Supplement with a static token/component export in whatever format Claude Design consumes
+  (Tailwind config? CSS custom props? JSON?)
+
+**Round-trip future goal:** a prototype generated by Claude Design can be saved back to the
+Handoff workbench as a design artifact (`handoff_create_design_artifact`) and from there
+converted to a component spec (`handoff_generate_component_from_design`). The full loop: design
+system in → prototype out → spec saved → component generated.
+
+---
+
+### Open questions (resolve during Phase A spike)
+
+1. **Claude Code MCP auth model** — does `claude_desktop_config.json` support custom headers for
+   Bearer tokens, or does the registry need to accept the token as a query param? Need to test
+   both `transport: 'http'` and `transport: 'sse'` against the Vercel deployment.
+2. **Token dump size** — `handoff_get_tokens` on a real registry with 200+ tokens: does it fit
+   in Claude's tool-result context window without truncation? If not, Phase B (queryable tokens)
+   is urgent, not optional.
+3. **Component.html availability** — the `component.html` files are generated by `handoff-app
+   build` and written to disk in the workspace. Are they stored in the registry DB after a push,
+   or only in the local workspace? If only local, `handoff_get_component_template` (Phase C1)
+   needs a DB column + push endpoint first.
+4. **Reference material freshness** — `handoff_get_reference('tokens')` returns a pre-generated
+   blob. Is it regenerated on every push/fetch, or manually? Stale reference material is worse
+   than no reference material — it produces confidently wrong output.
+
+---
+
+### Dependency map for this initiative
+
+```
+Phase A (spike)
+  ├── Phase B (token surface)     ← unblocked after A identifies token tool gaps
+  ├── Phase C (component surface) ← unblocked after A identifies component tool gaps
+  └── Phase D (DESIGN.md)        ← can run parallel to B/C; depends on workspace designMd
+
+Phase B + C + D →  Phase E (quality framework)
+Phase E →          Phase F (distribution/DX)
+Phase F →          Phase G (Claude Design native, gated on Anthropic surface)
+```
+
+**Acceptance (north star):** a developer adds two lines to their `CLAUDE.md`, and every
+subsequent AI-assisted component in that project uses their actual design system — correct tokens,
+real component class names, on-brand copy — without them having to manually describe the design
+system in every prompt.
 
 ---
 
