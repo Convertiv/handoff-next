@@ -424,3 +424,57 @@ generated `*Props` interface, closing the loop for the developer — still code,
    non-editable in preview-building forms. *Example:* a dev removes `tertiary` from button's `Type`
    union in code and pushes → the contract is replaced (no merge), and any registry preview that set
    `Type: "tertiary"` is flagged `drifted` for reconciliation.
+
+---
+
+## 14. Live rendering & isolation (P2/P3 decision — the render fork)
+
+One hardened iframe contract renders everything — preview-builder, gallery previews, and the
+playground. It is the single most security-sensitive surface (it sits next to real auth and serves
+real brand tokens), so the decisions here are load-bearing.
+
+**Trust model.**
+- *Design tokens ≠ auth secrets.* The frame needs `theme.css` / CSS variables to render — those are
+  public. The protected secret is the session cookie / MCP token. The frame gets the former, never
+  the latter.
+- *Previews inject values, not code.* A registry/LLM-authored preview supplies property **values**
+  (data) to a **vetted component module** (code). So we enforce **values-only**: authors never
+  supply `<script>`/JS. Executing code is always the workspace-vetted component; only data is
+  untrusted.
+
+**Current state + the live vulnerability (fix regardless of P2).** Both `Playground/Preview.tsx`
+and `Component/Preview.tsx` use `sandbox="allow-scripts allow-same-origin"` — the one combination
+MDN warns against: the frame runs scripts *and* shares the registry origin, so it can read the
+session cookie and make authenticated same-origin requests (token theft). It was added for an
+auto-height `contentDocument` read. Audit found **three** same-origin dependencies, all replaceable:
+`document.write(html)` (→ `srcdoc`), `contentDocument.scrollHeight` auto-height (→ postMessage +
+ResizeObserver), `contentWindow.location.reload()` (→ re-set `srcdoc`). `postMessage` *into* the
+frame keeps working.
+
+**Decided architecture — A + C, not B.**
+- **A — Opaque-origin sandbox (primary control).** `sandbox="allow-scripts"`, **never**
+  `allow-same-origin`. The browser assigns a unique opaque origin *regardless of serving domain* —
+  `document.cookie` empty, storage throws, requests to the registry are cross-origin from `null`
+  (no cookie attached). The frame is walled off from auth **even when same-origin-served**.
+- **`srcdoc` + parent-fetches-then-inlines.** The parent (authed) fetches the public artifacts
+  (component module source + `theme.css`), inlines them + a bootstrap into `srcdoc`. Auth never
+  enters the frame; the frame needs zero network to render; no CORS.
+- **postMessage everything.** Args in via `contentWindow.postMessage`; height + events out via
+  `postMessage` (ResizeObserver in the frame → parent sets height). No same-origin reads.
+- **C — CSP on the srcdoc.** `connect-src 'none'` is the key anti-exfiltration control (a
+  compromised module can't phone home); allow `img-src`/`font-src`/`style-src` for CDN assets a
+  component legitimately needs.
+- **B — separate origin: DEFERRED.** A separate per-account origin/CDN would add defense-in-depth
+  but is real standup complexity (per-customer CDN provisioning) and conflicts with the goal of
+  easy single-deployment standup. Opaque origin (A) is the *primary* control and is sufficient on
+  its own; B is belt-and-suspenders we can add later if the threat model changes. Prerequisite if
+  revisited: host-only session cookies (not domain-wide).
+
+**One contract, both stacks.** The per-component `.module.js` (`render(values)`/`update(values)`)
+already abstracts React vs Handlebars — the build emits the right module per stack; the iframe just
+imports it and calls render. The render fork is a build-time concern, not a rendering-architecture
+one.
+
+**Height model (decided):** ResizeObserver in the frame → `postMessage({height})` → parent sizes
+the iframe. Replaces the same-origin `scrollHeight` read (and fixes a load-race in the current
+`document.write` path).
