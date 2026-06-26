@@ -24,6 +24,41 @@ function contentTypeForFile(filename: string): string {
   return CONTENT_TYPES[path.extname(filename).toLowerCase()] ?? 'application/octet-stream';
 }
 
+// Iframe-content hardening (roadmap §14). The preview iframe runs in an opaque
+// origin (`sandbox="allow-scripts"`, no `allow-same-origin`) so it can't reach
+// the registry's cookies/auth. Two consequences handled here, at the single
+// serving choke point (so existing components need no rebuild):
+//  - module `import()` + cross-origin script/style loads from an opaque origin
+//    require CORS — these artifacts are public, non-credentialed, so ACAO:* is safe.
+//  - the parent can no longer read the frame's document for auto-height, so we
+//    inject a ResizeObserver→postMessage height reporter into served HTML, and a
+//    CSP that blocks network exfiltration (connect-src 'none') + foreign framing.
+const HEIGHT_REPORTER =
+  `<script>(function(){function h(){var b=document.body,e=document.documentElement;` +
+  `var v=Math.max(b?b.scrollHeight:0,b?b.offsetHeight:0,e?e.scrollHeight:0,e?e.offsetHeight:0);` +
+  `try{parent.postMessage({type:'handoff-preview-height',height:v},'*');}catch(_){}}` +
+  `try{if(window.ResizeObserver&&document.body){new ResizeObserver(h).observe(document.body);}}catch(_){}` +
+  `window.addEventListener('load',h);window.addEventListener('resize',h);` +
+  `setTimeout(h,100);setTimeout(h,500);})();</script>`;
+
+const PREVIEW_CSP = "connect-src 'none'; frame-ancestors 'self'";
+
+function injectHeightReporter(html: string): string {
+  return html.includes('</body>') ? html.replace('</body>', `${HEIGHT_REPORTER}</body>`) : html + HEIGHT_REPORTER;
+}
+
+function headersFor(filename: string, contentType: string): Record<string, string> {
+  const ext = path.extname(filename).toLowerCase();
+  const headers: Record<string, string> = { 'Content-Type': contentType, 'Cache-Control': CACHE };
+  if (ext === '.js' || ext === '.mjs' || ext === '.css') headers['Access-Control-Allow-Origin'] = '*';
+  if (ext === '.html') headers['Content-Security-Policy'] = PREVIEW_CSP;
+  return headers;
+}
+
+function isHtml(filename: string): boolean {
+  return path.extname(filename).toLowerCase() === '.html';
+}
+
 /**
  * Serve component artifacts.
  * - Workspace mode (no DATABASE_URL): read from components/[id]/dist/ on disk.
@@ -65,13 +100,10 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ pa
     }
     if (isBinaryContentType(row.contentType)) {
       const buf = Buffer.from(row.content, 'base64');
-      return new NextResponse(buf, {
-        headers: { 'Content-Type': row.contentType, 'Cache-Control': CACHE },
-      });
+      return new NextResponse(buf, { headers: headersFor(filename, row.contentType) });
     }
-    return new NextResponse(row.content, {
-      headers: { 'Content-Type': row.contentType, 'Cache-Control': CACHE },
-    });
+    const body = isHtml(filename) ? injectHeightReporter(row.content) : row.content;
+    return new NextResponse(body, { headers: headersFor(filename, row.contentType) });
   }
 
   // Workspace mode: serve from disk.
@@ -87,9 +119,11 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ pa
 
   try {
     const buf = await fs.readFile(diskPath);
-    return new NextResponse(buf, {
-      headers: { 'Content-Type': contentTypeForFile(filename), 'Cache-Control': CACHE },
-    });
+    const contentType = contentTypeForFile(filename);
+    if (isHtml(filename)) {
+      return new NextResponse(injectHeightReporter(buf.toString('utf-8')), { headers: headersFor(filename, contentType) });
+    }
+    return new NextResponse(buf, { headers: headersFor(filename, contentType) });
   } catch {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }

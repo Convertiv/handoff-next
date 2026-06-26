@@ -21,7 +21,7 @@ import {
   Tablet,
   Text,
 } from 'lucide-react';
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { HotReloadContext } from '../context/HotReloadProvider';
 import { usePreviewContext } from '../context/PreviewContext';
 import { sanitizePreviewUrlForOpen } from '@/lib/preview-url';
@@ -69,6 +69,7 @@ export const ComponentDisplay: React.FC<{
   const [width, setWidth] = React.useState('1100px');
   const [inspect, setInspect] = React.useState(false);
   const [scale, setScale] = React.useState(0.8);
+  const [manualReload, setManualReload] = React.useState(0);
 
   // Generate variants from component previews only for Figma atomic components
   const localVariants = React.useMemo(() => {
@@ -98,45 +99,24 @@ export const ComponentDisplay: React.FC<{
     return context.variants;
   }, [component?.figmaComponentId, component?.previews, context.preview, context.variants]);
 
-  const measureIframeContentHeight = useCallback(() => {
+  // Auto-height without same-origin: the preview page (hardened by the
+  // /api/component serving route, §14) posts its measured height via
+  // postMessage; we accept only messages from *this* iframe's window.
+  React.useEffect(() => {
     if (defaultHeight) {
       setHeight(defaultHeight);
       return;
     }
-    const el = ref.current;
-    if (!el?.contentWindow) return;
-    try {
-      const doc = el.contentDocument ?? el.contentWindow.document;
-      const body = doc.body;
-      const html = doc.documentElement;
-      if (!body) return;
-      const sh = Math.max(
-        body.scrollHeight,
-        body.offsetHeight,
-        html?.clientHeight ?? 0,
-        html?.scrollHeight ?? 0,
-        html?.offsetHeight ?? 0
-      );
-      if (sh > 0) setHeight(`${sh}px`);
-    } catch {
-      /* e.g. opaque sandbox — height stays at default until fixed */
-    }
-  }, [defaultHeight]);
-
-  const onIframeLoad = useCallback(() => {
-    measureIframeContentHeight();
-    requestAnimationFrame(() => measureIframeContentHeight());
-    window.setTimeout(() => measureIframeContentHeight(), 100);
-    window.setTimeout(() => measureIframeContentHeight(), 450);
-  }, [measureIframeContentHeight]);
-
-  React.useEffect(() => {
-    measureIframeContentHeight();
-    window.addEventListener('resize', measureIframeContentHeight);
-    return () => {
-      window.removeEventListener('resize', measureIframeContentHeight);
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== ref.current?.contentWindow) return;
+      const data = event.data;
+      if (data && data.type === 'handoff-preview-height' && typeof data.height === 'number' && data.height > 0) {
+        setHeight(`${Math.ceil(data.height)}px`);
+      }
     };
-  }, [measureIframeContentHeight]);
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [defaultHeight]);
 
   const transformPreviewUrl = (url: string) => {
     let target = url;
@@ -187,20 +167,6 @@ export const ComponentDisplay: React.FC<{
   }, [component?.previews, onPreviewChange, previewUrl]);
 
   const { reloadCounter } = useContext(HotReloadContext);
-
-  React.useEffect(() => {
-    if (!previewUrl) return;
-    const t0 = window.setTimeout(() => measureIframeContentHeight(), 0);
-    const t1 = window.setTimeout(() => measureIframeContentHeight(), 200);
-    return () => {
-      window.clearTimeout(t0);
-      window.clearTimeout(t1);
-    };
-  }, [previewUrl, reloadCounter, measureIframeContentHeight]);
-
-  React.useEffect(() => {
-    measureIframeContentHeight();
-  }, [width, measureIframeContentHeight]);
 
   // Helper to check if an option is valid given other current selections
   const isOptionValid = (property: string, value: string) => {
@@ -332,13 +298,7 @@ export const ComponentDisplay: React.FC<{
                     <TooltipTrigger asChild>
                       <Button
                         className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-3"
-                        onClick={() => {
-                          try {
-                            ref.current?.contentWindow?.location.reload();
-                          } catch {
-                            /* sandbox / opaque origin */
-                          }
-                        }}
+                        onClick={() => setManualReload((n) => n + 1)}
                         variant="ghost"
                       >
                         <RefreshCcw />
@@ -391,14 +351,14 @@ export const ComponentDisplay: React.FC<{
               {previewUrl && safePreviewFile ? (
                 <div style={scaledFrameStyle}>
                   {/*
-                    allow-same-origin: parent must read iframe document for auto-height.
-                    Previews are same-origin Handoff output (trusted pipeline), not third-party URLs.
+                    Opaque-origin sandbox (no allow-same-origin) — the frame cannot reach the
+                    registry's cookies/auth. Auto-height comes from the page's postMessage height
+                    reporter injected by the /api/component serving route (§14).
                   */}
                   <iframe
-                    key={`${previewUrl}-${reloadCounter}`}
+                    key={`${previewUrl}-${reloadCounter}-${manualReload}`}
                     title="Component preview"
-                    sandbox="allow-scripts allow-same-origin"
-                    onLoad={onIframeLoad}
+                    sandbox="allow-scripts"
                     ref={ref}
                     height={height}
                     style={{

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { cn } from '../../lib/utils';
 
 import Handlebars from 'handlebars';
@@ -346,16 +346,18 @@ export default function Preview({ html, className, iframeRef: externalRef }: Pre
   const internalRef = useRef<HTMLIFrameElement>(null);
   const ref = externalRef || internalRef;
 
-  useEffect(() => {
-    if (ref.current) {
-      const iframeDoc = ref.current.contentDocument;
-      if (iframeDoc) {
-        iframeDoc.open();
-        iframeDoc.write(html);
-        iframeDoc.close();
-      }
-    }
-  }, [html, ref]);
-
-  return <iframe ref={ref} className={cn('h-full w-full', className)} title="Component Preview" sandbox="allow-scripts allow-same-origin" />;
+  // Opaque-origin sandbox (no allow-same-origin) so the frame can't reach the
+  // registry's cookies/auth (§14). We feed the document via `srcdoc` rather than
+  // writing to contentDocument (which requires same-origin). The frame still
+  // receives prop updates via postMessage and loads its module cross-origin
+  // (the /api/component route serves modules with CORS).
+  return (
+    <iframe
+      ref={ref}
+      className={cn('h-full w-full', className)}
+      title="Component Preview"
+      sandbox="allow-scripts"
+      srcDoc={html}
+    />
+  );
 }
