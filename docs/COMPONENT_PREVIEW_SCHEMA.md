@@ -478,3 +478,57 @@ one.
 **Height model (decided):** ResizeObserver in the frame → `postMessage({height})` → parent sizes
 the iframe. Replaces the same-origin `scrollHeight` read (and fixes a load-race in the current
 `document.write` path).
+
+---
+
+## 15. Preview storage & reconciliation (decided)
+
+**Two stores, merged on read** (realizes the §2a two-tier rule):
+
+| | Code-authored previews | Registry-authored previews |
+|---|---|---|
+| Where | `handoff_component.data` (the pushed blob) | **new `handoff_component_preview` table** |
+| On push | replaced wholesale (unchanged today) | preserved, then re-validated |
+| Editable in registry | no (edit in code) | yes (CRUD API) |
+
+`handoff_component_preview`: `{ id, component_id, component_version, title, values jsonb,
+slots jsonb?, semantic, rationale, source('manual'|'llm'), author_id, sync_state, created_at,
+updated_at }`. (Exact `component_version` type follows the existing component-versioning
+implementation — confirm at build.)
+
+The **read model merges** code + registry previews into the canonical `previews[]`, each tagged
+`source` + `syncState` + version validity. That merged array is what `handoff_get_component` /
+REST / UI project. Registry previews are **independent rows** — individually editable, individually
+version-anchored, no read-modify-write races on the blob.
+
+**Write surface (contributable channel):** `POST/PATCH/DELETE /api/registry/components/:id/previews`.
+Every write validates values against the live contract server-side (reuses P1's validator;
+**values-only**, no script).
+
+**Decided forks:**
+1. **Id collision** — reject a registry preview id that shadows a code preview id (checked against
+   the live contract at create). Merged array stays unambiguous.
+2. **Drift = version-anchored (not destructive).** See versioning below.
+3. **No round-trip** — registry previews stay in the registry. Future: an explicit "promote to
+   spec" action; not auto-sync.
+
+**Versioning (the powerful bit).** Previews are pinned to the component version they were
+authored/validated against (`component_version`). On push (new version), re-validate each registry
+preview against the new contract:
+- **conforms** → advance to the new version (current).
+- **doesn't conform** → stays valid at its pinned version; **not dead, just version-anchored**.
+  Because versions are snapshotted, it still renders faithfully against that version's
+  template+contract ("go to v3 to see it"). The UI surfaces `valid at v3 · current v5` with
+  view-at-version / migrate actions.
+
+MCP/REST default to previews valid at the **current** version (so agents never get stale meaning);
+older-version-only previews remain accessible and fixable in the UI. *(The component-version UI
+needs significant tuning — tracked on the roadmap; versioning is a tool to lean into here.)*
+
+**Forward (not now, designed-for):**
+- **Asset DAM tie-in** — preview image/video values can reference real library assets from the
+  asset repository, so previews use on-brand media, not placeholders.
+- **Playground unification** — editing a playground block and editing a preview are the *same
+  operation*: set values on a component instance via the same value-form + the §14 hardened render
+  iframe. A saved playground block ≈ a registry preview. Build once, use in both — and the §14
+  isolation work benefits the playground immediately.

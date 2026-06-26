@@ -780,14 +780,32 @@ semantic data:
   `values` keys ∈ properties, enum membership, rules). Back-fill existing previews. *Smallest,
   most foundational slice — makes the rule enforced, not just documented.*
 - **P2 — Authoring UI.** In-app editor to create/edit a preview by setting property values,
-  with live validation and a client-side render. Semantic tag + rationale fields.
-- **P3 — Client-side rendering.** Render previews from template + tokens in the browser; retire
-  the server image-build path for previews that can render natively.
+  with live validation and a client-side render. Semantic tag + rationale fields. *Storage +
+  render models decided — see schema doc §14 (isolation) + §15 (storage/reconciliation).*
+- **P3 — Client-side rendering.** Render previews from template + tokens in the browser via the
+  **hardened iframe (§14)**: opaque-origin sandbox + srcdoc + postMessage/ResizeObserver + CSP.
+  *Fixes a live token-theft vuln (current `allow-same-origin`) and is the shared substrate for the
+  playground.* Retire the server image-build path for natively-renderable previews.
 - **P4 — MCP/REST projection.** Expose previews (values + semantic tag + rationale) through the
-  MCP and REST so consumers get the *meaning*, not just an image. Optionally project semantic
-  component tokens from tagged previews.
+  MCP and REST so consumers get the *meaning*, not just an image. Default to previews valid at the
+  current component version. Optionally project semantic component tokens from tagged previews.
 - **P5 — Generative + contributable.** LLM-assisted preview generation; broader contributor
   roles (PMs author views with real content).
+
+**Decided design (P2 prep, 2026-06-26):** two-store model (code previews in the component blob,
+registry previews in a new `handoff_component_preview` table), merge-on-read, replace-code /
+preserve-registry / re-validate-all on push. Previews are **version-anchored** — drift is
+navigable (render against the version they're valid for), not destructive. Render via the §14
+hardened iframe. Full spec: schema doc §15.
+
+**Related roadmap items surfaced here:**
+- 🔄 **Component-version UI tuning** — versioning is the backbone of preview drift handling
+  ("valid at v3 · current v5", view/migrate at version); the version UI needs significant work to
+  make this navigable. *(Substantial; tracked.)*
+- ⬜ **Asset-DAM ↔ previews** — let preview image/video values reference real library assets from
+  the asset repository (on-brand media, not placeholders). *(Future; designed-for.)*
+- ⬜ **Playground unification** — editing a playground block == editing a preview (same value-form
+  + §14 render iframe; a saved block ≈ a registry preview). Build once, use both.
 
 **Open questions (post-spike):** schema shape and where it lives — ✅ resolved
 (`design-system/components/<id>.json`, authored from the spec). Still open and deferred to the
