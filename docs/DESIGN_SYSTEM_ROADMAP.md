@@ -39,6 +39,56 @@ pluggable ingest from many sources and DTCG/DSDS as I/O adapters.
 
 ---
 
+## Status at a glance — tracks & outstanding work
+
+*Reconciled 2026-06-26.* The roadmap is **five tracks**, not one linear sequence. The phase
+numbering below predates this framing; the tracks are the truer structure. Markers: ✅ shipped ·
+🔄 in progress · ⬜ outstanding.
+
+```
+ TOKEN canonical spine ──┐
+ (Phases 0–5)            ├──► MCP / CLAUDE initiative ◄── ACTIVE BUILD TRACK
+ COMPONENT canonical ────┘    (Phases A–G)                (substrate: workbench/assets/registry)
+ spine (schema drafted)
+```
+
+### Track 1 — Token canonical spine (Phases 0–5)
+- ✅ DTCG files + `tokens:build` + transforms (CSS/SCSS/Tailwind) + foundation pages — exist & run for SSC
+- ✅ Token areas **spacing, border-radius, grid** — live and served (Phase 2 #1/#2/#4)
+- 🔄 **Focus + elevation extractor** — DTCG types + foundation pages waiting; the `tokens:build` extractor is the gap (shared with Track 4)
+- ⬜ Remaining Phase 2 areas: sizing, breakpoints, borders, motion, opacity
+- ⬜ Phase 4 — Token Studio ingest (spec spike **done**; importer not built)
+- ⬜ Phase 5 — DSDS export adapter + drift/reconciliation UI
+- ⬜ Phase 0 hardening — AJV validation of DTCG files + manifest (still aspirational)
+
+### Track 2 — Component canonical spine (Component + Preview standard) — *promoted from "feature initiative"*
+- ✅ Canonical schema **drafted, validated (SS&C button round-trip), open questions resolved** — [COMPONENT_PREVIEW_SCHEMA.md](COMPONENT_PREVIEW_SCHEMA.md) + [schemas/component.schema.json](schemas/component.schema.json)
+- ✅ Two-tier rule locked: contract = code-only/replace-on-push; previews = registry-contributable (§2a)
+- ⬜ **P1 build** — lenient preview normalizer + `components:validate` (smallest, most foundational first slices)
+- ⬜ P2 authoring UI · P3 client-side render · P4 MCP/REST projection · P5 generative + contributable
+
+### Track 3 — MCP / Claude design-system initiative (Phases A–G)
+- ✅ Phase A spike — **PASS** ([MCP_CLAUDE_SPIKE_REPORT.md](MCP_CLAUDE_SPIKE_REPORT.md))
+- ✅ Shipped to prod this week: `tools/list` fix · `get_tokens` slim (22K→6.6K) now serving spacing/radius/grid · **C0** `get_component` slim (143K→~1K) · `get_reference` `type` alias
+- 🔄 Phase B token surface — slim shipped; **B1** `query_tokens`, **B2** `export_tokens_as`/`brief`, **B3** reference-material quality still outstanding
+- ⬜ Phase C — **C1** component template · **C2** search enrichment · **C3** usage
+- ⬜ Phase D — DESIGN.md export + `CLAUDE.md` generator
+- ⬜ Phase E — quality framework (golden prompts + coverage gate) ← *recommend pulling earlier*
+- ⬜ Phase F — distribution/DX (token gen, `init-claude`, `check-mcp`)
+- ⬜ Phase G — Claude Design native (**externally gated** on Anthropic)
+
+### Track 4 — Active build track (substrate)
+- ✅ Workbench reliability · DTCG→workbench foundations · registry fonts · playground React · asset library · library-in-workbench · nav cleanup · **S3/CloudFront CDN for image fills** (streamed, deduped)
+- 🔄 Focus + elevation extraction (shared with Track 1)
+- ⬜ Backlog: decoupled batch image endpoint · push-cache invalidation on CLI capability changes · OAuth-backed Figma tokens for CLI fetch
+
+### Track 5 — Standalone feature initiatives
+- ⬜ **Image sizing guide** — capture → store (`handoff_image_slot`) → per-component tab → foundation page (self-contained, deferrable)
+
+**Next-move shortlist (my recommendation):** Track 2 P1 (normalizer + `components:validate`) → Phase E (quality gate, pull earlier) → Phase D (DESIGN.md). Rationale in the closing note of the Claude initiative.
+
+---
+
 ## Phase 0 — Canonical structure  ⟵ *start here*
 
 The foundation everything else projects from. Nothing downstream can begin until this is real.
@@ -121,6 +171,11 @@ anatomy**, built once and reused:
 | 8 | **Elevation / z-index** | `number`, `shadow` | Effects already partially exist |
 | 9 | **Opacity** | `number` | Small, finish-up |
 
+**Status (2026-06-26):** ✅ **#1 Spacing, #2 Border-radius, #4 Grid** are live for SSC (DTCG +
+foundation pages + transforms + now surfaced via the MCP). 🔄 **#8 Elevation** (+ focus) has its
+DTCG types and pages waiting on the `tokens:build` extractor (Track 4). ⬜ #3 Sizing, #5
+Breakpoints, #6 Borders, #7 Motion, #9 Opacity outstanding.
+
 Each area ships: DTCG schema + seed values (from existing design or sensible defaults) +
 foundation page + verified transform output.
 
@@ -133,18 +188,24 @@ capability migrates into a native app view as part of this work.
 
 ---
 
-## Phase 3 — REST API + MCP read model
+## Phase 3 — REST API + MCP read model  ✅ LIVE (foundation) — tool evolution tracked under the Claude initiative
 
 Make canonical machine-consumable. Both are read models over the file tree.
 
-**Deliverables**
-- DB projection of the canonical tree (presentation layer).
-- REST API for registry reconciliation (the channel we control).
-- MCP server exposing **resources** (tokens, components, foundations, pages — alias-resolved)
-  and **tools** (query by type/tier, resolve aliases, "give me this DS as Tailwind/DTCG/CSS").
+> **Reconciliation note (2026-06-26):** the MCP read model is **live in production** — a 25-tool
+> server at `/api/mcp`, the DB projection, and the registry sync/REST channel all exist. The
+> *ongoing evolution of the tool surface* (slimming, queryable tokens, component template, quality)
+> is one effort, detailed in **"Handoff as the Claude design system" (Phases A–G)** below — not a
+> separate workstream. This phase is the foundation that's done; that initiative is its forward edge.
+
+**Deliverables (status)**
+- ✅ DB projection of the canonical tree (presentation layer).
+- ✅ REST API for registry reconciliation (the channel we control) + MCP server with tools across
+  tokens, components, icons, logos, assets, design artifacts, sync.
+- ⬜ MCP **resources** (vs tools) — if Claude Design wants resource-shaped tokens/components (Phase G).
 
 **Acceptance:** an MCP client can pull resolved, typed tokens and request any export format
-on demand.
+on demand. *(Substantially met; remaining export-format work is Phase B2.)*
 
 ---
 
@@ -237,10 +298,10 @@ significantly capable:
 | `handoff_get_stack_guide` | Context | Live — Markdown authoring rules for bootstrap/react stacks |
 | `handoff_get_design_guidelines` | Context | Live — Design.MD from workspace settings |
 | `handoff_get_brand_voice` | Context | Live — formatted copy guidelines |
-| `handoff_get_tokens` | Tokens | Live — raw token snapshot |
-| `handoff_get_reference` | Tokens | Live — generated catalog, tokens, icons, property-patterns |
+| `handoff_get_tokens` | Tokens | Live — **slimmed** (~6.6K tok), now also serves spacing/radius/grid from DTCG |
+| `handoff_get_reference` | Tokens | Live — catalog/tokens/icons/property-patterns (`id` or `type`) |
 | `handoff_search_components` | Components | Live — filter by id/title/group/tag |
-| `handoff_get_component` | Components | Live — full component row |
+| `handoff_get_component` | Components | Live — **slimmed** (143K→~1K tok); `include` for raw fields |
 | `handoff_get_component_reference` | Components | Live — reference images for buttons/inputs/iconography |
 | `handoff_get_icon_catalog` | Icons | Live — full catalog with SVG content |
 | `handoff_search_icons` | Icons | Live — substring search |
@@ -307,10 +368,11 @@ provide that context.
 
 ---
 
-### Phase B — Token surface: queryable, alias-resolved, exportable
+### Phase B — Token surface: queryable, alias-resolved, exportable  🔄 partly shipped
 
-The current `handoff_get_tokens` returns a raw snapshot that's hard to use in generation prompts.
-Three additions make tokens genuinely useful to a model:
+✅ **Shipped:** `handoff_get_tokens` is slimmed (22K→6.6K) and now merges DTCG **spacing/radius/grid**
+(with deployed `cssVariable` names) alongside colors/typography/effects — closing the spike's
+"models eyeball padding/radius" gap. ⬜ **Still outstanding** — the three additions below:
 
 **B1 — `handoff_query_tokens`**
 ```
@@ -352,14 +414,12 @@ concise design-system framing brief that fits in a system prompt.
 The current `handoff_get_component` returns the full component DB row, which includes Figma
 metadata and internal fields that aren't useful for generation. Three improvements:
 
-**C0 — Slim `handoff_get_component` ⟵ *proven urgent by the Phase A spike, do first***
-Verified: `get_component` returns ~143K tokens per call, of which **97% is a single
-`sharedStyles` field** (the entire compiled DS CSS, repeated on every call). The useful
-implementation fields total ~630 tokens (0.4%). Strip `sharedStyles`, `validationResults`, and
-the `figma*` bag from the MCP response (keep `code`, `html`, `sass`, `css`, `properties`,
-`group`, `type`, `title`, `description`, do/don'ts); add an `include` escape hatch. Same pattern
-as the `handoff_get_tokens` slim already shipped. This is the single highest-impact fix from the
-spike — three component lookups currently blow ~430K tokens.
+**C0 — Slim `handoff_get_component` ✅ DONE (2026-06-25)**
+Verified `get_component` returned ~143K tokens per call, **97% a single `sharedStyles` field**
+(the entire compiled DS CSS, repeated every call). Shipped: strip `sharedStyles`,
+`validationResults`, and the `figma*` bag; keep implementation + identity + guidance fields; add
+an `include` escape hatch (`figma`/`all`/field names). Result: **143K → ~1K tokens** on the live
+SS&C button. Same pattern as the `handoff_get_tokens` slim.
 
 **C1 — `handoff_get_component_template`**
 ```
@@ -527,21 +587,19 @@ system in → prototype out → spec saved → component generated.
 
 ---
 
-### Open questions (resolve during Phase A spike)
+### Open questions (from the Phase A spike)
 
-1. **Claude Code MCP auth model** — does `claude_desktop_config.json` support custom headers for
-   Bearer tokens, or does the registry need to accept the token as a query param? Need to test
-   both `transport: 'http'` and `transport: 'sse'` against the Vercel deployment.
-2. **Token dump size** — `handoff_get_tokens` on a real registry with 200+ tokens: does it fit
-   in Claude's tool-result context window without truncation? If not, Phase B (queryable tokens)
-   is urgent, not optional.
-3. **Component.html availability** — the `component.html` files are generated by `handoff-app
-   build` and written to disk in the workspace. Are they stored in the registry DB after a push,
-   or only in the local workspace? If only local, `handoff_get_component_template` (Phase C1)
-   needs a DB column + push endpoint first.
-4. **Reference material freshness** — `handoff_get_reference('tokens')` returns a pre-generated
-   blob. Is it regenerated on every push/fetch, or manually? Stale reference material is worse
-   than no reference material — it produces confidently wrong output.
+1. ✅ **Claude Code MCP auth model** — resolved: HTTP transport works with a `Bearer` header; the
+   bare `/api/mcp` path 308-redirects to `/api/mcp/` (clients must follow redirects).
+2. ✅ **Token dump size** — resolved: it did *not* fit (22K, full of SVG/`$map`); `get_tokens`
+   slimmed to 6.6K. Phase B's compact/queryable direction confirmed as the right one.
+3. ⬜ **Component.html availability** — *still open, and it gates Phase C1.* Are built
+   `component.html` templates stored in the registry DB after push, or only in the local
+   workspace? If only local, `handoff_get_component_template` needs a DB column + push endpoint
+   first. **This is the next thing to investigate before C1.**
+4. ⬜ **Reference material freshness** — `handoff_get_reference('tokens')` returns a pre-generated
+   blob; confirm whether it regenerates on every push/fetch or only manually (stale = confidently
+   wrong output). Feeds Phase B3.
 
 ---
 
@@ -568,14 +626,22 @@ system in every prompt.
 ## Dependency summary
 
 ```
-Phase 0 (structure) ──┬── Phase 1 (DTCG + transforms) ── Phase 2 (token areas + UIs)
-                      │
-                      └── Phase 3 (API + MCP) ── Phase 4 (ingest plugins) ── Phase 5 (DSDS/drift)
+TOKEN spine:      Phase 0/1 (✅ largely exist) ── Phase 2 areas (spacing/radius/grid ✅; rest ⬜)
+                                                        │
+COMPONENT spine:  schema ✅ ── P1 normalizer+validate ⬜ ── P2 UI ⬜ ── P3 render ⬜
+                                                        │
+                                                        ▼
+MCP read model (✅ live) ──► Claude initiative: B/C 🔄 ── D ⬜ ── E ⬜ ── F ⬜ ── G ⬜(gated)
+                                                        ▲
+ACTIVE TRACK (substrate, mostly ✅) ────────────────────┘
+TOKEN Phase 4 (Token Studio ingest) ⬜ ── Phase 5 (DSDS + drift) ⬜  [parallel, lower urgency]
 ```
 
-Phases 0→1→2 are the critical path for the feature work the team wants. 3→4→5 layer the
-machine-facing and multi-source capabilities on top and can proceed partly in parallel once
-the canonical structure (Phase 0) is solid.
+Both **canonical spines** (tokens, components) are the foundation everything projects from. The
+**MCP read model is live** and is the consumer already paying off — its forward edge is the Claude
+initiative. The **active track** is the substrate keeping live registries solid. Token Phase 4/5
+(multi-source ingest, DSDS) layer on top and are lower urgency than finishing the component spine
+and the quality gate.
 
 ---
 
@@ -656,7 +722,13 @@ It feeds Phase 2 (native foundation/asset capability) and Phase 3 (registry API 
 
 ---
 
-## Feature initiative — Previews as first-class semantic data
+## Canonical spine (components) — Component + Preview standard
+
+*(Track 2. The component-layer analogue of the DTCG token spine — promoted from "feature
+initiative" because it's a foundation other tracks project from, not a side feature. **Schema is
+drafted, validated, and decision-complete:** [COMPONENT_PREVIEW_SCHEMA.md](COMPONENT_PREVIEW_SCHEMA.md),
+[component.schema.json](schemas/component.schema.json). What follows is the original framing; the
+schema doc is the authoritative spec, including the §2a contract-vs-instance rule.)*
 
 **The reframe.** Today a component's previews are *display artifacts* — pre-rendered images
 attached for the gallery. The opportunity is to make previews the **primary mechanism for
@@ -698,11 +770,13 @@ semantic data:
   a hand-authored `button.primary.background` token. We may still emit semantic tokens as a
   *projection* of preview data, but the authoring happens once, as a preview.
 
-**Phasing (to be detailed — spike the schema first):**
-- **P1 — Preview as data.** Formalize the preview schema (component ref + property-value set +
-  optional semantic tag + rationale + provenance), validate values against the property
-  schema, persist as structured data (not just the image artifact). Back-fill existing
-  previews into the schema.
+**Phasing:**
+- ✅ **P0 — Schema spike.** Canonical component+preview schema drafted, validated (SS&C button
+  round-trip + negative test), open questions resolved, two-tier rule locked. See the schema doc.
+- ⬜ **P1 — Preview as data (next build slice).** Implement the lenient normalizer (accept legacy
+  keyed-map → array) + a `components:validate` step (AJV shape + referential checks: preview
+  `values` keys ∈ properties, enum membership, rules). Back-fill existing previews. *Smallest,
+  most foundational slice — makes the rule enforced, not just documented.*
 - **P2 — Authoring UI.** In-app editor to create/edit a preview by setting property values,
   with live validation and a client-side render. Semantic tag + rationale fields.
 - **P3 — Client-side rendering.** Render previews from template + tokens in the browser; retire
@@ -713,11 +787,10 @@ semantic data:
 - **P5 — Generative + contributable.** LLM-assisted preview generation; broader contributor
   roles (PMs author views with real content).
 
-**Open questions:** preview schema shape and where it lives (DTCG has no component concept —
-this is DSDS-layer / internal-model territory); how client-side render resolves the component
-template + theme.css safely; validation rule coverage; how semantic tags map to (or generate)
-the token tier. *Spike the schema before building — it's the structure the other four
-lifecycle stages hang off of.*
+**Open questions (post-spike):** schema shape and where it lives — ✅ resolved
+(`design-system/components/<id>.json`, authored from the spec). Still open and deferred to the
+build phases: how client-side render (P3) resolves the component template + theme.css safely;
+full validation rule coverage; whether/how semantic tags *project* to a generated token tier (P4).
 
 ---
 
