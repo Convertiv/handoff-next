@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod';
 import type { McpAuthContext } from '@/lib/mcp-auth';
 import { buildProjectContext, resolveStackProfile } from '@/lib/mcp/project-profile';
-import { buildDesignMd } from '@/lib/mcp/design-md';
+import { buildDesignMd } from '@handoff/utils/design-md';
 import { loadStackGuideMarkdown } from '@/lib/mcp/stack-guides';
 import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queries';
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';

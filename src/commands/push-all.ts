@@ -14,6 +14,7 @@ import {
   pushFigmaImageFills,
   pushImageSlots,
 } from '@handoff/cli/sync/push-registry-content';
+import { refreshDesignMdIfPresent } from '@handoff/cli/fetch-design-md';
 import { Logger } from '@handoff/utils/logger';
 import { SharedArgs } from './types.js';
 import { getSharedOptions } from './utils.js';
@@ -32,6 +33,7 @@ export interface PushAllArgs extends SharedArgs {
   skipFonts?: boolean;
   skipFigmaFills?: boolean;
   skipImageSlots?: boolean;
+  skipDesignMd?: boolean;
 }
 
 const command: CommandModule<{}, PushAllArgs> = {
@@ -62,7 +64,8 @@ const command: CommandModule<{}, PushAllArgs> = {
       .option('skip-logos', { type: 'boolean', default: false, describe: 'Skip /api/registry/logos push (logo set).' })
       .option('skip-fonts', { type: 'boolean', default: false, describe: 'Skip /api/registry/fonts push (font files served at /fonts/<file>).' })
       .option('skip-figma-fills', { type: 'boolean', default: false, describe: 'Skip Figma image fills push (images fetched during `fetch` step).' })
-      .option('skip-image-slots', { type: 'boolean', default: false, describe: 'Skip image slot sizing specs push (extracted from figmaImages in tokens snapshot).' }),
+      .option('skip-image-slots', { type: 'boolean', default: false, describe: 'Skip image slot sizing specs push (extracted from figmaImages in tokens snapshot).' })
+      .option('skip-design-md', { type: 'boolean', default: false, describe: 'Skip refreshing DESIGN.md (only refreshed if the project already has one from `init-claude`).' }),
   handler: async (args: PushAllArgs) => {
     const handoff = new Handoff(args.debug, args.force);
     handoff.preRunner();
@@ -145,6 +148,12 @@ const command: CommandModule<{}, PushAllArgs> = {
     // 12. Image slot sizing specs (extracted from figmaImages in tokens snapshot)
     if (!args.skipImageSlots) {
       await tryStep('image-slots', () => pushImageSlots(handoff));
+    }
+
+    // 13. Refresh DESIGN.md from the now-fresh registry (no-op unless the project
+    //     opted in via `init-claude`). D2.
+    if (!args.skipDesignMd) {
+      await tryStep('design-md', () => refreshDesignMdIfPresent(handoff.workingPath));
     }
 
     if (failures > 0) {

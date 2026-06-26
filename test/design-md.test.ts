@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { buildDesignMd } from '@handoff/app/lib/mcp/design-md';
+import { buildDesignMd } from '@handoff/utils/design-md';
 
 describe('buildDesignMd', () => {
   const md = buildDesignMd({
