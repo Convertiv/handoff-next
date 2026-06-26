@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import * as z from 'zod';
 import type { McpAuthContext } from '@/lib/mcp-auth';
 import { buildProjectContext, resolveStackProfile } from '@/lib/mcp/project-profile';
+import { buildDesignMd } from '@/lib/mcp/design-md';
 import { loadStackGuideMarkdown } from '@/lib/mcp/stack-guides';
 import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queries';
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
@@ -159,6 +160,27 @@ async function dtcgDimensionTokens(
   }
   const out: AnyRecord[] = [];
   flattenDtcgLeaves(parsed, [], out);
+  return out;
+}
+
+/** Slim Figma-snapshot tokens + merged DTCG dimension tokens (spacing/radius/grid). */
+async function collectFoundationTokens(
+  provider: {
+    getTokens(): Promise<unknown>;
+    getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null>;
+  },
+  include: string[] = []
+): Promise<AnyRecord> {
+  const tokens = await provider.getTokens();
+  const out = slimTokensForMcp(tokens, include);
+  const [spacing, borderRadius, grid] = await Promise.all([
+    dtcgDimensionTokens(provider, 'spacing'),
+    dtcgDimensionTokens(provider, 'border-radius'),
+    dtcgDimensionTokens(provider, 'grid'),
+  ]);
+  if (spacing.length) out.spacing = spacing;
+  if (borderRadius.length) out.borderRadius = borderRadius;
+  if (grid.length) out.grid = grid;
   return out;
 }
 
@@ -395,20 +417,46 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ include }) => {
+      return textResult(await collectFoundationTokens(getDataProvider(), include ?? []));
+    }
+  );
+
+  server.registerTool(
+    'handoff_export_design_md',
+    {
+      description:
+        'Export a compact DESIGN.md framing brief for this design system — system identity, token ' +
+        'brief (colors/type/spacing/radius/grid), component vocabulary, brand voice, and design ' +
+        'guidelines. Commit it to a project and reference it from CLAUDE.md so an agent has design-' +
+        'system context without a live MCP call.',
+      inputSchema: {},
+    },
+    async () => {
       const provider = getDataProvider();
-      const tokens = await provider.getTokens();
-      const out = slimTokensForMcp(tokens, include ?? []);
-      // Merge DTCG dimension tokens (spacing/radius/grid) — a separate source from
-      // the Figma snapshot, otherwise invisible to MCP consumers.
-      const [spacing, borderRadius, grid] = await Promise.all([
-        dtcgDimensionTokens(provider, 'spacing'),
-        dtcgDimensionTokens(provider, 'border-radius'),
-        dtcgDimensionTokens(provider, 'grid'),
+      const [foundation, components, ws] = await Promise.all([
+        collectFoundationTokens(provider, []),
+        provider.getComponents(),
+        getDesignWorkspace(),
       ]);
-      if (spacing.length) out.spacing = spacing;
-      if (borderRadius.length) out.borderRadius = borderRadius;
-      if (grid.length) out.grid = grid;
-      return textResult(out);
+      const profile = buildProjectContext({});
+      const asArr = (v: unknown): AnyRecord[] => (Array.isArray(v) ? (v as AnyRecord[]) : []);
+      const md = buildDesignMd({
+        project: {
+          name: profile.name,
+          stackProfile: profile.stackProfile,
+          figmaFileKey: profile.figmaFileKey,
+          origin: issuerForCliSync(request),
+        },
+        colors: asArr(foundation.colors),
+        typography: asArr(foundation.typography),
+        spacing: asArr(foundation.spacing),
+        borderRadius: asArr(foundation.borderRadius),
+        grid: asArr(foundation.grid),
+        components: (components ?? []).map((c) => ({ id: c.id, title: c.title, group: c.group })),
+        brandVoiceMarkdown: formatBrandVoiceForPrompt(ws.brandVoice),
+        designGuidelines: ws.designMd,
+      });
+      return textResult({ designMd: md });
     }
   );
 
