@@ -231,6 +231,12 @@ describe('component-linking', () => {
         height: 360,
         nodeId: '10:21',
         part: 'Card/Hero Image',
+        // Image sizing guide capture fields (commit 4fb4e0be) — defaults when the
+        // fixture node declares no scaleMode / layout sizing / min dimensions.
+        scaleMode: undefined,
+        isResponsive: false,
+        minWidth: undefined,
+        minHeight: undefined,
       });
     } finally {
       globalThis.fetch = originalFetch;
