@@ -256,7 +256,74 @@ normalization:
 
 ---
 
-## 11. Open questions to settle in review
+## 11. CSF (Storybook) as a third authoring adapter
+
+CSF normalizes into the canonical record with **no structural change** — `RendererKind` already
+includes `csf` and `entries` already has `story`. A Storybook file *is* a component + a set of
+previews:
+
+| CSF | Canonical |
+|---|---|
+| `meta.component` | the component (its props type → contract, via §12 inference) |
+| `meta.argTypes` | `properties{}` — `control:'select'`+`options` → `valueType:"enum"`+`enumOptions`; `control:'text'` → `text`; `boolean`/`number`/`object`/`radio` likewise |
+| `meta.args` | base default values |
+| each **named export** (a story) | a `PreviewSpec` — export name → `title`/`id`, `args` → `values` |
+| `args` that are functions / JSX | → the `slots` channel (same rule as React node previews) |
+| `parameters` / tags | → `semantic` + `rationale` |
+| `play` (interaction test) | ignored — out of scope for previews |
+
+Two things to specify: (1) a **meaning convention** — Storybook has no native "this story is the
+primary variant," so carry it in a namespaced `parameters.handoff = { semantic, rationale }` (or
+tags); (2) CSF **composes with inference** — `argTypes` is usually partial, so the §12 TS-inferred
+contract fills the gaps and `argTypes` overrides where present.
+
+That CSF, inline TS specs, generated `schema.ts`, Figma, and manual/LLM authoring all collapse to
+the *same* `properties` + `previews` is the generalization test the schema has to pass — and does.
+
+---
+
+## 12. TypeScript inference → field architecture → builder/playground
+
+This works because **`PropertySpec` is a form-field descriptor by construction**. One structure does
+triple duty: it is the *target* of TS inference, the *field list* that drives the preview-builder
+and playground, and the *editable artifact* in a field-builder UI. (8x8's generated `schema.ts`
+already proves the inference path; it carries `sourceType`/`generic`/`kind`/`docgenType`/`deepType`/
+`typeRefs`.)
+
+**Inference mapping (`*Props` type → PropertySpec):**
+
+| TS type | PropertySpec |
+|---|---|
+| `string` / `number` / `boolean` | `text` / `number` / `boolean` |
+| string-literal union `'a' \| 'b'` | `enum` + `enumOptions` (high value) |
+| interface / object | `object` + recursive `properties` |
+| `T[]` | `array` + `items` |
+| `prop?:` / `\| undefined` | `rules.required: false` |
+| `React.ReactNode` | `slot` (render-only; field UI offers a text/child fallback, not arbitrary JSX) |
+| function | `function` (non-editable; preset picker at best) |
+| complex generic / conditional / discriminated union | fallback `any`/`object`, **retain `deepType`/`typeRefs`** for manual refinement |
+
+**The load-bearing design property:** separate the *inferred provenance* from the *editable
+contract*.
+- `sourceType` / `generic` / `kind` / `docgenType` / `deepType` / `typeRefs` = what the type **is**
+  (immutable truth from the source).
+- `valueType` / `editorWidget` / `enumOptions` / `rules` / `default` = how it's **edited**
+  (refinable by a human or the field-builder UI).
+
+Inference produces a *candidate* contract; the field-builder refines widget/rules/options;
+re-inference re-derives provenance but **preserves human overrides** via the same provenance /
+`syncState` envelope — drift detection at the property level. The inferred `enumOptions` + `rules`
+also feed the preview-builder's live (level-2 referential) validation, so the chain
+*infer → fields → validated previews* is coherent end-to-end.
+
+**Honest edge:** TS is more expressive than any form UI. You auto-derive ~80% cleanly (primitives,
+unions, objects, arrays, optionality); the rest falls back to `slot`/`any` with provenance retained.
+**Bidirectional bonus:** field-builder edits can project *back* to a generated `*Props` interface,
+closing the loop for the developer.
+
+---
+
+## 13. Open questions to settle in review
 
 1. **Previews: keyed map vs array.** Proposed array-with-`id` (ordering, per-preview provenance,
    contribution). Today it's a keyed map. Migration is mechanical but it's a breaking shape change.
@@ -272,3 +339,8 @@ normalization:
    serializable.
 6. **Validation home.** New AJV-based validator (Phase 0 had this as aspirational) — a
    `tokens:validate`-style `components:validate` step run in build + CI.
+7. **CSF meaning convention (§11).** Namespaced `parameters.handoff = { semantic, rationale }`,
+   Storybook tags, or both — for carrying preview meaning that CSF has no native concept for.
+8. **Inference override policy (§12).** How human field-builder edits are flagged vs re-inferred
+   provenance (the property-level `syncState`), and how non-inferrable types (functions, complex
+   generics) are marked editable / non-editable.
