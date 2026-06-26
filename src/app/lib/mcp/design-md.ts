@@ -118,9 +118,10 @@ function trimSection(md: string): string {
 
 export function buildDesignMd(input: DesignMdInput): string {
   const p = input.project ?? {};
-  const name = p.name && p.name !== 'default' ? p.name : 'Design System';
+  const rawName = p.name && p.name.trim() && p.name.trim() !== 'default' ? p.name.trim() : '';
+  const title = rawName ? `${rawName} — Design System` : 'Design System';
 
-  const header: string[] = [`# ${name} — Design System`, ''];
+  const header: string[] = [`# ${title}`, ''];
   const identity = [
     p.stackProfile ? `- **Stack:** ${p.stackProfile}` : '',
     p.figmaFileKey ? `- **Figma source:** \`${p.figmaFileKey}\`` : '',
