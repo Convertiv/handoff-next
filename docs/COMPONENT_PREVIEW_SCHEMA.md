@@ -69,6 +69,44 @@ data, and emits the canonical record.
 
 ---
 
+## 2a. Editability & source of truth — the two-tier rule (read this before adding machinery)
+
+This is the single most important rule in the model, written out so we never drift back into
+fuzzing it. **The contract and its instances have different sources of truth and different
+editability, and they must never be conflated.** Conflating "editing the contract" with "editing a
+preview" invents a large amount of sync/override/drift machinery to solve a problem that does not
+exist.
+
+| Tier | What | Source of truth | Editable in registry? | On push |
+|---|---|---|---|---|
+| **Contract** | `properties` (the component's functional shape) | **Workspace code** (TS spec + inferred `schema.ts`) | **No** | **Replace** — pushed contract is authoritative |
+| **Instances** | `previews` (value-sets + semantic + rationale) | **Both** — code-authored *and* registry-contributed (PM/designer/LLM) | **Yes** — create/edit | Replace **code-origin** previews; **preserve** registry-origin; **re-validate all** against the new contract |
+
+Consequences that fall out of this rule (and that the rest of the doc must honor):
+
+1. **No property-level override/drift envelope.** Because properties can only change via code →
+   push → replace, there is nothing to merge and no human registry-edit to preserve. The
+   `syncState` machinery does **not** apply to properties. (Earlier drafts proposed this — it was
+   solving a non-problem. Deleted.)
+2. **Refinement of inferred types happens in code, not the registry.** Constraining an inferred
+   `string` to an `enum`, adding a rule — all in the workspace spec, resolved at build. The
+   registry shows the contract; it never edits it.
+3. **Drift is a *preview* concern, not a property concern.** The real risk: a registry-authored
+   preview references a property/enum value that a later code push removes or changes. So previews
+   carry **origin provenance** (`source: figma|code` vs `manual|llm`), push **preserves**
+   registry-origin previews, and **re-validates** every preview against the new contract — stale
+   ones are flagged `drifted` for human reconciliation. This is the *only* place `syncState` earns
+   its keep here.
+4. **Any "field-builder" that edits the contract is a workspace dev tool that emits code** — never
+   a registry feature. The registry's UI uses the contract to render preview-building *forms*
+   (editable values, read-only field definitions) and the playground.
+
+When in doubt: **contract = upstream/code/replace; instances = contributable/registry/preserve +
+revalidate.** If a proposed feature wants to edit properties in the registry, it's wrong — push the
+change through code instead.
+
+---
+
 ## 3. The canonical component record
 
 Field groups (full shape in `component.schema.json`):
@@ -155,9 +193,17 @@ PreviewSpec {
                                //   gives the MCP and humans the *meaning* of the config
   render?: { image?, html?, mode: "prebuilt" | "client" }  // artifact ref / render strategy
   $extensions.handoff: { source, author?, createdAt, syncState }
+                               //   source = ORIGIN: "code" (shipped in spec/CSF) vs "manual"/"llm"
+                               //   (created in the registry). Drives push reconciliation per §2a:
+                               //   push replaces code-origin previews, preserves registry-origin,
+                               //   and re-validates all against the contract (stale → syncState:"drifted").
 }
 ```
 
+- **Origin provenance is load-bearing** → `source` distinguishes code-authored previews (replaced
+  on push) from registry-contributed ones (preserved on push, re-validated). This is the §2a rule
+  in the data: the contract is code-only, but previews are contributable, so previews — not
+  properties — are where reconciliation and drift live.
 - **`values` is canonical and serializable** → it validates against the property contract, and
   it's what the MCP/REST project. This is the channel that makes previews *data*.
 - **`slots` is render-only** → React node factories live here, never in `values`. Canonical data
@@ -293,10 +339,15 @@ the *same* `properties` + `previews` is the generalization test the schema has t
 ## 12. TypeScript inference → field architecture → builder/playground
 
 This works because **`PropertySpec` is a form-field descriptor by construction**. One structure does
-triple duty: it is the *target* of TS inference, the *field list* that drives the preview-builder
-and playground, and the *editable artifact* in a field-builder UI. (8x8's generated `schema.ts`
-already proves the inference path; it carries `sourceType`/`generic`/`kind`/`docgenType`/`deepType`/
-`typeRefs`.)
+double duty: it is the *target* of TS inference (in the workspace, at build) and the *field list*
+that drives the registry's **preview-builder forms and playground** (where you fill values against
+read-only field definitions). (8x8's generated `schema.ts` already proves the inference path; it
+carries `sourceType`/`generic`/`kind`/`docgenType`/`deepType`/`typeRefs`.)
+
+> **The contract is code-only (see §2a).** Inference and any refinement of it happen in the
+> *workspace*, in code, and the result is pushed as authoritative. The registry never edits field
+> definitions — it renders them as forms for building previews. A tool that *edits* the contract,
+> if we build one, is a workspace dev tool that **emits code**, not a registry feature.
 
 **Inference mapping (`*Props` type → PropertySpec):**
 
@@ -311,23 +362,26 @@ already proves the inference path; it carries `sourceType`/`generic`/`kind`/`doc
 | function | `function` (non-editable; preset picker at best) |
 | complex generic / conditional / discriminated union | fallback `any`/`object`, **retain `deepType`/`typeRefs`** for manual refinement |
 
-**The load-bearing design property:** separate the *inferred provenance* from the *editable
-contract*.
+**The load-bearing design property:** within `PropertySpec`, separate the *inferred provenance*
+from the *authored contract* — both authored upstream, in code.
 - `sourceType` / `generic` / `kind` / `docgenType` / `deepType` / `typeRefs` = what the type **is**
-  (immutable truth from the source).
-- `valueType` / `editorType` / `enumOptions` / `rules` / `default` = how it's **edited**
-  (refinable by a human or the field-builder UI).
+  (generated by inference from the source type).
+- `valueType` / `editorType` / `enumOptions` / `rules` / `default` = the contract the platform uses
+  (refined by the developer **in the workspace spec**, e.g. constraining an inferred `string` to an
+  `enum` or adding a content rule).
 
-Inference produces a *candidate* contract; the field-builder refines widget/rules/options;
-re-inference re-derives provenance but **preserves human overrides** via the same provenance /
-`syncState` envelope — drift detection at the property level. The inferred `enumOptions` + `rules`
-also feed the preview-builder's live (level-2 referential) validation, so the chain
-*infer → fields → validated previews* is coherent end-to-end.
+Inference produces a *candidate* contract; the developer refines it **in code**; the merge of
+generated `schema.ts` + spec overrides is resolved at build time, in the workspace. There is **no
+registry-side property override and no property-level drift** — properties flow one way (code →
+push → replace) per §2a. The inferred `enumOptions` + `rules` feed the preview-builder's live
+(level-2 referential) validation, so the chain *infer → fields → validated previews* is coherent
+end-to-end.
 
 **Honest edge:** TS is more expressive than any form UI. You auto-derive ~80% cleanly (primitives,
-unions, objects, arrays, optionality); the rest falls back to `slot`/`any` with provenance retained.
-**Bidirectional bonus:** field-builder edits can project *back* to a generated `*Props` interface,
-closing the loop for the developer.
+unions, objects, arrays, optionality); the rest falls back to `slot`/`any` with provenance retained
+and is rendered **non-editable** in preview-building forms (a slot/preset picker, not a broken
+control). **Bidirectional bonus:** a workspace field-builder's edits can project *back* to a
+generated `*Props` interface, closing the loop for the developer — still code, still upstream.
 
 ---
 
@@ -357,21 +411,16 @@ closing the loop for the developer.
    is structured and holds both. So honor both: `parameters.handoff` wins where present; a
    vocabulary-matching tag is a convenient shorthand for `semantic`. Best of both — tag ergonomics
    + rationale richness.
-8. **Inference override policy — resolved via property-level provenance.** *Implications, concretely:*
-   when fields are inferred from a TS type and a human later edits one in the field-builder (changes
-   the widget, adds a rule, relabels an option), a *later* re-inference must not silently clobber
-   that edit. Policy:
-   - Each property carries `syncState` in its envelope. Purely-inferred = `in-sync`; human-edited =
-     `overridden`.
-   - Re-inference always refreshes the **provenance** fields (`sourceType`/`generic`/`deepType`/…) —
-     the immutable truth from the type — but for an `overridden` property it leaves the **editable
-     contract** (`valueType`/`editorType`/`enumOptions`/`rules`/`default`) alone, and flags `drifted`
-     if the underlying type changed in a way that conflicts (e.g. an enum member the override
-     renamed was removed upstream). The UI surfaces drift for a human to reconcile.
-   - **Non-inferrable types** (functions, complex generics, conditional/mapped types) resolve to
-     `slot`/`any`/`object` with `deepType`/`typeRefs` retained; they're rendered **non-editable** in
-     the field-builder (or offered a preset/slot picker) rather than a broken form control.
-   *Example:* button's `Type` infers as `enum[primary,secondary,tertiary]`; a designer adds a
-   `rules.required`. Later a dev adds `'quaternary'` to the union → re-inference keeps the designer's
-   rule, adds the new option as a suggestion, and flags nothing (additive). If the dev instead
-   *removed* `tertiary` while the override referenced it → `drifted`, surfaced for reconciliation.
+8. **Contract is code-only; drift applies to previews, not properties (see §2a).** *Corrected from
+   an earlier draft that conflated editing the contract with editing a preview.* Properties are
+   authored only in the workspace (TS spec + inferred `schema.ts`) and pushed as authoritative
+   (replace) — they are **not** editable in the registry, so there is **no** property-level
+   override/merge/drift. Refining inferred types (constrain a `string` to an `enum`, add a rule)
+   happens **in code**, resolved at build. The drift machinery applies only to **registry-authored
+   previews**: previews carry origin provenance (`code` vs `manual`/`llm`); push preserves
+   registry-origin previews and re-validates every preview against the new contract; a registry
+   preview referencing a removed/changed property or enum value is flagged `drifted` for human
+   reconciliation. Non-inferrable types (functions, complex generics) → `slot`/`any`, rendered
+   non-editable in preview-building forms. *Example:* a dev removes `tertiary` from button's `Type`
+   union in code and pushes → the contract is replaced (no merge), and any registry preview that set
+   `Type: "tertiary"` is flagged `drifted` for reconciliation.
