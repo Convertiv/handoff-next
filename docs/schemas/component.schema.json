@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://handoff.com/schemas/component.schema.json",
+  "title": "Handoff Canonical Component Record",
+  "description": "Draft canonical schema for a Handoff component, generalizing across stacks (react/tailwind, bootstrap/handlebars). See docs/COMPONENT_PREVIEW_SCHEMA.md.",
+  "type": "object",
+  "required": ["id", "title", "kind", "renderer", "properties"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "kind": { "enum": ["element", "block", "pattern", "page"] },
+    "group": { "type": "string" },
+    "categories": { "type": "array", "items": { "type": "string" } },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "renderer": { "enum": ["react", "handlebars", "csf"] },
+    "entries": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "template": { "type": "string" },
+        "schema": { "type": "string" },
+        "styles": { "type": "string" },
+        "script": { "type": "string" },
+        "component": { "type": "string" },
+        "story": { "type": "string" }
+      }
+    },
+    "properties": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/propertySpec" }
+    },
+    "previews": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/previewSpec" }
+    },
+    "shouldDo": { "type": "array", "items": { "type": "string" } },
+    "shouldNotDo": { "type": "array", "items": { "type": "string" } },
+    "usage": { "type": "string" },
+    "options": { "type": "object", "description": "Opaque per-stack transform config (e.g. token-naming). Passed through.", "additionalProperties": true },
+    "figma": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "fileKey": { "type": "string" },
+        "nodeId": { "type": "string" },
+        "componentSetId": { "type": "string" },
+        "url": { "type": "string" }
+      }
+    },
+    "$extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "valueType": {
+      "enum": ["text", "richtext", "number", "boolean", "image", "link", "button", "icon", "array", "object", "enum", "slot", "function", "any"]
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "required": { "type": "boolean" },
+        "content": {
+          "type": "object",
+          "properties": { "min": { "type": "number" }, "max": { "type": "number" } }
+        },
+        "dimensions": { "type": "object" },
+        "filesize": { "type": ["number", "string"] },
+        "filetype": { "type": ["string", "array"] },
+        "pattern": { "type": "string" }
+      }
+    },
+    "enumOption": {
+      "type": "object",
+      "required": ["value"],
+      "properties": {
+        "value": { "type": ["string", "number", "boolean"] },
+        "label": { "type": "string" }
+      }
+    },
+    "propertySpec": {
+      "type": "object",
+      "required": ["valueType"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "valueType": { "$ref": "#/$defs/valueType" },
+        "editorWidget": { "type": "string", "description": "Open editorial hint, e.g. richtext|menu|video_embed|url." },
+        "enumOptions": { "type": "array", "items": { "$ref": "#/$defs/enumOption" } },
+        "default": {},
+        "rules": { "$ref": "#/$defs/rules" },
+        "items": { "$ref": "#/$defs/propertySpec" },
+        "properties": { "type": "object", "additionalProperties": { "$ref": "#/$defs/propertySpec" } },
+        "kind": { "enum": ["primitive", "slot", "function", "object"] },
+        "sourceType": { "type": "string" },
+        "generic": { "type": "string" }
+      },
+      "if": { "properties": { "valueType": { "const": "enum" } } },
+      "then": { "required": ["valueType", "enumOptions"] }
+    },
+    "semanticTag": {
+      "type": "string",
+      "description": "Recommended set (open): primary|secondary|tertiary|destructive|success|warning|info|disabled|empty-state|loading|default."
+    },
+    "previewSpec": {
+      "type": "object",
+      "required": ["id", "title", "values"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "title": { "type": "string", "minLength": 1 },
+        "values": {
+          "type": "object",
+          "description": "Serializable property values only. Keys must be component property keys. The canonical, validatable, projectable channel.",
+          "additionalProperties": true
+        },
+        "slots": {
+          "type": "object",
+          "description": "Non-serializable render inputs (React node factories, component refs). Render-only, not canonical data.",
+          "additionalProperties": true
+        },
+        "semantic": { "$ref": "#/$defs/semanticTag" },
+        "rationale": { "type": "string", "description": "Why this preview exists / when to use it — the meaning surfaced to MCP and humans." },
+        "render": {
+          "type": "object",
+          "properties": {
+            "image": { "type": "string" },
+            "html": { "type": "string" },
+            "mode": { "enum": ["prebuilt", "client"] }
+          }
+        },
+        "$extensions": { "$ref": "#/$defs/extensions" }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "properties": {
+        "handoff": {
+          "type": "object",
+          "properties": {
+            "source": { "type": "string", "description": "e.g. figma:<fileKey> | manual | llm | import:token-studio" },
+            "syncState": { "enum": ["in-sync", "drifted", "overridden"] },
+            "lineage": { "type": "array", "items": { "type": "string" } },
+            "ownership": { "type": "string" },
+            "author": { "type": "string" },
+            "createdAt": { "type": "string" },
+            "lastSynced": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

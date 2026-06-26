@@ -1,0 +1,83 @@
+{
+  "id": "button",
+  "title": "Button",
+  "description": "These are all of the buttons that are used throughout the site.",
+  "kind": "element",
+  "group": "Atomic Elements",
+  "categories": ["functionality"],
+  "tags": [],
+  "renderer": "handlebars",
+  "entries": {
+    "template": "./template.hbs",
+    "styles": "./style.scss"
+  },
+  "properties": {
+    "Type": {
+      "name": "Type",
+      "description": "This should be the type of button",
+      "valueType": "enum",
+      "enumOptions": [
+        { "value": "primary" },
+        { "value": "secondary" },
+        { "value": "tertiary" }
+      ],
+      "default": "primary",
+      "rules": { "required": true, "content": { "min": 5, "max": 15 } }
+    },
+    "Label": {
+      "name": "Label",
+      "description": "This should be the text that appears on the button",
+      "valueType": "text",
+      "default": "Primary CTA",
+      "rules": { "required": true, "content": { "min": 5, "max": 60 } }
+    },
+    "URL": {
+      "name": "URL",
+      "description": "This should be the URL that the button links to",
+      "valueType": "text",
+      "editorWidget": "url",
+      "default": "https://ssctech.com",
+      "rules": { "required": true, "content": { "min": 1, "max": 1000 } }
+    }
+  },
+  "previews": [
+    {
+      "id": "primary",
+      "title": "Primary — main page CTA",
+      "semantic": "primary",
+      "rationale": "The single highest-emphasis action on a page. Amber (accent-yellow) fill with a dark label — NOT the blue primary color token. Use one per view.",
+      "values": { "Type": "primary", "Label": "Request a demo", "URL": "#" },
+      "render": { "mode": "client" },
+      "$extensions": { "handoff": { "source": "manual", "author": "design-system", "syncState": "in-sync" } }
+    },
+    {
+      "id": "secondary",
+      "title": "Secondary — supporting action",
+      "semantic": "secondary",
+      "rationale": "Lower-emphasis action shown alongside a primary. Outlined / lighter fill.",
+      "values": { "Type": "secondary", "Label": "Learn more", "URL": "#" },
+      "render": { "mode": "client" },
+      "$extensions": { "handoff": { "source": "manual", "author": "design-system", "syncState": "in-sync" } }
+    }
+  ],
+  "options": {
+    "transformer": {
+      "cssRootClass": "btn",
+      "tokenNameSegments": [
+        "${component}", "${variant.type}", "${variant.size}", "${part}",
+        "${variant.theme}", "${variant.state}", "${property}"
+      ],
+      "defaults": { "Theme": "light", "State": "default", "Type": "default", "Activity": "", "Layout": "", "Size": "" },
+      "replace": { "State": { "default": "" }, "Size": { "small": "sm", "medium": "md", "large": "lg" } }
+    }
+  },
+  "figma": { "fileKey": "0gKWw8gYChpItKWzh8o23N" },
+  "$extensions": {
+    "handoff": {
+      "source": "figma:0gKWw8gYChpItKWzh8o23N",
+      "syncState": "in-sync",
+      "lineage": [],
+      "lastSynced": "2026-06-25T00:00:00.000Z"
+    }
+  }
+}
