@@ -26,6 +26,12 @@ export interface SchemaOptions {
    * component's `properties` schema. Default: true (warning).
    */
   validatePreviewProperties?: boolean;
+  /**
+   * Verify each preview value conforms to its property's allowed `enum` options
+   * (when the property declares them). Catches e.g. a preview claiming
+   * `Type: "quaternary"` for an enum of primary|secondary|tertiary. Default: true (warning).
+   */
+  validatePreviewEnums?: boolean;
 }
 
 const DEFAULTS: Required<SchemaOptions> = {
@@ -35,6 +41,7 @@ const DEFAULTS: Required<SchemaOptions> = {
   requirePropertyDescriptions: true,
   requireEntry: true,
   validatePreviewProperties: true,
+  validatePreviewEnums: true,
 };
 
 interface ComponentForSchema {
@@ -42,7 +49,7 @@ interface ComponentForSchema {
   title?: string;
   description?: string;
   previews?: Record<string, { values?: Record<string, unknown> }>;
-  properties?: Record<string, { description?: string; type?: string }>;
+  properties?: Record<string, { description?: string; type?: string; enum?: unknown[] }>;
   entries?: { js?: string; template?: string; component?: string; story?: string };
 }
 
@@ -130,6 +137,32 @@ export function schema(opts: SchemaOptions = {}): Validator {
                 message: `Preview "${previewKey}" references property "${valKey}" which is not declared in the component's properties schema.`,
                 target: `previews.${previewKey}.values.${valKey}`,
               });
+            }
+          }
+        }
+      }
+
+      if (cfg.validatePreviewEnums && propertyKeys.length > 0) {
+        for (const previewKey of previewKeys) {
+          const values = c.previews?.[previewKey]?.values ?? {};
+          for (const valKey of Object.keys(values)) {
+            const allowed = properties[valKey]?.enum;
+            if (!Array.isArray(allowed) || allowed.length === 0) continue;
+            const raw = (values as Record<string, unknown>)[valKey];
+            const candidates = Array.isArray(raw) ? raw : [raw];
+            for (const v of candidates) {
+              const isPrimitive =
+                typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+              if (isPrimitive && !allowed.includes(v)) {
+                findings.push({
+                  ruleId: 'schema.preview-invalid-enum',
+                  severity: 'warning',
+                  message: `Preview "${previewKey}" sets "${valKey}" to ${JSON.stringify(
+                    v
+                  )}, not one of its allowed values: ${allowed.map((a) => JSON.stringify(a)).join(', ')}.`,
+                  target: `previews.${previewKey}.values.${valKey}`,
+                });
+              }
             }
           }
         }
