@@ -64,7 +64,8 @@ numbering below predates this framing; the tracks are the truer structure. Marke
 ### Track 2 — Component canonical spine (Component + Preview standard) — *promoted from "feature initiative"*
 - ✅ Canonical schema **drafted, validated (SS&C button round-trip), open questions resolved** — [COMPONENT_PREVIEW_SCHEMA.md](COMPONENT_PREVIEW_SCHEMA.md) + [schemas/component.schema.json](schemas/component.schema.json)
 - ✅ Two-tier rule locked: contract = code-only/replace-on-push; previews = registry-contributable (§2a)
-- ⬜ **P1 build** — lenient preview normalizer + `components:validate` (smallest, most foundational first slices)
+- ✅ **P1** — lenient preview normalizer (`normalizePreviews`) + enum-membership validation, with tests
+- ⬜ P1 cont. — wire `normalizePreviews` into the build/storage path + a `components:validate` CLI step
 - ⬜ P2 authoring UI · P3 client-side render · P4 MCP/REST projection · P5 generative + contributable
 
 ### Track 3 — MCP / Claude design-system initiative (Phases A–G)
@@ -72,8 +73,8 @@ numbering below predates this framing; the tracks are the truer structure. Marke
 - ✅ Shipped to prod this week: `tools/list` fix · `get_tokens` slim (22K→6.6K) now serving spacing/radius/grid · **C0** `get_component` slim (143K→~1K) · `get_reference` `type` alias
 - 🔄 Phase B token surface — slim shipped; **B1** `query_tokens`, **B2** `export_tokens_as`/`brief`, **B3** reference-material quality still outstanding
 - ⬜ Phase C — **C1** component template · **C2** search enrichment · **C3** usage
-- ⬜ Phase D — DESIGN.md export + `CLAUDE.md` generator
-- ⬜ Phase E — quality framework (golden prompts + coverage gate) ← *recommend pulling earlier*
+- ✅ Phase D — DESIGN.md: `handoff_export_design_md` (D1) · `init-claude` writes DESIGN.md + `.mcp.json` + CLAUDE.md (D3) · `push:all` refresh (D2)
+- 🔄 Phase E — quality harness core shipped (golden prompts + scorer + runner, `npm run mcp:quality`); CI gate (E3) + live-model capture still need infra/key
 - ⬜ Phase F — distribution/DX (token gen, `init-claude`, `check-mcp`)
 - ⬜ Phase G — Claude Design native (**externally gated** on Anthropic)
 
@@ -85,7 +86,8 @@ numbering below predates this framing; the tracks are the truer structure. Marke
 ### Track 5 — Standalone feature initiatives
 - ⬜ **Image sizing guide** — capture → store (`handoff_image_slot`) → per-component tab → foundation page (self-contained, deferrable)
 
-**Next-move shortlist (my recommendation):** Track 2 P1 (normalizer + `components:validate`) → Phase E (quality gate, pull earlier) → Phase D (DESIGN.md). Rationale in the closing note of the Claude initiative.
+**Shortlist (2026-06-26): ✅ shipped** — Track 2 P1 (normalizer + enum validation), Phase E core
+(quality harness), Phase D (DESIGN.md loop: D1/D2/D3). **Next up:** Track 2 P2 (preview authoring UI).
 
 ---
 
