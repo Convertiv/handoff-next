@@ -86,7 +86,7 @@
         "name": { "type": "string" },
         "description": { "type": "string" },
         "valueType": { "$ref": "#/$defs/valueType" },
-        "editorWidget": { "type": "string", "description": "Open editorial hint, e.g. richtext|menu|video_embed|url." },
+        "editorType": { "type": "string", "description": "Open, extensible content/widget signal (e.g. richtext|menu|video_embed|url). Consumed by the editor (widget) and downstream transpilers (content handling). Carries the original SS&C `type` value." },
         "enumOptions": { "type": "array", "items": { "$ref": "#/$defs/enumOption" } },
         "default": {},
         "rules": { "$ref": "#/$defs/rules" },

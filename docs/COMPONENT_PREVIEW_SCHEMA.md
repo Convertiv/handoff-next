@@ -101,8 +101,12 @@ widget, and make `enum` first-class.**
 PropertySpec {
   name: string                 // display name ("Type")
   description?: string
-  valueType: ValueType         // CLOSED canonical enum (below)
-  editorWidget?: string        // OPEN editorial hint: "richtext" | "menu" | "video_embed" | …
+  valueType: ValueType         // CLOSED canonical enum (below) — for validation + generic rendering
+  editorType?: string          // OPEN, extensible content/widget signal: "richtext" | "menu" |
+                               //   "video_embed" | "url" | … — consumed by the EDITOR (which widget)
+                               //   AND downstream TRANSPILERS (how to treat the content). Carries the
+                               //   original SS&C `type` value with full fidelity. Grows per-project
+                               //   without touching the closed valueType enum.
   enumOptions?: EnumOption[]    // [{ value, label? }] — first-class, not smuggled into valueType
   default?: Json
   rules?: Rules                // { required?, content?{min,max}, dimensions?, filesize?, filetype?, pattern? }
@@ -118,9 +122,13 @@ ValueType = text | richtext | number | boolean | image | link | button
           | icon | array | object | enum | slot | function | any
 ```
 
-- `valueType` is the **renderer-agnostic, validatable** type. `richtext`/`menu`/`video_embed`
-  etc. become `valueType: text|object|…` + `editorWidget: "richtext"` — so validation has a
-  closed set to reason about, while the editor still knows the rich widget to show.
+- `valueType` is the **renderer-agnostic, validatable** type — a *closed* set so validation and
+  generic rendering can reason exhaustively. `richtext`/`menu`/`video_embed` etc. become
+  `valueType: text|object|…` + `editorType: "richtext"`. The split matters because the two needs
+  are opposed: `valueType` must stay **closed/stable** (for validation), while the transpiler
+  signal is an **open, per-project-growing** vocabulary. SS&C's downstream transpilers read
+  `editorType` — so no content-structure meaning is lost; it's just no longer overloaded onto the
+  field validation depends on.
 - SS&C's `type:"text"` + `enum:[…]` normalizes to `valueType:"enum"`, `enumOptions:[…]`.
 - React slots (`React.ReactNode`) → `valueType: "slot"`, `kind: "slot"`, `sourceType:
   "React.ReactNode"`. The canonical contract still lists them as properties; only the *preview
@@ -184,7 +192,7 @@ Two levels — and the second is the one that makes it a *system*, not a pile of
 |---|---|---|---|
 | Template | `template.hbs` | `template.tsx` | `entries.template` + `renderer` (explicit) |
 | Contract source | inline `properties` | generated `schema.ts` from `*Props` | `properties{}` (PropertySpec) — react adds `kind`/`sourceType`/`generic` |
-| Property "type" | `type:"text"` (+ `enum`) | TS-derived (`React.ReactNode`, `boolean`) | `valueType` (closed) + `editorWidget` (open) + `enumOptions` |
+| Property "type" | `type:"text"` (+ `enum`) | TS-derived (`React.ReactNode`, `boolean`) | `valueType` (closed) + `editorType` (open) + `enumOptions` |
 | Preview values | flat literals | literals **+ ReactNode factories** | `values` (serializable) + `slots` (render-only) |
 | Token reference | Bootstrap utility classes (SCSS) | Tailwind utilities (JSX) | not in the contract — lives in template/styles; tokens resolve via DTCG |
 | Figma link | bare `figma:"<url>"` | `links.figma:{type,text,url}` | normalized `figma:{fileKey,nodeId,url}` |
@@ -220,7 +228,7 @@ export default defineComponent({
   properties: {
     Type:  { valueType: 'enum', enumOptions: [{ value: 'primary' }, { value: 'secondary' }, { value: 'tertiary' }], default: 'primary', rules: { required: true } },
     Label: { valueType: 'text', default: 'Primary CTA', rules: { required: true, content: { min: 5, max: 60 } } },
-    URL:   { valueType: 'text', editorWidget: 'url', default: 'https://ssctech.com', rules: { required: true } },
+    URL:   { valueType: 'text', editorType: 'url', default: 'https://ssctech.com', rules: { required: true } },
   },
   previews: [
     { id: 'primary', title: 'Primary — main page CTA', semantic: 'primary',
@@ -247,7 +255,7 @@ React keeps delegating the contract to `schema.ts`; `defineComponent` merges it.
 normalization:
 - `type:"element"` → `kind:"element"`; explicit `renderer:"handlebars"`.
 - property `type` → `valueType:"enum"`, `enumOptions:[{value:"primary"},…]` (the
-  `type:"text"`+`enum` overload resolved); `url` → `valueType:"text"`, `editorWidget:"url"`.
+  `type:"text"`+`enum` overload resolved); `url` → `valueType:"text"`, `editorType:"url"`.
 - `options.transformer` passed through untouched.
 - **`previews:[]` becomes the place to author meaning** — adding the `primary` preview above
   (semantic `primary`, rationale, values) is the concrete fix for the spike's yellow-vs-blue
@@ -307,7 +315,7 @@ already proves the inference path; it carries `sourceType`/`generic`/`kind`/`doc
 contract*.
 - `sourceType` / `generic` / `kind` / `docgenType` / `deepType` / `typeRefs` = what the type **is**
   (immutable truth from the source).
-- `valueType` / `editorWidget` / `enumOptions` / `rules` / `default` = how it's **edited**
+- `valueType` / `editorType` / `enumOptions` / `rules` / `default` = how it's **edited**
   (refinable by a human or the field-builder UI).
 
 Inference produces a *candidate* contract; the field-builder refines widget/rules/options;
@@ -323,24 +331,47 @@ closing the loop for the developer.
 
 ---
 
-## 13. Open questions to settle in review
+## 13. Decisions (resolved in review)
 
-1. **Previews: keyed map vs array.** Proposed array-with-`id` (ordering, per-preview provenance,
-   contribution). Today it's a keyed map. Migration is mechanical but it's a breaking shape change.
-2. **`valueType` final closed set.** Is the §4 list complete? Where do `video`, `menu`, `template`,
-   `component`, `search` (seen in SS&C) map — all `editorWidget` over a base `valueType`?
-3. **Semantic vocabulary.** Fix a recommended enum (primary/secondary/destructive/…) or leave fully
-   open with a registry? Affects token projection (§8).
-4. **Where the canonical record lives.** DTCG covers tokens under `design-system/tokens/`;
-   components need a parallel home — `design-system/components/<id>.json` (canonical) authored from
-   `integration/.../<id>.ts` (spec). Confirm the file-tree layout.
-5. **Backfill.** Existing previews (SS&C keyed maps, 8x8 ReactNode previews) → migrate into
-   `values`/`slots`. Largely mechanical; ReactNode previews populate `slots`, leaving `values`
-   serializable.
-6. **Validation home.** New AJV-based validator (Phase 0 had this as aspirational) — a
-   `tokens:validate`-style `components:validate` step run in build + CI.
-7. **CSF meaning convention (§11).** Namespaced `parameters.handoff = { semantic, rationale }`,
-   Storybook tags, or both — for carrying preview meaning that CSF has no native concept for.
-8. **Inference override policy (§12).** How human field-builder edits are flagged vs re-inferred
-   provenance (the property-level `syncState`), and how non-inferrable types (functions, complex
-   generics) are marked editable / non-editable.
+1. **Previews → array-with-`id`, with lenient normalization.** Canonical form is the array.
+   The intake adapter is **lenient**: if it detects the legacy keyed-map (`{ key: { title, values } }`),
+   it normalizes (key → `id`) rather than throwing. General principle, applied everywhere: *accept
+   loose input, normalize to canonical — don't error on a recoverable shape.*
+2. **Split confirmed: `valueType` (closed) + `editorType` (open).** The content-structure meaning
+   SS&C transpilers depend on is carried faithfully in `editorType`, kept off the closed
+   `valueType` that validation reasons over. `video`/`menu`/`template`/`component`/`search` are
+   `editorType` values over a base `valueType` (`object`/`array`/`text` as appropriate).
+3. **Semantic vocabulary: open, with a registry.** A recommended set ships
+   (primary/secondary/tertiary/destructive/…); projects extend it via a registry. Unregistered
+   tags are allowed (warn, don't fail) and simply don't auto-project to semantic tokens (§8).
+4. **Canonical record lives at `design-system/components/<id>.json`**, authored from
+   `integration/.../<id>.ts` (the spec). Parallel to DTCG tokens under `design-system/tokens/`.
+   Build emits the record; push ships it; consumers read it.
+5. **Backfill is mechanical.** Existing previews migrate into `values`/`slots` — SS&C keyed maps →
+   array + `values`; 8x8 ReactNode previews → `slots`, leaving `values` serializable.
+6. **Validation home: a `components:validate` step** (AJV shape + referential checks), run in
+   build + CI, mirroring the planned `tokens:validate`.
+7. **CSF meaning: `parameters.handoff = { semantic, rationale }` is authoritative, tags are a
+   shorthand.** Reasoning: `tags` are flat strings — great for `semantic` (a tag matching the
+   vocabulary maps straight to it) but they can't carry the prose `rationale`. `parameters.handoff`
+   is structured and holds both. So honor both: `parameters.handoff` wins where present; a
+   vocabulary-matching tag is a convenient shorthand for `semantic`. Best of both — tag ergonomics
+   + rationale richness.
+8. **Inference override policy — resolved via property-level provenance.** *Implications, concretely:*
+   when fields are inferred from a TS type and a human later edits one in the field-builder (changes
+   the widget, adds a rule, relabels an option), a *later* re-inference must not silently clobber
+   that edit. Policy:
+   - Each property carries `syncState` in its envelope. Purely-inferred = `in-sync`; human-edited =
+     `overridden`.
+   - Re-inference always refreshes the **provenance** fields (`sourceType`/`generic`/`deepType`/…) —
+     the immutable truth from the type — but for an `overridden` property it leaves the **editable
+     contract** (`valueType`/`editorType`/`enumOptions`/`rules`/`default`) alone, and flags `drifted`
+     if the underlying type changed in a way that conflicts (e.g. an enum member the override
+     renamed was removed upstream). The UI surfaces drift for a human to reconcile.
+   - **Non-inferrable types** (functions, complex generics, conditional/mapped types) resolve to
+     `slot`/`any`/`object` with `deepType`/`typeRefs` retained; they're rendered **non-editable** in
+     the field-builder (or offered a preset/slot picker) rather than a broken form control.
+   *Example:* button's `Type` infers as `enum[primary,secondary,tertiary]`; a designer adds a
+   `rules.required`. Later a dev adds `'quaternary'` to the union → re-inference keeps the designer's
+   rule, adds the new option as a suggestion, and flags nothing (additive). If the dev instead
+   *removed* `tertiary` while the override referenced it → `drifted`, surfaced for reconciliation.

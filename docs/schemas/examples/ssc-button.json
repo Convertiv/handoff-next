@@ -35,7 +35,7 @@
       "name": "URL",
       "description": "This should be the URL that the button links to",
       "valueType": "text",
-      "editorWidget": "url",
+      "editorType": "url",
       "default": "https://ssctech.com",
       "rules": { "required": true, "content": { "min": 1, "max": 1000 } }
     }
