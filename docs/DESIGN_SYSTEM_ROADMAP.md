@@ -837,19 +837,16 @@ hardened iframe. Full spec: schema doc §15.
   deferred) — a single-component playground you open to *explore*, with context-aware persistence
   ("Save as preview" / "Update preview"). The page workbench (playground, many blocks) and the
   component workbench (one block) are the same tool at two scopes.
-- 🔄 **Preview selector cleanup + display unification (#3).**
-  - ✅ **Single toggle restored** — `ComponentDisplay` no longer explodes into multi-variant
+- ✅ **Preview selector cleanup + registry previews surfaced (#3, 2026-06-27).**
+  - **Single toggle restored** — `ComponentDisplay` no longer explodes into multi-variant
     dropdowns; one preview selector (H1 model). Workbench seeds from a real built preview's values.
-  - ⬜ **Surface registry previews in the main display** — the selector should list *built* + *registry*
-    previews; selecting a registry preview **renders it client-side** in the §14-hardened iframe
-    (via `renderPreview(component, values)`), not just the built `.html`. This is the display-path
-    unification (the linchpin: registry previews you author in the workbench actually appear here).
-  - ⬜ **Auto-switch** the main display to a preview right after it's saved in the workbench.
-  - ⬜ **Card selector** — title + semantic + rationale (screenshots deferred — needs a render→thumb
-    capability). A browse view for the meaning previews now carry.
-  - ⬜ **Full preload-from-currently-viewed** — lift the live selection state (note: multiple preview
-    blocks per page makes "current" ambiguous; resolve as part of this).
-  *This chunk touches the core preview-render path — its own focused pass.*
+  - **Registry previews surfaced in a dedicated card area** (decided over merging into the built
+    selector — they're distinct data: variant artifacts vs authored semantic views). Card selector
+    (title + semantic + rationale) + a live, themed render of the selected one via the §14-hardened
+    frame (`renderPreview` → `Preview`). **Auto-switch** to the saved preview on workbench save.
+  - ⬜ *Remaining polish:* preview **screenshots** on cards (needs a render→thumb capability);
+    optional later: fully merge built+registry into one selector + full preload-from-currently-viewed
+    (deferred — deep ComponentDisplay surgery + multi-block "current preview" ambiguity).
 - ⬜ **Playground unification (original framing)** — editing a playground block == editing a preview;
   a saved block ≈ a registry preview. Build once, use both.
 - ⬜ **Registry forms cleanup — remove code editing (P3).** Builds now run only in the workspace and
