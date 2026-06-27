@@ -13,8 +13,18 @@ function normalizeOptions(raw: Array<string | { value: string; label: string }>)
 export function SelectField({ identifier, value }: { identifier: string[]; value: any; data: any }) {
   const { getData, handleInputChange } = useEditContext();
   const current = getData(identifier) ?? value.default ?? '';
+  // Choices may arrive under several keys depending on the source:
+  //  - `options`     — the canonical/Handlebars-spec key
+  //  - `enum`        — TS-inference (8x8) emits string-literal unions here
+  //  - `enumOptions` — the canonical preview-schema target (§4/§13)
   const rawOptions: Array<string | { value: string; label: string }> =
-    Array.isArray(value.options) && value.options.length > 0 ? value.options : [];
+    Array.isArray(value.options) && value.options.length > 0
+      ? value.options
+      : Array.isArray(value.enumOptions) && value.enumOptions.length > 0
+        ? value.enumOptions
+        : Array.isArray(value.enum) && value.enum.length > 0
+          ? value.enum
+          : [];
   const options = normalizeOptions(rawOptions);
 
   if (options.length === 0) {

@@ -14,6 +14,9 @@ import { LinkField } from './LinkField';
 import { ButtonField } from './ButtonField';
 import { SelectField } from './SelectField';
 import { VideoFileField } from './VideoFileField';
+import { SlotField } from './SlotField';
+import { FunctionField } from './FunctionField';
+import { RawJsonField } from './RawJsonField';
 
 export function renderFormFields(obj: any, data: any, path: string[] = []) {
   return Object.entries(obj).map(([key, value]: [string, any]) => {
@@ -115,9 +118,40 @@ function ArrayItem({ identifier, value }: { identifier: string[]; value: any }) 
   );
 }
 
+/**
+ * Resolve a field descriptor to the control type the switch renders.
+ *
+ * TS-inference schemas (8x8) carry both a render `type` and an inference
+ * `kind`. The `type` can be a literal TS type string (e.g. `React.ReactNode`)
+ * that the switch wouldn't otherwise recognise, so we fall back to `kind`
+ * to map slots/functions/unknowns onto real controls instead of dumping JSON.
+ */
+export function resolveFieldType(value: any): string {
+  const type = value?.type;
+  if (type === 'React.ReactNode') return 'slot';
+  if (type === 'function') return 'function';
+  if (type === 'any') return 'any';
+  const known = new Set([
+    'object', 'array', 'image', 'video_file', 'button', 'link',
+    'text', 'string', 'richtext', 'number', 'boolean', 'select', 'enum',
+  ]);
+  if (typeof type === 'string' && known.has(type)) return type;
+  // Unrecognised `type` — lean on the inference `kind`.
+  switch (value?.kind) {
+    case 'slot': return 'slot';
+    case 'function': return 'function';
+    case 'enum': return 'enum';
+    case 'object': return 'object';
+    case 'array': return 'array';
+    case 'primitive': return 'text';
+    case 'unknown': return 'any';
+    default: return type ?? 'any';
+  }
+}
+
 export function InputField({ fieldKey, value, data }: { fieldKey: string[]; value: any; data: any }) {
   const { getData, handleInputChange } = useEditContext();
-  switch (value.type) {
+  switch (resolveFieldType(value)) {
     case 'object':
       return <ObjectField identifier={fieldKey} value={value} data={data} />;
     case 'array':
@@ -148,7 +182,14 @@ export function InputField({ fieldKey, value, data }: { fieldKey: string[]; valu
     case 'select':
     case 'enum':
       return <SelectField identifier={fieldKey} value={value} data={data} />;
+    case 'slot':
+      return <SlotField identifier={fieldKey} value={value} data={data} />;
+    case 'function':
+      return <FunctionField identifier={fieldKey} value={value} data={data} />;
+    case 'any':
+      return <RawJsonField identifier={fieldKey} value={value} data={data} />;
     default:
-      return <span className="text-xs text-muted-foreground">{JSON.stringify(value)}</span>;
+      // Unknown shape — offer a raw JSON editor rather than dumping the descriptor.
+      return <RawJsonField identifier={fieldKey} value={value} data={data} />;
   }
 }

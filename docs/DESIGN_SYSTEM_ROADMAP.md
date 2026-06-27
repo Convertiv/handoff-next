@@ -738,7 +738,24 @@ content reflows at each width — mirroring the width controls already in `Compo
 `build:registry` clean (the `/guidelines` DATABASE_URL prerender error is the known
 filesystem-mode environmental failure).
 
-### #1 — 8x8 playground/workbench: field management for TS-inferred schemas  *(investigated)*
+### #1 — 8x8 playground/workbench: field management for TS-inferred schemas  *(steps 1–2 DONE)*
+
+**Built (2026-06-27):**
+- **Enum key mismatch fixed** — `SelectField` now reads choices from `options` →
+  `enumOptions` → `enum` (8x8's TS-inference key), so string-literal unions render as a real
+  `Select` instead of degrading to a free-text input.
+- **No more JSON dumps** — `Field.tsx` gained a `resolveFieldType()` normalizer (maps the
+  literal `type`/`kind` 8x8 emits onto control types) plus three new field components:
+  `SlotField` (`React.ReactNode` → text/child fallback per §12; honestly marks rich/code slots
+  non-editable), `FunctionField` (read-only signature chip), `RawJsonField` (`any`/unknown →
+  validated JSON textarea, also the new `default`). `build:registry` clean (109/109).
+- **Still open — step 3, the slot fill-model:** text slots whose data key holds a string are now
+  editable; image/button slots hold a ReactNode (`previewImageSlot(...)`) and show the
+  non-editable notice. Making those editable needs each slot's serializable sub-schema (the §5
+  `slots` channel — `PreviewImage`/`PreviewButton`) declared so `renderFormFields` can map them to
+  `ImageField`/`ButtonField`. That's the remaining design work.
+
+**Original investigation (for reference):**
 8x8 `schema.ts` emits, per property, both a render `type` and a TS-inference `kind`. Census of the
 seven `kind`s and how the shared `Field.tsx` switch (`InputField`, keyed on `value.type` only)
 handles each:
