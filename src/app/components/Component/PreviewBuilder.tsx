@@ -53,6 +53,16 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
   const properties = useMemo(() => ((preview?.properties ?? {}) as Record<string, { default?: unknown }>), [preview?.properties]);
   const renderable = Boolean((preview as { code?: string; html?: string } | undefined)?.code || (preview as { html?: string } | undefined)?.html);
 
+  // Seed a new workbench session from a real preview's values (the first built
+  // preview) rather than bare defaults, so you start from a realistic state.
+  // (Full "preload from the currently-viewed preview" is folded into the #3
+  // selector work, which lifts the live selection state.)
+  const seedValues = useMemo(() => {
+    const built = (preview?.previews ?? {}) as Record<string, { values?: Record<string, unknown> }>;
+    const first = Object.values(built)[0];
+    return first?.values ?? defaultsFromProperties(properties);
+  }, [preview?.previews, properties]);
+
   const [list, setList] = useState<RegistryPreview[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RegistryPreview | null>(null);
@@ -103,12 +113,12 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
     const base = (preview ?? {}) as unknown as PlaygroundComponent;
     return {
       ...base,
-      data: editing ? { ...editing.values } : defaultsFromProperties(properties),
+      data: editing ? { ...editing.values } : { ...seedValues },
       order: 0,
       quantity: 1,
       uniqueId: `pv-${componentId}-${editing?.id ?? 'new'}`,
     };
-  }, [preview, properties, editing, componentId]);
+  }, [preview, seedValues, editing, componentId]);
 
   const handleCommit = useCallback(
     async (updated: SelectedPlaygroundComponent) => {

@@ -71,34 +71,6 @@ export const ComponentDisplay: React.FC<{
   const [scale, setScale] = React.useState(0.8);
   const [manualReload, setManualReload] = React.useState(0);
 
-  // Generate variants from component previews only for Figma atomic components
-  const localVariants = React.useMemo(() => {
-    if (!component?.figmaComponentId || !component?.previews) return null;
-
-    // Check if component previews are different from context previews
-    const componentPreviewKeys = Object.keys(component.previews).sort();
-    const contextPreviewKeys = context.preview ? Object.keys(context.preview.previews).sort() : [];
-
-    if (JSON.stringify(componentPreviewKeys) !== JSON.stringify(contextPreviewKeys)) {
-      // Generate variants from component previews
-      const variantMap: Record<string, Set<string>> = {};
-      Object.values(component.previews).forEach((preview: any) => {
-        Object.entries(preview.values).forEach(([key, value]) => {
-          const strValue = String(value);
-          if (!strValue) return;
-          if (!variantMap[key]) {
-            variantMap[key] = new Set();
-          }
-          variantMap[key].add(strValue);
-        });
-      });
-
-      return Object.fromEntries(Object.entries(variantMap).map(([key, values]) => [key, Array.from(values)]));
-    }
-
-    return context.variants;
-  }, [component?.figmaComponentId, component?.previews, context.preview, context.variants]);
-
   // Auto-height without same-origin: the preview page (hardened by the
   // /api/component serving route, §14) posts its measured height via
   // postMessage; we accept only messages from *this* iframe's window.
@@ -168,20 +140,6 @@ export const ComponentDisplay: React.FC<{
 
   const { reloadCounter } = useContext(HotReloadContext);
 
-  // Helper to check if an option is valid given other current selections
-  const isOptionValid = (property: string, value: string) => {
-    if (!component?.previews || !context.variantFilter) return true;
-
-    // Create a filter that includes the potential new value for this property
-    // AND keeps the current values for all OTHER properties
-    const testFilter = { ...context.variantFilter, [property]: value };
-
-    // Check if ANY preview matches this combination
-    return Object.values(component.previews).some((preview: any) =>
-      Object.entries(testFilter).every(([key, val]) => preview.values[key] === val)
-    );
-  };
-
   const safePreviewFile = useMemo(() => (previewUrl ? sanitizePreviewUrlForOpen(previewUrl) : null), [previewUrl]);
 
   const parseCssPx = (v: string, fallback: number) => {
@@ -202,65 +160,27 @@ export const ComponentDisplay: React.FC<{
         {component?.previews && (
           <>
             <div className="flex w-full items-center justify-between rounded-t-lg bg-gray-50 px-6 py-2 pr-3 align-middle @container dark:bg-gray-800">
-              <div className="flex flex-1 items-start gap-2">
-                {localVariants ? (
-                  <>
-                    {Object.keys(localVariants).length > 0 && (
-                      <>
-                        <div className="flex h-8 shrink-0 items-center gap-2">
-                          <p className="font-monospace text-[11px] text-accent-foreground">{title ?? 'Variant'}</p>
-                          <Separator orientation="vertical" className="h-3" />
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          {Object.keys(localVariants)
-                            .filter((variantProperty) => localVariants[variantProperty].length > 1)
-                            .map((variantProperty) => (
-                              <Select
-                                key={variantProperty}
-                                value={context.variantFilter ? context.variantFilter[variantProperty] : undefined}
-                                onValueChange={(value) => context.updateVariantFilter(variantProperty, value)}
-                              >
-                                <SelectTrigger className="h-8 w-[140px] border-none text-xs shadow-none">
-                                  <SelectValue placeholder={variantProperty} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {localVariants[variantProperty].map((variantPropertyValue) => {
-                                    if (typeof variantPropertyValue !== 'string' || variantPropertyValue === '') return null;
-                                    return (
-                                      <SelectItem
-                                        key={variantPropertyValue}
-                                        value={variantPropertyValue}
-                                        disabled={!isOptionValid(variantProperty, variantPropertyValue)}
-                                      >
-                                        {variantPropertyValue}
-                                      </SelectItem>
-                                    );
-                                  })}
-                                </SelectContent>
-                              </Select>
-                            ))}
-                        </div>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <Select value={previewUrl ?? undefined} onValueChange={setPreviewUrl}>
-                      <SelectTrigger className="h-8 w-[180px] border-none border-gray-200 bg-white text-xs shadow-none dark:border-gray-900">
-                        <SelectValue placeholder="Preview" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.keys(component.previews)
-                          .filter((key) => component.previews[key].url)
-                          .map((key) => (
-                            <SelectItem key={component.previews[key].url} value={component.previews[key].url}>
-                              {component.previews[key].title}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </>
-                )}
+              <div className="flex flex-1 items-center gap-2">
+                {/* Single preview toggle (restores the H1 model — H2 had exploded this into
+                    multiple variant-property dropdowns that cut across the preview). */}
+                <div className="flex h-8 shrink-0 items-center gap-2">
+                  <p className="font-monospace text-[11px] text-accent-foreground">{title ?? 'Preview'}</p>
+                  <Separator orientation="vertical" className="h-3" />
+                </div>
+                <Select value={previewUrl ?? undefined} onValueChange={setPreviewUrl}>
+                  <SelectTrigger className="h-8 w-[240px] border-none bg-white text-xs shadow-none dark:bg-transparent">
+                    <SelectValue placeholder="Preview" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(component.previews)
+                      .filter((key) => component.previews[key].url)
+                      .map((key) => (
+                        <SelectItem key={component.previews[key].url} value={component.previews[key].url}>
+                          {component.previews[key].title}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className=" hidden items-center gap-0 @2xl:flex">
                 <TooltipProvider delayDuration={0}>
