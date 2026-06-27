@@ -14,14 +14,16 @@ import {
   Component,
   File,
   Monitor,
-  MousePointerClick,
+  Pencil,
   RefreshCcw,
   Smartphone,
+  SlidersHorizontal,
   SquareArrowOutUpRight,
   Tablet,
   Text,
 } from 'lucide-react';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { HotReloadContext } from '../context/HotReloadProvider';
 import { usePreviewContext } from '../context/PreviewContext';
 import { sanitizePreviewUrlForOpen } from '@/lib/preview-url';
@@ -29,11 +31,28 @@ import RulesSheet from '../Foundations/RulesSheet';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '../ui/select';
 import { Separator } from '../ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import PageSliceResolver from './PageSliceResolver';
+import { renderPreview } from '../Playground/Preview';
+import type { PlaygroundComponent, SelectedPlaygroundComponent } from '../Playground/types';
+import { usePreviews } from './usePreviews';
+import { ComponentWorkbenchDialog } from './ComponentWorkbenchDialog';
+import type { RegistryPreviewLite } from '@handoff/transformers/preview/component/preview-merge';
+
+/** §14 height reporter, injected into client-rendered preview HTML so the parent
+ *  can size the (opaque-origin) iframe via postMessage. */
+const HEIGHT_REPORTER =
+  `<script>(function(){function h(){var b=document.body,e=document.documentElement;` +
+  `var v=Math.max(b?b.scrollHeight:0,b?b.offsetHeight:0,e?e.scrollHeight:0,e?e.offsetHeight:0);` +
+  `try{parent.postMessage({type:'handoff-preview-height',height:v},'*');}catch(_){}}` +
+  `try{if(window.ResizeObserver&&document.body){new ResizeObserver(h).observe(document.body);}}catch(_){}` +
+  `window.addEventListener('load',h);window.addEventListener('resize',h);setTimeout(h,100);setTimeout(h,500);})();</script>`;
+function withHeightReporter(html: string): string {
+  return html.includes('</body>') ? html.replace('</body>', `${HEIGHT_REPORTER}</body>`) : html + HEIGHT_REPORTER;
+}
 
 const getDefaultSlices = (): PageSlice[] => [
   { type: 'BEST_PRACTICES' },
@@ -62,18 +81,30 @@ export const ComponentDisplay: React.FC<{
   /** When true, hide "open in new tab" (e.g. untrusted preview URL sources). When false, opens only after {@link sanitizePreviewUrlForOpen}. */
   hideOpenInNewTab?: boolean;
 }> = ({ component, defaultHeight, title, onPreviewChange, hideOpenInNewTab = false }) => {
-  const context = usePreviewContext();
   const ref = React.useRef<HTMLIFrameElement>(null);
+  const { status, data: session } = useSession();
+  const canEdit = status === 'authenticated' && Boolean(session?.user);
+  const componentId = component?.id ?? '';
+  const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+
+  // One source of truth: built variants + registry previews, merged.
+  const { previews, selected, selectedKey, setSelectedKey, refresh, registry } = usePreviews(
+    componentId,
+    component?.previews as Record<string, unknown> | undefined
+  );
+
   const [height, setHeight] = React.useState('100px');
-  const [previewUrl, setPreviewUrl] = React.useState('');
   const [width, setWidth] = React.useState('1100px');
-  const [inspect, setInspect] = React.useState(false);
   const [scale, setScale] = React.useState(0.8);
   const [manualReload, setManualReload] = React.useState(0);
+  const [previewHtml, setPreviewHtml] = React.useState('');
+  const [workbenchOpen, setWorkbenchOpen] = React.useState(false);
+  const [workbenchEditing, setWorkbenchEditing] = React.useState<RegistryPreviewLite | null>(null);
 
-  // Auto-height without same-origin: the preview page (hardened by the
-  // /api/component serving route, §14) posts its measured height via
-  // postMessage; we accept only messages from *this* iframe's window.
+  const { reloadCounter } = useContext(HotReloadContext);
+
+  // Auto-height: the client-rendered preview (with the injected reporter) posts
+  // its measured height; accept only messages from this iframe's window (§14).
   React.useEffect(() => {
     if (defaultHeight) {
       setHeight(defaultHeight);
@@ -90,57 +121,46 @@ export const ComponentDisplay: React.FC<{
     return () => window.removeEventListener('message', onMessage);
   }, [defaultHeight]);
 
-  const transformPreviewUrl = (url: string) => {
-    let target = url;
-    if (inspect) {
-      target = url.split('.html')[0] + '-inspect.html';
-    } else {
-      target = url.split('-inspect.html')[0] + '.html';
+  // Client-render the selected preview's values via the shared render path —
+  // one path for variants and registry previews, themed, into the opaque frame.
+  React.useEffect(() => {
+    if (!component || !selected) {
+      setPreviewHtml('');
+      return;
     }
-    setPreviewUrl(target);
-  };
-
-  React.useEffect(() => {
-    transformPreviewUrl(previewUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inspect]);
-
-  React.useEffect(() => {
-    if (component && component.previews) {
-      const keys = Object.keys(component.previews);
-      if (keys.length === 0) {
-        return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const view = {
+          ...(component as unknown as PlaygroundComponent),
+          data: selected.values,
+          order: 0,
+          quantity: 1,
+          uniqueId: `cd-${componentId}`,
+        } as SelectedPlaygroundComponent;
+        const html = await renderPreview(view as never, selected.values, basePath);
+        if (!cancelled) setPreviewHtml(withHeightReporter(html));
+      } catch {
+        if (!cancelled) setPreviewHtml('');
       }
-      const firstPreview = component.previews[keys[0]];
-      setPreviewUrl(firstPreview.url);
-    }
-  }, [component]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, component, basePath, componentId, manualReload, reloadCounter]);
 
+  // Notify parent of the active selection (compat with the slice wiring).
   React.useEffect(() => {
-    if (!component) return;
-    if (!context.variantFilter) return;
+    if (selected && onPreviewChange) onPreviewChange(selected.url ?? selected.key);
+  }, [selected, onPreviewChange]);
 
-    const previewFilterResult = Object.values(component.previews).filter((item) =>
-      Object.entries(context.variantFilter).every(([key, value]) => item.values[key] === value)
-    );
-
-    if (!!previewFilterResult && previewFilterResult.length > 0) {
-      setPreviewUrl(previewFilterResult[0].url);
-    } else {
-      setPreviewUrl(null);
-    }
-  }, [context.variantFilter, component]);
-
-  React.useEffect(() => {
-    if (!component?.previews || !previewUrl) return;
-    const selectedPreview = Object.values(component.previews).find((preview) => preview.url === previewUrl);
-    if (!selectedPreview) return;
-    !!onPreviewChange && onPreviewChange(selectedPreview.url);
-  }, [component?.previews, onPreviewChange, previewUrl]);
-
-  const { reloadCounter } = useContext(HotReloadContext);
-
-  const safePreviewFile = useMemo(() => (previewUrl ? sanitizePreviewUrlForOpen(previewUrl) : null), [previewUrl]);
+  const variantPreviews = previews.filter((p) => p.source === 'variant');
+  const registryPreviews = previews.filter((p) => p.source === 'registry');
+  const openWorkbench = (editing: RegistryPreviewLite | null) => {
+    setWorkbenchEditing(editing);
+    setWorkbenchOpen(true);
+  };
+  const renderable = Boolean((component as { code?: string; html?: string } | undefined)?.code || (component as { html?: string } | undefined)?.html);
 
   const parseCssPx = (v: string, fallback: number) => {
     const n = parseFloat(v);
@@ -157,7 +177,7 @@ export const ComponentDisplay: React.FC<{
   return (
     <div className="md:flex" id="preview">
       <div className="text-medium flex w-full flex-col items-center rounded-lg border border-gray-200 dark:border-gray-900">
-        {component?.previews && (
+        {component && (
           <>
             <div className="flex w-full items-center justify-between rounded-t-lg bg-gray-50 px-6 py-2 pr-3 align-middle @container dark:bg-gray-800">
               <div className="flex flex-1 items-center gap-2">
@@ -167,18 +187,29 @@ export const ComponentDisplay: React.FC<{
                   <p className="font-monospace text-[11px] text-accent-foreground">{title ?? 'Preview'}</p>
                   <Separator orientation="vertical" className="h-3" />
                 </div>
-                <Select value={previewUrl ?? undefined} onValueChange={setPreviewUrl}>
+                <Select value={selectedKey ?? undefined} onValueChange={setSelectedKey}>
                   <SelectTrigger className="h-8 w-[240px] border-none bg-white text-xs shadow-none dark:bg-transparent">
                     <SelectValue placeholder="Preview" />
                   </SelectTrigger>
                   <SelectContent>
-                    {Object.keys(component.previews)
-                      .filter((key) => component.previews[key].url)
-                      .map((key) => (
-                        <SelectItem key={component.previews[key].url} value={component.previews[key].url}>
-                          {component.previews[key].title}
-                        </SelectItem>
-                      ))}
+                    {variantPreviews.length > 0 ? (
+                      <SelectGroup>
+                        <SelectLabel>Variants</SelectLabel>
+                        {variantPreviews.map((p) => (
+                          <SelectItem key={p.key} value={p.key}>{p.label}</SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ) : null}
+                    {registryPreviews.length > 0 ? (
+                      <SelectGroup>
+                        <SelectLabel>Saved</SelectLabel>
+                        {registryPreviews.map((p) => (
+                          <SelectItem key={p.key} value={p.key}>
+                            {p.label}{p.semantic ? ` · ${p.semantic}` : ''}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ) : null}
                   </SelectContent>
                 </Select>
               </div>
@@ -227,33 +258,44 @@ export const ComponentDisplay: React.FC<{
                     <TooltipContent className="rounded-sm px-2 py-1 text-[11px]">Refresh Preview</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-4"
-                        onClick={() => {
-                          setInspect(!inspect);
-                        }}
-                        variant={inspect ? 'default' : 'ghost'}
-                      >
-                        <MousePointerClick strokeWidth={1.5} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent className="rounded-sm px-2 py-1 text-[11px]">Inspect Component</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                {!hideOpenInNewTab ? (
+                {canEdit ? (
+                  <TooltipProvider delayDuration={0}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-4" onClick={() => openWorkbench(null)} variant="ghost" disabled={!renderable}>
+                          <SlidersHorizontal strokeWidth={1.5} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="rounded-sm px-2 py-1 text-[11px]">Open component workbench</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : null}
+                {canEdit && selected?.source === 'registry' ? (
+                  <TooltipProvider delayDuration={0}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-3.5"
+                          variant="ghost"
+                          onClick={() => openWorkbench(registry.find((r) => `registry:${r.id}` === selectedKey) ?? null)}
+                        >
+                          <Pencil strokeWidth={1.5} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent className="rounded-sm px-2 py-1 text-[11px]">Edit this preview</TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : null}
+                {!hideOpenInNewTab && selected?.source === 'variant' && selected.url ? (
                   <TooltipProvider delayDuration={0}>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           className="h-7 px-3 hover:bg-gray-300 [&_svg]:size-3"
                           onClick={() => {
-                            const safe = sanitizePreviewUrlForOpen(previewUrl);
+                            const safe = selected.url ? sanitizePreviewUrlForOpen(selected.url) : null;
                             if (!safe) return;
-                            const base = process.env.HANDOFF_APP_BASE_PATH ?? '';
-                            window.open(`${base}/api/component/${safe}`, '_blank', 'noopener,noreferrer');
+                            window.open(`${basePath}/api/component/${safe}`, '_blank', 'noopener,noreferrer');
                           }}
                           variant="ghost"
                         >
@@ -268,15 +310,14 @@ export const ComponentDisplay: React.FC<{
             </div>
 
             <div className="dotted-bg w-full p-8">
-              {previewUrl && safePreviewFile ? (
+              {selected ? (
                 <div style={scaledFrameStyle}>
                   {/*
-                    Opaque-origin sandbox (no allow-same-origin) — the frame cannot reach the
-                    registry's cookies/auth. Auto-height comes from the page's postMessage height
-                    reporter injected by the /api/component serving route (§14).
+                    Opaque-origin sandbox; client-rendered `srcDoc` — ONE render path for both
+                    built variants and registry previews. Auto-height via the injected reporter.
                   */}
                   <iframe
-                    key={`${previewUrl}-${reloadCounter}-${manualReload}`}
+                    key={`${selectedKey}-${reloadCounter}-${manualReload}`}
                     title="Component preview"
                     sandbox="allow-scripts"
                     ref={ref}
@@ -290,22 +331,37 @@ export const ComponentDisplay: React.FC<{
                       display: 'block',
                       margin: 0,
                     }}
-                    src={`${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/component/${safePreviewFile}`}
+                    srcDoc={previewHtml}
                   />
-                </div>
-              ) : previewUrl ? (
-                <div className="flex items-center justify-center p-8 text-sm text-amber-700 dark:text-amber-400">
-                  Preview URL is not in an allowed format.
                 </div>
               ) : (
                 <div className="flex items-center justify-center p-8 text-sm text-gray-500">
-                  No preview available for this selection.
+                  No previews yet.{canEdit && renderable ? ' Open the component workbench to create one.' : ''}
                 </div>
               )}
+              {selected?.source === 'registry' && selected.rationale ? (
+                <p className="mx-auto mt-3 max-w-[900px] text-xs text-muted-foreground">
+                  <span className="font-medium">Why:</span> {selected.rationale}
+                </p>
+              ) : null}
             </div>
           </>
         )}
       </div>
+      {canEdit ? (
+        <ComponentWorkbenchDialog
+          open={workbenchOpen}
+          onOpenChange={setWorkbenchOpen}
+          component={component}
+          componentId={componentId}
+          initialValues={selected?.values ?? {}}
+          editing={workbenchEditing}
+          onSaved={(id) => {
+            void refresh();
+            setSelectedKey(`registry:${id}`);
+          }}
+        />
+      ) : null}
     </div>
   );
 };

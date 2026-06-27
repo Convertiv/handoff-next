@@ -4,7 +4,6 @@ import { ComponentVersionHistory } from './ComponentVersionHistory';
 import ComponentAssetsPanel from './ComponentAssetsPanel';
 import ComponentImageSlotsPanel from './ComponentImageSlotsPanel';
 import { InlineComponentEditor } from '@handoff/app/components/Component/InlineComponentEditor';
-import { PreviewBuilder } from '@handoff/app/components/Component/PreviewBuilder';
 import { ComponentPreview } from '@handoff/app/components/Component/Preview';
 import { ValidationFrameworkResults } from '@handoff/app/components/Validation/ValidationFrameworkResults';
 import { HotReloadProvider } from '@handoff/app/components/context/HotReloadProvider';
@@ -272,8 +271,8 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
             onSaved={fetchComponentData}
           />
         ) : null}
-        {/* Previews live outside metadata-edit — authoring a preview is a separate gesture. */}
-        <PreviewBuilder componentId={id} preview={component} />
+        {/* Previews (variants + authored) + the workbench now live in the main preview
+            surface (ComponentDisplay) — no separate panel. */}
       </div>
       <div ref={ref} className="lg:gap-10 lg:pb-8 xl:grid xl:grid-cols-[minmax(0,1fr)_220px]">
         <div className="max-w-[900px]">
