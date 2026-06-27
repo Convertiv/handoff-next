@@ -829,11 +829,17 @@ hardened iframe. Full spec: schema doc §15.
     RIGHT** (slice-3 MVP had it inline + backwards; inline has no room).
   - *Keep from the slice-3 scaffold:* CRUD wiring, validation/422 handling, semantic+rationale,
     preview list. *Replace:* the field controls + the bespoke preview frame.
-- ⬜ **Preview selector cleanup (regression + roadmap).** H2's `ComponentDisplay` exploded H1's
-  single "toggle previews" dropdown into multiple variant-property dropdowns that cut across the
-  preview (see review screenshot). Restore a **single preview toggle**. Then explore a **card
-  selector** (preview screenshot + title + rationale — a natural home for the meaning previews now
-  carry). On create/submit in the builder, **auto-switch the preview view to the new preview**.
+- ✅ **Component workbench reframe (2026-06-27).** Previews are authored via an "Open component
+  workbench" affordance **outside** metadata-edit (separate gesture), in a full-screen dialog (route
+  deferred) — a single-component playground you open to *explore*, with context-aware persistence
+  ("Save as preview" / "Update preview"). The page workbench (playground, many blocks) and the
+  component workbench (one block) are the same tool at two scopes.
+- ⬜ **Preview selector cleanup + workbench preload (regression + roadmap).** H2's `ComponentDisplay`
+  exploded H1's single "toggle previews" dropdown into multiple variant-property dropdowns that cut
+  across the preview (see review screenshot). Restore a **single preview toggle**; explore a **card
+  selector** (screenshot + title + rationale). On save in the workbench, **auto-switch the preview
+  view to the new preview**. **Lift the current-selection state** so "Open component workbench"
+  **preloads with the currently-viewed preview's values** (folded in here — it needs that state).
 - ⬜ **Playground unification (original framing)** — editing a playground block == editing a preview;
   a saved block ≈ a registry preview. Build once, use both.
 - ⬜ **Registry forms cleanup — remove code editing (P3).** Builds now run only in the workspace and
