@@ -256,6 +256,19 @@ When you add a new foundation type (e.g. motion tokens, brand voices), follow th
 
 ## Database Migrations — Critical Rule
 
+**🚫 NEVER run `npm run db:generate` / `drizzle-kit generate`.** The Drizzle meta snapshot
+(`migrations/meta/*_snapshot.json`) is **intentionally not kept in sync** with the schema. Running
+`generate` diffs against the stale snapshot and emits a **bogus migration that tries to recreate
+~15 existing tables** — which would fail on (or corrupt) deployed registry DBs. This trap has bitten
+multiple times. Migrations here are **hand-written**, full stop. (If `generate` was run by mistake,
+`git checkout` the journal + delete the new `NNNN_*.sql` and `meta/NNNN_snapshot.json`.)
+
+**To add a table/column: hand-write the SQL by reading `src/app/lib/db/schema-pg.ts`**, then register
+it in the journal (below). Auto-migrate applies journaled migrations on boot/page-load — see
+`src/app/lib/db/auto-migrate.ts` (`migrate()` is idempotent, advisory-locked, tracks applied
+migrations in `__drizzle_migrations`). So once a journaled migration is deployed, it self-applies on
+the next page load; **no manual `db:migrate` against production is needed.**
+
 **Every new migration SQL file MUST be registered in the journal or it will never run.**
 
 Drizzle's `migrate()` reads `src/app/lib/db/migrations/meta/_journal.json` exclusively. A `.sql` file
