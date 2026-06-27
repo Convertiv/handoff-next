@@ -793,6 +793,14 @@ semantic data:
 - **P5 — Generative + contributable.** LLM-assisted preview generation; broader contributor
   roles (PMs author views with real content).
 
+**Wishlist (recorded 2026-06-27 — not scheduled):**
+- **Inline AI preview generator** (nearer-term) — building on the workbench: generate a preview by
+  filling properties with on-voice/tone copy + on-brand images, then render it. The compelling
+  bridge between the workbench's generation and the structured preview store.
+- **Inline-editable previews** (the dream) — edit a preview by clicking the title/image/text
+  directly in the rendered output, no field form at all. Far off, but the north star for authoring
+  ergonomics.
+
 **Decided design (P2 prep, 2026-06-26):** two-store model (code previews in the component blob,
 registry previews in a new `handoff_component_preview` table), merge-on-read, replace-code /
 preserve-registry / re-validate-all on push. Previews are **version-anchored** — drift is
@@ -805,8 +813,29 @@ hardened iframe. Full spec: schema doc §15.
   make this navigable. *(Substantial; tracked.)*
 - ⬜ **Asset-DAM ↔ previews** — let preview image/video values reference real library assets from
   the asset repository (on-brand media, not placeholders). *(Future; designed-for.)*
-- ⬜ **Playground unification** — editing a playground block == editing a preview (same value-form
-  + §14 render iframe; a saved block ≈ a registry preview). Build once, use both.
+- 🔴 **Playground unification — now concrete + prioritized (2026-06-27 review).** The slice-3
+  `PreviewBuilder` reinvented a weaker field builder + a second (un-themed) preview frame. Redirect:
+  it must **consume the playground's existing components**, not parallel ones.
+  - **Field builder:** use `components/Playground/fields/Field.tsx` (`renderFormFields`/`InputField`)
+    — it already handles `array`→repeater (add/remove/collapse), `object`→nested collapsible,
+    `image`→ImageField, `video_file`, `button`, `link`, `select/enum`, etc. My bespoke controls
+    rendered these as dumb text inputs (`[object Object]`). `Field.tsx` couples to `EditContext`
+    (`getData`/`handleInputChange`) — reuse by wrapping the builder in that provider (short term) or
+    decouple `Field.tsx` to value/onChange props (cleaner, lifts both). Rising tide either way.
+  - **Preview frame:** one shared, **themed** frame (component css/js loaded). I imported the
+    playground `Preview` but fed it an incompatible object so it lost theming — we've now built this
+    ~twice; consolidate to a single frame both surfaces use.
+  - **Layout:** full-screen (modal/route), **mirror the playground — visual LEFT, fields pinned
+    RIGHT** (slice-3 MVP had it inline + backwards; inline has no room).
+  - *Keep from the slice-3 scaffold:* CRUD wiring, validation/422 handling, semantic+rationale,
+    preview list. *Replace:* the field controls + the bespoke preview frame.
+- ⬜ **Preview selector cleanup (regression + roadmap).** H2's `ComponentDisplay` exploded H1's
+  single "toggle previews" dropdown into multiple variant-property dropdowns that cut across the
+  preview (see review screenshot). Restore a **single preview toggle**. Then explore a **card
+  selector** (preview screenshot + title + rationale — a natural home for the meaning previews now
+  carry). On create/submit in the builder, **auto-switch the preview view to the new preview**.
+- ⬜ **Playground unification (original framing)** — editing a playground block == editing a preview;
+  a saved block ≈ a registry preview. Build once, use both.
 - ⬜ **Registry forms cleanup — remove code editing (P3).** Builds now run only in the workspace and
   push to the registry, so editing component *code* in the registry is a dead vestige that violates
   the §2a rule (contract/code = upstream/code-only). Concretely:
