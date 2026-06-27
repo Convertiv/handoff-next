@@ -724,7 +724,93 @@ It feeds Phase 2 (native foundation/asset capability) and Phase 3 (registry API 
 
 ---
 
-## Canonical spine (components) — Component + Preview standard
+## Run-window review (2026-06-27) — workbench, versioning, 8x8 fields
+
+Five items raised for review. **#2 is built + verified**; #1 and #3 are investigated/root-caused
+with concrete plans; #4/#5 are scoped. Nothing on the push path or versioning logic was changed
+unilaterally — those wait for sign-off.
+
+### ✅ #2 — Responsive controls in the component workbench  *(DONE)*
+Added a width-preset bar (Desktop `100%` / Tablet `820px` / Mobile `390px`, Monitor/Tablet/
+Smartphone icons) above the workbench's visual-left `<Preview>` panel in `WorkbenchBody`
+(`ComponentWorkbenchDialog.tsx`). The preview container is sized + centered so the §14 iframe
+content reflows at each width — mirroring the width controls already in `ComponentDisplay`.
+`build:registry` clean (the `/guidelines` DATABASE_URL prerender error is the known
+filesystem-mode environmental failure).
+
+### #1 — 8x8 playground/workbench: field management for TS-inferred schemas  *(investigated)*
+8x8 `schema.ts` emits, per property, both a render `type` and a TS-inference `kind`. Census of the
+seven `kind`s and how the shared `Field.tsx` switch (`InputField`, keyed on `value.type` only)
+handles each:
+
+| 8x8 `kind` (`type`) | Today | Fix |
+|---|---|---|
+| `primitive` (`text`/`number`/`boolean`) | ✅ TextField / numeric Input / Switch | — |
+| `object` (`object`) | ✅ recurses | — |
+| `array` (`array`) | ✅ when `items.properties` present (8x8's do) | guard arrays of primitives/slots (no `items.properties`) |
+| `enum` (`enum`) | ⚠️ **silently downgraded to a free-text input** | **one-line, highest value** |
+| `slot` (`React.ReactNode`, 153+ fields) | ❌ `default` → `JSON.stringify(descriptor)` | slot fill-model |
+| `function` (`function`, 21 fields) | ❌ `default` → JSON dump | read-only affordance |
+| `unknown` (`any`) | ❌ `default` → JSON dump | raw JSON / textarea |
+
+**Root causes:**
+- **Enum:** `SelectField.tsx:16` reads `value.options`; 8x8 emits choices under `value.enum`. No
+  `enum→options` normalization anywhere in the runtime path, so every real 8x8 enum renders as a
+  textbox and the union constraint is lost.
+- **Slots:** the *contract* (`properties`, code-only per §2a) describes slot props as
+  `titleSlot: React.ReactNode`, but the *editable* data is the serializable **preview fields**
+  (`title`, `image: {src,alt}`, `buttons: PreviewButton[]`) that `template.tsx` + `previewHelpers.tsx`
+  already map into slots by hand (the §5 `values`/`slots` split, implemented ad-hoc). Props
+  round-trip through `JSON.stringify` (EditContext `update-props`), so a raw `React.createElement`
+  slot can never round-trip a form — only its serializable sub-fields can. The form is iterating
+  the wrong key set for slots.
+
+**Plan (ordered by value/cost):**
+1. **Fix the enum key mismatch** — normalize `value.enum` → `enumOptions`/`options` so `SelectField`
+   binds it (canonical target per §4/§13: `valueType:"enum"` + `enumOptions[]`). Cheap, unblocks
+   every 8x8 enum. *Do first.*
+2. **Stop the JSON dumps** — add explicit `slot` / `function` / `any` cases to the `Field.tsx`
+   switch: `function`→disabled/read-only, `any`→JSON textarea, `slot`→ (3).
+3. **Slot fill-model** — declare each slot's serializable sub-schema (text slot→`richtext`/`text`,
+   image slot→reuse `ImageField`, button slot→`ButtonField`/array) so `renderFormFields` maps to
+   existing fields; raw-JSX slots stay non-editable (preset/snippet picker, §12's "text/child
+   fallback, not arbitrary JSX"). This is the real design work and ties to schema doc §12 + §15.
+
+Key files: `Playground/fields/Field.tsx` (switch), `fields/SelectField.tsx:16`,
+8x8 `blocks/hero-split/{schema.ts,template.tsx,components/previewHelpers.tsx}`,
+`COMPONENT_PREVIEW_SCHEMA.md` §12/§4/§5.
+
+### #3 — Versioning: too many versions + a version-diff UI  *(root-caused)*
+**(a) Too many versions — confirmed root cause.** `recordComponentVersion`
+(`component-version-queries.ts`) *does* skip identical pushes (no-op guard, lines ~177–185), so the
+churn is an **over-sensitive diff**. The metadata diff fingerprints the whole `data` blob, and
+`data` carries volatile runtime fields — `validationResults` (re-run every push with fresh `runAt`
+timestamp + `durationMs`) and `sharedStyles` (full compiled CSS). So `data`'s fingerprint changes
+on **every** push even with no real change → a new version each time. Compounding it,
+`objectFingerprint = fingerprint(JSON.stringify(val))` doesn't sort keys, so key-order shifts also
+churn.
+**Fix (proposed, needs sign-off — touches all components' history):** before fingerprinting,
+(1) strip volatile keys from `data` (`validationResults`, `sharedStyles`, any `figma*` timestamps),
+and (2) make `objectFingerprint` stable (sorted keys / canonical JSON). Optionally version off the
+meaningful fields only (title/properties/previews/code) rather than the whole `data` blob.
+
+**(b) Version-diff UI (additive).** Each version row already stores a `changeSummary`
+(`fieldsChanged`, `source{Added,Modified,Removed}`, `artifactsChanged`) — surface it as a history
+timeline + a per-version diff view. Same shape applies to token versions. Pure read UI over
+existing data; no migration.
+
+### #4 — Open a component in the workbench to prototype from an existing one  *(scoped)*
+The workbench (`ComponentWorkbenchDialog`) already loads with the current preview's values; "open to
+prototype" = the same dialog seeded from an existing preview as a **new** preview (clone, not edit:
+`editing=null`, `initialValues` = source preview's values). Mostly an entry-point + seed-state
+change; the save path (POST new preview) already exists. Open question: prototype *across*
+components (different contract) is out of scope — same-component clone is the v1.
+
+### #5 — Generate content (images + copy) for a component preview  *(scoped, wishlist)*
+Inline AI generation inside the workbench: (a) **copy** for text/richtext fields (prompt → field
+value), (b) **images** for image fields (generate → upload to the DAM → set ref). Reuses the
+existing AI endpoints + the DAM upload path the asset library already browses. Gated behind the slot
+fill-model (#1.3) for slot-bound media. Larger, lower-priority; revisit after #1/#3.
 
 *(Track 2. The component-layer analogue of the DTCG token spine — promoted from "feature
 initiative" because it's a foundation other tracks project from, not a side feature. **Schema is

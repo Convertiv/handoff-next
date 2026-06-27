@@ -2,7 +2,9 @@
 
 import type { PreviewObject } from '@handoff/types/preview';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Monitor, Smartphone, Tablet } from 'lucide-react';
 import { handoffApiUrl } from '../../lib/api-path';
+import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
@@ -19,6 +21,12 @@ const SEMANTIC_OPTIONS = [
   'primary', 'secondary', 'tertiary', 'destructive', 'success', 'warning', 'info', 'disabled', 'empty-state', 'loading', 'default',
 ];
 const NONE = '__none__';
+
+const WIDTH_PRESETS: { id: string; label: string; width: string; Icon: typeof Monitor }[] = [
+  { id: 'desktop', label: 'Desktop', width: '100%', Icon: Monitor },
+  { id: 'tablet', label: 'Tablet', width: '820px', Icon: Tablet },
+  { id: 'mobile', label: 'Mobile', width: '390px', Icon: Smartphone },
+];
 
 /**
  * The component workbench (the editor behind the preview surface's "Open
@@ -149,11 +157,36 @@ function WorkbenchBody({
   const isReact = component?.format === 'react';
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const previewContent = isReact ? previewHtml : previewRenderedHtml(previewHtml, basePath);
+  const [previewWidth, setPreviewWidth] = useState('100%');
 
   return (
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_360px]">
-      <div className="dotted-bg min-h-[300px] overflow-hidden border-r">
-        <Preview html={previewContent} iframeRef={isReact ? iframeRef : undefined} className="h-full w-full" />
+      <div className="dotted-bg flex min-h-[300px] flex-col overflow-hidden border-r">
+        <div className="flex items-center justify-center gap-1 border-b bg-background/60 p-1.5">
+          {WIDTH_PRESETS.map(({ id, label, width, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              title={label}
+              aria-label={label}
+              aria-pressed={previewWidth === width}
+              onClick={() => setPreviewWidth(width)}
+              className={cn(
+                'flex h-7 w-9 items-center justify-center rounded transition-colors [&_svg]:size-3.5',
+                previewWidth === width
+                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-300'
+                  : 'text-muted-foreground hover:bg-muted'
+              )}
+            >
+              <Icon />
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-auto p-3">
+          <div style={{ width: previewWidth, maxWidth: '100%', height: '100%', margin: '0 auto' }}>
+            <Preview html={previewContent} iframeRef={isReact ? iframeRef : undefined} className="h-full w-full" />
+          </div>
+        </div>
       </div>
       <div className="flex min-h-0 flex-col">
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
