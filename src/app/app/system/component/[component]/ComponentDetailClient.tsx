@@ -1,11 +1,10 @@
 'use client';
 
-import { BuildStatusBanner } from '@handoff/app/components/Component/BuildStatusBanner';
 import { ComponentVersionHistory } from './ComponentVersionHistory';
 import ComponentAssetsPanel from './ComponentAssetsPanel';
 import ComponentImageSlotsPanel from './ComponentImageSlotsPanel';
-import { CodeEditor } from '@handoff/app/components/Component/CodeEditor';
 import { InlineComponentEditor } from '@handoff/app/components/Component/InlineComponentEditor';
+import { PreviewBuilder } from '@handoff/app/components/Component/PreviewBuilder';
 import { ComponentPreview } from '@handoff/app/components/Component/Preview';
 import { ValidationFrameworkResults } from '@handoff/app/components/Validation/ValidationFrameworkResults';
 import { HotReloadProvider } from '@handoff/app/components/context/HotReloadProvider';
@@ -273,8 +272,7 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
               metadataDescription={metadata.description ?? ''}
               onSaved={fetchComponentData}
             />
-            <BuildStatusBanner componentId={id} onBuildComplete={fetchComponentData} />
-            <CodeEditor componentId={id} preview={component} onSourcesSaved={fetchComponentData} />
+            <PreviewBuilder componentId={id} preview={component} />
           </>
         ) : null}
       </div>

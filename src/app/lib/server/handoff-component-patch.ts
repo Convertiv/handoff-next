@@ -43,12 +43,12 @@ export type ComponentPatchBody = {
 function mergeDataJson(prev: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> {
   const next = { ...prev };
   for (const [key, value] of Object.entries(patch)) {
+    // §2a: component source/code lives in the workspace and is pushed via the CLI.
+    // The registry must never persist source edits — drop entrySources outright.
+    if (key === 'entrySources') continue;
     if (key === 'entries' && value && typeof value === 'object' && !Array.isArray(value)) {
       const prevEntries = next.entries && typeof next.entries === 'object' && !Array.isArray(next.entries) ? (next.entries as Record<string, unknown>) : {};
       next.entries = { ...prevEntries, ...(value as Record<string, unknown>) };
-    } else if (key === 'entrySources' && value && typeof value === 'object' && !Array.isArray(value)) {
-      const prevEs = next.entrySources && typeof next.entrySources === 'object' && !Array.isArray(next.entrySources) ? (next.entrySources as Record<string, unknown>) : {};
-      next.entrySources = { ...prevEs, ...(value as Record<string, unknown>) };
     } else {
       next[key] = value;
     }
