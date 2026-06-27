@@ -48,17 +48,42 @@ export default function MediaBrowser() {
   useEffect(() => {
     if (mediaBrowserOpen && assets.length === 0) {
       setLoadingAssets(true);
-      fetch(`${basePath}/api/playground-assets.json`)
-        .then((r) => (r.ok ? r.json() : { assets: [] }))
-        .then((data) => {
-          const loaded: PlaygroundAsset[] = data.assets || [];
-          setAssets(loaded);
-          if (loaded.length === 0) setActiveTab('placeholder');
+      // Prefer the imported asset library (DAM — Figma fills, uploads, etc.);
+      // fall back to static workspace assets when there's no registry/DB.
+      const loadStatic = () =>
+        fetch(`${basePath}/api/playground-assets.json`)
+          .then((r) => (r.ok ? r.json() : { assets: [] }))
+          .then((data) => {
+            const loaded: PlaygroundAsset[] = data.assets || [];
+            setAssets(loaded);
+            if (loaded.length === 0) setActiveTab('placeholder');
+          })
+          .catch(() => {
+            setAssets([]);
+            setActiveTab('placeholder');
+          });
+
+      fetch(`${basePath}/api/handoff/assets?assetType=image&status=active&limit=200`, { credentials: 'include' })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error('no-dam'))))
+        .then((rows: Record<string, unknown>[]) => {
+          const loaded: PlaygroundAsset[] = (rows || [])
+            .map((a) => ({
+              id: String(a.id),
+              name: String(a.title ?? a.name ?? 'Asset'),
+              src: String(a.storageUrl ?? a.src ?? ''),
+              thumbnail: (a.thumbnailUrl ?? a.thumbnail ?? a.storageUrl) as string | undefined,
+              alt: String(a.altText ?? a.alt ?? ''),
+              tags: (a.tags as string[]) ?? [],
+              type: a.assetType === 'video' ? 'video' : 'image',
+            }))
+            .filter((a) => a.src) as PlaygroundAsset[];
+          if (loaded.length > 0) {
+            setAssets(loaded);
+            return;
+          }
+          return loadStatic();
         })
-        .catch(() => {
-          setAssets([]);
-          setActiveTab('placeholder');
-        })
+        .catch(() => loadStatic())
         .finally(() => setLoadingAssets(false));
     }
   }, [mediaBrowserOpen, basePath]); // eslint-disable-line react-hooks/exhaustive-deps

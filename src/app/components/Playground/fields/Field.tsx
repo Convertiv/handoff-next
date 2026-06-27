@@ -80,7 +80,20 @@ function ArrayItem({ identifier, value }: { identifier: string[]; value: any }) 
       <div className="flex items-center justify-between">
         <FieldLabel label="Item" htmlFor={identifier[identifier.length - 1]} type={value.items?.type || 'object'} />
         <div className="flex items-center space-x-2">
-          <Button variant="ghost" size="sm" onClick={() => handleInputChange([...identifier], null)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              // Remove this item from the parent array (was setting it to null,
+              // which left an empty slot behind instead of deleting it).
+              const parentPath = identifier.slice(0, -1);
+              const idx = Number(identifier[identifier.length - 1]);
+              const arr = getData(parentPath);
+              if (Array.isArray(arr)) {
+                handleInputChange(parentPath, arr.filter((_: unknown, i: number) => i !== idx));
+              }
+            }}
+          >
             <Trash2Icon className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setIsOpen(!isOpen)}>
