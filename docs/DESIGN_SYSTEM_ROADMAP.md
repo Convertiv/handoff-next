@@ -841,9 +841,18 @@ hardened iframe. Full spec: schema doc §15.
   (`ComponentDisplay`) — `usePreviews` merges variants + registry into one grouped selector; one
   client-render path (`renderPreview` → opaque iframe `srcDoc` + injected height reporter); the
   workbench + per-preview edit live in the toolbar (preloaded with the current selection; save →
-  refresh + auto-select); rationale inline. Separate `PreviewBuilder` panel deleted. *Remaining
-  polish:* preview screenshots on selector items; registry-preview visibility for anon viewers
-  (GET is session-gated); collapse the multi-block render (still per-group). Original plan below:
+  refresh + auto-select); rationale inline. Separate `PreviewBuilder` panel deleted.
+  - ✅ **Field polish:** array-item trashcan now removes the item (was nulling the slot); MediaBrowser
+    "Asset Library" tab browses the imported **DAM** (`/api/handoff/assets`), falling back to static
+    workspace assets. (Shared `Field.tsx`/`MediaBrowser` — lifts the playground too.)
+  - ✅ **Anon visibility:** previews GET is public (writes stay gated), so authored previews show to
+    anonymous viewers.
+  - ⬜ **groupBy multi-block (known limitation):** when a component sets `options.preview.groupBy`,
+    each sub-block gets a *synthetic* component id (`${id}-${group}`), so `usePreviews`/workbench
+    target a non-existent component → registry previews + workbench don't work in that mode. Common
+    (single-block) components are unaffected. Fix: thread the real component id (or collapse to one
+    component-level surface + a variant filter). Rare/opt-in; deferred.
+  - ⬜ **Preview screenshots on selector items** — needs a render→thumbnail capability; deferred.
 - 🔄 ~~**Unified preview surface (decided 2026-06-27).**~~ ✅ done above. Single toggle restored.
   ~~Dedicated registry-previews card area~~ — **superseded**: a second surface was too disjoint/complex.
   **Merge everything into the one main preview window.** Key insight: a built Figma *variant* and a
