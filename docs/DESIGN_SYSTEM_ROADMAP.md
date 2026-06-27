@@ -837,16 +837,30 @@ hardened iframe. Full spec: schema doc §15.
   deferred) — a single-component playground you open to *explore*, with context-aware persistence
   ("Save as preview" / "Update preview"). The page workbench (playground, many blocks) and the
   component workbench (one block) are the same tool at two scopes.
-- ✅ **Preview selector cleanup + registry previews surfaced (#3, 2026-06-27).**
-  - **Single toggle restored** — `ComponentDisplay` no longer explodes into multi-variant
-    dropdowns; one preview selector (H1 model). Workbench seeds from a real built preview's values.
-  - **Registry previews surfaced in a dedicated card area** (decided over merging into the built
-    selector — they're distinct data: variant artifacts vs authored semantic views). Card selector
-    (title + semantic + rationale) + a live, themed render of the selected one via the §14-hardened
-    frame (`renderPreview` → `Preview`). **Auto-switch** to the saved preview on workbench save.
-  - ⬜ *Remaining polish:* preview **screenshots** on cards (needs a render→thumb capability);
-    optional later: fully merge built+registry into one selector + full preload-from-currently-viewed
-    (deferred — deep ComponentDisplay surgery + multi-block "current preview" ambiguity).
+- ✅ **Unified preview surface (#3 — merged 2026-06-27).** Built (`24cb082e`): one surface
+  (`ComponentDisplay`) — `usePreviews` merges variants + registry into one grouped selector; one
+  client-render path (`renderPreview` → opaque iframe `srcDoc` + injected height reporter); the
+  workbench + per-preview edit live in the toolbar (preloaded with the current selection; save →
+  refresh + auto-select); rationale inline. Separate `PreviewBuilder` panel deleted. *Remaining
+  polish:* preview screenshots on selector items; registry-preview visibility for anon viewers
+  (GET is session-gated); collapse the multi-block render (still per-group). Original plan below:
+- 🔄 ~~**Unified preview surface (decided 2026-06-27).**~~ ✅ done above. Single toggle restored.
+  ~~Dedicated registry-previews card area~~ — **superseded**: a second surface was too disjoint/complex.
+  **Merge everything into the one main preview window.** Key insight: a built Figma *variant* and a
+  *registry* preview are the same thing — a **named set of property values** — differing only in
+  origin. So:
+  - **One unified model** `Preview { key, label, values, source: variant|registry, semantic?,
+    rationale?, syncState? }`; built variants map from `component.previews`, registry previews are
+    fetched. **One list, one selector** (grouped Variants / Saved) in the main window.
+  - **One render path** — client-render the selected preview's `values` via `renderPreview` →
+    §14-hardened frame (retire the `.html`-src path). Client render is the pattern; **preserve perf**.
+  - **`usePreviews` hook** per component (merged list + selection + refresh) consumed by the surface
+    and the workbench — avoids prop-threading, coordinates auto-switch.
+  - **"Open component workbench"** button in the toolbar, preloaded with the **currently-selected**
+    preview (the single selection resolves the old preload ambiguity); save → refresh + select new.
+  - **Collapse** the multi-block `ComponentDisplay` to one surface per component; **delete** the
+    separate `PreviewBuilder` panel (fold its workbench dialog + CRUD behind the toolbar button).
+  - Affected by retiring `.html`: inspect mode + open-in-new-tab (decide client equivalents).
 - ⬜ **Playground unification (original framing)** — editing a playground block == editing a preview;
   a saved block ≈ a registry preview. Build once, use both.
 - ⬜ **Registry forms cleanup — remove code editing (P3).** Builds now run only in the workspace and
