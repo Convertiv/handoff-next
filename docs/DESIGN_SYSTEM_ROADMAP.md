@@ -807,6 +807,17 @@ hardened iframe. Full spec: schema doc §15.
   the asset repository (on-brand media, not placeholders). *(Future; designed-for.)*
 - ⬜ **Playground unification** — editing a playground block == editing a preview (same value-form
   + §14 render iframe; a saved block ≈ a registry preview). Build once, use both.
+- ⬜ **Registry forms cleanup — remove code editing (P3).** Builds now run only in the workspace and
+  push to the registry, so editing component *code* in the registry is a dead vestige that violates
+  the §2a rule (contract/code = upstream/code-only). Concretely:
+  - Delete the code editor — `components/Component/CodeEditor.tsx` (template/scss/js textareas +
+    "Save source") and its render + `BuildStatusBanner` in
+    `app/system/component/[component]/ComponentDetailClient.tsx`.
+  - Stop accepting source in the PATCH path — reject `data.entrySources` in
+    `app/api/handoff/components/route.ts` + `lib/server/handoff-component-patch.ts`.
+  - **Keep `InlineComponentEditor`** (title/description/group/categories/tags/should_do/should_not_do —
+    pure presentation metadata). `properties`/`previews` stay non-editable in the registry.
+  This is the forms half of P3 (alongside the §14 render hardening already shipped).
 
 **Open questions (post-spike):** schema shape and where it lives — ✅ resolved
 (`design-system/components/<id>.json`, authored from the spec). Still open and deferred to the
