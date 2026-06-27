@@ -4,6 +4,7 @@ import type { PreviewObject } from '@handoff/types/preview';
 import { useSession } from 'next-auth/react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { handoffApiUrl } from '../../lib/api-path';
+import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
@@ -13,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { EditContextProvider, useEditContext } from '../Playground/EditContext';
 import { renderFormFields } from '../Playground/fields/Field';
 import MediaBrowser from '../Playground/MediaBrowser';
-import Preview, { previewRenderedHtml } from '../Playground/Preview';
+import Preview, { previewRenderedHtml, renderPreview } from '../Playground/Preview';
 import type { PlaygroundComponent, SelectedPlaygroundComponent } from '../Playground/types';
 
 type RegistryPreview = {
@@ -39,24 +40,23 @@ function defaultsFromProperties(properties: Record<string, { default?: unknown }
 }
 
 /**
- * Registry preview builder (P2 slice 3, unified). The form, field types, and live
- * preview are the playground's — `renderFormFields` (array=repeater, object=collapsible,
- * image selector, …) + the §14-hardened themed `Preview`, wired through the shared
- * `EditContextProvider`. The builder owns only the preview-level metadata
- * (title/semantic/rationale) and CRUDs registry previews via the slice-2 API.
+ * Registry previews panel (P2 slice 3, dedicated area). Authored "instance"
+ * previews live here — distinct from the built Figma-variant previews in
+ * ComponentDisplay. Card selector (title + semantic + rationale) + a live,
+ * themed render of the selected one via the shared §14-hardened frame. The
+ * "component workbench" dialog creates/edits them through the shared playground
+ * field builder; saving auto-selects the new preview here.
  */
 export function PreviewBuilder({ componentId, preview }: { componentId: string; preview: PreviewObject | undefined }) {
   const { status, data: session } = useSession();
   const canEdit = status === 'authenticated' && Boolean(session?.user);
   const apiBase = `/api/registry/components/${encodeURIComponent(componentId)}/previews`;
+  const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
 
   const properties = useMemo(() => ((preview?.properties ?? {}) as Record<string, { default?: unknown }>), [preview?.properties]);
   const renderable = Boolean((preview as { code?: string; html?: string } | undefined)?.code || (preview as { html?: string } | undefined)?.html);
 
-  // Seed a new workbench session from a real preview's values (the first built
-  // preview) rather than bare defaults, so you start from a realistic state.
-  // (Full "preload from the currently-viewed preview" is folded into the #3
-  // selector work, which lifts the live selection state.)
+  // Seed a new workbench session from a real built preview's values.
   const seedValues = useMemo(() => {
     const built = (preview?.previews ?? {}) as Record<string, { values?: Record<string, unknown> }>;
     const first = Object.values(built)[0];
@@ -64,6 +64,8 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
   }, [preview?.previews, properties]);
 
   const [list, setList] = useState<RegistryPreview[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [viewHtml, setViewHtml] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<RegistryPreview | null>(null);
   const [title, setTitle] = useState('');
@@ -76,13 +78,44 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
     const res = await fetch(handoffApiUrl(apiBase), { credentials: 'include' });
     if (res.ok) {
       const j = (await res.json()) as { previews?: RegistryPreview[] };
-      setList(j.previews ?? []);
+      const previews = j.previews ?? [];
+      setList(previews);
+      setSelectedId((cur) => (cur && previews.some((p) => p.id === cur) ? cur : previews[0]?.id ?? null));
     }
   }, [apiBase]);
 
   useEffect(() => {
     if (canEdit) void load();
   }, [canEdit, load]);
+
+  const selected = useMemo(() => list.find((p) => p.id === selectedId) ?? null, [list, selectedId]);
+
+  // Live, themed render of the selected registry preview (read-only view).
+  useEffect(() => {
+    if (!preview || !selected) {
+      setViewHtml('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const viewComponent = {
+          ...(preview as unknown as PlaygroundComponent),
+          data: selected.values,
+          order: 0,
+          quantity: 1,
+          uniqueId: `pvview-${componentId}`,
+        } as SelectedPlaygroundComponent;
+        const html = await renderPreview(viewComponent as never, selected.values, basePath);
+        if (!cancelled) setViewHtml(html);
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, preview, basePath, componentId]);
 
   const openNew = () => {
     setEditing(null);
@@ -104,11 +137,10 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
 
   const remove = async (id: string) => {
     await fetch(handoffApiUrl(`${apiBase}/${id}`), { method: 'DELETE', credentials: 'include' });
+    if (selectedId === id) setSelectedId(null);
     await load();
   };
 
-  // The component-instance the shared EditContext edits: the real component
-  // (so the preview is themed) seeded with the values being authored.
   const selectedComponent = useMemo<SelectedPlaygroundComponent>(() => {
     const base = (preview ?? {}) as unknown as PlaygroundComponent;
     return {
@@ -147,8 +179,10 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
           setErrors([{ key: '', message: j.error || res.statusText }]);
           return;
         }
+        const j = (await res.json().catch(() => ({}))) as { preview?: { id?: string } };
         setOpen(false);
         await load();
+        if (j.preview?.id) setSelectedId(j.preview.id); // auto-switch to the saved preview
       } finally {
         setSaving(false);
       }
@@ -168,20 +202,51 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
       </div>
 
       {list.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {list.map((p) => (
-            <span key={p.id} className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs dark:border-violet-800 dark:bg-gray-900">
-              <button className="font-medium hover:underline" onClick={() => openEdit(p)}>
-                {p.title || p.previewKey}
-              </button>
-              {p.semantic ? <span className="text-violet-500">· {p.semantic}</span> : null}
-              {p.syncState === 'drifted' ? <span className="text-amber-600" title="Valid at an earlier component version">⚠</span> : null}
-              <button className="ml-1 text-gray-400 hover:text-red-500" title="Delete" onClick={() => remove(p.id)}>×</button>
-            </span>
-          ))}
-        </div>
+        <>
+          {/* Card selector */}
+          <div className="flex flex-wrap gap-2">
+            {list.map((p) => (
+              <div
+                key={p.id}
+                onClick={() => setSelectedId(p.id)}
+                className={cn(
+                  'group relative w-[180px] cursor-pointer rounded-md border px-3 py-2 text-xs transition-colors',
+                  p.id === selectedId
+                    ? 'border-violet-500 bg-white shadow-sm dark:bg-gray-900'
+                    : 'border-gray-200 bg-white/60 hover:border-violet-300 dark:border-gray-800 dark:bg-gray-900/40'
+                )}
+              >
+                <div className="truncate pr-8 font-medium text-gray-900 dark:text-gray-100">{p.title || p.previewKey}</div>
+                <div className="mt-1 flex items-center gap-1">
+                  {p.semantic ? (
+                    <span className="rounded bg-violet-100 px-1.5 py-0.5 text-[10px] text-violet-700 dark:bg-violet-900 dark:text-violet-200">{p.semantic}</span>
+                  ) : null}
+                  {p.syncState === 'drifted' ? (
+                    <span className="text-[10px] text-amber-600" title="Valid at an earlier component version">⚠ drifted</span>
+                  ) : null}
+                </div>
+                <div className="absolute right-1.5 top-1.5 hidden gap-1 group-hover:flex">
+                  <button className="text-gray-400 hover:text-violet-600" title="Edit" onClick={(e) => { e.stopPropagation(); openEdit(p); }}>✎</button>
+                  <button className="text-gray-400 hover:text-red-500" title="Delete" onClick={(e) => { e.stopPropagation(); void remove(p.id); }}>×</button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Live render of the selected registry preview */}
+          {selected ? (
+            <div className="mt-3">
+              <div className="dotted-bg min-h-[240px] overflow-hidden rounded-md border border-gray-200 dark:border-gray-800">
+                {viewHtml ? <Preview html={viewHtml} className="min-h-[240px] w-full" /> : <div className="p-4 text-xs text-gray-500">Rendering…</div>}
+              </div>
+              {selected.rationale ? (
+                <p className="mt-2 text-xs text-muted-foreground"><span className="font-medium">Why:</span> {selected.rationale}</p>
+              ) : null}
+            </div>
+          ) : null}
+        </>
       ) : (
-        <p className="text-xs text-gray-500">No registry previews yet.</p>
+        <p className="text-xs text-gray-500">No previews yet — open the component workbench to create one.</p>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
