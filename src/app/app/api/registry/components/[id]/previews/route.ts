@@ -11,10 +11,13 @@ export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-/** GET /api/registry/components/:id/previews — list registry-authored previews. */
+/**
+ * GET /api/registry/components/:id/previews — list registry-authored previews.
+ * Public (read-only): authored previews are part of the published design system,
+ * so they show in the main preview surface for anonymous viewers too. Writes
+ * (POST/PATCH/DELETE) remain session-gated.
+ */
 export async function GET(_request: Request, context: RouteContext): Promise<Response> {
-  const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await context.params;
   const previews = await listComponentPreviews(id);
   return NextResponse.json({ previews });
