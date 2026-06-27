@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, numeric, pgTable, primaryKey, serial, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { boolean, index, integer, jsonb, numeric, pgTable, primaryKey, serial, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 /** NextAuth / Auth.js — user (+ Handoff RBAC + credentials password) */
 export const users = pgTable('user', {
@@ -654,6 +654,51 @@ export const handoffComponentVersions = pgTable(
     artifactFilenames: jsonb('artifact_filenames').notNull().default([]),
   },
   (t) => [uniqueIndex('component_version_unique').on(t.componentId, t.versionNumber)]
+);
+
+/**
+ * Registry-authored component previews (Component+Preview standard, §15).
+ *
+ * The contributable instance store: previews created by PMs/designers/LLMs in
+ * the registry UI. Code-authored previews live in `handoff_component.data` and
+ * are replaced on push; THESE are preserved on push and re-validated against the
+ * (possibly new) contract. Values-only — non-serializable render inputs are not
+ * stored. Version-anchored via `component_version`: a preview stays valid at the
+ * version it was authored against even after the contract moves on.
+ */
+export const handoffComponentPreviews = pgTable(
+  'handoff_component_preview',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    componentId: text('component_id')
+      .notNull()
+      .references(() => handoffComponents.id, { onDelete: 'cascade' }),
+    /** Canonical slug id within the merged previews[] array (unique per component). */
+    previewKey: text('preview_key').notNull(),
+    /** Component version this preview was authored/validated against (§15). */
+    componentVersion: integer('component_version'),
+    title: text('title').notNull().default(''),
+    /** Serializable property value-set — validated against the component contract. */
+    values: jsonb('values').notNull().default({}),
+    /** Reserved for future asset/slot references (e.g. DAM media). */
+    slots: jsonb('slots'),
+    /** Open semantic tag: primary | secondary | destructive | … */
+    semantic: text('semantic'),
+    rationale: text('rationale'),
+    /** Origin: 'manual' (UI) | 'llm'. */
+    source: text('source').notNull().default('manual'),
+    /** 'in-sync' | 'drifted' — set by re-validation on push. */
+    syncState: text('sync_state').notNull().default('in-sync'),
+    authorId: text('author_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => [
+    index('component_preview_component_idx').on(t.componentId),
+    uniqueIndex('component_preview_key_unique').on(t.componentId, t.previewKey),
+  ]
 );
 
 /**
