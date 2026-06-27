@@ -782,10 +782,11 @@ semantic data:
 - **P2 — Authoring UI.** In-app editor to create/edit a preview by setting property values,
   with live validation and a client-side render. Semantic tag + rationale fields. *Storage +
   render models decided — see schema doc §14 (isolation) + §15 (storage/reconciliation).*
-- **P3 — Client-side rendering.** Render previews from template + tokens in the browser via the
-  **hardened iframe (§14)**: opaque-origin sandbox + srcdoc + postMessage/ResizeObserver + CSP.
-  *Fixes a live token-theft vuln (current `allow-same-origin`) and is the shared substrate for the
-  playground.* Retire the server image-build path for natively-renderable previews.
+- **P3 — Client-side rendering.** ✅ **Iframe hardening SHIPPED (commit 780df96b, verified live on
+  8x8 + SS&C):** opaque-origin sandbox + srcdoc + postMessage/ResizeObserver height + CSP
+  `connect-src 'none'` / `frame-ancestors 'self'` + route-level CORS — closed the live
+  `allow-same-origin` token-theft vuln and is the shared render substrate for the playground.
+  ⬜ Remaining: retire the server image-build path for natively-renderable previews.
 - **P4 — MCP/REST projection.** Expose previews (values + semantic tag + rationale) through the
   MCP and REST so consumers get the *meaning*, not just an image. Default to previews valid at the
   current component version. Optionally project semantic component tokens from tagged previews.
