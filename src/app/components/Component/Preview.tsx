@@ -36,7 +36,7 @@ import { Separator } from '../ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import PageSliceResolver from './PageSliceResolver';
-import { renderPreview } from '../Playground/Preview';
+import { previewRenderedHtml, renderPreview } from '../Playground/Preview';
 import type { PlaygroundComponent, SelectedPlaygroundComponent } from '../Playground/types';
 import { usePreviews } from './usePreviews';
 import { ComponentWorkbenchDialog } from './ComponentWorkbenchDialog';
@@ -138,8 +138,13 @@ export const ComponentDisplay: React.FC<{
           quantity: 1,
           uniqueId: `cd-${componentId}`,
         } as SelectedPlaygroundComponent;
-        const html = await renderPreview(view as never, selected.values, basePath);
-        if (!cancelled) setPreviewHtml(withHeightReporter(html));
+        const isReact = (component as { format?: string }).format === 'react';
+        const raw = await renderPreview(view as never, selected.values, basePath);
+        // Mirror the workbench: Handlebars output must be wrapped in
+        // previewRenderedHtml (adds the framework main.css/main.js) — templates
+        // don't all carry their own {{{style}}}. React output is already themed.
+        const content = isReact ? raw : previewRenderedHtml(raw, basePath);
+        if (!cancelled) setPreviewHtml(withHeightReporter(content));
       } catch {
         if (!cancelled) setPreviewHtml('');
       }
