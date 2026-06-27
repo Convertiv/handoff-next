@@ -811,8 +811,11 @@ hardened iframe. Full spec: schema doc §15.
 - 🔄 **Component-version UI tuning** — versioning is the backbone of preview drift handling
   ("valid at v3 · current v5", view/migrate at version); the version UI needs significant work to
   make this navigable. *(Substantial; tracked.)*
-- ⬜ **Asset-DAM ↔ previews** — let preview image/video values reference real library assets from
-  the asset repository (on-brand media, not placeholders). *(Future; designed-for.)*
+- ⬜ **Asset-DAM ↔ previews / image field** — let preview image/video values reference real library
+  assets from the asset repository (on-brand media, not placeholders). Concretely, **extend the
+  image-field MediaBrowser** (the modal you get when editing an image field) to **browse the
+  imported asset library** (Figma + other sources), not just a URL/upload — pick an existing DAM
+  asset right in the field. *(Future; designed-for.)*
 - 🔴 **Playground unification — now concrete + prioritized (2026-06-27 review).** The slice-3
   `PreviewBuilder` reinvented a weaker field builder + a second (un-themed) preview frame. Redirect:
   it must **consume the playground's existing components**, not parallel ones.
