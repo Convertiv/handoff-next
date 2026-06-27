@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, ReactNode, RefObject, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { usePlayground } from './PlaygroundContext';
 import { renderHandlebarsPreview, renderPreview, renderReactPreview } from './Preview';
 import { SelectedPlaygroundComponent } from './types';
 
@@ -32,8 +31,18 @@ interface EditContextType {
 
 const EditContext = createContext<EditContextType | undefined>(undefined);
 
-export function EditContextProvider({ component, children }: { component: SelectedPlaygroundComponent | null; children: ReactNode }) {
-  const { updateComponent } = usePlayground();
+export function EditContextProvider({
+  component,
+  onCommit,
+  children,
+}: {
+  component: SelectedPlaygroundComponent | null;
+  /** Where a save goes. Playground passes updateComponent; the preview builder
+   *  passes its registry-save. Decouples this context from PlaygroundContext so
+   *  both surfaces share the field builder + preview frame. */
+  onCommit?: (updated: SelectedPlaygroundComponent) => void | Promise<void>;
+  children: ReactNode;
+}) {
   const [data, setData] = useState<any>(null);
   const [properties, setProperties] = useState<any>({});
   const [previewHtml, setPreviewHtml] = useState<string>('');
@@ -137,8 +146,8 @@ export function EditContextProvider({ component, children }: { component: Select
     if (!component) return;
     const updatedComponent = { ...component, data };
     updatedComponent.rendered = await renderPreview(updatedComponent, data, basePath);
-    updateComponent(updatedComponent);
-  }, [component, data, updateComponent, basePath]);
+    await onCommit?.(updatedComponent);
+  }, [component, data, onCommit, basePath]);
 
   return (
     <EditContext.Provider

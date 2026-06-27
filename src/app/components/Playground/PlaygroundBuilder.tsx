@@ -104,6 +104,7 @@ export default function PlaygroundBuilder() {
     setEditingPatternId,
     loadPatternById,
     isDynamicApp,
+    updateComponent,
   } = usePlayground();
 
   const [html, setHtml] = useState('');
@@ -461,7 +462,7 @@ export default function PlaygroundBuilder() {
         {rightPanelOpen && (
           <div className="flex w-[300px] shrink-0 flex-col border-l bg-background">
             {activeComponent ? (
-              <EditContextProvider key={activeComponent.uniqueId} component={activeComponent}>
+              <EditContextProvider key={activeComponent.uniqueId} component={activeComponent} onCommit={updateComponent}>
                 <RightPanelContent />
                 <MediaBrowser />
               </EditContextProvider>
