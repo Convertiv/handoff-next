@@ -264,17 +264,16 @@ export default function ComponentDetailClient({ id, menu, config, current, metad
           </div>
         ) : null}
         {isEditing ? (
-          <>
-            <InlineComponentEditor
-              componentId={id}
-              preview={component}
-              metadataTitle={metadata.title}
-              metadataDescription={metadata.description ?? ''}
-              onSaved={fetchComponentData}
-            />
-            <PreviewBuilder componentId={id} preview={component} />
-          </>
+          <InlineComponentEditor
+            componentId={id}
+            preview={component}
+            metadataTitle={metadata.title}
+            metadataDescription={metadata.description ?? ''}
+            onSaved={fetchComponentData}
+          />
         ) : null}
+        {/* Previews live outside metadata-edit — authoring a preview is a separate gesture. */}
+        <PreviewBuilder componentId={id} preview={component} />
       </div>
       <div ref={ref} className="lg:gap-10 lg:pb-8 xl:grid xl:grid-cols-[minmax(0,1fr)_220px]">
         <div className="max-w-[900px]">

@@ -153,7 +153,7 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
       <div className="mb-3 flex items-center justify-between">
         <p className="text-xs font-medium uppercase tracking-wide text-violet-800 dark:text-violet-200">Previews</p>
         <Button size="sm" variant="outline" onClick={openNew} disabled={!renderable} title={renderable ? undefined : 'No renderable template for this component'}>
-          + New preview
+          Open component workbench
         </Button>
       </div>
 
@@ -177,7 +177,7 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="flex h-[90vh] max-w-[95vw] flex-col gap-0 p-0">
           <DialogHeader className="border-b px-4 py-3">
-            <DialogTitle className="text-sm">{editing ? 'Edit preview' : 'New preview'} — {preview?.title}</DialogTitle>
+            <DialogTitle className="text-sm">Component workbench — {preview?.title}</DialogTitle>
           </DialogHeader>
           {open ? (
             <EditContextProvider key={selectedComponent.uniqueId} component={selectedComponent} onCommit={handleCommit}>
@@ -190,6 +190,7 @@ export function PreviewBuilder({ componentId, preview }: { componentId: string; 
                 setRationale={setRationale}
                 errors={errors}
                 saving={saving}
+                saveLabel={editing ? 'Update preview' : 'Save as preview'}
               />
               <MediaBrowser />
             </EditContextProvider>
@@ -210,6 +211,7 @@ function PreviewEditorBody({
   setRationale,
   errors,
   saving,
+  saveLabel,
 }: {
   title: string;
   setTitle: (v: string) => void;
@@ -219,6 +221,7 @@ function PreviewEditorBody({
   setRationale: (v: string) => void;
   errors: { key: string; message: string }[];
   saving: boolean;
+  saveLabel: string;
 }) {
   const { component, properties, data, previewHtml, iframeRef, handleSave } = useEditContext();
   const isReact = component?.format === 'react';
@@ -270,7 +273,7 @@ function PreviewEditorBody({
         </div>
         <div className="border-t p-3">
           <Button onClick={handleSave} disabled={saving || !title.trim()} size="sm" className="w-full">
-            {saving ? 'Saving…' : 'Save preview'}
+            {saving ? 'Saving…' : saveLabel}
           </Button>
         </div>
       </div>
