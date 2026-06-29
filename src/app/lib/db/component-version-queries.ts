@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, gte, max, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, max, sql } from 'drizzle-orm';
 import { getDb } from './index';
 import { componentArtifacts, handoffComponents, handoffComponentVersions, users } from './schema';
 
@@ -441,4 +441,133 @@ export async function getRecentComponentChanges(
     componentTitle: r.componentTitle ?? r.componentId,
     componentGroup: r.componentGroup ?? '',
   }));
+}
+
+// ─── One-time redundant-version cleanup ──────────────────────────────────────
+
+/** True when two stored versions carry the same source-file hash map. */
+function sourceHashesEqual(a: Record<string, string>, b: Record<string, string>): boolean {
+  const ak = Object.keys(a);
+  const bk = Object.keys(b);
+  if (ak.length !== bk.length) return false;
+  return ak.every((k) => a[k] === b[k]);
+}
+
+/** True when two stored versions list the same artifact filenames. */
+function artifactsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const as = [...a].sort();
+  const bs = [...b].sort();
+  return as.every((f, i) => f === bs[i]);
+}
+
+/**
+ * Two versions are equivalent (the later one is a churn duplicate) when their
+ * snapshots fingerprint the same under the volatile-stripped canonical hash
+ * AND their source hashes + artifact lists match. This is exactly the no-op
+ * condition `recordComponentVersion` now skips on push — applied retroactively
+ * to rows created before the fix.
+ */
+function versionsEquivalent(
+  prev: typeof handoffComponentVersions.$inferSelect,
+  curr: typeof handoffComponentVersions.$inferSelect
+): boolean {
+  if (objectFingerprint(prev.snapshot ?? null) !== objectFingerprint(curr.snapshot ?? null)) return false;
+  if (!sourceHashesEqual(
+    (prev.sourceFileHashes ?? {}) as Record<string, string>,
+    (curr.sourceFileHashes ?? {}) as Record<string, string>
+  )) return false;
+  return artifactsEqual(
+    (prev.artifactFilenames ?? []) as string[],
+    (curr.artifactFilenames ?? []) as string[]
+  );
+}
+
+export interface VersionCleanupComponentReport {
+  componentId: string;
+  total: number;
+  kept: number;
+  deletedVersionNumbers: number[];
+}
+
+export interface VersionCleanupReport {
+  dryRun: boolean;
+  componentsScanned: number;
+  componentsAffected: number;
+  versionsDeleted: number;
+  details: VersionCleanupComponentReport[];
+}
+
+/**
+ * Collapse consecutive churn-duplicate versions left behind by the
+ * over-sensitive diff (validationResults/sharedStyles churn). For each
+ * component we keep the first version, then walk ascending and drop any
+ * version equivalent to the last KEPT one — leaving genuine changes intact.
+ *
+ * Version numbers are NOT renumbered (the compare UI + any links reference
+ * them); gaps are expected and harmless. Kept versions' `changeSummary` stays
+ * accurate because deleted neighbours had identical content.
+ *
+ * Defaults to a dry run — pass `{ dryRun: false }` to actually delete.
+ */
+export async function cleanupRedundantComponentVersions(
+  opts: { dryRun?: boolean } = {}
+): Promise<VersionCleanupReport> {
+  const dryRun = opts.dryRun !== false;
+  const db = getDb();
+
+  const comps = await db
+    .selectDistinct({ componentId: handoffComponentVersions.componentId })
+    .from(handoffComponentVersions);
+
+  const details: VersionCleanupComponentReport[] = [];
+  const idsToDelete: number[] = [];
+
+  for (const { componentId } of comps) {
+    const rows = await db
+      .select()
+      .from(handoffComponentVersions)
+      .where(eq(handoffComponentVersions.componentId, componentId))
+      .orderBy(asc(handoffComponentVersions.versionNumber));
+
+    if (rows.length <= 1) continue;
+
+    let lastKept = rows[0]; // always keep the first version
+    const deletedVersionNumbers: number[] = [];
+    for (let i = 1; i < rows.length; i++) {
+      const v = rows[i];
+      if (versionsEquivalent(lastKept, v)) {
+        deletedVersionNumbers.push(v.versionNumber);
+        idsToDelete.push(v.id);
+      } else {
+        lastKept = v;
+      }
+    }
+
+    if (deletedVersionNumbers.length > 0) {
+      details.push({
+        componentId,
+        total: rows.length,
+        kept: rows.length - deletedVersionNumbers.length,
+        deletedVersionNumbers,
+      });
+    }
+  }
+
+  if (!dryRun && idsToDelete.length > 0) {
+    // Chunk the delete to keep parameter counts sane on large cleanups.
+    const CHUNK = 500;
+    for (let i = 0; i < idsToDelete.length; i += CHUNK) {
+      const chunk = idsToDelete.slice(i, i + CHUNK);
+      await db.delete(handoffComponentVersions).where(inArray(handoffComponentVersions.id, chunk));
+    }
+  }
+
+  return {
+    dryRun,
+    componentsScanned: comps.length,
+    componentsAffected: details.length,
+    versionsDeleted: idsToDelete.length,
+    details,
+  };
 }

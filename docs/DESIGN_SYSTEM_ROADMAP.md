@@ -848,6 +848,12 @@ shows (`title/description/group/type` via jsonb `->>`), not the full per-version
 (`ComponentVersionListItem`). `getComponentVersion` queries by `(componentId, versionNumber)` instead
 of scanning all rows.
 
+**One-time cleanup (existing churn dupes).** `cleanupRedundantComponentVersions({dryRun})` collapses
+consecutive versions that differ only by the volatile churn (reuses the same canonical fingerprint),
+keeping the first version + every genuine change; version numbers are not renumbered (gaps are fine).
+Exposed at `POST /api/admin/cleanup-versions` (HANDOFF_SYNC_SECRET bearer, same as migrate) — **dry
+run by default**, `?apply=true` to delete. Run once per registry deployment.
+
 **Deferred — token-version diffs.** Token snapshots (`handoff_tokens_snapshots`) have no per-version
 change-summary/versioning layer yet — a separate build. Scoped for later.
 
