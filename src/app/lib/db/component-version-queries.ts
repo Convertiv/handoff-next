@@ -44,6 +44,28 @@ export interface ComponentVersionRecord {
   artifactFilenames: string[];
 }
 
+/**
+ * Light row for the history list — same shape as a full record but with the
+ * heavy snapshot fields (`data`/`properties`/`previews`) omitted. The history
+ * UI only renders title/description/group/type + change summary + file lists,
+ * so the list query never transfers the full per-version `data` blob (which
+ * embeds the whole ComponentObject).
+ */
+export interface ComponentVersionListItem {
+  id: number;
+  componentId: string;
+  versionNumber: number;
+  pushedAt: Date;
+  pushedByUserId: string | null;
+  pushedByName: string | null;
+  pushedByEmail: string | null;
+  trigger: string;
+  snapshot: Pick<ComponentVersionSnapshot, 'title' | 'description' | 'group' | 'type'>;
+  changeSummary: ComponentChangeSummary;
+  sourceFileHashes: Record<string, string>;
+  artifactFilenames: string[];
+}
+
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
 /** 12-hex-char fingerprint of a string — good enough for change detection. */
@@ -51,10 +73,38 @@ function fingerprint(content: string): string {
   return createHash('sha256').update(content).digest('hex').slice(0, 12);
 }
 
+/**
+ * Keys (at any depth in a component `data`/preview blob) that are *derived* or
+ * *per-run volatile* — they change on every push without representing an
+ * authored change, so we exclude them from version change-detection. Leaving
+ * them in produced a new version on EVERY push: `validationResults` carries a
+ * fresh `runAt` timestamp + `durationMs` each run, and `sharedStyles` is the
+ * compiled global CSS (recompiled on any token change, duplicated into every
+ * component). Real component changes still surface via `code`/`css`/`html` in
+ * `data` and via `sourceFileHashes`.
+ */
+const VOLATILE_FINGERPRINT_KEYS = new Set(['validationResults', 'validations', 'sharedStyles']);
+
+/**
+ * Canonicalize a value for fingerprinting: sort object keys (so key-order
+ * churn doesn't read as a change) and drop volatile/derived keys recursively.
+ */
+function canonicalizeForFingerprint(val: unknown): unknown {
+  if (val === null || typeof val !== 'object') return val;
+  if (Array.isArray(val)) return val.map(canonicalizeForFingerprint);
+  const obj = val as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(obj).sort()) {
+    if (VOLATILE_FINGERPRINT_KEYS.has(key)) continue;
+    out[key] = canonicalizeForFingerprint(obj[key]);
+  }
+  return out;
+}
+
 /** Stable JSON fingerprint for an arbitrary object (handles null). */
 function objectFingerprint(val: unknown): string {
   if (val == null) return 'null';
-  return fingerprint(JSON.stringify(val));
+  return fingerprint(JSON.stringify(canonicalizeForFingerprint(val)));
 }
 
 // ─── Core recording function ─────────────────────────────────────────────────
@@ -237,16 +287,52 @@ export async function recordComponentVersion(params: {
 export async function getComponentVersionHistory(
   componentId: string,
   limit = 50
-): Promise<ComponentVersionRecord[]> {
+): Promise<ComponentVersionListItem[]> {
   const db = getDb();
   const rows = await db
-    .select()
+    .select({
+      id: handoffComponentVersions.id,
+      componentId: handoffComponentVersions.componentId,
+      versionNumber: handoffComponentVersions.versionNumber,
+      pushedAt: handoffComponentVersions.pushedAt,
+      pushedByUserId: handoffComponentVersions.pushedByUserId,
+      pushedByName: handoffComponentVersions.pushedByName,
+      pushedByEmail: handoffComponentVersions.pushedByEmail,
+      trigger: handoffComponentVersions.trigger,
+      // Extract only the light snapshot fields the history UI shows — never the
+      // full `data`/`properties`/`previews` jsonb.
+      snapTitle: sql<string | null>`${handoffComponentVersions.snapshot}->>'title'`,
+      snapDescription: sql<string | null>`${handoffComponentVersions.snapshot}->>'description'`,
+      snapGroup: sql<string | null>`${handoffComponentVersions.snapshot}->>'group'`,
+      snapType: sql<string | null>`${handoffComponentVersions.snapshot}->>'type'`,
+      changeSummary: handoffComponentVersions.changeSummary,
+      sourceFileHashes: handoffComponentVersions.sourceFileHashes,
+      artifactFilenames: handoffComponentVersions.artifactFilenames,
+    })
     .from(handoffComponentVersions)
     .where(eq(handoffComponentVersions.componentId, componentId))
     .orderBy(desc(handoffComponentVersions.versionNumber))
     .limit(limit);
 
-  return rows.map(rowToRecord);
+  return rows.map((r) => ({
+    id: r.id,
+    componentId: r.componentId,
+    versionNumber: r.versionNumber,
+    pushedAt: r.pushedAt as Date,
+    pushedByUserId: r.pushedByUserId,
+    pushedByName: r.pushedByName,
+    pushedByEmail: r.pushedByEmail,
+    trigger: r.trigger,
+    snapshot: {
+      title: r.snapTitle ?? '',
+      description: r.snapDescription,
+      group: r.snapGroup,
+      type: r.snapType,
+    },
+    changeSummary: (r.changeSummary ?? {}) as ComponentChangeSummary,
+    sourceFileHashes: (r.sourceFileHashes ?? {}) as Record<string, string>,
+    artifactFilenames: ((r.artifactFilenames ?? []) as string[]),
+  }));
 }
 
 export async function getComponentVersionCount(componentId: string): Promise<number> {
