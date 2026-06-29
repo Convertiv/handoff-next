@@ -689,6 +689,34 @@ It feeds Phase 2 (native foundation/asset capability) and Phase 3 (registry API 
   full width; if so, lower the `xl`→`lg` visibility breakpoint. (Empty pages now correctly show
   nothing; populated focus/elevation pages will gain a TOC once the extractor above lands.)
 
+### Neon egress reduction (2026-06-27) — prompted by a high dev network bill
+
+Neon bills data transfer separately; ~$120/mo on three dev sites traced to read paths moving full
+component JSONB on every request.
+
+**Done (fixes 1–4):**
+1. **List/menu column projection** — new `getDbComponentSummaries()` selects metadata columns only
+   (no `data`/`properties`/`previews`); `getMenu`/`getComponentSummaries` + the component detail
+   page route through it. Was `SELECT *` (incl. `sharedStyles`, ~97% of each row) on every page
+   load via the root layout's `getMenu()`. `getComponents()` stays full — many consumers (MCP,
+   pattern-gen, design pages, figma-sync) need `data`.
+2. **`getComponent(id)` by-id** — `WHERE id = ? LIMIT 1` instead of fetching all rows and `.find()`.
+3. **`React.cache()`** around the component/summary/token fetchers — collapses the 2–3× duplicate
+   queries a single render issues (layout + page + generateMetadata) into one DB hit.
+4. **Token snapshot `LIMIT 1`** — `jsonb_exists(payload,'localStyles')` + newest-only, replacing
+   fetch-25-then-filter-in-memory (25× → 1×).
+
+**Follow-ups (not yet done):**
+- **Version history projection** — `getComponentVersionHistory` pulls full `snapshot` jsonb for up
+  to 50 rows; project to metadata + `changeSummary` for the list, load full snapshot only when
+  diffing one version. *Bundle with the versioning-churn fix (#3).*
+- **`getRuntimeComponent` full scans** — `figma-plugin-properties-sync.ts` / `figma-audit-api.ts`
+  scan all rows to find one; switch to `getDbComponentById`.
+- **Polling** — gate the client poll loops (design-artifact, builds, figma-fetch) on
+  `document.visibilityState`; lengthen idle intervals.
+- **Registry route caching** — consider `unstable_cache`/tags for static-ish `/api/registry/*`
+  (fonts, icons, dtcg) instead of blanket `force-dynamic`, for external consumers.
+
 ### Backlog
 - **Decoupled batch image endpoint** — move component-referenced images off the component push
   payload onto a dedicated, batched upload endpoint (mirroring the fonts pattern). The component

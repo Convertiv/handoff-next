@@ -1,4 +1,3 @@
-import type { ComponentListObject } from '@handoff/transformers/preview/types';
 import { startCase } from 'lodash';
 import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getCurrentSection } from '../../../../components/util';
 import { getDataProvider } from '../../../../lib/data';
@@ -6,25 +5,15 @@ import ComponentDetailClient from './ComponentDetailClient';
 
 export const dynamicParams = true;
 
-function listToLegacySummaries(list: ComponentListObject[]) {
-  return list.map((c) => ({
-    id: c.id,
-    type: c.type,
-    group: c.group || '',
-    name: c.title || '',
-    description: c.description || '',
-  }));
-}
-
 export async function generateStaticParams() {
-  const list = await getDataProvider().getComponents();
+  const list = await getDataProvider().getComponentSummaries();
   const comps = list.map((c) => ({ component: c.id }));
   return comps.length > 0 ? comps : [{ component: '_placeholder' }];
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ component: string }> }) {
   const { component } = await params;
-  const components = listToLegacySummaries(await getDataProvider().getComponents());
+  const components = await getDataProvider().getComponentSummaries();
   const config = getClientRuntimeConfig();
   const componentData = components.find((c) => c.id === component);
   const docs = fetchDocPageMetadataAndContent('docs/system/', component);
@@ -38,8 +27,10 @@ export async function generateMetadata({ params }: { params: Promise<{ component
 
 export default async function ComponentPage({ params }: { params: Promise<{ component: string }> }) {
   const { component } = await params;
-  const [menu, list] = await Promise.all([getDataProvider().getMenu(), getDataProvider().getComponents()]);
-  const components = listToLegacySummaries(list);
+  const [menu, components] = await Promise.all([
+    getDataProvider().getMenu(),
+    getDataProvider().getComponentSummaries(),
+  ]);
   const config = getClientRuntimeConfig();
   const componentData = components.find((c) => c.id === component);
   const docs = fetchDocPageMetadataAndContent('docs/system/', component);

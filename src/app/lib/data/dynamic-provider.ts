@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import type { InferSelectModel } from 'drizzle-orm';
 import type { ComponentListObject, ComponentObject, PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
 import type { ClientConfig } from '@handoff/types/config';
@@ -11,7 +12,13 @@ import {
   type ComponentMenuSummary,
 } from '../../components/util';
 import { handoffComponents, handoffPatterns } from '../db/schema';
-import { getDbComponents, getDbPatterns, getDbTokensSnapshot } from '../db/queries';
+import {
+  getDbComponents,
+  getDbComponentById,
+  getDbComponentSummaries,
+  getDbPatterns,
+  getDbTokensSnapshot,
+} from '../db/queries';
 import type { DataProvider, DocPageContent, DtcgManifest, DtcgTokenStrings, DtcgTokenType } from './types';
 import { StaticDataProvider } from './static-provider';
 import { injectSystemUtilityLinks, mergeDbNavIntoSkeleton, shapeComponentCatalogSubSections } from './menu-merge';
@@ -106,14 +113,32 @@ function mergeComponentLists(staticList: ComponentListObject[], dbRows: HandoffC
   return [...merged.values()].sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id));
 }
 
-function mergedComponentsToMenuSummaries(list: ComponentListObject[]): ComponentMenuSummary[] {
-  return list.map((c) => ({
-    id: c.id,
-    type: c.type,
-    group: c.group ?? '',
-    name: c.title || '',
-    description: c.description || '',
-  }));
+/** Light projected DB row (no jsonb) — see `getDbComponentSummaries`. */
+type ComponentSummaryRow = Awaited<ReturnType<typeof getDbComponentSummaries>>[number];
+
+function summaryFromRow(r: ComponentSummaryRow): ComponentMenuSummary {
+  return {
+    id: r.id,
+    type: r.type ?? 'element',
+    group: r.group ?? '',
+    name: r.title || '',
+    description: r.description ?? '',
+  };
+}
+
+/**
+ * Summary-level merge for the menu/index path — mirrors `mergeComponentLists`
+ * but over projected rows (no jsonb). In registry mode the DB is the source of
+ * truth, so a DB row overrides the static entry for the same id.
+ */
+function mergeComponentSummaries(
+  staticList: ComponentMenuSummary[],
+  dbRows: ComponentSummaryRow[]
+): ComponentMenuSummary[] {
+  const merged = new Map<string, ComponentMenuSummary>();
+  for (const item of staticList) merged.set(item.id, item);
+  for (const r of dbRows) merged.set(r.id, summaryFromRow(r));
+  return [...merged.values()].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
 }
 
 /** Heuristic: Design System → Components blocks use links under `system/component/`. */
@@ -127,8 +152,7 @@ function looksLikeComponentCatalogSubSections(sub: SectionLink['subSections']): 
   );
 }
 
-function injectMergedComponentMenus(menu: SectionLink[], merged: ComponentListObject[]): SectionLink[] {
-  const summaries = mergedComponentsToMenuSummaries(merged);
+function injectMergedComponentMenus(menu: SectionLink[], summaries: ComponentMenuSummary[]): SectionLink[] {
   const rebuilt = buildComponentSubmenusFromSummaries(summaries, true);
   // Shape is enforced + tested in `./menu-merge.ts` so the bad-paths bug that
   // brought down the registry (Next/Link splitting undefined hrefs) can't
@@ -342,6 +366,25 @@ async function safeDbComponents(): Promise<HandoffComponentRow[]> {
   }
 }
 
+async function safeDbComponentSummaries(): Promise<ComponentSummaryRow[]> {
+  try {
+    return await getDbComponentSummaries();
+  } catch (err) {
+    if (isBuildPhase() || isUndefinedTableError(err)) {
+      logDbFallback('handoff_component', err);
+      return [];
+    }
+    throw err;
+  }
+}
+
+// Per-request memoization (React `cache`): collapses the duplicate fetches a
+// single render issues — e.g. the component detail page calls getMenu() +
+// getComponents() (and generateMetadata) within one request — into one DB hit.
+const cachedDbComponents = cache(safeDbComponents);
+const cachedDbComponentSummaries = cache(safeDbComponentSummaries);
+const cachedTokensSnapshot = cache(getDbTokensSnapshot);
+
 async function safeDbPatterns(): Promise<HandoffPatternRow[]> {
   try {
     return await getDbPatterns();
@@ -358,17 +401,29 @@ export class DynamicDataProvider implements DataProvider {
   private fallback = new StaticDataProvider();
 
   async getComponents(): Promise<ComponentListObject[]> {
-    const [dbRows, staticList] = await Promise.all([safeDbComponents(), this.fallback.getComponents()]);
+    const [dbRows, staticList] = await Promise.all([cachedDbComponents(), this.fallback.getComponents()]);
     return mergeComponentLists(staticList, dbRows);
   }
 
   async getComponentSummaries(): Promise<ComponentMenuSummary[]> {
-    return mergedComponentsToMenuSummaries(await this.getComponents());
+    // Light path: projected DB rows (no jsonb) merged with static summaries —
+    // never pulls component `data`/`sharedStyles`. This backs the menu + index.
+    const [dbRows, staticSummaries] = await Promise.all([
+      cachedDbComponentSummaries(),
+      this.fallback.getComponentSummaries(),
+    ]);
+    return mergeComponentSummaries(staticSummaries, dbRows);
   }
 
   async getComponent(id: string): Promise<ComponentObject | null> {
-    const rows = await safeDbComponents();
-    const row = rows.find((r) => r.id === id);
+    // Fetch only the requested row instead of scanning the whole table.
+    let row: HandoffComponentRow | null = null;
+    try {
+      row = await getDbComponentById(id);
+    } catch (err) {
+      if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
+      logDbFallback('handoff_component', err);
+    }
     if (row?.data && typeof row.data === 'object') {
       return row.data as ComponentObject;
     }
@@ -399,7 +454,7 @@ export class DynamicDataProvider implements DataProvider {
   async getTokens(): Promise<CoreTypes.IDocumentationObject> {
     let snap: unknown = null;
     try {
-      snap = await getDbTokensSnapshot();
+      snap = await cachedTokensSnapshot();
     } catch (err) {
       if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
       logDbFallback('handoff_tokens_snapshot', err);
@@ -551,8 +606,8 @@ export class DynamicDataProvider implements DataProvider {
       ];
     }
 
-    const merged = await this.getComponents();
-    const skeleton = injectMergedComponentMenus(base, merged);
+    const summaries = await this.getComponentSummaries();
+    const skeleton = injectMergedComponentMenus(base, summaries);
 
     let dbTree: import('./menu-merge').DbNavNode[] | null = null;
     try {
@@ -571,7 +626,6 @@ export class DynamicDataProvider implements DataProvider {
     const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
     const resolver: import('./menu-merge').DynamicMenuResolver = {
       components: (filter) => {
-        const summaries = mergedComponentsToMenuSummaries(merged);
         const groups = buildComponentSubmenusFromSummaries(summaries, filter) as Array<{
           title: string;
           menu: Array<{ path: string; title: string }>;

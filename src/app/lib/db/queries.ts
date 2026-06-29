@@ -65,6 +65,35 @@ export async function getDbComponents() {
   return db.select().from(handoffComponents);
 }
 
+/**
+ * Light list projection — metadata columns only, NO jsonb (`data`/`properties`/
+ * `previews`). The menu and component-index views only need these fields; the
+ * full-row `getDbComponents()` transferred every component's `data` blob (~97%
+ * of which is `sharedStyles`) on every page load. Use this for list/menu paths;
+ * reserve the full fetch for single-component detail.
+ */
+export async function getDbComponentSummaries() {
+  const db = getDb();
+  return db
+    .select({
+      id: handoffComponents.id,
+      path: handoffComponents.path,
+      title: handoffComponents.title,
+      description: handoffComponents.description,
+      group: handoffComponents.group,
+      image: handoffComponents.image,
+      type: handoffComponents.type,
+    })
+    .from(handoffComponents);
+}
+
+/** Fetch a single component row by id (full jsonb), instead of scanning all rows. */
+export async function getDbComponentById(id: string) {
+  const db = getDb();
+  const rows = await db.select().from(handoffComponents).where(eq(handoffComponents.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
 export async function getDbPatterns() {
   const db = getDb();
   return db.select().from(handoffPatterns);
@@ -266,15 +295,17 @@ export async function countQueuedOrBuildingJobs(): Promise<number> {
  */
 export async function getDbTokensSnapshot(): Promise<unknown | null> {
   const db = getDb();
+  // Filter for the `localStyles` key in SQL and take only the newest match, so
+  // we transfer one payload instead of pulling 25 full snapshots and scanning
+  // them in memory. `jsonb_exists` is the function form of the `?` operator
+  // (avoids the `?` placeholder ambiguity in the query string).
   const rows = await db
-    .select()
+    .select({ payload: handoffTokensSnapshots.payload })
     .from(handoffTokensSnapshots)
+    .where(sql`jsonb_exists(${handoffTokensSnapshots.payload}, 'localStyles')`)
     .orderBy(desc(handoffTokensSnapshots.id))
-    .limit(25);
-  const withLocalStyles = rows.find(
-    (r) => r.payload && typeof r.payload === 'object' && 'localStyles' in (r.payload as Record<string, unknown>)
-  );
-  return withLocalStyles?.payload ?? null;
+    .limit(1);
+  return rows[0]?.payload ?? null;
 }
 
 export async function listRecentFigmaFetchJobs(limit = 50) {
