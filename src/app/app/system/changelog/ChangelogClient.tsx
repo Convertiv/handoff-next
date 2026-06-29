@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ChevronDown, ChevronRight, GitCommit, FileText, Palette, User } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitCommit, FileText, MessageSquare, Palette, Sparkles, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -193,7 +193,7 @@ function ValueChip({ v }: { v: unknown }) {
   );
 }
 
-function TokenEntry({ entry }: { entry: Extract<UnifiedChangelogEntry, { entityType: 'token' }> }) {
+function TokenEntry({ entry, aiEnabled }: { entry: Extract<UnifiedChangelogEntry, { entityType: 'token' }>; aiEnabled: boolean }) {
   const [open, setOpen] = useState(false);
   const d = entry.changeDetails ?? { added: {}, removed: {}, modified: {} };
   const modified = Object.entries(d.modified ?? {});
@@ -222,6 +222,7 @@ function TokenEntry({ entry }: { entry: Extract<UnifiedChangelogEntry, { entityT
             <span className="text-xs text-muted-foreground">· {entry.totalCount} total tokens</span>
           </div>
           <TokenChangeTags entry={entry} />
+          <ChangeWhy entityType="token" id={entry.id} message={entry.message} aiSummary={entry.aiSummary} aiEnabled={aiEnabled} />
         </div>
         <div className="shrink-0 space-y-0.5 text-right">
           {entry.pushedByName && (
@@ -311,9 +312,76 @@ function PageChangeTags({ entry }: { entry: Extract<UnifiedChangelogEntry, { ent
   return <div className="flex flex-wrap gap-1">{tags}</div>;
 }
 
+// ─── "Why" line (human message or AI-drafted, with on-demand draft) ────────
+
+function ChangeWhy({
+  entityType,
+  id,
+  message,
+  aiSummary,
+  aiEnabled,
+}: {
+  entityType: 'component' | 'token' | 'page';
+  id: number;
+  message: string | null;
+  aiSummary: string | null;
+  aiEnabled: boolean;
+}) {
+  const [resolved, setResolved] = useState<{ summary: string | null; source: 'message' | 'ai' | 'none' }>(
+    message?.trim()
+      ? { summary: message.trim(), source: 'message' }
+      : aiSummary?.trim()
+        ? { summary: aiSummary.trim(), source: 'ai' }
+        : { summary: null, source: 'none' }
+  );
+  const [loading, setLoading] = useState(false);
+
+  if (resolved.summary) {
+    return (
+      <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+        {resolved.source === 'ai' ? (
+          <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-violet-500" aria-label="AI-drafted" />
+        ) : (
+          <MessageSquare className="mt-0.5 h-3 w-3 shrink-0" aria-label="Push message" />
+        )}
+        <span className="italic">{resolved.summary}</span>
+      </p>
+    );
+  }
+  if (!aiEnabled) return null;
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setLoading(true);
+        try {
+          const res = await fetch(handoffApiUrl('/api/handoff/changes/why'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ entityType, id }),
+          });
+          if (res.ok) {
+            const j = (await res.json()) as { summary: string | null; source: 'message' | 'ai' | 'none' };
+            if (j.summary) setResolved({ summary: j.summary, source: j.source });
+          }
+        } finally {
+          setLoading(false);
+        }
+      }}
+      className="inline-flex items-center gap-1 text-xs text-violet-600 hover:underline disabled:opacity-50 dark:text-violet-400"
+    >
+      <Sparkles className="h-3 w-3" />
+      {loading ? 'Drafting…' : 'Draft why'}
+    </button>
+  );
+}
+
 // ─── Entry row ────────────────────────────────────────────────────────────────
 
-function EntryRow({ entry }: { entry: UnifiedChangelogEntry }) {
+function EntryRow({ entry, aiEnabled }: { entry: UnifiedChangelogEntry; aiEnabled: boolean }) {
   if (entry.entityType === 'component') {
     return (
       <div className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/40">
@@ -334,6 +402,7 @@ function EntryRow({ entry }: { entry: UnifiedChangelogEntry }) {
             <span className="font-mono text-xs text-muted-foreground">v{entry.versionNumber}</span>
           </div>
           <ComponentChangeTags s={entry.changeSummary as ChangeSummary} />
+          <ChangeWhy entityType="component" id={entry.id} message={entry.message} aiSummary={entry.aiSummary} aiEnabled={aiEnabled} />
         </div>
         <div className="shrink-0 text-right space-y-0.5">
           {entry.pushedByName && (
@@ -352,7 +421,7 @@ function EntryRow({ entry }: { entry: UnifiedChangelogEntry }) {
   }
 
   if (entry.entityType === 'token') {
-    return <TokenEntry entry={entry} />;
+    return <TokenEntry entry={entry} aiEnabled={aiEnabled} />;
   }
 
   // page
@@ -368,6 +437,7 @@ function EntryRow({ entry }: { entry: UnifiedChangelogEntry }) {
           <span className="font-mono text-xs text-muted-foreground">· {entry.slug}</span>
         </div>
         <PageChangeTags entry={entry} />
+        <ChangeWhy entityType="page" id={entry.id} message={entry.message} aiSummary={entry.aiSummary} aiEnabled={aiEnabled} />
       </div>
       <div className="shrink-0 text-right space-y-0.5">
         {entry.pushedByName && (
@@ -389,6 +459,7 @@ function EntryRow({ entry }: { entry: UnifiedChangelogEntry }) {
 
 export function ChangelogClient() {
   const [allEntries, setAllEntries] = useState<UnifiedChangelogEntry[]>([]);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('30d');
@@ -418,8 +489,9 @@ export function ChangelogClient() {
     fetch(handoffApiUrl(`/api/handoff/changelog?${params.toString()}`), { credentials: 'include' })
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { changes: UnifiedChangelogEntry[]; total: number };
+        const data = (await res.json()) as { changes: UnifiedChangelogEntry[]; total: number; aiEnabled?: boolean };
         setAllEntries(data.changes ?? []);
+        setAiEnabled(Boolean(data.aiEnabled));
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load changelog'))
       .finally(() => setLoading(false));
@@ -513,7 +585,7 @@ export function ChangelogClient() {
               {/* Entries */}
               <div className="space-y-2">
                 {group.entries.map((entry) => (
-                  <EntryRow key={`${entry.entityType}-${entry.id}`} entry={entry} />
+                  <EntryRow key={`${entry.entityType}-${entry.id}`} entry={entry} aiEnabled={aiEnabled} />
                 ))}
               </div>
             </div>

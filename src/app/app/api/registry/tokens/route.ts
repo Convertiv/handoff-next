@@ -32,7 +32,7 @@ export async function POST(request: Request): Promise<Response> {
   const authz = verifySyncAuth(request, { requireWrite: true });
   if (authz instanceof NextResponse) return authz;
 
-  let body: { payload?: unknown };
+  let body: { payload?: unknown; message?: string };
   try {
     body = await request.json();
   } catch {
@@ -43,7 +43,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    await insertTokensSnapshot(body.payload, { userId: authz.userId });
+    await insertTokensSnapshot(body.payload, {
+      userId: authz.userId,
+      message: typeof body.message === 'string' ? body.message : null,
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';

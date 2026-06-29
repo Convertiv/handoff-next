@@ -199,6 +199,7 @@ export async function applyUploadedChange(input: {
       },
       incomingSourceFiles,
       incomingArtifactFilenames,
+      message: typeof d.message === 'string' ? d.message : null,
     }).catch(() => {});
 
     await insertSyncEvent({
@@ -285,6 +286,9 @@ export async function applyUploadedChange(input: {
         titleAfter: null,
         markdownLengthBefore: existing?.markdown != null ? existing.markdown.length : null,
         markdownLengthAfter: null,
+        message: data && typeof (data as Record<string, unknown>).message === 'string'
+          ? String((data as Record<string, unknown>).message)
+          : null,
       }).catch(() => {});
       await insertSyncEvent({
         entityType,
@@ -337,6 +341,7 @@ export async function applyUploadedChange(input: {
       titleAfter: frontmatter.title != null ? String(frontmatter.title) : null,
       markdownLengthBefore: isNew ? null : (existing?.markdown != null ? existing.markdown.length : null),
       markdownLengthAfter: markdown.length,
+      message: typeof d.message === 'string' ? d.message : null,
     }).catch(() => {});
 
     await insertSyncEvent({

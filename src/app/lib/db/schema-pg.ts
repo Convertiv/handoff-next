@@ -207,6 +207,9 @@ export const handoffTokenChanges = pgTable('handoff_token_change', {
    * Bounded to changed keys; large all-added pushes omit value bodies.
    */
   changeDetails: jsonb('change_details').notNull().default({}),
+  /** "Why": human-authored push message + AI-drafted summary (generated on demand). */
+  message: text('message'),
+  aiSummary: text('ai_summary'),
   /** FK to the snapshot that triggered this record (nullable for safety). */
   snapshotId: integer('snapshot_id').references(() => handoffTokensSnapshots.id, { onDelete: 'set null' }),
 });
@@ -227,6 +230,9 @@ export const handoffPageChanges = pgTable('handoff_page_change', {
   titleAfter: text('title_after'),
   markdownLengthBefore: integer('markdown_length_before'),
   markdownLengthAfter: integer('markdown_length_after'),
+  /** "Why": human-authored push message + AI-drafted summary (generated on demand). */
+  message: text('message'),
+  aiSummary: text('ai_summary'),
 });
 
 export const editHistory = pgTable('edit_history', {
@@ -661,6 +667,9 @@ export const handoffComponentVersions = pgTable(
     sourceFileHashes: jsonb('source_file_hashes').notNull().default({}),
     // Artifact filenames present at this version
     artifactFilenames: jsonb('artifact_filenames').notNull().default([]),
+    // "Why": human-authored push message + AI-drafted summary (generated on demand)
+    message: text('message'),
+    aiSummary: text('ai_summary'),
   },
   (t) => [uniqueIndex('component_version_unique').on(t.componentId, t.versionNumber)]
 );

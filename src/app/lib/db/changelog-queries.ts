@@ -24,6 +24,8 @@ export interface ComponentChangelogEntry {
   pushedByEmail: string | null;
   trigger: string;
   changeSummary: ComponentChangeSummary;
+  message: string | null;
+  aiSummary: string | null;
 }
 
 export interface TokenChangeDetails {
@@ -47,6 +49,8 @@ export interface TokenChangelogEntry {
   removedKeys: string[];
   modifiedKeys: string[];
   changeDetails: TokenChangeDetails;
+  message: string | null;
+  aiSummary: string | null;
 }
 
 export interface PageChangelogEntry {
@@ -61,6 +65,8 @@ export interface PageChangelogEntry {
   titleAfter: string | null;
   markdownLengthBefore: number | null;
   markdownLengthAfter: number | null;
+  message: string | null;
+  aiSummary: string | null;
 }
 
 export type UnifiedChangelogEntry = ComponentChangelogEntry | TokenChangelogEntry | PageChangelogEntry;
@@ -89,6 +95,8 @@ export async function getUnifiedChangelog(
       pushedByEmail: handoffComponentVersions.pushedByEmail,
       trigger: handoffComponentVersions.trigger,
       changeSummary: handoffComponentVersions.changeSummary,
+      message: handoffComponentVersions.message,
+      aiSummary: handoffComponentVersions.aiSummary,
       componentTitle: handoffComponents.title,
       componentGroup: handoffComponents.group,
     })
@@ -130,6 +138,8 @@ export async function getUnifiedChangelog(
       pushedByEmail: r.pushedByEmail,
       trigger: r.trigger,
       changeSummary: (r.changeSummary as unknown as ComponentChangeSummary) ?? defaultChangeSummary(),
+      message: r.message ?? null,
+      aiSummary: r.aiSummary ?? null,
     });
   }
 
@@ -148,6 +158,8 @@ export async function getUnifiedChangelog(
       removedKeys: (r.removedKeys as unknown as string[]) ?? [],
       modifiedKeys: (r.modifiedKeys as unknown as string[]) ?? [],
       changeDetails: (r.changeDetails as unknown as TokenChangeDetails) ?? { added: {}, removed: {}, modified: {} },
+      message: r.message ?? null,
+      aiSummary: r.aiSummary ?? null,
     });
   }
 
@@ -164,6 +176,8 @@ export async function getUnifiedChangelog(
       titleAfter: r.titleAfter ?? null,
       markdownLengthBefore: r.markdownLengthBefore ?? null,
       markdownLengthAfter: r.markdownLengthAfter ?? null,
+      message: r.message ?? null,
+      aiSummary: r.aiSummary ?? null,
     });
   }
 

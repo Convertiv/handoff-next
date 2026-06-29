@@ -206,7 +206,7 @@ export interface TokenChangeDetails {
 
 export async function insertTokensSnapshot(
   payload: unknown,
-  opts: { trigger?: string; userId?: string | null } = {}
+  opts: { trigger?: string; userId?: string | null; message?: string | null } = {}
 ): Promise<void> {
   const db = getDb();
   const trigger = opts.trigger ?? 'push';
@@ -268,6 +268,7 @@ export async function insertTokensSnapshot(
     pushedByUserId: opts.userId ?? null,
     pushedByName,
     changeDetails: details,
+    message: opts.message ?? null,
     snapshotId,
   });
 }

@@ -141,8 +141,10 @@ export async function recordComponentVersion(params: {
   };
   incomingSourceFiles: Record<string, string>;
   incomingArtifactFilenames: string[];
+  /** Optional human-authored "why" for this push (from push --message). */
+  message?: string | null;
 }): Promise<void> {
-  const { componentId, userId, trigger, newRow, incomingSourceFiles, incomingArtifactFilenames } = params;
+  const { componentId, userId, trigger, newRow, incomingSourceFiles, incomingArtifactFilenames, message } = params;
   const db = getDb();
 
   // ── 1. Read the latest version row (if any) ──────────────────────────────
@@ -279,6 +281,7 @@ export async function recordComponentVersion(params: {
     changeSummary: changeSummary as object,
     sourceFileHashes: newSourceHashes as object,
     artifactFilenames: newArtifactFilenames as unknown as object,
+    message: message ?? null,
   });
 }
 
