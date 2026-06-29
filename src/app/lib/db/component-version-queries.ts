@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { desc, eq, gte, max, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, max, sql } from 'drizzle-orm';
 import { getDb } from './index';
 import { componentArtifacts, handoffComponents, handoffComponentVersions, users } from './schema';
 
@@ -352,9 +352,14 @@ export async function getComponentVersion(
   const rows = await db
     .select()
     .from(handoffComponentVersions)
-    .where(eq(handoffComponentVersions.componentId, componentId));
-  const match = rows.find((r) => r.versionNumber === versionNumber);
-  return match ? rowToRecord(match) : null;
+    .where(
+      and(
+        eq(handoffComponentVersions.componentId, componentId),
+        eq(handoffComponentVersions.versionNumber, versionNumber)
+      )
+    )
+    .limit(1);
+  return rows[0] ? rowToRecord(rows[0]) : null;
 }
 
 // ─── Internal mapper ──────────────────────────────────────────────────────────
