@@ -43,7 +43,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
-    await insertTokensSnapshot(body.payload);
+    await insertTokensSnapshot(body.payload, { userId: authz.userId });
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';

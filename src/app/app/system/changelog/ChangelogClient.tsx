@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { GitCommit, FileText, Palette, User } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitCommit, FileText, Palette, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -164,6 +164,128 @@ function TokenChangeTags({ entry }: { entry: Extract<UnifiedChangelogEntry, { en
   return <div className="flex flex-wrap gap-1">{tags}</div>;
 }
 
+// ─── Token value formatting + expandable detail ────────────────────────────
+
+function formatTokenValue(v: unknown): string {
+  if (v == null) return '—';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try {
+    const s = JSON.stringify(v);
+    return s.length > 80 ? `${s.slice(0, 77)}…` : s;
+  } catch {
+    return String(v);
+  }
+}
+
+function isColorValue(v: unknown): v is string {
+  return typeof v === 'string' && /^(#[0-9a-f]{3,8}|rgb|hsl)/i.test(v.trim());
+}
+
+function ValueChip({ v }: { v: unknown }) {
+  return (
+    <span className="inline-flex items-center gap-1 font-mono text-[11px]">
+      {isColorValue(v) && (
+        <span className="inline-block h-3 w-3 shrink-0 rounded-sm border border-border" style={{ background: v }} />
+      )}
+      <span className="break-all">{formatTokenValue(v)}</span>
+    </span>
+  );
+}
+
+function TokenEntry({ entry }: { entry: Extract<UnifiedChangelogEntry, { entityType: 'token' }> }) {
+  const [open, setOpen] = useState(false);
+  const d = entry.changeDetails ?? { added: {}, removed: {}, modified: {} };
+  const modified = Object.entries(d.modified ?? {});
+  const added = Object.entries(d.added ?? {});
+  const removed = Object.entries(d.removed ?? {});
+  const canExpand = !d.truncated && modified.length + added.length + removed.length > 0;
+
+  return (
+    <div className="rounded-xl border border-border bg-card transition-colors hover:bg-muted/40">
+      <div
+        className={`flex items-start gap-4 px-4 py-3 ${canExpand ? 'cursor-pointer' : ''}`}
+        onClick={canExpand ? () => setOpen((o) => !o) : undefined}
+      >
+        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
+          <Palette className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {canExpand &&
+              (open ? (
+                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+              ))}
+            <span className="text-sm font-medium">Token push</span>
+            <span className="text-xs text-muted-foreground">· {entry.totalCount} total tokens</span>
+          </div>
+          <TokenChangeTags entry={entry} />
+        </div>
+        <div className="shrink-0 space-y-0.5 text-right">
+          {entry.pushedByName && (
+            <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
+              <User className="h-3 w-3" />
+              <span>{entry.pushedByName}</span>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{relativeTime(entry.pushedAt)}</p>
+          <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            {entry.trigger}
+          </span>
+        </div>
+      </div>
+
+      {open && canExpand && (
+        <div className="space-y-3 border-t border-border/50 px-4 pb-4 pt-3 text-xs">
+          {modified.length > 0 && (
+            <div>
+              <p className="mb-1.5 font-medium uppercase tracking-wide text-muted-foreground">Modified</p>
+              <div className="space-y-1">
+                {modified.map(([key, val]) => (
+                  <div key={key} className="flex flex-wrap items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{key}</code>
+                    <ValueChip v={val.before} />
+                    <span className="text-muted-foreground">→</span>
+                    <ValueChip v={val.after} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {added.length > 0 && (
+            <div>
+              <p className="mb-1.5 font-medium uppercase tracking-wide text-green-700 dark:text-green-400">Added</p>
+              <div className="space-y-1">
+                {added.map(([key, val]) => (
+                  <div key={key} className="flex flex-wrap items-center gap-2">
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{key}</code>
+                    <ValueChip v={val} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {removed.length > 0 && (
+            <div>
+              <p className="mb-1.5 font-medium uppercase tracking-wide text-red-700 dark:text-red-400">Removed</p>
+              <div className="space-y-1">
+                {removed.map(([key, val]) => (
+                  <div key={key} className="flex flex-wrap items-center gap-2 opacity-70">
+                    <code className="rounded bg-muted px-1.5 py-0.5 text-[11px] line-through">{key}</code>
+                    <ValueChip v={val} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PageChangeTags({ entry }: { entry: Extract<UnifiedChangelogEntry, { entityType: 'page' }> }) {
   const actionColors: Record<string, string> = {
     created: 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400',
@@ -230,26 +352,7 @@ function EntryRow({ entry }: { entry: UnifiedChangelogEntry }) {
   }
 
   if (entry.entityType === 'token') {
-    return (
-      <div className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/40">
-        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-          <Palette className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
-        </div>
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-medium">Token push</span>
-            <span className="text-xs text-muted-foreground">· {entry.totalCount} total tokens</span>
-          </div>
-          <TokenChangeTags entry={entry} />
-        </div>
-        <div className="shrink-0 text-right space-y-0.5">
-          <p className="text-xs text-muted-foreground">{relativeTime(entry.pushedAt)}</p>
-          <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-            {entry.trigger}
-          </span>
-        </div>
-      </div>
-    );
+    return <TokenEntry entry={entry} />;
   }
 
   // page

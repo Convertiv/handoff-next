@@ -13,6 +13,7 @@ import {
   handoffImageSlots,
   handoffTokenChanges,
   handoffTokensSnapshots,
+  users,
 } from './schema-pg';
 
 const SINGLETON_ID = 'default';
@@ -148,9 +149,27 @@ export async function upsertRegistryDtcg(payload: RegistryDtcgPayload, userId: s
  * Arrays of objects with a `name` field are walked; other shapes are treated
  * as a single entry keyed by the category name.
  */
-function flattenTokenPayload(payload: unknown): Record<string, string> {
+/** Best-effort display value for a flattened token item (the meaningful bit a
+ *  human reads in a diff — the hex/dimension/etc., not the metadata wrapper). */
+function tokenDisplayValue(item: unknown): unknown {
+  if (item && typeof item === 'object' && !Array.isArray(item)) {
+    const o = item as Record<string, unknown>;
+    if ('value' in o) return o.value;
+    // No single `value` — drop the redundant `name` (it's already in the key).
+    const { name: _name, ...rest } = o;
+    return rest;
+  }
+  return item;
+}
+
+/**
+ * Flatten a token payload to { "<category>/<name>": { fp, value } } — `fp` is a
+ * fingerprint for change detection, `value` the display value for diffs. Arrays
+ * of named objects are walked; other object shapes are a single entry.
+ */
+function flattenTokenItems(payload: unknown): Record<string, { fp: string; value: unknown }> {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
-  const flat: Record<string, string> = {};
+  const flat: Record<string, { fp: string; value: unknown }> = {};
   for (const [category, items] of Object.entries(payload as Record<string, unknown>)) {
     if (Array.isArray(items)) {
       items.forEach((item, idx) => {
@@ -159,17 +178,38 @@ function flattenTokenPayload(payload: unknown): Record<string, string> {
             ? String((item as Record<string, unknown>).name)
             : String(idx);
         const key = `${category}/${name}`;
-        flat[key] = createHash('sha256').update(JSON.stringify(item)).digest('hex').slice(0, 12);
+        flat[key] = {
+          fp: createHash('sha256').update(JSON.stringify(item)).digest('hex').slice(0, 12),
+          value: tokenDisplayValue(item),
+        };
       });
     } else if (items !== null && typeof items === 'object') {
-      flat[category] = createHash('sha256').update(JSON.stringify(items)).digest('hex').slice(0, 12);
+      flat[category] = {
+        fp: createHash('sha256').update(JSON.stringify(items)).digest('hex').slice(0, 12),
+        value: tokenDisplayValue(items),
+      };
     }
   }
   return flat;
 }
 
-export async function insertTokensSnapshot(payload: unknown, trigger = 'push'): Promise<void> {
+/** Above this many changed keys we record counts + key names but omit value
+ *  bodies, so a first push (everything "added") can't balloon the row. */
+const TOKEN_DETAIL_CAP = 400;
+
+export interface TokenChangeDetails {
+  added: Record<string, unknown>;
+  removed: Record<string, unknown>;
+  modified: Record<string, { before: unknown; after: unknown }>;
+  truncated?: boolean;
+}
+
+export async function insertTokensSnapshot(
+  payload: unknown,
+  opts: { trigger?: string; userId?: string | null } = {}
+): Promise<void> {
   const db = getDb();
+  const trigger = opts.trigger ?? 'push';
 
   // ── 1. Read the previous snapshot for diffing ──────────────────────────────
   const [prev] = await db
@@ -185,18 +225,37 @@ export async function insertTokensSnapshot(payload: unknown, trigger = 'push'): 
     .returning({ id: handoffTokensSnapshots.id });
   const snapshotId = inserted?.id ?? null;
 
-  // ── 3. Compute diff ────────────────────────────────────────────────────────
-  const newFlat = flattenTokenPayload(payload);
-  const prevFlat = prev ? flattenTokenPayload(prev.payload as unknown) : {};
+  // ── 3. Compute diff (keys + before/after values) ───────────────────────────
+  const newFlat = flattenTokenItems(payload);
+  const prevFlat = prev ? flattenTokenItems(prev.payload as unknown) : {};
 
   const newKeys = new Set(Object.keys(newFlat));
   const prevKeys = new Set(Object.keys(prevFlat));
 
   const addedKeys = [...newKeys].filter((k) => !prevKeys.has(k));
   const removedKeys = [...prevKeys].filter((k) => !newKeys.has(k));
-  const modifiedKeys = [...newKeys].filter((k) => prevKeys.has(k) && newFlat[k] !== prevFlat[k]);
+  const modifiedKeys = [...newKeys].filter((k) => prevKeys.has(k) && newFlat[k].fp !== prevFlat[k].fp);
 
-  // ── 4. Insert change record (fire-and-forget — never surface to caller) ───
+  // Record actual values for changed keys — capped so an initial all-added push
+  // doesn't duplicate the whole snapshot into the change row.
+  const changedTotal = addedKeys.length + removedKeys.length + modifiedKeys.length;
+  const details: TokenChangeDetails = { added: {}, removed: {}, modified: {} };
+  if (changedTotal <= TOKEN_DETAIL_CAP) {
+    for (const k of addedKeys) details.added[k] = newFlat[k].value;
+    for (const k of removedKeys) details.removed[k] = prevFlat[k].value;
+    for (const k of modifiedKeys) details.modified[k] = { before: prevFlat[k].value, after: newFlat[k].value };
+  } else {
+    details.truncated = true;
+  }
+
+  // ── 4. Resolve pusher display name (parity with component versions) ────────
+  let pushedByName: string | null = null;
+  if (opts.userId) {
+    const [u] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, opts.userId)).limit(1);
+    pushedByName = u?.name ?? u?.email ?? null;
+  }
+
+  // ── 5. Insert change record (fire-and-forget — never surface to caller) ───
   await db.insert(handoffTokenChanges).values({
     trigger,
     addedCount: addedKeys.length,
@@ -206,6 +265,9 @@ export async function insertTokensSnapshot(payload: unknown, trigger = 'push'): 
     addedKeys,
     removedKeys,
     modifiedKeys,
+    pushedByUserId: opts.userId ?? null,
+    pushedByName,
+    changeDetails: details,
     snapshotId,
   });
 }

@@ -198,6 +198,15 @@ export const handoffTokenChanges = pgTable('handoff_token_change', {
   addedKeys: jsonb('added_keys').notNull().default([]),
   removedKeys: jsonb('removed_keys').notNull().default([]),
   modifiedKeys: jsonb('modified_keys').notNull().default([]),
+  /** Who pushed (parity with component versions / page changes). */
+  pushedByUserId: text('pushed_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+  pushedByName: text('pushed_by_name'),
+  /**
+   * Actual before/after token values for changed keys (not just key names):
+   * { added: {key: value}, removed: {key: value}, modified: {key: {before, after}} }.
+   * Bounded to changed keys; large all-added pushes omit value bodies.
+   */
+  changeDetails: jsonb('change_details').notNull().default({}),
   /** FK to the snapshot that triggered this record (nullable for safety). */
   snapshotId: integer('snapshot_id').references(() => handoffTokensSnapshots.id, { onDelete: 'set null' }),
 });

@@ -854,8 +854,33 @@ keeping the first version + every genuine change; version numbers are not renumb
 Exposed at `POST /api/admin/cleanup-versions` (HANDOFF_SYNC_SECRET bearer, same as migrate) — **dry
 run by default**, `?apply=true` to delete. Run once per registry deployment.
 
-**Deferred — token-version diffs.** Token snapshots (`handoff_tokens_snapshots`) have no per-version
-change-summary/versioning layer yet — a separate build. Scoped for later.
+### Change-tracking & inquiry theme (2026-06-29)
+
+Reframed away from gating toward change *visibility + inquiry*, across components AND tokens, with
+"ask what changed and why" as the north star. Survey findings: components are strong (version
+history + compare-two-versions diff, `5ee8b500`); the unified `/system/changelog` covers
+components/tokens/pages; the in-app chat has a `get_recent_changes` action. Gaps: tokens stored only
+key *names* (no values, no pusher, no diff UI); **no MCP tool exposes changes**; **no "why"
+(rationale) on any change**.
+
+**Slice 1 — Token change-tracking parity *(DONE, value capture + UI)*.** `handoff_token_change` now
+stores `pushed_by_user_id`/`pushed_by_name` + `change_details` jsonb = before/after *values* for
+changed keys (`{added,removed,modified:{before,after}}`), capped at 400 changed keys
+(`TOKEN_DETAIL_CAP`) so a first all-added push can't balloon the row. Migration
+`0018_token_change_details` (hand-written, idempotent). Changelog token entries are now expandable,
+showing per-key value diffs (with color swatches) + pusher. Forward-capture only — existing rows
+show counts but no value bodies.
+  - *Follow-up:* backfill `change_details` for old token-change rows by recomputing diffs between the
+    stored consecutive snapshots (we keep them all) — analogous to the version-cleanup tool.
+  - *Follow-up:* compare-two-arbitrary-snapshots token view (per-push rows are the 80%).
+
+**Slice 2 — Capture "why" (intent), next.** Add a change message to component versions + token/page
+changes; thread `--message` through push (CLI → `SyncUploadBody` → record fns); **both** human/CLI
+message AND an AI-drafted "why" from the diff when none is given. Surface everywhere changes show.
+
+**Slice 3 — MCP change inquiry, after.** `handoff_recent_changes` / `handoff_component_history` /
+`handoff_what_changed` MCP tools so Claude Code can ask about changes; optionally the
+design-system-native "why" — link token changes ↔ the components that consume them.
 
 ### #4 — Open a component in the workbench to prototype from an existing one  *(scoped)*
 The workbench (`ComponentWorkbenchDialog`) already loads with the current preview's values; "open to

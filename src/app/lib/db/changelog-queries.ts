@@ -26,11 +26,19 @@ export interface ComponentChangelogEntry {
   changeSummary: ComponentChangeSummary;
 }
 
+export interface TokenChangeDetails {
+  added: Record<string, unknown>;
+  removed: Record<string, unknown>;
+  modified: Record<string, { before: unknown; after: unknown }>;
+  truncated?: boolean;
+}
+
 export interface TokenChangelogEntry {
   id: number;
   entityType: 'token';
   pushedAt: string;
   trigger: string;
+  pushedByName: string | null;
   addedCount: number;
   removedCount: number;
   modifiedCount: number;
@@ -38,6 +46,7 @@ export interface TokenChangelogEntry {
   addedKeys: string[];
   removedKeys: string[];
   modifiedKeys: string[];
+  changeDetails: TokenChangeDetails;
 }
 
 export interface PageChangelogEntry {
@@ -130,6 +139,7 @@ export async function getUnifiedChangelog(
       entityType: 'token',
       pushedAt: (r.pushedAt instanceof Date ? r.pushedAt : new Date(r.pushedAt as string)).toISOString(),
       trigger: r.trigger,
+      pushedByName: r.pushedByName ?? null,
       addedCount: r.addedCount ?? 0,
       removedCount: r.removedCount ?? 0,
       modifiedCount: r.modifiedCount ?? 0,
@@ -137,6 +147,7 @@ export async function getUnifiedChangelog(
       addedKeys: (r.addedKeys as unknown as string[]) ?? [],
       removedKeys: (r.removedKeys as unknown as string[]) ?? [],
       modifiedKeys: (r.modifiedKeys as unknown as string[]) ?? [],
+      changeDetails: (r.changeDetails as unknown as TokenChangeDetails) ?? { added: {}, removed: {}, modified: {} },
     });
   }
 
