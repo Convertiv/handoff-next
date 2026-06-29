@@ -825,24 +825,31 @@ Key files: `Playground/fields/Field.tsx` (switch), `fields/SelectField.tsx:16`,
 8x8 `blocks/hero-split/{schema.ts,template.tsx,components/previewHelpers.tsx}`,
 `COMPONENT_PREVIEW_SCHEMA.md` §12/§4/§5.
 
-### #3 — Versioning: too many versions + a version-diff UI  *(root-caused)*
-**(a) Too many versions — confirmed root cause.** `recordComponentVersion`
-(`component-version-queries.ts`) *does* skip identical pushes (no-op guard, lines ~177–185), so the
-churn is an **over-sensitive diff**. The metadata diff fingerprints the whole `data` blob, and
-`data` carries volatile runtime fields — `validationResults` (re-run every push with fresh `runAt`
-timestamp + `durationMs`) and `sharedStyles` (full compiled CSS). So `data`'s fingerprint changes
-on **every** push even with no real change → a new version each time. Compounding it,
-`objectFingerprint = fingerprint(JSON.stringify(val))` doesn't sort keys, so key-order shifts also
-churn.
-**Fix (proposed, needs sign-off — touches all components' history):** before fingerprinting,
-(1) strip volatile keys from `data` (`validationResults`, `sharedStyles`, any `figma*` timestamps),
-and (2) make `objectFingerprint` stable (sorted keys / canonical JSON). Optionally version off the
-meaningful fields only (title/properties/previews/code) rather than the whole `data` blob.
+### #3 — Versioning: too many versions + a version-diff UI  *(DONE — components; tokens deferred)*
 
-**(b) Version-diff UI (additive).** Each version row already stores a `changeSummary`
-(`fieldsChanged`, `source{Added,Modified,Removed}`, `artifactsChanged`) — surface it as a history
-timeline + a per-version diff view. Same shape applies to token versions. Pure read UI over
-existing data; no migration.
+**(a) Too many versions — FIXED.** Root cause: `recordComponentVersion` fingerprinted the whole
+`data` blob, which carries volatile runtime fields — `validationResults` (fresh `runAt` timestamp +
+`durationMs` every push) and `sharedStyles` (recompiled global CSS) — so a new version was cut on
+**every** push. Fix: `canonicalizeForFingerprint()` sorts object keys (kills key-order churn) and
+drops volatile/derived keys (`validationResults`, `validations`, `sharedStyles`) recursively before
+hashing; `objectFingerprint` runs through it. Real changes still surface via `code`/`css`/`html` in
+`data` + `sourceFileHashes`. Forward-looking only — existing rows keep their history.
+
+**(b) Version-diff UI — BUILT (compare two versions).** Chosen the full content-diff over enriching
+the per-version view. `ComponentVersionHistory` gained a "Compare versions" toggle → `VersionCompare`
+lets you pick base/target and renders a field-level diff: metadata (old→new chips) + line diffs of
+`code`/`html`/`css`/`sass`/`usage` + `properties`/`previews` (JSON). Diffing uses a new pure
+`src/utils/line-diff.ts` (LCS, no dep; 6 unit tests in `test/line-diff.test.ts`). Full snapshots are
+fetched on demand (two requests per compare) via `GET /api/handoff/components/history/version` so the
+list never carries them.
+
+**Egress (paired):** `getComponentVersionHistory` now projects only the light snapshot fields the UI
+shows (`title/description/group/type` via jsonb `->>`), not the full per-version snapshot blob
+(`ComponentVersionListItem`). `getComponentVersion` queries by `(componentId, versionNumber)` instead
+of scanning all rows.
+
+**Deferred — token-version diffs.** Token snapshots (`handoff_tokens_snapshots`) have no per-version
+change-summary/versioning layer yet — a separate build. Scoped for later.
 
 ### #4 — Open a component in the workbench to prototype from an existing one  *(scoped)*
 The workbench (`ComponentWorkbenchDialog`) already loads with the current preview's values; "open to

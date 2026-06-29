@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Clock, GitCommit, User } from 'lucide-react'
 import { Badge } from '@handoff/app/components/ui/badge';
 import { Button } from '@handoff/app/components/ui/button';
 import HeadersType from '@handoff/app/components/Typography/Headers';
+import { VersionCompare } from './VersionCompare';
 
 // ─── Types (mirror server shape) ─────────────────────────────────────────────
 
@@ -246,6 +247,7 @@ export function ComponentVersionHistory({ componentId, basePath }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
+  const [comparing, setComparing] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -288,15 +290,35 @@ export function ComponentVersionHistory({ componentId, basePath }: Props) {
       <div className="mb-4 flex items-center gap-3">
         <HeadersType.H2 className="m-0">History</HeadersType.H2>
         <Badge variant="secondary">{total} version{total !== 1 ? 's' : ''}</Badge>
+        {versions.length >= 2 && (
+          <Button
+            variant={comparing ? 'secondary' : 'ghost'}
+            size="sm"
+            className="ml-auto h-7 px-2 text-xs"
+            onClick={() => setComparing((c) => !c)}
+          >
+            {comparing ? 'Close compare' : 'Compare versions'}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
-          className="ml-auto h-7 px-2 text-xs text-muted-foreground"
+          className={`${versions.length >= 2 ? '' : 'ml-auto '}h-7 px-2 text-xs text-muted-foreground`}
           onClick={() => setExpanded((e) => !e)}
         >
           {expanded ? 'Collapse' : 'Expand'}
         </Button>
       </div>
+
+      {comparing && (
+        <div className="mb-4">
+          <VersionCompare
+            componentId={componentId}
+            basePath={basePath}
+            versionNumbers={versions.map((v) => v.versionNumber)}
+          />
+        </div>
+      )}
 
       {expanded && (
         <div className="space-y-2">
