@@ -17,16 +17,17 @@ export async function GET(request: Request) {
   }
 
   if (!usePostgres()) {
-    return NextResponse.json({ versions: [], total: 0 });
+    return NextResponse.json({ versions: [], total: 0, aiEnabled: false });
   }
 
   try {
     const { getComponentVersionHistory, getComponentVersionCount } = await import('@/lib/db/component-version-queries');
+    const { isServerAiConfigured } = await import('@/lib/server/ai-client');
     const [versions, total] = await Promise.all([
       getComponentVersionHistory(id, limit),
       getComponentVersionCount(id),
     ]);
-    return NextResponse.json({ versions, total });
+    return NextResponse.json({ versions, total, aiEnabled: isServerAiConfigured() });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Failed to fetch version history';
     return NextResponse.json({ error: message }, { status: 500 });

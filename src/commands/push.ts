@@ -12,6 +12,7 @@ export interface PushArgs extends SharedArgs {
   build?: boolean;
   metadataOnly?: boolean;
   noBuild?: boolean;
+  message?: string;
 }
 
 const command: CommandModule<{}, PushArgs> = {
@@ -53,6 +54,11 @@ const command: CommandModule<{}, PushArgs> = {
         type: 'boolean',
         default: false,
         describe: 'Do not run local builds; upload existing artifacts only.',
+      })
+      .option('message', {
+        type: 'string',
+        alias: 'm',
+        describe: 'A short "why" for this push, recorded on each change and shown in the changelog (e.g. -m "tighten button density").',
       }),
   handler: async (args: PushArgs) => {
     const handoff = new Handoff(args.debug, args.force);
@@ -69,6 +75,7 @@ const command: CommandModule<{}, PushArgs> = {
         build: args.build,
         metadataOnly: Boolean(args.metadataOnly),
         noBuild: Boolean(args.noBuild),
+        message: args.message,
       });
       // Force-exit after a successful push. The chromium child process (used for
       // screenshots and validators) can keep the Node event loop alive even after

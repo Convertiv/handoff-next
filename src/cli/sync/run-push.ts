@@ -66,6 +66,12 @@ export type RunPushOptions = {
    * track per-component file state hashes. Ignored when handoff.force is set.
    */
   skipUnchanged?: boolean;
+  /**
+   * Optional human-authored "why" for this push. Stamped onto every change's
+   * data so the registry records it on each component/page version
+   * (`handoff_*` change tables). Surfaces in the changelog.
+   */
+  message?: string;
 };
 
 function normalizePageSlug(s: string): string {
@@ -361,6 +367,14 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
   const MAX_BATCH_BYTES        = 3 * 1024 * 1024;  // 3 MB per batch
   const MAX_ITEM_BYTES         = 3 * 1024 * 1024;  // 3 MB per single change (must fit in one batch)
   const MAX_ARTIFACT_FILE_BYTES = 1 * 1024 * 1024; // 1 MB per individual artifact file
+  // Stamp the push "why" onto every change so each recorded version carries it.
+  const pushMessage = opts?.message?.trim();
+  if (pushMessage) {
+    for (const change of changes) {
+      change.data = { ...((change.data as Record<string, unknown>) ?? {}), message: pushMessage } as typeof change.data;
+    }
+  }
+
   const batches: SyncUploadBody['changes'][] = [];
   let current: SyncUploadBody['changes'] = [];
   let currentBytes = 0;

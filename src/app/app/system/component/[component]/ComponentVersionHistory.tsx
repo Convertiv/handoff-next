@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronRight, Clock, GitCommit, User } from 'lucide-react';
+import { ChevronDown, ChevronRight, Clock, GitCommit, MessageSquare, Sparkles, User } from 'lucide-react';
+import { handoffApiUrl } from '@handoff/app/lib/api-path';
 import { Badge } from '@handoff/app/components/ui/badge';
 import { Button } from '@handoff/app/components/ui/button';
 import HeadersType from '@handoff/app/components/Typography/Headers';
@@ -38,6 +39,8 @@ interface VersionRecord {
   changeSummary: ComponentChangeSummary;
   sourceFileHashes: Record<string, string>;
   artifactFilenames: string[];
+  message: string | null;
+  aiSummary: string | null;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -109,9 +112,64 @@ function ChangeBadges({ s }: { s: ComponentChangeSummary }) {
   return badges.length > 0 ? <>{badges}</> : <Badge variant="outline" className="text-[11px] opacity-50">no changes detected</Badge>;
 }
 
+// ─── "Why" line (human message or AI-drafted, with on-demand draft) ────────
+
+function VersionWhy({ v, aiEnabled }: { v: VersionRecord; aiEnabled: boolean }) {
+  const [resolved, setResolved] = useState<{ summary: string | null; source: 'message' | 'ai' | 'none' }>(
+    v.message?.trim()
+      ? { summary: v.message.trim(), source: 'message' }
+      : v.aiSummary?.trim()
+        ? { summary: v.aiSummary.trim(), source: 'ai' }
+        : { summary: null, source: 'none' }
+  );
+  const [loading, setLoading] = useState(false);
+
+  if (resolved.summary) {
+    return (
+      <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+        {resolved.source === 'ai' ? (
+          <Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-violet-500" aria-label="AI-drafted" />
+        ) : (
+          <MessageSquare className="mt-0.5 h-3 w-3 shrink-0" aria-label="Push message" />
+        )}
+        <span className="italic">{resolved.summary}</span>
+      </p>
+    );
+  }
+  if (!aiEnabled) return null;
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={async (e) => {
+        e.stopPropagation();
+        setLoading(true);
+        try {
+          const res = await fetch(handoffApiUrl('/api/handoff/changes/why'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ entityType: 'component', id: v.id }),
+          });
+          if (res.ok) {
+            const j = (await res.json()) as { summary: string | null; source: 'message' | 'ai' | 'none' };
+            if (j.summary) setResolved({ summary: j.summary, source: j.source });
+          }
+        } finally {
+          setLoading(false);
+        }
+      }}
+      className="inline-flex items-center gap-1 text-xs text-violet-600 hover:underline disabled:opacity-50 dark:text-violet-400"
+    >
+      <Sparkles className="h-3 w-3" />
+      {loading ? 'Drafting…' : 'Draft why'}
+    </button>
+  );
+}
+
 // ─── Single version row ───────────────────────────────────────────────────────
 
-function VersionRow({ v, isLatest }: { v: VersionRecord; isLatest: boolean }) {
+function VersionRow({ v, isLatest, aiEnabled }: { v: VersionRecord; isLatest: boolean; aiEnabled: boolean }) {
   const [open, setOpen] = useState(false);
   const summary = v.changeSummary;
   const pusher = v.pushedByName || v.pushedByEmail || 'Unknown';
@@ -159,6 +217,11 @@ function VersionRow({ v, isLatest }: { v: VersionRecord; isLatest: boolean }) {
           </div>
         </div>
       </button>
+
+      {/* "Why" — kept outside the toggle button (no nested buttons) */}
+      <div className="px-4 pb-2 pl-[2.6rem]">
+        <VersionWhy v={v} aiEnabled={aiEnabled} />
+      </div>
 
       {/* Expanded detail */}
       {open && (
@@ -248,6 +311,7 @@ export function ComponentVersionHistory({ componentId, basePath }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
   const [comparing, setComparing] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -255,9 +319,10 @@ export function ComponentVersionHistory({ componentId, basePath }: Props) {
     fetch(`${basePath}/api/handoff/components/history?id=${encodeURIComponent(componentId)}`)
       .then(async (res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as { versions: VersionRecord[]; total: number };
+        const data = (await res.json()) as { versions: VersionRecord[]; total: number; aiEnabled?: boolean };
         setVersions(data.versions ?? []);
         setTotal(data.total ?? 0);
+        setAiEnabled(Boolean(data.aiEnabled));
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load history'))
       .finally(() => setLoading(false));
@@ -323,7 +388,7 @@ export function ComponentVersionHistory({ componentId, basePath }: Props) {
       {expanded && (
         <div className="space-y-2">
           {versions.map((v, i) => (
-            <VersionRow key={v.id} v={v} isLatest={i === 0} />
+            <VersionRow key={v.id} v={v} isLatest={i === 0} aiEnabled={aiEnabled} />
           ))}
           {total > versions.length && (
             <p className="pt-1 text-center text-xs text-muted-foreground">

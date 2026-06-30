@@ -329,7 +329,7 @@ export async function pushRegistryPages(handoff: Handoff): Promise<void> {
  * Push the design tokens snapshot. Reads from the workspace's built
  * tokens.json at public/api/tokens.json (the output of `handoff-app fetch`).
  */
-export async function pushRegistryTokens(handoff: Handoff): Promise<void> {
+export async function pushRegistryTokens(handoff: Handoff, message?: string): Promise<void> {
   const tokensPath = path.join(handoff.workingPath, 'public', 'api', 'tokens.json');
   if (!(await fs.pathExists(tokensPath))) {
     // Fail loudly rather than skip: the Figma `localStyles` snapshot this pushes is
@@ -347,7 +347,8 @@ export async function pushRegistryTokens(handoff: Handoff): Promise<void> {
 
   const payload = await fs.readJson(tokensPath);
   Logger.info('Pushing registry tokens snapshot…');
-  await postJson(url, bearer, { payload });
+  const trimmed = message?.trim();
+  await postJson(url, bearer, trimmed ? { payload, message: trimmed } : { payload });
   Logger.success('Registry tokens pushed.');
 }
 

@@ -874,7 +874,7 @@ show counts but no value bodies.
     stored consecutive snapshots (we keep them all) — analogous to the version-cleanup tool.
   - *Follow-up:* compare-two-arbitrary-snapshots token view (per-push rows are the 80%).
 
-**Slice 2 — Capture "why" (intent) *(mostly DONE)*.** `message` + `ai_summary` columns on
+**Slice 2 — Capture "why" (intent) *(DONE)*.** `message` + `ai_summary` columns on
 component-version / token-change / page-change (migration `0019_change_why`, hand-written
 idempotent). Both sources: a human push message AND an AI-drafted summary.
 - *AI draft (DONE):* `resolveChangeWhy` (`change-why.ts`) builds a compact diff description per
@@ -884,12 +884,12 @@ idempotent). Both sources: a human push message AND an AI-drafted summary.
 - *UI (DONE):* changelog entries (component/token/page) show the "why" line — human message (✉ icon)
   or AI draft (✨), with a "Draft why" button when neither exists and AI is enabled (`aiEnabled`
   flag on the changelog response).
-- *Human message — server plumbed, DONE:* `message` threads `SyncUploadBody` change `data.message`
-  → `recordComponentVersion` / page-change inserts, and the tokens POST `body.message` →
-  `insertTokensSnapshot`. **Remaining: the CLI `--message`/`-m` flag** on `push`/`push:all`
-  (PushArgs → the upload/token POST bodies) — mechanical, the only missing producer.
-- *Follow-up:* surface the "why" line in `ComponentVersionHistory` (per-component) too, not just the
-  unified changelog.
+- *Human message — DONE end-to-end:* CLI `push`/`push:all` `--message`/`-m` flag → `run-push`
+  stamps `data.message` on every change + `pushRegistryTokens` sends `body.message`; server threads
+  it into `recordComponentVersion` / page-change inserts / `insertTokensSnapshot`. Display
+  precedence: human message over AI draft.
+- *Surfaced in both* the unified changelog AND per-component `ComponentVersionHistory` (why line +
+  "Draft why" button, `aiEnabled` from each route).
 
 **Slice 3 — MCP change inquiry, after.** `handoff_recent_changes` / `handoff_component_history` /
 `handoff_what_changed` MCP tools so Claude Code can ask about changes; optionally the

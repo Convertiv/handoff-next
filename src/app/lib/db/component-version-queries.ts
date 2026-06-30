@@ -64,6 +64,8 @@ export interface ComponentVersionListItem {
   changeSummary: ComponentChangeSummary;
   sourceFileHashes: Record<string, string>;
   artifactFilenames: string[];
+  message: string | null;
+  aiSummary: string | null;
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -311,6 +313,8 @@ export async function getComponentVersionHistory(
       changeSummary: handoffComponentVersions.changeSummary,
       sourceFileHashes: handoffComponentVersions.sourceFileHashes,
       artifactFilenames: handoffComponentVersions.artifactFilenames,
+      message: handoffComponentVersions.message,
+      aiSummary: handoffComponentVersions.aiSummary,
     })
     .from(handoffComponentVersions)
     .where(eq(handoffComponentVersions.componentId, componentId))
@@ -335,6 +339,8 @@ export async function getComponentVersionHistory(
     changeSummary: (r.changeSummary ?? {}) as ComponentChangeSummary,
     sourceFileHashes: (r.sourceFileHashes ?? {}) as Record<string, string>,
     artifactFilenames: ((r.artifactFilenames ?? []) as string[]),
+    message: r.message ?? null,
+    aiSummary: r.aiSummary ?? null,
   }));
 }
 

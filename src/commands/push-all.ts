@@ -34,6 +34,7 @@ export interface PushAllArgs extends SharedArgs {
   skipFigmaFills?: boolean;
   skipImageSlots?: boolean;
   skipDesignMd?: boolean;
+  message?: string;
 }
 
 const command: CommandModule<{}, PushAllArgs> = {
@@ -65,7 +66,12 @@ const command: CommandModule<{}, PushAllArgs> = {
       .option('skip-fonts', { type: 'boolean', default: false, describe: 'Skip /api/registry/fonts push (font files served at /fonts/<file>).' })
       .option('skip-figma-fills', { type: 'boolean', default: false, describe: 'Skip Figma image fills push (images fetched during `fetch` step).' })
       .option('skip-image-slots', { type: 'boolean', default: false, describe: 'Skip image slot sizing specs push (extracted from figmaImages in tokens snapshot).' })
-      .option('skip-design-md', { type: 'boolean', default: false, describe: 'Skip refreshing DESIGN.md (only refreshed if the project already has one from `init-claude`).' }),
+      .option('skip-design-md', { type: 'boolean', default: false, describe: 'Skip refreshing DESIGN.md (only refreshed if the project already has one from `init-claude`).' })
+      .option('message', {
+        type: 'string',
+        alias: 'm',
+        describe: 'A short "why" for this push, recorded on each component/token change and shown in the changelog (e.g. -m "rebrand: new primary").',
+      }),
   handler: async (args: PushAllArgs) => {
     const handoff = new Handoff(args.debug, args.force);
     handoff.preRunner();
@@ -96,6 +102,7 @@ const command: CommandModule<{}, PushAllArgs> = {
           // Skip components whose source files haven't changed since last push.
           // Bypassed when --force is set (handoff.force) or when a selective push is active.
           skipUnchanged: true,
+          message: args.message,
         })
       );
     }
@@ -117,7 +124,7 @@ const command: CommandModule<{}, PushAllArgs> = {
 
     // 6. Tokens
     if (!args.skipTokens) {
-      await tryStep('tokens', () => pushRegistryTokens(handoff));
+      await tryStep('tokens', () => pushRegistryTokens(handoff, args.message));
     }
 
     // 7. DTCG token pipeline output (design-system/dist/)
