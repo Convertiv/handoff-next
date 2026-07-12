@@ -41,7 +41,7 @@ pluggable ingest from many sources and DTCG/DSDS as I/O adapters.
 
 ## Status at a glance — tracks & outstanding work
 
-*Reconciled 2026-06-26.* The roadmap is **five tracks**, not one linear sequence. The phase
+*Reconciled 2026-06-30.* The roadmap is **five tracks**, not one linear sequence. The phase
 numbering below predates this framing; the tracks are the truer structure. Markers: ✅ shipped ·
 🔄 in progress · ⬜ outstanding.
 
@@ -65,8 +65,13 @@ numbering below predates this framing; the tracks are the truer structure. Marke
 - ✅ Canonical schema **drafted, validated (SS&C button round-trip), open questions resolved** — [COMPONENT_PREVIEW_SCHEMA.md](COMPONENT_PREVIEW_SCHEMA.md) + [schemas/component.schema.json](schemas/component.schema.json)
 - ✅ Two-tier rule locked: contract = code-only/replace-on-push; previews = registry-contributable (§2a)
 - ✅ **P1** — lenient preview normalizer (`normalizePreviews`) + enum-membership validation, with tests
-- ⬜ P1 cont. — wire `normalizePreviews` into the build/storage path + a `components:validate` CLI step
-- ⬜ P2 authoring UI · P3 client-side render · P4 MCP/REST projection · P5 generative + contributable
+- ✅ **P2 authoring UI (substantial)** — unified preview surface + component workbench (dialog, shared
+  field builder, responsive controls); registry preview CRUD + validation/422
+- ✅ **P3 client-side render** — opaque-origin hardened iframe (shipped + verified 8x8 + SS&C)
+- 🔄 **8x8 TS-inference fields** — enum key fix + slot/function/any controls shipped; **slot fill-model**
+  (declared serializable sub-schemas for image/button slots) is the remaining authoring gap
+- ⬜ P1 cont. — `components:validate` build/push gate (**deprioritized to bottom** — gating not wanted yet)
+- ⬜ P4 MCP/REST preview projection · P5 generative + contributable
 
 ### Track 3 — MCP / Claude design-system initiative (Phases A–G)
 - ✅ Phase A spike — **PASS** ([MCP_CLAUDE_SPIKE_REPORT.md](MCP_CLAUDE_SPIKE_REPORT.md))
@@ -74,20 +79,34 @@ numbering below predates this framing; the tracks are the truer structure. Marke
 - 🔄 Phase B token surface — slim shipped; **B1** `query_tokens`, **B2** `export_tokens_as`/`brief`, **B3** reference-material quality still outstanding
 - ⬜ Phase C — **C1** component template · **C2** search enrichment · **C3** usage
 - ✅ Phase D — DESIGN.md: `handoff_export_design_md` (D1) · `init-claude` writes DESIGN.md + `.mcp.json` + CLAUDE.md (D3) · `push:all` refresh (D2)
+- ✅ **Change inquiry tools** — `handoff_recent_changes` · `handoff_component_history` · `handoff_change_why` (see change-tracking theme)
 - 🔄 Phase E — quality harness core shipped (golden prompts + scorer + runner, `npm run mcp:quality`); CI gate (E3) + live-model capture still need infra/key
-- ⬜ Phase F — distribution/DX (token gen, `init-claude`, `check-mcp`)
-- ⬜ Phase G — Claude Design native (**externally gated** on Anthropic)
+- ⬜ Phase B cont. — `query_tokens` (B1) · `export_tokens_as`/`brief` (B2) · reference-material quality (B3)
+- ⬜ Phase C — component template (C1) · search enrichment (C2) · usage (C3)
+- ⬜ Phase F — distribution/DX (token gen, `check-mcp`) · Phase G — Claude Design native (**externally gated**)
 
 ### Track 4 — Active build track (substrate)
 - ✅ Workbench reliability · DTCG→workbench foundations · registry fonts · playground React · asset library · library-in-workbench · nav cleanup · **S3/CloudFront CDN for image fills** (streamed, deduped)
+- ✅ **Neon egress cut** — list/menu column projection · `getComponent` by-id · `React.cache` per-render dedupe · token snapshot `LIMIT 1`
 - 🔄 Focus + elevation extraction (shared with Track 1)
-- ⬜ Backlog: decoupled batch image endpoint · push-cache invalidation on CLI capability changes · OAuth-backed Figma tokens for CLI fetch
+- ⬜ Backlog: decoupled batch image endpoint · push-cache invalidation on CLI capability changes · OAuth-backed Figma tokens for CLI fetch · remaining egress follow-ups (`getRuntimeComponent` scans, visibility-gated polling, registry-route caching)
 
 ### Track 5 — Standalone feature initiatives
 - ⬜ **Image sizing guide** — capture → store (`handoff_image_slot`) → per-component tab → foundation page (self-contained, deferrable)
 
-**Shortlist (2026-06-26): ✅ shipped** — Track 2 P1 (normalizer + enum validation), Phase E core
-(quality harness), Phase D (DESIGN.md loop: D1/D2/D3). **Next up:** Track 2 P2 (preview authoring UI).
+### Change-tracking & inquiry theme *(new this cycle — cross-cuts Track 3 + substrate)*
+- ✅ **Versioning fixed** — churn root-caused (volatile-field fingerprint) + canonical fingerprint; history projection; by-id fetch; one-time `cleanup-versions` admin tool
+- ✅ **Component compare-two-versions** content diff UI
+- ✅ **Token change parity** — before/after values + pusher + expandable changelog diffs
+- ✅ **Capture "why"** — CLI `--message` (human) + lazy AI-drafted summary; shown in changelog + version history
+- ✅ **MCP inquiry** — recent-changes / component-history / change-why tools
+- ⬜ Follow-ups: backfill token `change_details` from stored snapshots · token compare-two-snapshots view · design-system-native "why" (token→component usage map)
+
+**Shortlist (2026-06-30): ✅ shipped this cycle** — Track 2 P2/P3 (unified preview surface, workbench,
+hardened render) · 8x8 TS-inference fields (partial) · Neon egress cut · full change-tracking &
+inquiry theme (versioning fix, token parity, "why" capture, MCP tools). **Candidate next:** slot
+fill-model (finish 8x8 previews) · focus/elevation extractor (Track 1+4) · change-tracking follow-ups
+· Phase B `query_tokens`. *Deprioritized:* validation gating (bottom).
 
 ---
 
