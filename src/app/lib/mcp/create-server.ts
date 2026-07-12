@@ -13,6 +13,9 @@ import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
 import { usePostgres } from '@/lib/db/dialect';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
 import { applyUploadedChange } from '@/lib/db/sync-queries';
+import { getUnifiedChangelog, type UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
+import { getComponentVersionHistory } from '@/lib/db/component-version-queries';
+import { resolveChangeWhy } from '@/lib/server/change-why';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
@@ -37,6 +40,48 @@ const WORKSPACE_MODE_RESPONSE = {
 function textResult(data: unknown) {
   return {
     content: [{ type: 'text' as const, text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }],
+  };
+}
+
+/** Compact a unified changelog entry for MCP — what changed, who, when, and the "why". */
+function summarizeChange(e: UnifiedChangelogEntry) {
+  if (e.entityType === 'component') {
+    return {
+      type: 'component',
+      id: e.id,
+      component: e.componentId,
+      title: e.componentTitle,
+      version: e.versionNumber,
+      when: e.pushedAt,
+      who: e.pushedByName,
+      trigger: e.trigger,
+      changed: e.changeSummary,
+      why: e.message ?? e.aiSummary ?? null,
+    };
+  }
+  if (e.entityType === 'token') {
+    return {
+      type: 'token',
+      id: e.id,
+      when: e.pushedAt,
+      who: e.pushedByName,
+      trigger: e.trigger,
+      added: e.addedCount,
+      modified: e.modifiedCount,
+      removed: e.removedCount,
+      modifiedKeys: e.modifiedKeys.slice(0, 20),
+      why: e.message ?? e.aiSummary ?? null,
+    };
+  }
+  return {
+    type: 'page',
+    id: e.id,
+    slug: e.slug,
+    action: e.pageAction,
+    when: e.pushedAt,
+    who: e.pushedByName,
+    title: e.titleAfter ?? e.titleBefore ?? null,
+    why: e.message ?? e.aiSummary ?? null,
   };
 }
 
@@ -839,6 +884,80 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         variants = variants.filter((lv) => lv.form.toLowerCase() === f);
       }
       return textResult({ ...logoSet, variants });
+    }
+  );
+
+  // ─── Change tracking / inquiry ─────────────────────────────────────────────
+
+  server.registerTool(
+    'handoff_recent_changes',
+    {
+      description:
+        'Recent changes across the design system — component versions, token pushes, and doc-page ' +
+        'edits — newest first. Each entry gives what changed, who pushed it, when, and the "why" ' +
+        '(the push message, or a previously-drafted AI summary) when available. Use to answer ' +
+        '"what changed recently/lately/since <when>". To get the reason behind a specific change ' +
+        'that has no "why" yet, follow up with handoff_change_why using its type + id.',
+      inputSchema: {
+        days: z.number().int().min(1).max(365).optional().describe('Look back this many days (default 14).'),
+        limit: z.number().int().min(1).max(200).optional().describe('Max entries (default 30).'),
+        entityType: z.enum(['component', 'token', 'page']).optional().describe('Filter to one kind of change.'),
+      },
+    },
+    async ({ days, limit, entityType }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const since = new Date(Date.now() - (days ?? 14) * 86_400_000);
+      const all = await getUnifiedChangelog(limit ?? 30, since);
+      const filtered = entityType ? all.filter((e) => e.entityType === entityType) : all;
+      return textResult(filtered.map(summarizeChange));
+    }
+  );
+
+  server.registerTool(
+    'handoff_component_history',
+    {
+      description:
+        'Version history for one component (newest first): version number, when, who, what changed ' +
+        '(metadata fields, source files, artifacts), and the "why" when recorded. Use to answer ' +
+        '"what changed in <component>", "when did <component> last change", "how has it evolved".',
+      inputSchema: {
+        id: z.string().describe('Component id.'),
+        limit: z.number().int().min(1).max(200).optional().describe('Max versions (default 20).'),
+      },
+    },
+    async ({ id, limit }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const versions = await getComponentVersionHistory(id.trim(), limit ?? 20);
+      return textResult(
+        versions.map((v) => ({
+          id: v.id,
+          version: v.versionNumber,
+          when: v.pushedAt,
+          who: v.pushedByName,
+          trigger: v.trigger,
+          changed: v.changeSummary,
+          why: v.message ?? v.aiSummary ?? null,
+        }))
+      );
+    }
+  );
+
+  server.registerTool(
+    'handoff_change_why',
+    {
+      description:
+        'The reason a specific change was made: returns the human-authored push message if present, ' +
+        'otherwise generates and caches a one-sentence AI summary from the diff. Pass the change ' +
+        'type and id as returned by handoff_recent_changes / handoff_component_history.',
+      inputSchema: {
+        entityType: z.enum(['component', 'token', 'page']),
+        id: z.number().int().describe('The change id from handoff_recent_changes / handoff_component_history.'),
+      },
+    },
+    async ({ entityType, id }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const result = await resolveChangeWhy({ entityType, id, actorUserId: null });
+      return textResult(result);
     }
   );
 

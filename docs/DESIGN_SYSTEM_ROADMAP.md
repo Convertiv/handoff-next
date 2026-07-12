@@ -891,9 +891,17 @@ idempotent). Both sources: a human push message AND an AI-drafted summary.
 - *Surfaced in both* the unified changelog AND per-component `ComponentVersionHistory` (why line +
   "Draft why" button, `aiEnabled` from each route).
 
-**Slice 3 — MCP change inquiry, after.** `handoff_recent_changes` / `handoff_component_history` /
-`handoff_what_changed` MCP tools so Claude Code can ask about changes; optionally the
-design-system-native "why" — link token changes ↔ the components that consume them.
+**Slice 3 — MCP change inquiry *(DONE)*.** Three MCP tools on the design-system server so Claude
+Code can ask about changes directly:
+- `handoff_recent_changes({days?, limit?, entityType?})` — unified feed (component/token/page),
+  each entry with what/who/when + the "why" (message or cached AI draft) inline.
+- `handoff_component_history({id, limit?})` — per-component version history with why inline.
+- `handoff_change_why({entityType, id})` — resolves the reason for one change; returns the human
+  message or lazily generates + caches an AI draft (reuses `resolveChangeWhy`).
+All Postgres-gated (workspace-mode safe), reuse the Slice 1/2 queries. Tools auto-exposed via
+tools/list; no DESIGN.md change needed.
+- *Deferred (design-system-native "why"):* link token changes ↔ the components that consume them
+  ("the button changed *because* `color/primary` did") — needs a token→component usage map.
 
 ### #4 — Open a component in the workbench to prototype from an existing one  *(scoped)*
 The workbench (`ComponentWorkbenchDialog`) already loads with the current preview's values; "open to
