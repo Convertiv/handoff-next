@@ -47,56 +47,85 @@ function ObjectField({ identifier, value, data }: { identifier: string[]; value:
   return <div className="space-y-2 rounded-lg">{renderFormFields(value.properties, getData(identifier, data), [...identifier])}</div>;
 }
 
+/** Remove index `idx`'s parent-array element (shared by object + scalar items). */
+function useRemoveArrayItem() {
+  const { getData, handleInputChange } = useEditContext();
+  return (identifier: string[]) => {
+    const parentPath = identifier.slice(0, -1);
+    const idx = Number(identifier[identifier.length - 1]);
+    const arr = getData(parentPath);
+    if (Array.isArray(arr)) {
+      handleInputChange(parentPath, arr.filter((_: unknown, i: number) => i !== idx));
+    }
+  };
+}
+
+/** True when array items are objects with their own sub-fields (vs a scalar/leaf editor). */
+function hasObjectItems(value: any): boolean {
+  return !!value?.items?.properties && Object.keys(value.items.properties).length > 0;
+}
+
 function ArrayField({ identifier, value }: { identifier: string[]; value: any; data: any }) {
   const { getData, handleInputChange } = useEditContext();
-  if (!value.items?.properties) {
-    return <span className="text-sm text-muted-foreground">Missing items properties</span>;
-  }
-  let items = getData(identifier);
-  if (!items) items = [];
+  const items: any[] = getData(identifier) ?? [];
+  const objectItems = hasObjectItems(value);
+  // Scalar/leaf items (e.g. a `fields` annotation's `of: 'button'`) carry an
+  // item editor via `items.editorType`/`items.type` and no `items.properties`.
+  const itemDescriptor = value.items ?? { type: 'text' };
+
+  const emptyItem = () => {
+    if (objectItems) return {};
+    const t = resolveFieldType(itemDescriptor);
+    if (t === 'number') return 0;
+    if (t === 'boolean') return false;
+    if (t === 'text' || t === 'string' || t === 'richtext' || t === 'slot') return '';
+    return {}; // button / link / image / object-shaped leaves
+  };
 
   return (
     <div className="space-y-2 rounded-lg">
-      {items.map((_item: any, index: number) => (
-        <ArrayItem key={index} identifier={[...identifier, index.toString()]} value={value} />
-      ))}
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => {
-          handleInputChange([...identifier], [...items, {}]);
-        }}
-      >
+      {items.map((_item, index) =>
+        objectItems ? (
+          <ArrayItem key={index} identifier={[...identifier, index.toString()]} value={value} />
+        ) : (
+          <ArrayScalarItem key={index} identifier={[...identifier, index.toString()]} itemValue={itemDescriptor} />
+        )
+      )}
+      <Button variant="outline" size="sm" onClick={() => handleInputChange([...identifier], [...items, emptyItem()])}>
         <PlusIcon className="mr-1 h-4 w-4" /> Add to {value.name}
       </Button>
     </div>
   );
 }
 
+/** One scalar/leaf array element — a single editor (button/link/image/text/…) + remove. */
+function ArrayScalarItem({ identifier, itemValue }: { identifier: string[]; itemValue: any }) {
+  const { getData } = useEditContext();
+  const remove = useRemoveArrayItem();
+  return (
+    <div className="relative flex items-start gap-2 border-b p-3">
+      <div className="min-w-0 flex-1">
+        <InputField fieldKey={identifier} value={itemValue} data={getData(identifier)} />
+      </div>
+      <Button variant="ghost" size="sm" onClick={() => remove(identifier)}>
+        <Trash2Icon className="h-4 w-4" />
+      </Button>
+    </div>
+  );
+}
+
 function ArrayItem({ identifier, value }: { identifier: string[]; value: any }) {
-  const { handleInputChange, getData } = useEditContext();
+  const { getData } = useEditContext();
   const [isOpen, setIsOpen] = useState(false);
   const item = getData(identifier);
+  const remove = useRemoveArrayItem();
 
   return (
     <div className="relative min-h-[30px] border-b p-3 transition-colors duration-100">
       <div className="flex items-center justify-between">
         <FieldLabel label="Item" htmlFor={identifier[identifier.length - 1]} type={value.items?.type || 'object'} />
         <div className="flex items-center space-x-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              // Remove this item from the parent array (was setting it to null,
-              // which left an empty slot behind instead of deleting it).
-              const parentPath = identifier.slice(0, -1);
-              const idx = Number(identifier[identifier.length - 1]);
-              const arr = getData(parentPath);
-              if (Array.isArray(arr)) {
-                handleInputChange(parentPath, arr.filter((_: unknown, i: number) => i !== idx));
-              }
-            }}
-          >
+          <Button variant="ghost" size="sm" onClick={() => remove(identifier)}>
             <Trash2Icon className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setIsOpen(!isOpen)}>
@@ -127,6 +156,15 @@ function ArrayItem({ identifier, value }: { identifier: string[]; value: any }) 
  * to map slots/functions/unknowns onto real controls instead of dumping JSON.
  */
 export function resolveFieldType(value: any): string {
+  // An authored `editorType` (fields annotation, §12a) is the intent signal and
+  // wins on widget selection — a `React.ReactNode` slot annotated `image` should
+  // render the image editor, not the slot fallback.
+  const BUILDER_EDITORS = new Set([
+    'text', 'richtext', 'number', 'boolean', 'select', 'image', 'link', 'button', 'object', 'array', 'slot',
+  ]);
+  const editorType = value?.editorType;
+  if (typeof editorType === 'string' && BUILDER_EDITORS.has(editorType)) return editorType;
+
   const type = value?.type;
   if (type === 'React.ReactNode') return 'slot';
   if (type === 'function') return 'function';
