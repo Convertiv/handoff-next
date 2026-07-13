@@ -14,6 +14,7 @@ import {
     getPropertiesFromGeneratedDocs,
 } from '@handoff/transformers/docgen/index';
 import { SlotMetadata } from '@handoff/transformers/preview/component';
+import { applyFieldAnnotations } from '@handoff/transformers/preview/component/field-annotations';
 import { MAIN_COMPONENT_CSS_FILE } from '@handoff/transformers/preview/component/css';
 import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 import { DEFAULT_CLIENT_BUILD_CONFIG, createReactResolvePlugin } from '@handoff/transformers/utils/build';
@@ -229,6 +230,14 @@ export function ssrRenderPlugin(
         const docgenProperties = getPropertiesFromGeneratedDocs(generatedDocs, componentPath, handoff);
         componentData.properties = enrichPropertiesWithDocgen(componentData.properties, docgenProperties) || {};
         componentData.docgen = generatedDocs;
+      }
+
+      // Merge `fields` annotations (Handoff's argTypes, §12a) onto the resolved
+      // PropertySpec map. Only serializable meta lands — the annotation `render`
+      // functions stay in the preview bundle and are applied at render time.
+      const declaredFields = (componentData as { fields?: Record<string, unknown> }).fields;
+      if (declaredFields) {
+        componentData.properties = applyFieldAnnotations(componentData.properties, declaredFields as never);
       }
 
       // Ensure components object exists

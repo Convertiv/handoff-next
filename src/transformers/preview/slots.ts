@@ -30,8 +30,17 @@ export interface SlotMetadata {
   generic: string;
   default?: string | number | boolean | object | any[] | null;
   type: SlotType;
+  /**
+   * Open editor/widget signal (COMPONENT_PREVIEW_SCHEMA §4/§12a `editorType`) —
+   * populated from `fields` annotations. Drives which builder widget renders;
+   * `type` stays the closed, validatable value type.
+   */
+  editorType?: string;
+  /** Choices for a select/enum editor — populated from a field annotation's `options`. */
+  options?: Array<{ value: string; label?: string }>;
   items?: {
     type: SlotType;
+    editorType?: string;
     properties?: { [key: string]: SlotMetadata };
   };
   properties?: { [key: string]: SlotMetadata };
