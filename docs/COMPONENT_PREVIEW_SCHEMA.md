@@ -385,6 +385,86 @@ generated `*Props` interface, closing the loop for the developer — still code,
 
 ---
 
+## 12a. `fields` annotations — the authoring layer (Handoff's `argTypes`)
+
+Modeled directly on Storybook. Storybook doesn't ask you to write a schema: it **infers controls
+from the real component props** (react-docgen), lets you **refine each control with `argTypes`**, and
+handles non-serializable values (JSX) via **`mapping`/`render`** — a serializable control value
+converted to the complex value just before render. Handoff mirrors all three, so there is **no
+parallel `*PreviewProps` type to maintain** — inference (§12) is the baseline, `fields` is the thin
+refinement layer, and a per-field `render` bridges serializable values to React nodes.
+
+`fields` lives inside the existing `defineReactComponent(Component, { … })` — the declaration used
+everywhere — alongside `previews` (which are the Storybook **`args`**). One file, one function.
+
+```ts
+export default defineReactComponent<HeroSplitProps>(HeroSplit, {
+  id: 'hero-split', type: 'block',
+  entries: { component: './HeroSplit.tsx' },
+  fields: {                                   // ← the "argTypes" layer
+    theme:  { editorType: 'select', options: ['light', 'dark', 'brand'] },
+    titleSlot:   { editorType: 'richtext', label: 'Title', render: (v) => renderPreviewTextSlot(undefined, v) },
+    imageSlot:   { editorType: 'image',    label: 'Image', render: (v) => renderPreviewImageSlot(undefined, v) },
+    buttonSlots: { editorType: 'array', of: 'button', render: (v) => renderPreviewButtonSlots(undefined, v) },
+    anchor: { hidden: true },                 // code-only — keep out of the builder
+  },
+  previews: {                                 // ← the "args": serializable values
+    default: { title: 'Default', args: {
+      theme: 'light',
+      titleSlot: 'Connect every employee',
+      imageSlot: { src: '/hero.webp', alt: 'Team collaborating' },
+      buttonSlots: [{ label: 'Get started', url: '/signup', variant: 'primary' }],
+    }},
+  },
+});
+```
+
+**A `FieldAnnotation` is a refinement of one inferred prop → a `PropertySpec` (§4):**
+
+| Key | Purpose | Serializable? |
+|---|---|---|
+| `editorType` | Which builder widget (`text`/`richtext`/`select`/`image`/`link`/`button`/`array`/`object`/`slot`/…). OPEN vocabulary → §4 `editorType`. | ✅ pushed |
+| `options` | Choices for `select` — `['a','b']` or `[{value,label}]` → §4 `enumOptions`. | ✅ pushed |
+| `of` | For `array`: the item editor (e.g. `'button'`). | ✅ pushed |
+| `label` / `description` | Builder labelling. | ✅ pushed |
+| `rules` | Validation (`required`, `content.min/max`, `pattern`) → §4 `rules`. | ✅ pushed |
+| `default` | Seed value in the builder. | ✅ pushed |
+| `hidden` | Omit a code-only prop from the builder form. | ✅ pushed |
+| `render` | Map the serializable editor value → the real prop value (e.g. a React node for a slot). | ❌ **code, stays in bundle** |
+
+**The load-bearing split (§2a, and Storybook's manager/preview boundary):**
+- The **serializable meta** (everything except `render`) is extracted at build, merged into the
+  component's `PropertySpec` map, and **pushed** — it drives the builder form, MCP/REST, and
+  validation. The pushed schema stays 100% data.
+- **`render` is code.** It never serializes; it lives in the workspace/preview bundle (co-located
+  with the component and its helpers) and runs **only at render time, inside the §14 iframe**, to
+  turn a stored serializable value into the real prop (usually a `React.ReactNode`). This is the
+  Storybook `mapping`/`render` pattern; 8x8 points `render` at its existing `previewHelpers`
+  (`renderPreviewImageSlot`, `renderPreviewButtonSlots`, …) — **no component rewrite**.
+
+**Shape freedom (explicit non-goal: fixed slot shapes).** Handoff never assumes the shape of a
+slot's fill value. `render(value)` receives *whatever* the editor produces (`{src,alt}`,
+`{asset,ratio,focal}`, a bare string, …) and returns *whatever* node the component needs. `of:
+'button'` only names the item editor; the workspace's `render` defines what a button value becomes.
+No project is forced to adapt to an expected shape.
+
+**Inference-first, annotate-only-what-needs-it.** A prop docgen already types well (a string, a
+literal union, a serializable object/array) needs **no** `fields` entry. Annotations exist to (1)
+upgrade an editor (`string` → `image`/`link`/`richtext`), (2) supply `options` inference missed, (3)
+`hidden` a code-only prop, or (4) attach a slot `render`. Hagyard/Resolvet — whose props are already
+serializable — typically need one or two entries (`imageSrc: { editorType: 'image' }`); 8x8 needs
+entries mainly for its `React.ReactNode` slots.
+
+**Resolved descriptor** (inferred ⊕ annotation) the builder consumes for `imageSlot`:
+```jsonc
+{ "name": "imageSlot",
+  "kind": "slot", "sourceType": "React.ReactNode",   // inferred provenance (§12)
+  "valueType": "object", "editorType": "image",       // authored refinement (this section)
+  "label": "Image" }                                  // `render` is NOT here — it stayed code
+```
+
+---
+
 ## 13. Decisions (resolved in review)
 
 1. **Previews → array-with-`id`, with lenient normalization.** Canonical form is the array.
