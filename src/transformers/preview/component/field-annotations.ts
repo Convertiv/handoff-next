@@ -17,6 +17,30 @@ export interface SerializableFieldAnnotation {
   hidden?: boolean;
 }
 
+/**
+ * Apply each field's `render` (the Storybook `mapping` step) to the matching
+ * prop value: serializable editor value → real prop value (often a React node).
+ * Only fields whose annotation carries a function `render` transform anything;
+ * all other props pass through untouched. Pure; returns a new object.
+ *
+ * Used at SSR (build, in-process) and mirrored inline in the client bundle so
+ * the static render and the live/hydrated render agree.
+ */
+export function applyRenderFns(
+  props: Record<string, unknown> | null | undefined,
+  fields: Record<string, { render?: unknown } | undefined> | undefined
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(props ?? {}) };
+  if (!fields) return out;
+  for (const [key, ann] of Object.entries(fields)) {
+    const render = ann && typeof ann === 'object' ? (ann as { render?: unknown }).render : undefined;
+    if (typeof render === 'function' && key in out) {
+      out[key] = (render as (v: unknown) => unknown)(out[key]);
+    }
+  }
+  return out;
+}
+
 /** Editor → closed value type. The editor asserts intent, so it wins on `type`. */
 const EDITOR_TO_SLOTTYPE: Record<string, SlotType> = {
   text: SlotType.TEXT,

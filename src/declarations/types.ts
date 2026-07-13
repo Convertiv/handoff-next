@@ -21,6 +21,9 @@ type BaseDeclarationEntries = NonNullable<ComponentObject['entries']> & {
   component?: string;
   story?: string;
   templates?: string;
+  /** Absolute path to the declaration file (set by the normalizer) — lets the
+   *  preview bundle import the declaration's `fields[*].render` functions. */
+  declaration?: string;
 };
 
 type OptionalComponentMetadata = Partial<Omit<ComponentObject, 'previews' | 'entries' | 'title' | 'should_do' | 'should_not_do'>>;

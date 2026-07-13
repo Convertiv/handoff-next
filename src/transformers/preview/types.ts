@@ -120,6 +120,9 @@ export type ComponentObject = {
     schema?: string;
     /** Optional path to templates directory */
     templates?: string;
+    /** Absolute path to the declaration file (`.handoff.ts` / `<name>.js`) — lets
+     *  the preview bundle import its `fields[*].render` functions. */
+    declaration?: string;
   };
   /** Optional explicit renderer id */
   renderer?: RendererKind;
@@ -188,6 +191,8 @@ export type TransformComponentTokensResult = {
     story?: string;
     schema?: string;
     templates?: string;
+    /** Absolute path to the declaration file — for the preview bundle to import `fields[*].render`. */
+    declaration?: string;
   };
   renderer?: RendererKind;
 } & FigmaComponentLinkData & {

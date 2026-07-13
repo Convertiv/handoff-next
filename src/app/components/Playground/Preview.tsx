@@ -117,7 +117,7 @@ export function renderHandlebarsPreview(
 /**
  * Construct an iframe HTML document that loads a React/CSF component module
  * and renders it with the given props. The module is served from
- * `/api/component/{id}.module.js` and exposes `render(container, props)`
+ * `/api/component/{id}-client.mjs` and exposes `render(container, props)`
  * and `update(props)` functions. The iframe listens for `postMessage`
  * events to re-render with new props without reloading the module.
  */
@@ -154,7 +154,7 @@ export function renderReactPreview(
       const initialProps = JSON.parse(document.getElementById('__PROPS__').textContent || '{}');
       const fallbackHtml = JSON.parse(document.getElementById('__FALLBACK__').textContent || '""');
 
-      import('${basePath}/api/component/${component.id}.module.js')
+      import('${basePath}/api/component/${component.id}-client.mjs')
         .then(({ render, update }) => {
           render(container, initialProps);
           window.addEventListener('message', (event) => {
@@ -281,7 +281,7 @@ export async function constructComponentPreview(
         var initialProps = el ? JSON.parse(el.textContent || '{}') : {};
         var fb = document.getElementById(${JSON.stringify(fallbackId)});
         var fallbackHtml = fb ? JSON.parse(fb.textContent || '""') : '';
-        import('${basePath}/api/component/${component.id}.module.js')
+        import('${basePath}/api/component/${component.id}-client.mjs')
           .then(function(m) {
             m.render(container, initialProps);
             window.addEventListener('message', function (event) {

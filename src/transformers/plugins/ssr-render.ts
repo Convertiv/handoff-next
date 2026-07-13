@@ -14,7 +14,7 @@ import {
     getPropertiesFromGeneratedDocs,
 } from '@handoff/transformers/docgen/index';
 import { SlotMetadata } from '@handoff/transformers/preview/component';
-import { applyFieldAnnotations } from '@handoff/transformers/preview/component/field-annotations';
+import { applyFieldAnnotations, applyRenderFns } from '@handoff/transformers/preview/component/field-annotations';
 import { MAIN_COMPONENT_CSS_FILE } from '@handoff/transformers/preview/component/css';
 import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 import { DEFAULT_CLIENT_BUILD_CONFIG, createReactResolvePlugin } from '@handoff/transformers/utils/build';
@@ -95,19 +95,64 @@ async function loadComponentSchemaAndModule(
 }
 
 /**
- * Generates client-side hydration source code
- * @param componentPath - Path to the component file
- * @returns Client-side hydration source code
+ * Generates the component's client module. This ONE artifact serves two roles:
+ *
+ *  1. Static preview HTML loads it as a `<script type="module">` — it detects
+ *     the pre-rendered SSR root and hydrates it (legacy behavior, preserved).
+ *  2. The playground/workbench `import()`s it and calls the exported
+ *     `render(container, props)` / `update(props)` for live editing.
+ *
+ * When the component declares `fields` (Handoff's argTypes, §12a), the module
+ * imports the declaration's `fields[*].render` functions and maps each incoming
+ * serializable value → the real prop (e.g. a React node) before rendering — the
+ * same mapping SSR applies, so static/hydrated/live renders agree. Components
+ * without `fields` bundle no declaration and behave byte-for-byte as before.
+ *
+ * @param componentPath   Path to the component source (default export).
+ * @param declarationPath Path to the declaration file (for `fields[*].render`), or undefined.
+ * @param hasFields       Whether the component declares any `fields`.
  */
-function generateClientHydrationSource(componentPath: string): string {
+function generateClientHydrationSource(
+  componentPath: string,
+  declarationPath: string | undefined,
+  hasFields: boolean
+): string {
+  const useDecl = hasFields && !!declarationPath;
+  const declImport = useDecl ? `import * as __decl from '${normalizePath(declarationPath!)}';` : '';
+  const fieldsExpr = useDecl ? `(((__decl && (__decl.default || __decl)) || {}).fields || {})` : `{}`;
   return `
     import React from 'react';
-    import { hydrateRoot } from 'react-dom/client';
+    import { hydrateRoot, createRoot } from 'react-dom/client';
     import Component from '${normalizePath(componentPath)}';
+    ${declImport}
 
-    const raw = document.getElementById('${PLUGIN_CONSTANTS.PROPS_SCRIPT_ID}')?.textContent || '{}';
-    const props = JSON.parse(raw);
-    hydrateRoot(document.getElementById('${PLUGIN_CONSTANTS.ROOT_ELEMENT_ID}'), <Component {...props} />);
+    const __fields = ${fieldsExpr};
+    // Map serializable field values → real props via each field's render fn.
+    function __map(props) {
+      if (!props || typeof props !== 'object') return props;
+      const out = { ...props };
+      for (const k in __fields) {
+        const r = __fields[k] && __fields[k].render;
+        if (typeof r === 'function' && k in out) out[k] = r(out[k]);
+      }
+      return out;
+    }
+
+    let __root = null;
+    export function render(container, props) {
+      __root = createRoot(container);
+      __root.render(React.createElement(Component, __map(props)));
+    }
+    export function update(props) {
+      if (__root) __root.render(React.createElement(Component, __map(props)));
+    }
+
+    // Static preview HTML: hydrate the pre-rendered root when present.
+    const __rootEl = document.getElementById('${PLUGIN_CONSTANTS.ROOT_ELEMENT_ID}');
+    const __rawEl = document.getElementById('${PLUGIN_CONSTANTS.PROPS_SCRIPT_ID}');
+    if (__rootEl && __rawEl) {
+      hydrateRoot(__rootEl, React.createElement(Component, __map(JSON.parse(__rawEl.textContent || '{}'))));
+    }
   `;
 }
 
@@ -256,7 +301,12 @@ export function ssrRenderPlugin(
       // This keeps individual HTML preview files at ~1-2 KB regardless of how
       // large the component library bundle is — critical for React workspaces
       // where the JS can exceed 3 MB.
-      const clientHydrationSource = generateClientHydrationSource(componentPath);
+      const declaredFieldsForRender = (componentData as { fields?: Record<string, unknown> }).fields;
+      const clientHydrationSource = generateClientHydrationSource(
+        componentPath,
+        componentData.entries?.declaration,
+        !!declaredFieldsForRender
+      );
       const clientBuildConfig = {
         ...DEFAULT_CLIENT_BUILD_CONFIG,
         logLevel: 'silent' as const,
@@ -307,9 +357,13 @@ export function ssrRenderPlugin(
       // Generate previews for each variation
       for (const previewKey in componentData.previews) {
         const previewProps = componentData.previews[previewKey].values;
+        // Map serializable field values → real props (nodes) for SSR. The JSON
+        // props script below stays RAW/serializable so the client re-maps the
+        // same way (SSR ⇄ hydration agreement).
+        const renderProps = applyRenderFns(previewProps as Record<string, unknown>, declaredFieldsForRender);
 
         // Server-side render the component
-        const serverRenderedHtml = ReactDOMServer.renderToString(React.createElement(ReactComponent, previewProps));
+        const serverRenderedHtml = ReactDOMServer.renderToString(React.createElement(ReactComponent, renderProps));
         const formattedHtml = await formatHtml(serverRenderedHtml);
 
         // Generate complete HTML document (external JS reference — keeps file small)

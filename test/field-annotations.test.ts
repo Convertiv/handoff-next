@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { applyFieldAnnotations } from '@handoff/transformers/preview/component/field-annotations';
+import { applyFieldAnnotations, applyRenderFns } from '@handoff/transformers/preview/component/field-annotations';
 import { SlotType, type SlotMetadata } from '@handoff/transformers/preview/slots';
 
 const baseProps = (): Record<string, SlotMetadata> => ({
@@ -71,5 +71,32 @@ describe('applyFieldAnnotations', () => {
     });
     assert.strictEqual(out.theme.rules?.required, true);
     assert.strictEqual(out.theme.default, 'light');
+  });
+});
+
+describe('applyRenderFns', () => {
+  it('maps a value through its field render fn', () => {
+    const out = applyRenderFns(
+      { imageSlot: { src: '/a.png', alt: 'A' }, title: 'Hi' },
+      { imageSlot: { render: (v: any) => `IMG(${v.src})` } }
+    );
+    assert.strictEqual(out.imageSlot, 'IMG(/a.png)');
+    assert.strictEqual(out.title, 'Hi'); // untouched — no render fn
+  });
+
+  it('is a no-op without fields', () => {
+    assert.deepStrictEqual(applyRenderFns({ a: 1 }, undefined), { a: 1 });
+  });
+
+  it('ignores non-function render + absent keys', () => {
+    const out = applyRenderFns({ a: 1 }, { a: { render: 'nope' as unknown }, b: { render: (v: any) => v } });
+    assert.strictEqual(out.a, 1); // render not a function
+    assert.ok(!('b' in out)); // key absent in props → not added
+  });
+
+  it('does not mutate the input props', () => {
+    const props = { x: { n: 1 } };
+    applyRenderFns(props, { x: { render: () => 'mapped' } });
+    assert.deepStrictEqual(props.x, { n: 1 });
   });
 });

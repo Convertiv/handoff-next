@@ -172,7 +172,9 @@ export const normalizeComponentDeclaration = (raw: RawDeclaration, options: Norm
     id: explicitId || options.fallbackId,
     title: normalizedRaw.name || normalizedRaw.title || '',
     renderer: resolvedRenderer,
-    entries,
+    // Retain the declaration file path so the preview bundle can import the
+    // declaration's `fields[*].render` functions (see ssr-render).
+    entries: { ...entries, declaration: path.resolve(options.declarationPath) },
     previews: normalizedPreviews,
   };
 };
