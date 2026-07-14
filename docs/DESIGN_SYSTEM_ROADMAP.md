@@ -45,8 +45,10 @@ images/content, **saved in the playground** → 3. realize we need new *structur
 5. generate a spec → 6. generate component code, push to workspace + registry → 7. swap the new hero
 into the landing page.
 
-**Immediate next:** Track 6.1 (playground compose/read/swap tools) → 6.2 (embedded preview app). See
-[Open work → Track 6](#track-6--handoff-driven-from-claude).
+**Immediate next:** ✅ 6.1 instance write surface is **done** (page compose/read/swap, preview
+authoring, pattern changelog, doc-page CRUD — all `sync:write`, contract-validated, tracked). Next:
+**6.2 embedded preview app** (reuse the §14 iframe). See [Open work → Track 6](#track-6--handoff-driven-from-claude).
+*Pending: live test against a registry.*
 
 **Bugs from the 8x8/SS&C pass:** (1) React not live-updating = **not a code bug** — needs the
 component's `-client.mjs` rebuilt with #3's render/update + registry deployed (verify on rebuilt
@@ -85,17 +87,18 @@ Claude-driven write is versioned, attributed, explained, diffable. The four goal
 Code + `push` loop (mostly works); goals 1/2/4 (designs, pages, playground compositions) = instance
 writes = the new surface.
 
-- 🔄 **6.1 Instance write surface (biggest unlock, no external dep).**
-  - ✅ **Playground page tools** (`4f4d5fa5`): `handoff_list_pages` / `handoff_get_page` (read) ·
-    `handoff_create_page` / `handoff_update_page` (`sync:write`) — compose/read/swap component blocks
-    (`{id, preview?, args}`), each **validated against its component contract**. Rides a shared
-    actor-param `pattern-write.ts` core (DB + editHistory + sync event) used by both the session
-    actions and the MCP tools. Covers demo steps 1–2, 7. *(Entity: a playground page = a pattern,
-    `source: playground` — distinct from markdown doc pages.)*
-  - ⬜ **Preview authoring tool** — create/edit a component preview via MCP (registry preview CRUD exists).
-  - ⬜ **Doc-page CRUD** (goal 2, markdown pages) — distinct from playground pages.
-  - ⬜ **Pattern changelog** — add pattern changes to the unified changelog + `change_why` so Track 6
-    writes are diffable like components/tokens (today: `editHistory` + sync events only).
+- ✅ **6.1 Instance write surface (DONE — no external dep).** All writes gated by `sync:write`,
+  validated against the contract, version-tracked, and carry an optional `message` ("why").
+  - ✅ **Playground page tools** (`4f4d5fa5`): `handoff_list_pages` / `get_page` / `create_page` /
+    `update_page` — compose/read/swap component blocks (`{id, preview?, args}`), each validated against
+    its component contract. Rides a shared actor-param `pattern-write.ts` core. Demo steps 1–2, 7.
+    *(A playground page = a pattern, `source: playground` — distinct from doc pages.)*
+  - ✅ **Preview authoring** (`88abf7ca`): `handoff_create_preview` / `update_preview` wrap the
+    contract-validating registry preview CRUD (`source: llm`).
+  - ✅ **Pattern changelog** (`f1b7489b`): `handoff_pattern_change` table + recording; pattern entries
+    in the unified changelog + `change_why` + MCP change tools; UI renders them.
+  - ✅ **Doc-page CRUD** (`f0387530`, goal 2): `handoff_list/get/create/update_doc_page`; actor-param
+    `writeDocPage` upsert records `page_change` + syncs nav.
 - ⬜ **6.2 Embedded Claude apps (MCP-UI / Apps SDK), reusing shipped code:** §14 opaque-origin iframe
   → embedded preview renderer (**first**); playground field builder + render bridge → embedded
   builder; changelog/diff → embedded review.
