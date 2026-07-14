@@ -23,6 +23,7 @@ import {
   updateComponentPreview,
   PreviewValidationFailed,
 } from '@/lib/db/component-preview-queries';
+import { getHandoffPageBySlug, listHandoffPages, writeDocPage, type DocPageActor } from '@/lib/server/doc-pages';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
@@ -992,6 +993,14 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     trigger: 'mcp',
   });
 
+  /** MCP caller → doc-page actor. */
+  const docPageActor = (message?: string): DocPageActor => ({
+    userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
+    userName: `mcp:${auth.userId}`,
+    message: message ?? null,
+    trigger: 'mcp',
+  });
+
   const blockSchema = z.object({
     id: z.string().describe('Component id for this block'),
     preview: z.string().optional().describe('An existing preview key of that component to seed values'),
@@ -1202,6 +1211,104 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
         return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to update preview' });
       }
+    }
+  );
+
+  // ─── Doc pages (markdown documentation) — Track 6.1 / goal 2 ──────────────────
+
+  const cleanSlug = (s: string) => s.trim().replace(/^\/+|\/+$/g, '');
+
+  server.registerTool(
+    'handoff_list_doc_pages',
+    {
+      description:
+        'List markdown documentation pages (slug, title, description). These are doc/content pages — ' +
+        'distinct from playground pages (block compositions; use handoff_list_pages for those).',
+      inputSchema: {},
+    },
+    async () => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      return textResult(await listHandoffPages());
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_doc_page',
+    {
+      description: 'Get one markdown doc page by slug — its frontmatter + markdown body.',
+      inputSchema: { slug: z.string().describe('Page slug, e.g. "guides/getting-started".') },
+    },
+    async ({ slug }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const p = await getHandoffPageBySlug(cleanSlug(slug));
+      if (!p) return textResult({ error: 'Not found' });
+      return textResult(p);
+    }
+  );
+
+  server.registerTool(
+    'handoff_create_doc_page',
+    {
+      description:
+        'Create a NEW markdown doc page. Fails if the slug already exists (use handoff_update_doc_page). ' +
+        'The page appears in the sidebar nav automatically.',
+      inputSchema: {
+        slug: z.string().describe('Path under pages/ without extension, e.g. "guides/getting-started".'),
+        title: z.string(),
+        markdown: z.string().describe('Markdown body.'),
+        frontmatter: z.record(z.string(), z.any()).optional().describe('Extra frontmatter (weight, menu, …).'),
+        message: z.string().optional().describe('Short "why" — shown in the changelog.'),
+      },
+    },
+    async ({ slug, title, markdown, frontmatter, message }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const s = cleanSlug(slug);
+      if (await getHandoffPageBySlug(s)) {
+        return textResult({ ok: false, error: `Page "${s}" already exists — use handoff_update_doc_page.` });
+      }
+      const { page, action } = await writeDocPage(
+        { slug: s, frontmatter: { ...(frontmatter ?? {}), title }, markdown },
+        docPageActor(message)
+      );
+      return textResult({ ok: true, slug: page.slug, action });
+    }
+  );
+
+  server.registerTool(
+    'handoff_update_doc_page',
+    {
+      description:
+        'Update an existing markdown doc page (by slug). Fails if it does not exist. Provide markdown ' +
+        'and/or title/frontmatter; frontmatter is merged with the existing.',
+      inputSchema: {
+        slug: z.string(),
+        title: z.string().optional(),
+        markdown: z.string().optional(),
+        frontmatter: z.record(z.string(), z.any()).optional(),
+        message: z.string().optional().describe('Short "why" — shown in the changelog.'),
+      },
+    },
+    async ({ slug, title, markdown, frontmatter, message }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const s = cleanSlug(slug);
+      const existing = await getHandoffPageBySlug(s);
+      if (!existing) {
+        return textResult({ ok: false, error: `Page "${s}" not found — use handoff_create_doc_page.` });
+      }
+      const mergedFm = {
+        ...existing.frontmatter,
+        ...(frontmatter ?? {}),
+        ...(title !== undefined ? { title } : {}),
+      };
+      const { page, action } = await writeDocPage(
+        { slug: s, frontmatter: mergedFm, markdown: markdown ?? existing.markdown },
+        docPageActor(message)
+      );
+      return textResult({ ok: true, slug: page.slug, action });
     }
   );
 

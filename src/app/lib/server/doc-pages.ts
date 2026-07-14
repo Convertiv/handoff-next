@@ -126,6 +126,48 @@ export async function bulkUpsertHandoffPages(
   return count;
 }
 
+/**
+ * Actor-parameterized doc-page upsert for non-session callers (the MCP page
+ * tools). Upserts the page, records a `page_change` row (unified changelog +
+ * change-why, with an optional "why" message), and syncs the nav tree — the
+ * same tracking the UI/push paths do, but authorized by an MCP actor.
+ */
+export interface DocPageActor {
+  userId: string | null;
+  userName?: string | null;
+  message?: string | null;
+  trigger?: string;
+}
+
+export async function writeDocPage(
+  input: { slug: string; frontmatter: Record<string, unknown>; markdown: string },
+  actor: DocPageActor
+): Promise<{ page: HandoffPageRow; action: 'created' | 'updated' }> {
+  const db = getDb();
+  const trimmedSlug = input.slug.replace(/^\/+|\/+$/g, '');
+  if (!trimmedSlug) throw new Error('Invalid slug');
+
+  const existing = await getHandoffPageBySlug(trimmedSlug);
+  const action: 'created' | 'updated' = existing ? 'updated' : 'created';
+  const page = await upsertHandoffPageInternal(trimmedSlug, input.frontmatter, input.markdown);
+
+  await db.insert(handoffPageChanges).values({
+    slug: trimmedSlug,
+    action,
+    pushedByUserId: actor.userId,
+    pushedByName: actor.userName ?? null,
+    trigger: actor.trigger ?? 'mcp',
+    titleBefore: existing ? String(existing.frontmatter?.title ?? '') || null : null,
+    titleAfter: String(input.frontmatter?.title ?? '') || null,
+    markdownLengthBefore: existing ? existing.markdown.length : null,
+    markdownLengthAfter: input.markdown.length,
+    message: actor.message ?? null,
+  });
+
+  void syncPageToNav(trimmedSlug, page.frontmatter).catch(() => undefined);
+  return { page, action };
+}
+
 async function upsertHandoffPageInternal(
   slug: string,
   frontmatter: Record<string, unknown>,
