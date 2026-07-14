@@ -113,6 +113,19 @@ features being *driven from Claude*. Frontloaded **ahead of finishing the typed-
 surface over *instances*** (§2a), which the just-shipped **change-tracking + "why" layer is the safety
 foundation for** — every Claude-driven write is versioned, attributed, explained, diffable.
 
+**Hero demo flow (the north star, Brad 2026-06-30)** — one prompt-driven arc that exercises every goal:
+1. Create a new landing page.
+2. Prompt → compose it from existing components with generated images + content → **saved in the
+   playground** (⇒ the instance entity here is a *playground page/composition*, not a doc page).
+3. Realize we need new hero *functionality* — structural, not just prop swaps.
+4. Prompt a new design layout (possibly from a generated wireframe) → **saved in the design workbench**.
+5. Generate a spec from the design.
+6. Generate component code from the design → push to workspace → push to registry.
+7. Swap the new hero into the landing page.
+Steps 1–2,7 = playground composition (6.1). 3–6 = design→spec→code→push (design-artifact bridge +
+`generate_component_from_design` + Claude Code + push, i.e. goals 1+3). This flow drives 6.1's first
+tools (compose/read a playground page; swap a block) and confirms the design→component bridge.
+
 The four goals map onto **Design↔Code × Contract↔Instance**:
 - **Goal 3** (code/patch components → push) = Code × Contract = the **Claude Code + `push` loop**;
   read-context exists, small add = a "read component *source* files to patch" tool. Mostly works now.
