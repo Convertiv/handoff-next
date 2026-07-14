@@ -18,6 +18,11 @@ import { getComponentVersionHistory } from '@/lib/db/component-version-queries';
 import { resolveChangeWhy } from '@/lib/server/change-why';
 import { writePattern, patchPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
 import { validatePreviewValues } from '@handoff/transformers/preview/component/preview-validation';
+import {
+  createComponentPreview,
+  updateComponentPreview,
+  PreviewValidationFailed,
+} from '@/lib/db/component-preview-queries';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
@@ -1104,6 +1109,81 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (Object.keys(updates).length === 0) return textResult({ ok: false, error: 'No updates provided.' });
       await patchPattern(id, updates, patternActor());
       return textResult({ ok: true, id, ...(blocks ? { blocks: blocks.length } : {}) });
+    }
+  );
+
+  // ─── Component previews (registry-authored value-sets) — Track 6.1 ────────────
+
+  server.registerTool(
+    'handoff_create_preview',
+    {
+      description:
+        'Author a NEW registry preview for a component — a named, semantic value-set (e.g. a "Primary ' +
+        'CTA" button). Values are validated against the component contract; invalid values are rejected, ' +
+        'not saved. This is how Claude publishes a configured, meaningful example to the workbench.',
+      inputSchema: {
+        componentId: z.string(),
+        title: z.string().describe('Human label, e.g. "Primary — main page CTA".'),
+        values: z.record(z.string(), z.any()).describe('Property values (validated against the contract).'),
+        semantic: z.string().optional().describe('Semantic tag (primary/secondary/destructive/…).'),
+        rationale: z.string().optional().describe('Why / when to use this preview.'),
+        previewKey: z.string().optional().describe('Explicit key; otherwise derived from the title.'),
+      },
+    },
+    async ({ componentId, title, values, semantic, rationale, previewKey }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      try {
+        const rec = await createComponentPreview({
+          componentId: componentId.trim(),
+          title,
+          values,
+          previewKey,
+          semantic: semantic ?? null,
+          rationale: rationale ?? null,
+          source: 'llm',
+          authorId: patternActor().userId,
+        });
+        return textResult({ ok: true, id: rec.id, previewKey: rec.previewKey });
+      } catch (e) {
+        if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
+        return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to create preview' });
+      }
+    }
+  );
+
+  server.registerTool(
+    'handoff_update_preview',
+    {
+      description:
+        'Update an existing registry preview (by its id). Provide any of title / values / semantic / ' +
+        'rationale. Changed values are re-validated against the component contract.',
+      inputSchema: {
+        id: z.string().describe('Preview id (from handoff_get_component previews or handoff_create_preview).'),
+        title: z.string().optional(),
+        values: z.record(z.string(), z.any()).optional(),
+        semantic: z.string().optional(),
+        rationale: z.string().optional(),
+      },
+    },
+    async ({ id, title, values, semantic, rationale }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      try {
+        const rec = await updateComponentPreview(id.trim(), {
+          ...(title !== undefined ? { title } : {}),
+          ...(values !== undefined ? { values } : {}),
+          ...(semantic !== undefined ? { semantic } : {}),
+          ...(rationale !== undefined ? { rationale } : {}),
+        });
+        if (!rec) return textResult({ ok: false, error: 'Not found' });
+        return textResult({ ok: true, id: rec.id, previewKey: rec.previewKey });
+      } catch (e) {
+        if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
+        return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to update preview' });
+      }
     }
   );
 
