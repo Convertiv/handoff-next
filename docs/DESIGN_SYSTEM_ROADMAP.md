@@ -85,11 +85,17 @@ Claude-driven write is versioned, attributed, explained, diffable. The four goal
 Code + `push` loop (mostly works); goals 1/2/4 (designs, pages, playground compositions) = instance
 writes = the new surface.
 
-- ⬜ **6.1 Instance write surface (biggest unlock, no external dep).** MCP tools for playground
-  **composition** (compose blocks → a page; read; swap a block — the demo's steps 1–2,7), plus
-  preview authoring and doc-page CRUD. Each validated against the contract + version-tracked via the
-  change layer. *Entity note: the demo's "saved in the playground" = a playground page/composition,
-  distinct from markdown doc pages.*
+- 🔄 **6.1 Instance write surface (biggest unlock, no external dep).**
+  - ✅ **Playground page tools** (`4f4d5fa5`): `handoff_list_pages` / `handoff_get_page` (read) ·
+    `handoff_create_page` / `handoff_update_page` (`sync:write`) — compose/read/swap component blocks
+    (`{id, preview?, args}`), each **validated against its component contract**. Rides a shared
+    actor-param `pattern-write.ts` core (DB + editHistory + sync event) used by both the session
+    actions and the MCP tools. Covers demo steps 1–2, 7. *(Entity: a playground page = a pattern,
+    `source: playground` — distinct from markdown doc pages.)*
+  - ⬜ **Preview authoring tool** — create/edit a component preview via MCP (registry preview CRUD exists).
+  - ⬜ **Doc-page CRUD** (goal 2, markdown pages) — distinct from playground pages.
+  - ⬜ **Pattern changelog** — add pattern changes to the unified changelog + `change_why` so Track 6
+    writes are diffable like components/tokens (today: `editHistory` + sync events only).
 - ⬜ **6.2 Embedded Claude apps (MCP-UI / Apps SDK), reusing shipped code:** §14 opaque-origin iframe
   → embedded preview renderer (**first**); playground field builder + render bridge → embedded
   builder; changelog/diff → embedded review.
