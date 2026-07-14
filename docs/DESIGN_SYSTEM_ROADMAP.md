@@ -102,11 +102,44 @@ numbering below predates this framing; the tracks are the truer structure. Marke
 - ✅ **MCP inquiry** — recent-changes / component-history / change-why tools
 - ⬜ Follow-ups: backfill token `change_details` from stored snapshots · token compare-two-snapshots view · design-system-native "why" (token→component usage map)
 
+### Track 6 — Handoff driven from Claude ⭐ **NOW / FRONTLOADED** (2026-06-30)
+
+**Why now:** pressing need to put a genuinely powerful MCP in front of people — demo Handoff's primary
+features being *driven from Claude*. Frontloaded **ahead of finishing the typed-React field work**
+(Track 2, which pauses at its current state: engine done — spec/#1/#2/#3 — and proven on Hagyard +
+8x8 hero-split; the remaining per-component annotation rollout waits).
+
+**Framing:** today's MCP is ~90% *read* + a generic `sync_push`. The unlock is a coherent **write
+surface over *instances*** (§2a), which the just-shipped **change-tracking + "why" layer is the safety
+foundation for** — every Claude-driven write is versioned, attributed, explained, diffable.
+
+The four goals map onto **Design↔Code × Contract↔Instance**:
+- **Goal 3** (code/patch components → push) = Code × Contract = the **Claude Code + `push` loop**;
+  read-context exists, small add = a "read component *source* files to patch" tool. Mostly works now.
+- **Goals 1/2/4** (designs, pages, playground compositions) = **Instance writes** → the new surface.
+
+**Phases (buildable now — only 1's *native* path is externally gated):**
+- ⬜ **6.1 Instance write surface (biggest unlock, no external dep):** MCP tools for page CRUD
+  (`get/list/create/edit_page`), preview authoring, and playground **composition** (compose blocks →
+  a page/pattern) — each validated against the contract + version-tracked via the change layer.
+  Delivers **goals 2 & 4** and the "publish" half of **1**. *(Name the entity split: doc pages vs
+  playground compositions/patterns — both instances, distinct stores.)*
+- ⬜ **6.2 Embedded Claude apps (the reframe):** Handoff surfaces *inside* Claude via MCP-UI/Apps SDK,
+  reusing shipped code — the **§14 opaque-origin iframe** → embedded preview renderer (do first),
+  the **playground field builder + render bridge** → embedded page/preview builder, the
+  **changelog/diff** → embedded review panel.
+- ⬜ **6.3 Component source patch tool (goal 3):** expose editable source files (`handoff_component_sources`)
+  for Claude Code to patch → build → push. Small; rides the existing loop.
+- ⬜ **6.4 Claude Design native (goal 1, EXTERNALLY GATED = Phase G):** design *inside* Claude Design
+  pulling Handoff foundations natively. Now: the artifact bridge (`create_design_artifact` +
+  `generate_component_from_design` + read-context). Spike native when Anthropic opens the surface.
+
 **Shortlist (2026-06-30): ✅ shipped this cycle** — Track 2 P2/P3 (unified preview surface, workbench,
-hardened render) · 8x8 TS-inference fields (partial) · Neon egress cut · full change-tracking &
-inquiry theme (versioning fix, token parity, "why" capture, MCP tools). **Candidate next:** slot
-fill-model (finish 8x8 previews) · focus/elevation extractor (Track 1+4) · change-tracking follow-ups
-· Phase B `query_tokens`. *Deprioritized:* validation gating (bottom).
+hardened render) · 8x8 TS-inference fields (engine + Hagyard/8x8 proof) · Neon egress cut · full
+change-tracking & inquiry theme. **NOW (frontloaded):** Track 6.1 instance write surface → 6.2
+embedded preview app. **Paused:** Track 2 typed-React per-component rollout (resume after the demo
+surface). **Later:** focus/elevation extractor · change-tracking follow-ups · Phase B `query_tokens`.
+*Deprioritized:* validation gating (bottom).
 
 ---
 
