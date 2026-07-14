@@ -235,6 +235,25 @@ export const handoffPageChanges = pgTable('handoff_page_change', {
   aiSummary: text('ai_summary'),
 });
 
+/**
+ * Append-only record of each playground-page (pattern) change — one row per
+ * create/update/delete — so pattern writes appear in the unified changelog and
+ * carry a "why" (human message + lazy AI summary), like components/tokens.
+ */
+export const handoffPatternChanges = pgTable('handoff_pattern_change', {
+  id: serial('id').primaryKey(),
+  patternId: text('pattern_id').notNull(),
+  action: text('action').notNull(), // 'created' | 'updated' | 'deleted'
+  title: text('title'),
+  blockCount: integer('block_count'),
+  pushedAt: timestamp('pushed_at').defaultNow(),
+  pushedByUserId: text('pushed_by_user_id'),
+  pushedByName: text('pushed_by_name'),
+  trigger: text('trigger').notNull().default('mcp'),
+  message: text('message'),
+  aiSummary: text('ai_summary'),
+});
+
 export const editHistory = pgTable('edit_history', {
   id: serial('id').primaryKey(),
   entityType: text('entity_type').notNull(),

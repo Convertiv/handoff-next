@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { ChevronDown, ChevronRight, GitCommit, FileText, MessageSquare, Palette, Sparkles, User } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitCommit, FileText, LayoutGrid, MessageSquare, Palette, Sparkles, User } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -29,7 +29,7 @@ interface DateGroup {
 }
 
 type TimeRange = '7d' | '30d' | '90d' | 'all';
-type EntityFilter = 'all' | 'component' | 'token' | 'page';
+type EntityFilter = 'all' | 'component' | 'token' | 'page' | 'pattern';
 
 const TIME_RANGES: { value: TimeRange; label: string; days?: number }[] = [
   { value: '7d', label: 'Last 7 days', days: 7 },
@@ -42,6 +42,7 @@ const ENTITY_FILTERS: { value: EntityFilter; label: string }[] = [
   { value: 'all', label: 'All changes' },
   { value: 'component', label: 'Components' },
   { value: 'token', label: 'Tokens' },
+  { value: 'pattern', label: 'Playground' },
   { value: 'page', label: 'Pages' },
 ];
 
@@ -321,7 +322,7 @@ function ChangeWhy({
   aiSummary,
   aiEnabled,
 }: {
-  entityType: 'component' | 'token' | 'page';
+  entityType: 'component' | 'token' | 'page' | 'pattern';
   id: number;
   message: string | null;
   aiSummary: string | null;
@@ -424,6 +425,41 @@ function EntryRow({ entry, aiEnabled }: { entry: UnifiedChangelogEntry; aiEnable
     return <TokenEntry entry={entry} aiEnabled={aiEnabled} />;
   }
 
+  if (entry.entityType === 'pattern') {
+    return (
+      <div className="flex items-start gap-4 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/40">
+        <div className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-500/10">
+          <LayoutGrid className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+        </div>
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">{entry.title || entry.patternId}</span>
+            <span className="font-mono text-xs text-muted-foreground">· playground page</span>
+            <Badge variant="outline" className="text-xs">
+              {entry.action}
+            </Badge>
+            {entry.blockCount != null && (
+              <span className="text-xs text-muted-foreground">· {entry.blockCount} block{entry.blockCount === 1 ? '' : 's'}</span>
+            )}
+          </div>
+          <ChangeWhy entityType="pattern" id={entry.id} message={entry.message} aiSummary={entry.aiSummary} aiEnabled={aiEnabled} />
+        </div>
+        <div className="shrink-0 space-y-0.5 text-right">
+          {entry.pushedByName && (
+            <div className="flex items-center justify-end gap-1 text-xs text-muted-foreground">
+              <User className="h-3 w-3" />
+              <span>{entry.pushedByName}</span>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">{relativeTime(entry.pushedAt)}</p>
+          <span className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+            {entry.trigger}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
   // page
   const displayTitle = entry.titleAfter ?? entry.titleBefore ?? entry.slug;
   return (
@@ -520,7 +556,7 @@ export function ChangelogClient() {
           <>
             <div className="mx-1 h-5 w-px bg-border" />
             {ENTITY_FILTERS.filter(
-              (f) => f.value === 'all' || presentTypes.has(f.value as 'component' | 'token' | 'page')
+              (f) => f.value === 'all' || presentTypes.has(f.value as 'component' | 'token' | 'page' | 'pattern')
             ).map((f) => (
               <Button
                 key={f.value}

@@ -80,6 +80,20 @@ function summarizeChange(e: UnifiedChangelogEntry) {
       why: e.message ?? e.aiSummary ?? null,
     };
   }
+  if (e.entityType === 'pattern') {
+    return {
+      type: 'pattern',
+      id: e.id,
+      page: e.patternId,
+      title: e.title,
+      action: e.action,
+      blocks: e.blockCount,
+      when: e.pushedAt,
+      who: e.pushedByName,
+      trigger: e.trigger,
+      why: e.message ?? e.aiSummary ?? null,
+    };
+  }
   return {
     type: 'page',
     id: e.id,
@@ -908,7 +922,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: {
         days: z.number().int().min(1).max(365).optional().describe('Look back this many days (default 14).'),
         limit: z.number().int().min(1).max(200).optional().describe('Max entries (default 30).'),
-        entityType: z.enum(['component', 'token', 'page']).optional().describe('Filter to one kind of change.'),
+        entityType: z.enum(['component', 'token', 'page', 'pattern']).optional().describe('Filter to one kind of change.'),
       },
     },
     async ({ days, limit, entityType }) => {
@@ -957,7 +971,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         'otherwise generates and caches a one-sentence AI summary from the diff. Pass the change ' +
         'type and id as returned by handoff_recent_changes / handoff_component_history.',
       inputSchema: {
-        entityType: z.enum(['component', 'token', 'page']),
+        entityType: z.enum(['component', 'token', 'page', 'pattern']),
         id: z.number().int().describe('The change id from handoff_recent_changes / handoff_component_history.'),
       },
     },
@@ -971,9 +985,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   // ─── Playground pages (compositions / patterns) — Track 6.1 write surface ────
 
   /** MCP caller → pattern-write actor (drop synthetic ids from sync attribution). */
-  const patternActor = (): PatternWriteActor => ({
+  const patternActor = (message?: string): PatternWriteActor => ({
     userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
     historyLabel: `mcp:${auth.userId}`,
+    message: message ?? null,
+    trigger: 'mcp',
   });
 
   const blockSchema = z.object({
@@ -1062,9 +1078,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         description: z.string().optional(),
         group: z.string().optional(),
         blocks: z.array(blockSchema).describe('Ordered component blocks composing the page.'),
+        message: z.string().optional().describe('Short "why" for this page — shown in the changelog.'),
       },
     },
-    async ({ id, title, description, group, blocks }) => {
+    async ({ id, title, description, group, blocks, message }) => {
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
@@ -1072,7 +1089,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (errors.length) return textResult({ ok: false, errors });
       await writePattern(
         { id, title, description, group, components: toComponents(blocks), source: 'playground' },
-        patternActor()
+        patternActor(message)
       );
       return textResult({ ok: true, id, url: `${id}.html`, blocks: blocks.length });
     }
@@ -1091,9 +1108,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         description: z.string().optional(),
         group: z.string().optional(),
         blocks: z.array(blockSchema).optional().describe('Full replacement block composition (omit to leave unchanged).'),
+        message: z.string().optional().describe('Short "why" for this change — shown in the changelog.'),
       },
     },
-    async ({ id, title, description, group, blocks }) => {
+    async ({ id, title, description, group, blocks, message }) => {
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
@@ -1107,7 +1125,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (group !== undefined) updates.group = group;
       if (blocks) updates.components = toComponents(blocks);
       if (Object.keys(updates).length === 0) return textResult({ ok: false, error: 'No updates provided.' });
-      await patchPattern(id, updates, patternActor());
+      await patchPattern(id, updates, patternActor(message));
       return textResult({ ok: true, id, ...(blocks ? { blocks: blocks.length } : {}) });
     }
   );

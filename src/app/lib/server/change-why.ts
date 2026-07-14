@@ -6,10 +6,11 @@ import {
   handoffComponents,
   handoffTokenChanges,
   handoffPageChanges,
+  handoffPatternChanges,
 } from '@/lib/db/schema-pg';
 import { isServerAiConfigured, openAiChatJson } from './ai-client';
 
-export type ChangeEntityType = 'component' | 'token' | 'page';
+export type ChangeEntityType = 'component' | 'token' | 'page' | 'pattern';
 
 export interface ChangeWhyResult {
   /** The "why" text — human message if present, else the AI draft. */
@@ -91,6 +92,12 @@ function describePage(row: typeof handoffPageChanges.$inferSelect): string {
   return parts.join(' ');
 }
 
+function describePattern(row: typeof handoffPatternChanges.$inferSelect): string {
+  const parts: string[] = [`Playground page "${row.title ?? row.patternId}" ${row.action} (trigger: ${row.trigger}).`];
+  if (row.blockCount != null) parts.push(`${row.blockCount} block${row.blockCount === 1 ? '' : 's'}.`);
+  return parts.join(' ');
+}
+
 /** Load a change row's existing message/ai_summary + a diff description. */
 async function loadChange(
   entityType: ChangeEntityType,
@@ -113,6 +120,11 @@ async function loadChange(
     if (!row) return null;
     return { message: row.message ?? null, aiSummary: row.aiSummary ?? null, diffText: describeToken(row) };
   }
+  if (entityType === 'pattern') {
+    const [row] = await db.select().from(handoffPatternChanges).where(eq(handoffPatternChanges.id, id)).limit(1);
+    if (!row) return null;
+    return { message: row.message ?? null, aiSummary: row.aiSummary ?? null, diffText: describePattern(row) };
+  }
   const [row] = await db.select().from(handoffPageChanges).where(eq(handoffPageChanges.id, id)).limit(1);
   if (!row) return null;
   return { message: row.message ?? null, aiSummary: row.aiSummary ?? null, diffText: describePage(row) };
@@ -124,6 +136,8 @@ async function storeAiSummary(entityType: ChangeEntityType, id: number, summary:
     await db.update(handoffComponentVersions).set({ aiSummary: summary }).where(eq(handoffComponentVersions.id, id));
   } else if (entityType === 'token') {
     await db.update(handoffTokenChanges).set({ aiSummary: summary }).where(eq(handoffTokenChanges.id, id));
+  } else if (entityType === 'pattern') {
+    await db.update(handoffPatternChanges).set({ aiSummary: summary }).where(eq(handoffPatternChanges.id, id));
   } else {
     await db.update(handoffPageChanges).set({ aiSummary: summary }).where(eq(handoffPageChanges.id, id));
   }

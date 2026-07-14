@@ -2,7 +2,7 @@ import 'server-only';
 import { eq } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
-import { editHistory, handoffPatterns } from './schema';
+import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
 
 /**
  * Shared pattern (playground page) write core — actor-parameterized so BOTH the
@@ -15,6 +15,27 @@ export interface PatternWriteActor {
   userId: string | null;
   /** Label for the edit-history row (id or email); defaults to userId. */
   historyLabel?: string | null;
+  /** Optional human "why" for this write — recorded on the pattern-change row. */
+  message?: string | null;
+  /** Where the write came from (changelog display): 'ui' | 'mcp' | … (default 'mcp'). */
+  trigger?: string;
+}
+
+/** Record a pattern-change row (unified changelog + change-why source). Best-effort. */
+async function recordPatternChange(
+  db: ReturnType<typeof getDb>,
+  args: { patternId: string; action: 'created' | 'updated' | 'deleted'; title?: string | null; blockCount?: number | null; actor: PatternWriteActor }
+): Promise<void> {
+  await db.insert(handoffPatternChanges).values({
+    patternId: args.patternId,
+    action: args.action,
+    title: args.title ?? null,
+    blockCount: args.blockCount ?? null,
+    pushedByUserId: args.actor.userId,
+    pushedByName: args.actor.historyLabel ?? null,
+    trigger: args.actor.trigger ?? 'mcp',
+    message: args.actor.message ?? null,
+  });
 }
 
 export interface PatternInput {
@@ -80,6 +101,14 @@ export async function writePattern(input: PatternInput, actor: PatternWriteActor
     },
     userId: actor.userId,
   });
+
+  await recordPatternChange(db, {
+    patternId: input.id,
+    action: 'created',
+    title: input.title,
+    blockCount: Array.isArray(input.components) ? input.components.length : null,
+    actor,
+  });
 }
 
 export async function patchPattern(
@@ -111,6 +140,14 @@ export async function patchPattern(
       userId: actor.userId,
     });
   }
+
+  await recordPatternChange(db, {
+    patternId: id,
+    action: 'updated',
+    title: row?.title ?? (updates.title as string | undefined) ?? null,
+    blockCount: Array.isArray(row?.components) ? (row!.components as unknown[]).length : null,
+    actor,
+  });
 }
 
 export async function removePattern(id: string, actor: PatternWriteActor): Promise<void> {
@@ -132,4 +169,6 @@ export async function removePattern(id: string, actor: PatternWriteActor): Promi
     userId: actor.historyLabel ?? actor.userId,
     diff: { action: 'delete' },
   });
+
+  await recordPatternChange(db, { patternId: id, action: 'deleted', actor });
 }

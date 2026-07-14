@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, GitCommit, FileText, Palette } from 'lucide-react';
+import { ArrowRight, GitCommit, FileText, LayoutGrid, Palette } from 'lucide-react';
 import { Badge } from '@handoff/app/components/ui/badge';
 import { handoffApiUrl } from '@/lib/api-path';
 import type { UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
@@ -61,6 +61,9 @@ function EntryIcon({ entry }: { entry: UnifiedChangelogEntry }) {
   if (entry.entityType === 'page') {
     return <FileText className="h-3 w-3 shrink-0 text-violet-500" />;
   }
+  if (entry.entityType === 'pattern') {
+    return <LayoutGrid className="h-3 w-3 shrink-0 text-sky-500" />;
+  }
   return <GitCommit className="h-3 w-3 shrink-0 text-primary" />;
 }
 
@@ -99,12 +102,21 @@ function EntryBadges({ entry }: { entry: UnifiedChangelogEntry }) {
     ) : null;
   }
 
-  // page
   const colors: Record<string, string> = {
     created: 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400',
     updated: 'border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400',
     deleted: 'border-red-300 text-red-700 dark:border-red-700 dark:text-red-400',
   };
+
+  if (entry.entityType === 'pattern') {
+    return (
+      <Badge variant="outline" className={`${colors[entry.action] ?? ''} text-[10px] py-0`}>
+        {entry.action}
+      </Badge>
+    );
+  }
+
+  // page
   return (
     <Badge variant="outline" className={`${colors[entry.pageAction] ?? ''} text-[10px] py-0`}>
       {entry.pageAction}
@@ -115,6 +127,7 @@ function EntryBadges({ entry }: { entry: UnifiedChangelogEntry }) {
 function entryLabel(entry: UnifiedChangelogEntry): string {
   if (entry.entityType === 'component') return entry.componentTitle;
   if (entry.entityType === 'token') return 'Token push';
+  if (entry.entityType === 'pattern') return entry.title ?? entry.patternId;
   return entry.titleAfter ?? entry.titleBefore ?? entry.slug;
 }
 
@@ -123,6 +136,7 @@ function entrySubLabel(entry: UnifiedChangelogEntry): string | null {
     return entry.componentGroup ? `v${entry.versionNumber} · ${entry.componentGroup}` : `v${entry.versionNumber}`;
   }
   if (entry.entityType === 'token') return `${entry.totalCount} total tokens`;
+  if (entry.entityType === 'pattern') return `playground page${entry.blockCount != null ? ` · ${entry.blockCount} blocks` : ''}`;
   return entry.slug;
 }
 

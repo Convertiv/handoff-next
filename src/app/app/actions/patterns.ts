@@ -7,7 +7,7 @@ async function requireActor(): Promise<PatternWriteActor> {
   const session = await auth();
   if (!session?.user) throw new Error('Unauthorized');
   const userId = typeof session.user.id === 'string' && session.user.id.length > 0 ? session.user.id : null;
-  return { userId, historyLabel: session.user.id ?? session.user.email ?? null };
+  return { userId, historyLabel: session.user.id ?? session.user.email ?? null, trigger: 'ui' };
 }
 
 export async function createPattern(data: {

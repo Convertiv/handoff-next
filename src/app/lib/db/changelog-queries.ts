@@ -4,13 +4,14 @@ import {
   handoffComponents,
   handoffComponentVersions,
   handoffPageChanges,
+  handoffPatternChanges,
   handoffTokenChanges,
 } from './schema';
 import type { ComponentChangeSummary } from './component-version-queries';
 
 // ─── Unified changelog entry ──────────────────────────────────────────────────
 
-export type ChangelogEntryType = 'component' | 'token' | 'page';
+export type ChangelogEntryType = 'component' | 'token' | 'page' | 'pattern';
 
 export interface ComponentChangelogEntry {
   id: number;
@@ -69,7 +70,25 @@ export interface PageChangelogEntry {
   aiSummary: string | null;
 }
 
-export type UnifiedChangelogEntry = ComponentChangelogEntry | TokenChangelogEntry | PageChangelogEntry;
+export interface PatternChangelogEntry {
+  id: number;
+  entityType: 'pattern';
+  pushedAt: string;
+  patternId: string;
+  title: string | null;
+  action: 'created' | 'updated' | 'deleted';
+  blockCount: number | null;
+  pushedByName: string | null;
+  trigger: string;
+  message: string | null;
+  aiSummary: string | null;
+}
+
+export type UnifiedChangelogEntry =
+  | ComponentChangelogEntry
+  | TokenChangelogEntry
+  | PageChangelogEntry
+  | PatternChangelogEntry;
 
 // ─── Query ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +139,14 @@ export async function getUnifiedChangelog(
     .from(handoffPageChanges)
     .where(since ? gte(handoffPageChanges.pushedAt, since) : undefined)
     .orderBy(desc(handoffPageChanges.pushedAt))
+    .limit(limit);
+
+  // ── Pattern (playground page) changes ─────────────────────────────────────────
+  const patternRows = await db
+    .select()
+    .from(handoffPatternChanges)
+    .where(since ? gte(handoffPatternChanges.pushedAt, since) : undefined)
+    .orderBy(desc(handoffPatternChanges.pushedAt))
     .limit(limit);
 
   // ── Merge and sort ──────────────────────────────────────────────────────────
@@ -176,6 +203,22 @@ export async function getUnifiedChangelog(
       titleAfter: r.titleAfter ?? null,
       markdownLengthBefore: r.markdownLengthBefore ?? null,
       markdownLengthAfter: r.markdownLengthAfter ?? null,
+      message: r.message ?? null,
+      aiSummary: r.aiSummary ?? null,
+    });
+  }
+
+  for (const r of patternRows) {
+    all.push({
+      id: r.id,
+      entityType: 'pattern',
+      pushedAt: (r.pushedAt instanceof Date ? r.pushedAt : new Date(r.pushedAt as string)).toISOString(),
+      patternId: r.patternId,
+      title: r.title ?? null,
+      action: (r.action as 'created' | 'updated' | 'deleted') ?? 'updated',
+      blockCount: r.blockCount ?? null,
+      pushedByName: r.pushedByName ?? null,
+      trigger: r.trigger,
       message: r.message ?? null,
       aiSummary: r.aiSummary ?? null,
     });
