@@ -94,20 +94,22 @@ export function EditContextProvider({
     (path: string[], value: any) => {
       const target = path[path.length - 1];
       setData((prev: any) => {
-        const newData = { ...prev };
-        let current = newData;
+        // Immutable path-set: clone each node along the path so we never mutate
+        // previous state, and replace any NON-OBJECT intermediate with a fresh
+        // object. The old code descended into whatever was there — so writing
+        // e.g. `imageSrc.src` when `imageSrc` held a string URL threw
+        // "Cannot create property 'src' on string" and crashed the app.
+        const clone = (node: any) => (Array.isArray(node) ? [...node] : { ...(node ?? {}) });
+        const next = clone(prev);
+        let current = next;
         for (let i = 0; i < path.length - 1; i++) {
-          if (!current[path[i]]) {
-            current[path[i]] = {};
-          }
-          current = current[path[i]];
+          const key = path[i];
+          const child = current[key];
+          current[key] = child && typeof child === 'object' ? clone(child) : {};
+          current = current[key];
         }
-        if (!current) {
-          current = { [target]: value };
-        } else {
-          current[target] = value;
-        }
-        return newData;
+        current[target] = value;
+        return next;
       });
       return value;
     },
