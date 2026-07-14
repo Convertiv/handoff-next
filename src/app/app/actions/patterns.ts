@@ -1,27 +1,13 @@
 'use server';
 
-import { eq } from 'drizzle-orm';
 import { auth } from '../../lib/auth';
-import { getDb } from '../../lib/db';
-import { insertSyncEvent } from '../../lib/db/sync-queries';
-import { editHistory, handoffPatterns } from '../../lib/db/schema';
+import { patchPattern, removePattern, writePattern, type PatternWriteActor } from '../../lib/db/pattern-write';
 
-function sessionUserIdForSync(user: { id?: string | null } | undefined): string | null {
-  const id = user?.id;
-  return typeof id === 'string' && id.length > 0 ? id : null;
-}
-
-function rowToPatternPayload(row: typeof handoffPatterns.$inferSelect) {
-  return {
-    id: row.id,
-    path: row.path,
-    title: row.title,
-    description: row.description,
-    group: row.group,
-    tags: row.tags,
-    components: row.components,
-    data: row.data,
-  };
+async function requireActor(): Promise<PatternWriteActor> {
+  const session = await auth();
+  if (!session?.user) throw new Error('Unauthorized');
+  const userId = typeof session.user.id === 'string' && session.user.id.length > 0 ? session.user.id : null;
+  return { userId, historyLabel: session.user.id ?? session.user.email ?? null };
 }
 
 export async function createPattern(data: {
@@ -35,48 +21,21 @@ export async function createPattern(data: {
   source?: string;
   thumbnail?: string | null;
 }) {
-  const session = await auth();
-  if (!session?.user) throw new Error('Unauthorized');
-  const db = getDb();
-
-  const userId = typeof session.user.id === 'string' && session.user.id.length > 0 ? session.user.id : null;
-  const source = data.source?.trim() || 'playground';
-
-  await db.insert(handoffPatterns).values({
-    id: data.id,
-    title: data.title,
-    description: data.description ?? '',
-    group: data.group ?? '',
-    tags: data.tags ?? [],
-    components: data.components ?? [],
-    data: data.payload ?? {},
-    userId,
-    source,
-    thumbnail: data.thumbnail ?? null,
-  });
-
-  await db.insert(editHistory).values({
-    entityType: 'pattern',
-    entityId: data.id,
-    userId: session.user.id ?? session.user.email ?? null,
-    diff: { action: 'create', data },
-  });
-
-  await insertSyncEvent({
-    entityType: 'pattern',
-    entityId: data.id,
-    action: 'create',
-    payload: {
+  const actor = await requireActor();
+  await writePattern(
+    {
       id: data.id,
       title: data.title,
-      description: data.description ?? '',
-      group: data.group ?? '',
-      components: data.components ?? [],
-      data: data.payload ?? {},
+      description: data.description,
+      group: data.group,
+      components: data.components,
+      data: data.payload,
+      tags: data.tags,
+      source: data.source,
+      thumbnail: data.thumbnail,
     },
-    userId: sessionUserIdForSync(session.user),
-  });
-
+    actor
+  );
   return { success: true };
 }
 
@@ -93,57 +52,13 @@ export async function updatePattern(
     thumbnail: string | null;
   }>
 ) {
-  const session = await auth();
-  if (!session?.user) throw new Error('Unauthorized');
-  const db = getDb();
-
-  await db
-    .update(handoffPatterns)
-    .set({ ...updates, updatedAt: new Date() })
-    .where(eq(handoffPatterns.id, id));
-
-  await db.insert(editHistory).values({
-    entityType: 'pattern',
-    entityId: id,
-    userId: session.user.id ?? session.user.email ?? null,
-    diff: { action: 'update', updates },
-  });
-
-  const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
-  if (row) {
-    await insertSyncEvent({
-      entityType: 'pattern',
-      entityId: id,
-      action: 'update',
-      payload: rowToPatternPayload(row),
-      userId: sessionUserIdForSync(session.user),
-    });
-  }
-
+  const actor = await requireActor();
+  await patchPattern(id, updates, actor);
   return { success: true };
 }
 
 export async function deletePattern(id: string) {
-  const session = await auth();
-  if (!session?.user) throw new Error('Unauthorized');
-  const db = getDb();
-
-  await insertSyncEvent({
-    entityType: 'pattern',
-    entityId: id,
-    action: 'delete',
-    payload: { id },
-    userId: sessionUserIdForSync(session.user),
-  });
-
-  await db.delete(handoffPatterns).where(eq(handoffPatterns.id, id));
-
-  await db.insert(editHistory).values({
-    entityType: 'pattern',
-    entityId: id,
-    userId: session.user.id ?? session.user.email ?? null,
-    diff: { action: 'delete' },
-  });
-
+  const actor = await requireActor();
+  await removePattern(id, actor);
   return { success: true };
 }

@@ -16,6 +16,8 @@ import { applyUploadedChange } from '@/lib/db/sync-queries';
 import { getUnifiedChangelog, type UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
 import { getComponentVersionHistory } from '@/lib/db/component-version-queries';
 import { resolveChangeWhy } from '@/lib/server/change-why';
+import { writePattern, patchPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
+import { validatePreviewValues } from '@handoff/transformers/preview/component/preview-validation';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
@@ -958,6 +960,150 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const result = await resolveChangeWhy({ entityType, id, actorUserId: null });
       return textResult(result);
+    }
+  );
+
+  // ─── Playground pages (compositions / patterns) — Track 6.1 write surface ────
+
+  /** MCP caller → pattern-write actor (drop synthetic ids from sync attribution). */
+  const patternActor = (): PatternWriteActor => ({
+    userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
+    historyLabel: `mcp:${auth.userId}`,
+  });
+
+  const blockSchema = z.object({
+    id: z.string().describe('Component id for this block'),
+    preview: z.string().optional().describe('An existing preview key of that component to seed values'),
+    args: z.record(z.string(), z.any()).optional().describe('Prop values for this block (validated against the component contract)'),
+  });
+
+  /** Validate blocks against component contracts; returns error list (empty = ok). */
+  async function validateBlocks(blocks: { id: string; preview?: string; args?: Record<string, unknown> }[]) {
+    const provider = getDataProvider();
+    const errors: { block: number; id: string; key?: string; message: string }[] = [];
+    for (let i = 0; i < blocks.length; i++) {
+      const b = blocks[i];
+      const comp = await provider.getComponent(b.id.trim());
+      if (!comp) {
+        errors.push({ block: i, id: b.id, message: 'unknown component id' });
+        continue;
+      }
+      if (b.args) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const props = (comp as any)?.properties ?? {};
+        for (const e of validatePreviewValues(b.args, props)) {
+          errors.push({ block: i, id: b.id, key: e.key, message: e.message });
+        }
+      }
+    }
+    return errors;
+  }
+
+  const toComponents = (blocks: { id: string; preview?: string; args?: Record<string, unknown> }[]) =>
+    blocks.map((b) => ({ id: b.id, ...(b.preview ? { preview: b.preview } : {}), args: b.args ?? {} }));
+
+  server.registerTool(
+    'handoff_list_pages',
+    {
+      description:
+        'List playground pages — saved compositions of component blocks ("patterns"). Use to see or ' +
+        'reuse existing landing pages before composing a new one. Optionally filter by group.',
+      inputSchema: {
+        group: z.string().optional(),
+        limit: z.number().int().min(1).max(200).optional().describe('Max pages (default 50).'),
+      },
+    },
+    async ({ group, limit }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      let list = await getDataProvider().getPatterns();
+      if (group?.trim()) list = list.filter((p) => (p.group || '').toLowerCase() === group.trim().toLowerCase());
+      return textResult(
+        list.slice(0, limit ?? 50).map((p) => ({
+          id: p.id,
+          title: p.title,
+          group: p.group,
+          blocks: Array.isArray(p.components) ? p.components.length : 0,
+        }))
+      );
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_page',
+    {
+      description:
+        'Get one playground page (pattern): its ordered block composition ([{id, preview?, args}]) + ' +
+        'metadata. Read this before editing/swapping blocks, then pass the modified blocks to handoff_update_page.',
+      inputSchema: { id: z.string() },
+    },
+    async ({ id }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const p = await getDataProvider().getPattern(id.trim());
+      if (!p) return textResult({ error: 'Not found' });
+      return textResult({ id: id.trim(), title: p.title, description: p.description, group: p.group, components: p.components });
+    }
+  );
+
+  server.registerTool(
+    'handoff_create_page',
+    {
+      description:
+        'Compose a NEW playground page from component blocks and save it (source: playground). Each block ' +
+        'is {id (component id), preview? (existing preview key), args? (prop values)}. Every block is ' +
+        'validated against its component contract — unknown ids or out-of-contract args are rejected, not saved.',
+      inputSchema: {
+        id: z.string().describe('Unique page id / slug.'),
+        title: z.string(),
+        description: z.string().optional(),
+        group: z.string().optional(),
+        blocks: z.array(blockSchema).describe('Ordered component blocks composing the page.'),
+      },
+    },
+    async ({ id, title, description, group, blocks }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const errors = await validateBlocks(blocks);
+      if (errors.length) return textResult({ ok: false, errors });
+      await writePattern(
+        { id, title, description, group, components: toComponents(blocks), source: 'playground' },
+        patternActor()
+      );
+      return textResult({ ok: true, id, url: `${id}.html`, blocks: blocks.length });
+    }
+  );
+
+  server.registerTool(
+    'handoff_update_page',
+    {
+      description:
+        'Update a playground page: metadata and/or its full block composition. To add/remove/swap/reorder ' +
+        'blocks (e.g. swap in a new hero), read the page with handoff_get_page, modify the blocks array, and ' +
+        'pass the FULL new array here. Blocks are validated against contracts before saving.',
+      inputSchema: {
+        id: z.string(),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        group: z.string().optional(),
+        blocks: z.array(blockSchema).optional().describe('Full replacement block composition (omit to leave unchanged).'),
+      },
+    },
+    async ({ id, title, description, group, blocks }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      if (blocks) {
+        const errors = await validateBlocks(blocks);
+        if (errors.length) return textResult({ ok: false, errors });
+      }
+      const updates: Record<string, unknown> = {};
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description;
+      if (group !== undefined) updates.group = group;
+      if (blocks) updates.components = toComponents(blocks);
+      if (Object.keys(updates).length === 0) return textResult({ ok: false, error: 'No updates provided.' });
+      await patchPattern(id, updates, patternActor());
+      return textResult({ ok: true, id, ...(blocks ? { blocks: blocks.length } : {}) });
     }
   );
 
