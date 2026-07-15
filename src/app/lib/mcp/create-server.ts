@@ -24,6 +24,8 @@ import {
   PreviewValidationFailed,
 } from '@/lib/db/component-preview-queries';
 import { getHandoffPageBySlug, listHandoffPages, writeDocPage, type DocPageActor } from '@/lib/server/doc-pages';
+import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
+import { COMPONENT_PREVIEW_APP_JS_B64 } from '@/lib/mcp/apps/component-preview.bundle';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
@@ -290,7 +292,9 @@ function slimComponentForMcp(row: unknown, include: string[] = []): unknown {
 }
 
 export function createHandoffMcpServer(auth: McpAuthContext, request: Request): McpServer {
-  const server = new McpServer({ name: 'handoff', version: '2.0.0' }, { capabilities: { tools: {} } });
+  // `resources` capability is required for the MCP Apps (Track 6.2) ui:// resource
+  // the host fetches via resources/read.
+  const server = new McpServer({ name: 'handoff', version: '2.0.0' }, { capabilities: { tools: {}, resources: {} } });
 
   server.registerTool(
     'handoff_get_project_context',
@@ -1311,6 +1315,100 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       return textResult({ ok: true, slug: page.slug, action });
     }
   );
+
+  // ─── Embedded preview app (MCP Apps, Track 6.2) ───────────────────────────────
+  // A ui:// HTML resource (rendered in the host's sandboxed iframe) that shows a
+  // component's real preview via an inner iframe → the registry's §14 preview HTML.
+  {
+    const origin = (() => {
+      try {
+        return new URL(request.url).origin;
+      } catch {
+        return '';
+      }
+    })();
+    const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+    const registryBase = `${origin}${basePath}`;
+    const PREVIEW_UI_URI = 'ui://handoff/component-preview';
+    const appJs = Buffer.from(COMPONENT_PREVIEW_APP_JS_B64, 'base64').toString('utf8');
+
+    const previewAppHtml = `<!doctype html>
+<html><head><meta charset="utf-8" />
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; height: 100%; font-family: ui-sans-serif, system-ui, sans-serif; }
+  #root { display: flex; flex-direction: column; height: 100vh; }
+  #hp-bar { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid rgba(128,128,128,.25); }
+  #hp-bar button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid rgba(128,128,128,.3); border-radius: 6px; background: transparent; cursor: pointer; color: inherit; }
+  #hp-bar button.active { background: rgba(37,99,235,.1); border-color: #2563eb; color: #2563eb; }
+  #hp-title { font-size: 12px; opacity: .7; margin-left: auto; }
+  #hp-stage { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 12px; background: rgba(128,128,128,.06); }
+  #hp-wrap { width: 100%; max-width: 100%; height: 100%; margin: 0 auto; }
+  #hp-frame { width: 100%; height: 100%; border: 0; background: #fff; border-radius: 8px; }
+  #hp-empty { padding: 24px; text-align: center; font-size: 13px; opacity: .6; }
+</style></head>
+<body>
+  <div id="root">
+    <div id="hp-bar"><span id="hp-title"></span></div>
+    <div id="hp-stage"><div id="hp-wrap"><iframe id="hp-frame" title="Component preview" sandbox="allow-scripts" style="display:none"></iframe></div></div>
+    <div id="hp-empty">Loading preview…</div>
+  </div>
+  <script type="module">${appJs}</script>
+</body></html>`;
+
+    registerAppResource(
+      server,
+      'Component preview',
+      PREVIEW_UI_URI,
+      { description: 'Interactive component preview renderer.' },
+      async () => ({
+        contents: [
+          {
+            uri: PREVIEW_UI_URI,
+            mimeType: RESOURCE_MIME_TYPE,
+            text: previewAppHtml,
+            // Allow the inner iframe to load the registry's built preview HTML +
+            // its module/CSS (same origin, served with CORS).
+            _meta: origin ? { ui: { csp: { resourceDomains: [origin], connectDomains: [origin] } } } : {},
+          },
+        ],
+      })
+    );
+
+    registerAppTool(
+      server,
+      'handoff_preview_component',
+      {
+        description:
+          'Render an INTERACTIVE, inline preview of a component (embedded app) — the real rendered ' +
+          'component with responsive width controls. Pass a component id and optionally a preview key. ' +
+          'Use when the user wants to SEE a component, not just read its data (handoff_get_component).',
+        inputSchema: {
+          id: z.string(),
+          preview: z.string().optional().describe('Preview/variant key; defaults to "generic" or the first available.'),
+        },
+        _meta: { ui: { resourceUri: PREVIEW_UI_URI } },
+      },
+      async ({ id, preview }) => {
+        if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+        const comp = await getDataProvider().getComponent(id.trim());
+        if (!comp) return textResult({ error: 'Not found' });
+        const previews = ((comp as { previews?: Record<string, unknown> }).previews) ?? {};
+        const keys = Object.keys(previews);
+        const previewKey = preview && keys.includes(preview) ? preview : keys.includes('generic') ? 'generic' : keys[0];
+        const previewUrl = previewKey
+          ? `${registryBase}/api/component/${encodeURIComponent(id.trim())}/${encodeURIComponent(`${id.trim()}-${previewKey}`)}.html`
+          : null;
+        const data = {
+          componentId: id.trim(),
+          previewKey: previewKey ?? null,
+          previewUrl,
+          title: (comp as { title?: string }).title ?? id.trim(),
+        };
+        return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }], structuredContent: data };
+      }
+    );
+  }
 
   return server;
 }
