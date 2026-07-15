@@ -45,10 +45,10 @@ images/content, **saved in the playground** → 3. realize we need new *structur
 5. generate a spec → 6. generate component code, push to workspace + registry → 7. swap the new hero
 into the landing page.
 
-**Immediate next:** ✅ 6.1 instance write surface is **done** (page compose/read/swap, preview
-authoring, pattern changelog, doc-page CRUD — all `sync:write`, contract-validated, tracked). Next:
-**6.2 embedded preview app** (reuse the §14 iframe). See [Open work → Track 6](#track-6--handoff-driven-from-claude).
-*Pending: live test against a registry.*
+**Immediate next:** ✅ 6.1 write surface done. 🔄 6.2 embedded apps started — the **component preview
+renderer** (MCP Apps) is built (`886629b0`). Next in 6.2: embedded page-composition builder + changelog
+review. See [Open work → Track 6](#track-6--handoff-driven-from-claude).
+*Pending: live test against a registry + MCP-Apps client (6.1 writes + 6.2 preview app).*
 
 **Bugs from the 8x8/SS&C pass:** (1) React not live-updating = **not a code bug** — needs the
 component's `-client.mjs` rebuilt with #3's render/update + registry deployed (verify on rebuilt
@@ -99,9 +99,15 @@ writes = the new surface.
     in the unified changelog + `change_why` + MCP change tools; UI renders them.
   - ✅ **Doc-page CRUD** (`f0387530`, goal 2): `handoff_list/get/create/update_doc_page`; actor-param
     `writeDocPage` upsert records `page_change` + syncs nav.
-- ⬜ **6.2 Embedded Claude apps (MCP-UI / Apps SDK), reusing shipped code:** §14 opaque-origin iframe
-  → embedded preview renderer (**first**); playground field builder + render bridge → embedded
-  builder; changelog/diff → embedded review.
+- 🔄 **6.2 Embedded Claude apps (MCP Apps — `io.modelcontextprotocol/ui`).**
+  - ✅ **Component preview renderer** (`886629b0`): `handoff_preview_component` tool + a
+    `ui://handoff/component-preview` HTML resource; the app (`component-preview.client.ts`, bundled
+    via esbuild→base64, inlined) uses `@modelcontextprotocol/ext-apps` `App` for the handshake,
+    receives the tool result, and inner-iframes the registry preview HTML (reuses §14) with width
+    controls. **Caveats:** unverified here (needs a live MCP-Apps client + deploy); Claude MCP-Apps
+    rendering has known open flakiness; ~384 KB inlined bundle (optimize later).
+  - ⬜ Embedded **page-composition builder** (playground field builder + render bridge).
+  - ⬜ Embedded **changelog/diff review** panel.
 - ⬜ **6.3 Component source-patch tool (goal 3):** expose editable source files
   (`handoff_component_sources`) for Claude Code to patch → build → push. Small; rides the existing loop.
 - ⛔ **6.4 Claude Design native (goal 1):** design inside Claude Design pulling Handoff foundations
