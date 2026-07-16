@@ -23,7 +23,7 @@ import {
   updateComponentPreview,
   PreviewValidationFailed,
 } from '@/lib/db/component-preview-queries';
-import { getHandoffPageBySlug, listHandoffPages, writeDocPage, type DocPageActor } from '@/lib/server/doc-pages';
+import { deleteDocPage, getHandoffPageBySlug, listHandoffPages, moveDocPage, writeDocPage, type DocPageActor } from '@/lib/server/doc-pages';
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { COMPONENT_PREVIEW_APP_JS_B64 } from '@/lib/mcp/apps/component-preview.bundle';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
@@ -1313,6 +1313,49 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         docPageActor(message)
       );
       return textResult({ ok: true, slug: page.slug, action });
+    }
+  );
+
+  server.registerTool(
+    'handoff_delete_doc_page',
+    {
+      description:
+        'Delete a markdown doc page by slug. Removes it from the sidebar nav and records the deletion ' +
+        'in the changelog. Fails if the slug does not exist.',
+      inputSchema: {
+        slug: z.string(),
+        message: z.string().optional().describe('Short "why" — shown in the changelog.'),
+      },
+    },
+    async ({ slug, message }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const result = await deleteDocPage(cleanSlug(slug), docPageActor(message));
+      return textResult(result);
+    }
+  );
+
+  server.registerTool(
+    'handoff_move_doc_page',
+    {
+      description:
+        'Move (rename) a markdown doc page from one slug to another, preserving its content. Fails if ' +
+        'fromSlug does not exist or toSlug is already taken. Use this instead of delete+create so the ' +
+        'page keeps its history and the nav tree updates atomically.',
+      inputSchema: {
+        fromSlug: z.string(),
+        toSlug: z.string(),
+        message: z.string().optional().describe('Short "why" — shown in the changelog.'),
+      },
+    },
+    async ({ fromSlug, toSlug, message }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const result = await moveDocPage(cleanSlug(fromSlug), cleanSlug(toSlug), docPageActor(message));
+      if (!result.ok) return textResult(result);
+      return textResult({ ok: true, slug: result.page.slug });
     }
   );
 

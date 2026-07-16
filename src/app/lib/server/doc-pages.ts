@@ -168,6 +168,101 @@ export async function writeDocPage(
   return { page, action };
 }
 
+/**
+ * Delete a doc page (by slug), record the deletion in the unified changelog,
+ * and prune it from the registry nav tree. Actor-parameterized like
+ * {@link writeDocPage} — used by both the registry editor and the MCP tools.
+ */
+export async function deleteDocPage(
+  slug: string,
+  actor: DocPageActor
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const db = getDb();
+  const trimmedSlug = slug.replace(/^\/+|\/+$/g, '');
+  if (!trimmedSlug) return { ok: false, error: 'Invalid slug' };
+
+  const existing = await getHandoffPageBySlug(trimmedSlug);
+  if (!existing) return { ok: false, error: `Page "${trimmedSlug}" not found.` };
+
+  await db.delete(handoffPages).where(eq(handoffPages.slug, trimmedSlug));
+
+  await db.insert(handoffPageChanges).values({
+    slug: trimmedSlug,
+    action: 'deleted',
+    pushedByUserId: actor.userId,
+    pushedByName: actor.userName ?? null,
+    trigger: actor.trigger ?? 'mcp',
+    titleBefore: String(existing.frontmatter?.title ?? '') || null,
+    titleAfter: null,
+    markdownLengthBefore: existing.markdown.length,
+    markdownLengthAfter: null,
+    message: actor.message ?? null,
+  });
+
+  void removePageFromNav(trimmedSlug).catch(() => undefined);
+  return { ok: true };
+}
+
+/**
+ * Move (rename) a doc page from one slug to another, preserving its content.
+ * Fails if `fromSlug` doesn't exist or `toSlug` is already taken. Recorded as
+ * a created+deleted pair in the changelog (the `handoff_page_change.action`
+ * column only supports created/updated/deleted; a synthetic "moved" value
+ * would silently fall through the changelog UI's action union).
+ */
+export async function moveDocPage(
+  fromSlug: string,
+  toSlug: string,
+  actor: DocPageActor
+): Promise<{ ok: true; page: HandoffPageRow } | { ok: false; error: string }> {
+  const db = getDb();
+  const trimmedFrom = fromSlug.replace(/^\/+|\/+$/g, '');
+  const trimmedTo = toSlug.replace(/^\/+|\/+$/g, '');
+  if (!trimmedFrom || !trimmedTo) return { ok: false, error: 'Invalid slug' };
+  if (trimmedFrom === trimmedTo) return { ok: false, error: 'fromSlug and toSlug are the same.' };
+
+  const existing = await getHandoffPageBySlug(trimmedFrom);
+  if (!existing) return { ok: false, error: `Page "${trimmedFrom}" not found.` };
+  if (await getHandoffPageBySlug(trimmedTo)) {
+    return { ok: false, error: `Page "${trimmedTo}" already exists — delete it first or pick a different slug.` };
+  }
+
+  const moveNote = actor.message ? `Moved from ${trimmedFrom} — ${actor.message}` : `Moved from ${trimmedFrom}`;
+  const page = await upsertHandoffPageInternal(trimmedTo, existing.frontmatter, existing.markdown);
+  await db.delete(handoffPages).where(eq(handoffPages.slug, trimmedFrom));
+
+  await db.insert(handoffPageChanges).values([
+    {
+      slug: trimmedTo,
+      action: 'created',
+      pushedByUserId: actor.userId,
+      pushedByName: actor.userName ?? null,
+      trigger: actor.trigger ?? 'mcp',
+      titleBefore: null,
+      titleAfter: String(existing.frontmatter?.title ?? '') || null,
+      markdownLengthBefore: null,
+      markdownLengthAfter: existing.markdown.length,
+      message: moveNote,
+    },
+    {
+      slug: trimmedFrom,
+      action: 'deleted',
+      pushedByUserId: actor.userId,
+      pushedByName: actor.userName ?? null,
+      trigger: actor.trigger ?? 'mcp',
+      titleBefore: String(existing.frontmatter?.title ?? '') || null,
+      titleAfter: null,
+      markdownLengthBefore: existing.markdown.length,
+      markdownLengthAfter: null,
+      message: `Moved to ${trimmedTo}`,
+    },
+  ]);
+
+  void removePageFromNav(trimmedFrom).catch(() => undefined);
+  void syncPageToNav(trimmedTo, page.frontmatter).catch(() => undefined);
+  return { ok: true, page };
+}
+
 async function upsertHandoffPageInternal(
   slug: string,
   frontmatter: Record<string, unknown>,
@@ -278,6 +373,38 @@ function upsertNavNode(
         children: newChildren,
       },
     ];
+  }
+
+  return recurse(nodes, 0);
+}
+
+/** Remove a single node (by full slug) from the registry nav tree, called after a page delete/move. */
+async function removePageFromNav(slug: string): Promise<void> {
+  const { getRegistryNavigation, upsertRegistryNavigation } = await import('../db/registry-queries');
+  const currentTree = (await getRegistryNavigation()) ?? [];
+  const newTree = removeNavNode(currentTree as NavNode[], slug);
+  await upsertRegistryNavigation(newTree as Parameters<typeof upsertRegistryNavigation>[0], null);
+}
+
+/**
+ * Recursively remove the node for the given full slug from the nav tree.
+ * Category nodes left with no children after the removal are pruned too.
+ */
+function removeNavNode(nodes: NavNode[], fullSlug: string): NavNode[] {
+  const parts = fullSlug.split('/').filter(Boolean);
+
+  function recurse(current: NavNode[], depth: number): NavNode[] {
+    const nodeSlug = parts.slice(0, depth + 1).join('/');
+    const isTarget = depth === parts.length - 1;
+
+    return current
+      .map((n): NavNode | null => {
+        if (n.slug !== nodeSlug) return n;
+        if (isTarget) return null; // drop this node entirely
+        return { ...n, children: recurse(n.children ?? [], depth + 1) };
+      })
+      .filter((n): n is NavNode => n !== null)
+      .filter((n) => !(n.type === 'category' && (!n.children || n.children.length === 0)));
   }
 
   return recurse(nodes, 0);
