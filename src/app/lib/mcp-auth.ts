@@ -23,6 +23,15 @@ const WORKSPACE_AUTH: McpAuthContext = {
   isLegacySecret: false,
 };
 
+/** RFC 9728 §5.1: point unauthenticated MCP clients (e.g. claude.ai Connectors) at protected-resource metadata. */
+function unauthorized(request: Request): NextResponse {
+  const resourceMetadataUrl = `${issuerForCliSync(request)}/.well-known/oauth-protected-resource`;
+  return NextResponse.json(
+    { error: 'Unauthorized' },
+    { status: 401, headers: { 'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl}"` } }
+  );
+}
+
 /**
  * MCP + reference API auth.
  * - Workspace mode (no DATABASE_URL): unauthenticated local access — returns a read-only workspace context.
@@ -42,7 +51,7 @@ export function verifyHandoffApiAuth(
   }
 
   if (!token) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return unauthorized(request);
   }
 
   if (secret && token === secret) {
@@ -52,7 +61,7 @@ export function verifyHandoffApiAuth(
   const iss = issuerForCliSync(request);
   const jwt = verifyCliAccessToken(token, iss);
   if (!jwt.ok) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    return unauthorized(request);
   }
 
   const scopes = jwt.payload.scp;

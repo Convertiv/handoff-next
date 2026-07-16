@@ -39,7 +39,9 @@ function getCliJwtSecret(): string | null {
   return null;
 }
 
-export function signCliAccessToken(payload: Omit<CliSyncJwtPayload, 'aud' | 'iat' | 'exp'> & { ttlSeconds?: number }): string {
+export function signCliAccessToken(
+  payload: Omit<CliSyncJwtPayload, 'aud' | 'iat' | 'exp'> & { ttlSeconds?: number; aud?: string }
+): string {
   const secret = getCliJwtSecret();
   if (!secret) {
     throw new Error('Set HANDOFF_CLI_JWT_SECRET or AUTH_SECRET to issue CLI sync tokens.');
@@ -51,7 +53,7 @@ export function signCliAccessToken(payload: Omit<CliSyncJwtPayload, 'aud' | 'iat
     role: payload.role,
     scp: payload.scp,
     iss: payload.iss,
-    aud: HANDOFF_API_JWT_AUD,
+    aud: payload.aud ?? HANDOFF_API_JWT_AUD,
     iat: now,
     exp: now + ttl,
   };

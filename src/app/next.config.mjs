@@ -101,6 +101,20 @@ const nextConfig = {
       beforeFiles: [
         { source: '/api/components.json', destination: '/api/components' },
         { source: '/api/patterns.json', destination: '/api/patterns' },
+        // OAuth discovery documents (RFC 8414 / RFC 9728), so clients (e.g. claude.ai
+        // Connectors) can find them via the standard well-known path. Note: on a
+        // deployment with HANDOFF_APP_BASE_PATH set, these still resolve under that
+        // base path rather than the true origin root (Next.js rewrites can't opt an
+        // internal destination out of basePath) — fine for the common no-base-path
+        // deployment; revisit if a base-path deployment needs a Connector.
+        {
+          source: '/.well-known/oauth-authorization-server',
+          destination: '/api/oauth/authorization-server-metadata',
+        },
+        {
+          source: '/.well-known/oauth-protected-resource',
+          destination: '/api/oauth/protected-resource-metadata',
+        },
       ],
     };
   },

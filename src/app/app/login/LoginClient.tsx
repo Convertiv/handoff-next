@@ -32,7 +32,8 @@ export default function LoginClient({ passwordUpdated }: { passwordUpdated?: boo
       setError('Invalid email or password.');
       return;
     }
-    router.push('/');
+    const callbackUrl = searchParams.get('callbackUrl');
+    router.push(callbackUrl && callbackUrl.startsWith('/') ? callbackUrl : '/');
     router.refresh();
   }
 

@@ -385,6 +385,57 @@ export const cliDeviceSessions = pgTable('cli_device_session', {
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
 });
 
+/**
+ * MCP OAuth 2.1 connector — RFC 7591 dynamically-registered clients (e.g. claude.ai),
+ * plus the authorization codes + refresh tokens they exchange via the standard
+ * authorization_code + PKCE flow (distinct from the CLI's device-code flow above).
+ */
+export const oauthClients = pgTable('oauth_client', {
+  clientId: text('client_id').primaryKey(),
+  clientSecretHash: text('client_secret_hash'),
+  clientName: text('client_name').notNull(),
+  redirectUris: text('redirect_uris').notNull(), // JSON-stringified string[]
+  tokenEndpointAuthMethod: text('token_endpoint_auth_method').notNull().default('none'),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+});
+
+export const oauthAuthorizationCodes = pgTable('oauth_authorization_code', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  codeHash: text('code_hash').notNull().unique(),
+  clientId: text('client_id')
+    .notNull()
+    .references(() => oauthClients.clientId, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  redirectUri: text('redirect_uri').notNull(),
+  codeChallenge: text('code_challenge').notNull(),
+  codeChallengeMethod: text('code_challenge_method').notNull().default('S256'),
+  scopes: text('scopes').notNull(),
+  consumed: boolean('consumed').notNull().default(false),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+});
+
+export const oauthRefreshTokens = pgTable('oauth_refresh_token', {
+  id: text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  tokenHash: text('token_hash').notNull().unique(),
+  clientId: text('client_id')
+    .notNull()
+    .references(() => oauthClients.clientId, { onDelete: 'cascade' }),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  scopes: text('scopes').notNull(),
+  revokedAt: timestamp('revoked_at', { mode: 'date' }),
+  expiresAt: timestamp('expires_at', { mode: 'date' }).notNull(),
+  createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+});
+
 export const componentGenerationJobs = pgTable('component_generation_job', {
   id: serial('id').primaryKey(),
   artifactId: text('artifact_id')

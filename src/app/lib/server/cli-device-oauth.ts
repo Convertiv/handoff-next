@@ -3,6 +3,9 @@ import { and, eq, gt, lt } from 'drizzle-orm';
 import { signCliAccessToken } from '@/lib/cli-sync-jwt';
 import { getDb } from '@/lib/db';
 import { cliDeviceSessions, users } from '@/lib/db/schema';
+import { scopesForRole } from '@/lib/oauth-scopes';
+
+export { scopesForRole };
 
 const USER_CODE_ALPHABET = 'BCDFGHJKLMNPQRSTVWXYZ23456789';
 
@@ -25,23 +28,6 @@ export function generateDeviceCode(): string {
 
 export function hashDeviceCode(plain: string): string {
   return createHash('sha256').update(plain, 'utf8').digest('hex');
-}
-
-export function scopesForRole(role: string | undefined): string {
-  if (role === 'admin') {
-    return [
-      'sync:read',
-      'sync:write',
-      'reference:read',
-      'components:read',
-      'components:write',
-      'design:read',
-      'design:write',
-      'generate:component',
-      'figma:sync',
-    ].join(' ');
-  }
-  return ['sync:read', 'reference:read', 'components:read', 'design:read', 'design:write'].join(' ');
 }
 
 export type CreateDeviceSessionResult = {
