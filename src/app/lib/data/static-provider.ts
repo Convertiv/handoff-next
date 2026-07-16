@@ -129,6 +129,23 @@ export class StaticDataProvider implements DataProvider {
     }
   }
 
+  async getDtcgSource(): Promise<import('handoff-core').Types.DtcgSource | null> {
+    // Workspace mode: the reference-preserving source tree is emitted by the
+    // handoff-core structured transformer (P1.5) into design-system/dist/dtcg/.
+    // Absent on pipelines that haven't been upgraded yet — return null (no axes).
+    try {
+      const workingPath = process.env.HANDOFF_WORKING_PATH;
+      const base = workingPath ? path.resolve(workingPath, 'design-system', 'dist') : path.resolve(process.cwd(), 'design-system', 'dist');
+      const sourcePath = path.join(base, 'dtcg', 'tokens.source.json');
+      if (!fs.existsSync(sourcePath)) return null;
+      const parsed = JSON.parse(await fs.readFile(sourcePath, 'utf-8')) as unknown;
+      const { asDtcgSource } = await import('../dtcg-axes');
+      return asDtcgSource(parsed);
+    } catch {
+      return null;
+    }
+  }
+
   async getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent> {
     const { metadata, content, options } = fetchDocPageMetadataAndContent(localPath, slug);
     return {

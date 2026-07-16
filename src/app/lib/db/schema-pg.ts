@@ -694,8 +694,27 @@ export const handoffRegistryDtcg = pgTable('handoff_registry_dtcg', {
   scss: text('scss').notNull().default(''),
   tailwind: text('tailwind').notNull().default(''),
   dtcg: jsonb('dtcg').notNull().default({}),
-  /** Brand token trees keyed by brand name (plus "shared" for the gray ramp). */
+  /**
+   * Brand token trees keyed by brand name (plus "shared" for the gray ramp).
+   * Axis-aware (P1.6a): a value may be a flat resolved tree (legacy — read as
+   * scheme "default") OR scheme-nested `{ [scheme]: tree }`. See toAxisAwareBrands().
+   */
   brands: jsonb('brands').notNull().default({}),
+  /**
+   * Reference-preserving, multi-axis DTCG source-of-truth tree (P1.6a) — a
+   * handoff-core Types.DtcgSource `{ schemaVersion, axes[], tokens }`. Aliases stay
+   * unresolved; per-axis values + `$extensions.handoff.{originalId,syncState}` are
+   * preserved (the flat `brands`/normalizer path drops them). Powers axis queries
+   * (Dtcg.resolveTokens) + Figma-sync diff; `{}` on registries that haven't
+   * re-pushed with references. NOT on the hot theme.css path (ADR-001 §2).
+   */
+  dtcgSource: jsonb('dtcg_source').notNull().default({}),
+  /**
+   * Team-shared `Dtcg.AxisMappingConfig` (P1.6c) — collection→axis projection,
+   * category/tier hints, include/excludes, $type overrides. Persisted on Figma-sync
+   * commit so repeat syncs reuse curate-time decisions. `{}` when unset.
+   */
+  axisMapping: jsonb('axis_mapping').notNull().default({}),
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
   updatedByUserId: text('updated_by_user_id').references(() => users.id, { onDelete: 'set null' }),
 });

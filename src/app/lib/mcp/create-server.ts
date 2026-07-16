@@ -232,13 +232,27 @@ async function dtcgDimensionTokens(
   return out;
 }
 
-/** Slim Figma-snapshot tokens + merged DTCG dimension tokens (spacing/radius/grid). */
+/** Provider surface collectFoundationTokens needs (subset of DataProvider). */
+type FoundationProvider = {
+  getTokens(): Promise<unknown>;
+  getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null>;
+  getDtcgSource?(): Promise<import('handoff-core').Types.DtcgSource | null>;
+};
+
+/**
+ * Slim Figma-snapshot tokens + merged DTCG dimension tokens (spacing/radius/grid).
+ *
+ * P1.6b — when the registry has a multi-axis source tree, `out.axes` advertises the
+ * available axes (brand, scheme, …). If `selector` names any axis, the source is
+ * resolved against it (Dtcg.resolveTokens) and the per-selector color/typography/
+ * effect tokens are attached under `out.axisTokens` — so an MCP consumer can pull
+ * "resolvet / dark" without knowing the reference graph. Absent a source, behavior
+ * is unchanged (brand/scheme-agnostic).
+ */
 async function collectFoundationTokens(
-  provider: {
-    getTokens(): Promise<unknown>;
-    getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null>;
-  },
-  include: string[] = []
+  provider: FoundationProvider,
+  include: string[] = [],
+  selector: Record<string, string> = {}
 ): Promise<AnyRecord> {
   const tokens = await provider.getTokens();
   const out = slimTokensForMcp(tokens, include);
@@ -250,6 +264,34 @@ async function collectFoundationTokens(
   if (spacing.length) out.spacing = spacing;
   if (borderRadius.length) out.borderRadius = borderRadius;
   if (grid.length) out.grid = grid;
+
+  // Multi-axis resolution (query/viz path only; never the theme.css hot path).
+  let source: import('handoff-core').Types.DtcgSource | null = null;
+  try {
+    source = provider.getDtcgSource ? await provider.getDtcgSource() : null;
+  } catch {
+    source = null;
+  }
+  if (source) {
+    out.axes = source.axes;
+    const activeSelector: Record<string, string> = {};
+    for (const [k, v] of Object.entries(selector)) {
+      if (v) activeSelector[k] = v;
+    }
+    if (Object.keys(activeSelector).length > 0) {
+      try {
+        const { Dtcg } = await import('handoff-core');
+        const { normalizeDtcgToLocalStyles } = await import('@/lib/dtcg-normalizer');
+        const resolved = Dtcg.resolveTokens(source, activeSelector) as Record<string, unknown>;
+        const normalized = normalizeDtcgToLocalStyles(resolved);
+        out.axisSelector = activeSelector;
+        out.axisTokens = { color: normalized.color, typography: normalized.typography, effect: normalized.effect };
+      } catch (err) {
+        out.axisSelector = activeSelector;
+        out.axisError = err instanceof Error ? err.message : 'Axis resolution failed';
+      }
+    }
+  }
   return out;
 }
 
@@ -479,16 +521,23 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       description:
         'Foundation design tokens (colors, typography, effects, and any spacing/radius/grid when extracted). ' +
         'Slimmed for context use — excludes icon/logo SVGs, per-component token usage, and the SCSS $map. ' +
-        'Use handoff_get_icon_catalog/handoff_get_logo_set/handoff_get_component for those.',
+        'Use handoff_get_icon_catalog/handoff_get_logo_set/handoff_get_component for those. ' +
+        'Multi-axis (brand × scheme): the response advertises available `axes`; pass brand/scheme to get ' +
+        'axis-resolved tokens under `axisTokens`.',
       inputSchema: {
         include: z
           .array(z.enum(['assets', 'components', 'map']))
           .optional()
           .describe('Opt back into heavy raw sections normally excluded. Default: none.'),
+        brand: z.string().optional().describe('Brand axis value to resolve tokens for (see `axes` in the response).'),
+        scheme: z.string().optional().describe('Scheme axis value, e.g. "light"/"dark" (see `axes` in the response).'),
       },
     },
-    async ({ include }) => {
-      return textResult(await collectFoundationTokens(getDataProvider(), include ?? []));
+    async ({ include, brand, scheme }) => {
+      const selector: Record<string, string> = {};
+      if (brand) selector.brand = brand;
+      if (scheme) selector.scheme = scheme;
+      return textResult(await collectFoundationTokens(getDataProvider(), include ?? [], selector));
     }
   );
 
@@ -499,18 +548,27 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         'Export a compact DESIGN.md framing brief for this design system — system identity, token ' +
         'brief (colors/type/spacing/radius/grid), component vocabulary, brand voice, and design ' +
         'guidelines. Commit it to a project and reference it from CLAUDE.md so an agent has design-' +
-        'system context without a live MCP call.',
-      inputSchema: {},
+        'system context without a live MCP call. For a multi-axis system, pass brand/scheme to frame ' +
+        'the brief around that resolved theme.',
+      inputSchema: {
+        brand: z.string().optional().describe('Brand axis value to frame the brief around (multi-axis systems).'),
+        scheme: z.string().optional().describe('Scheme axis value, e.g. "light"/"dark" (multi-axis systems).'),
+      },
     },
-    async () => {
+    async ({ brand, scheme }) => {
       const provider = getDataProvider();
+      const selector: Record<string, string> = {};
+      if (brand) selector.brand = brand;
+      if (scheme) selector.scheme = scheme;
       const [foundation, components, ws] = await Promise.all([
-        collectFoundationTokens(provider, []),
+        collectFoundationTokens(provider, [], selector),
         provider.getComponents(),
         getDesignWorkspace(),
       ]);
       const profile = buildProjectContext({});
       const asArr = (v: unknown): AnyRecord[] => (Array.isArray(v) ? (v as AnyRecord[]) : []);
+      // Prefer axis-resolved colors/typography when a brand/scheme selector was given.
+      const axisTokens = foundation.axisTokens as { color?: unknown; typography?: unknown } | undefined;
       const md = buildDesignMd({
         project: {
           name: profile.name,
@@ -518,8 +576,8 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           figmaFileKey: profile.figmaFileKey,
           origin: issuerForCliSync(request),
         },
-        colors: asArr(foundation.colors),
-        typography: asArr(foundation.typography),
+        colors: asArr(axisTokens?.color ?? foundation.colors),
+        typography: asArr(axisTokens?.typography ?? foundation.typography),
         spacing: asArr(foundation.spacing),
         borderRadius: asArr(foundation.borderRadius),
         grid: asArr(foundation.grid),

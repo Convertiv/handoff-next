@@ -51,34 +51,75 @@ function brandToColorGroups(brands: DtcgBrandTokens, activeBrand: string): Recor
   return groupBy(objects, 'group');
 }
 
+/** A pill-style axis switcher (shared by the brand row and the scheme row). */
+function AxisSwitcher({ values, active, onSelect }: { values: string[]; active: string; onSelect: (v: string) => void }) {
+  return (
+    <div className="flex gap-2">
+      {values.map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onSelect(v)}
+          className={[
+            'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+            active === v
+              ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+              : 'text-muted-foreground hover:bg-muted',
+          ].join(' ')}
+        >
+          {startCase(v)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 type Props = {
   brands: DtcgBrandTokens;
   brandNames: string[];
+  /**
+   * P1.6d: brand × scheme color matrix resolved from a multi-axis source. When
+   * present it takes precedence over `brands` and renders a scheme toggle beside
+   * the brand switcher — the brand × scheme visualization matrix.
+   */
+  colorMatrix?: Record<string, Record<string, CoreTypes.IColorObject[]>>;
+  schemeNames?: string[];
 };
 
-export function ColorsDisplay({ brands, brandNames }: Props) {
+export function ColorsDisplay({ brands, brandNames, colorMatrix, schemeNames }: Props) {
   const [activeBrand, setActiveBrand] = useState(brandNames[0] ?? '');
-  const colorGroups = brandToColorGroups(brands, activeBrand);
+  const [activeScheme, setActiveScheme] = useState(schemeNames?.[0] ?? '');
+
+  const usingMatrix = !!colorMatrix;
+  // Schemes available for the active brand (may vary per brand); fall back to a
+  // valid one when the current selection isn't present for this brand.
+  const schemesForBrand = usingMatrix ? Object.keys(colorMatrix![activeBrand] ?? {}) : [];
+  const effectiveScheme = usingMatrix
+    ? (schemesForBrand.includes(activeScheme) ? activeScheme : (schemesForBrand[0] ?? ''))
+    : '';
+
+  const colorGroups = usingMatrix
+    ? groupBy(colorMatrix![activeBrand]?.[effectiveScheme] ?? [], 'group')
+    : brandToColorGroups(brands, activeBrand);
+
+  const schemeOptions = schemeNames ?? [];
 
   return (
     <>
-      {brandNames.length > 1 && (
-        <div className="mb-6 flex gap-2 border-b pb-3">
-          {brandNames.map((b) => (
-            <button
-              key={b}
-              type="button"
-              onClick={() => setActiveBrand(b)}
-              className={[
-                'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
-                activeBrand === b
-                  ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                  : 'text-muted-foreground hover:bg-muted',
-              ].join(' ')}
-            >
-              {startCase(b)}
-            </button>
-          ))}
+      {(brandNames.length > 1 || (usingMatrix && schemeOptions.length > 1)) && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3 border-b pb-3">
+          {brandNames.length > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Brand</span>
+              <AxisSwitcher values={brandNames} active={activeBrand} onSelect={setActiveBrand} />
+            </div>
+          )}
+          {usingMatrix && schemeOptions.length > 1 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Scheme</span>
+              <AxisSwitcher values={schemeOptions} active={effectiveScheme} onSelect={setActiveScheme} />
+            </div>
+          )}
         </div>
       )}
       {Object.keys(colorGroups).map((group) => (

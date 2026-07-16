@@ -1,18 +1,68 @@
 import { NextResponse } from 'next/server';
+import { Dtcg } from 'handoff-core';
 import { verifySyncAuth } from '@/lib/sync-auth';
 import { getRegistryDtcg, upsertRegistryDtcg } from '@/lib/db/registry-queries';
+import { getDataProvider } from '@/lib/data';
+import { asDtcgSource } from '@/lib/dtcg-axes';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+/** Reserved query params that are NOT axis selectors. */
+const RESERVED_PARAMS = new Set(['format', 'selector']);
+const FORMATS = new Set(['css', 'scss', 'map', 'style-dictionary']);
+
 /**
- * GET /api/registry/dtcg — returns the latest DTCG dist payload.
- * Shape: { payload: { manifest, css, scss, tailwind, dtcg } | null }
+ * GET /api/registry/dtcg
+ *
+ * Default (no axis params) — returns the full DTCG dist payload, unchanged:
+ *   { payload: { manifest, css, scss, tailwind, dtcg, brands, dtcgSource } | null }
+ *
+ * Axis query (P1.6b) — any generic axis selector (?brand=&scheme=&…) resolves the
+ * reference-preserving source tree against that selector via Dtcg.resolveTokens and
+ * returns a literal tree (or a formatted string with ?format=css|scss|map|
+ * style-dictionary). Unknown axes are ignored; unspecified axes fall to defaults.
+ * This is the query/viz path — it does NOT touch the precompiled theme.css bytes.
+ *   { selector, axes, tokens }               (JSON tree)
+ *   { selector, axes, format, output }        (?format=…)
+ *   { selector, axes, tokens: null, note }    (registry has no source tree yet)
  */
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   try {
-    const payload = await getRegistryDtcg();
-    return NextResponse.json({ payload: payload ?? null });
+    const url = new URL(request.url);
+    const selector: Record<string, string> = {};
+    for (const [k, v] of url.searchParams.entries()) {
+      if (!RESERVED_PARAMS.has(k) && v !== '') selector[k] = v;
+    }
+    const formatParam = url.searchParams.get('format') ?? undefined;
+
+    // No axis selector → full payload (back-compat).
+    if (Object.keys(selector).length === 0 && !formatParam) {
+      const payload = await getRegistryDtcg();
+      return NextResponse.json({ payload: payload ?? null });
+    }
+
+    const source = asDtcgSource(await getDataProvider().getDtcgSource());
+    const axes = source?.axes ?? [];
+    if (!source) {
+      return NextResponse.json({
+        selector,
+        axes,
+        tokens: null,
+        note: 'This registry has no reference source tree yet (single-axis/literal). Re-push with references to enable axis queries.',
+      });
+    }
+
+    if (formatParam) {
+      if (!FORMATS.has(formatParam)) {
+        return NextResponse.json({ error: `Unknown format "${formatParam}". Use css|scss|map|style-dictionary.` }, { status: 400 });
+      }
+      const output = Dtcg.resolveAndFormat(source, selector, formatParam as Parameters<typeof Dtcg.resolveAndFormat>[2]);
+      return NextResponse.json({ selector, axes, format: formatParam, output });
+    }
+
+    const tokens = Dtcg.resolveTokens(source, selector);
+    return NextResponse.json({ selector, axes, tokens });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';
     return NextResponse.json({ error: msg, payload: null }, { status: 500 });

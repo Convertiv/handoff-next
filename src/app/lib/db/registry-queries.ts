@@ -108,10 +108,23 @@ export type RegistryDtcgPayload = {
   dtcg: Record<string, unknown>;
   /**
    * Brand token trees keyed by brand name (plus "shared" for the gray ramp).
-   * Each value is a DTCG token file parsed from a CSS brand file.
-   * Empty object when no brands are configured.
+   * Axis-aware (P1.6a): a value is EITHER a flat resolved DTCG tree (legacy —
+   * interpreted as scheme "default") OR a scheme-nested map `{ [scheme]: tree }`.
+   * Empty object when no brands are configured. See toAxisAwareBrands().
    */
   brands: Record<string, Record<string, unknown>>;
+  /**
+   * Reference-preserving multi-axis source-of-truth tree (P1.6a) — a handoff-core
+   * `Types.DtcgSource`. `{}` (or absent) on registries that predate references or
+   * haven't re-pushed. Stored verbatim as jsonb so `originalId`/`syncState` on
+   * leaves survive (unlike the flat `brands` cache).
+   */
+  dtcgSource?: Record<string, unknown>;
+  /**
+   * Team-shared `Dtcg.AxisMappingConfig` (P1.6c). `{}`/absent when unset. Written on
+   * Figma-sync commit; reused as the default mapping for later previews.
+   */
+  axisMapping?: Record<string, unknown>;
 };
 
 export async function getRegistryDtcg(): Promise<RegistryDtcgPayload | null> {
@@ -126,17 +139,56 @@ export async function getRegistryDtcg(): Promise<RegistryDtcgPayload | null> {
     tailwind: row.tailwind ?? '',
     dtcg: (row.dtcg as Record<string, unknown>) ?? {},
     brands: (row.brands as Record<string, Record<string, unknown>>) ?? {},
+    dtcgSource: (row.dtcgSource as Record<string, unknown>) ?? {},
+    axisMapping: (row.axisMapping as Record<string, unknown>) ?? {},
   };
 }
 
-export async function upsertRegistryDtcg(payload: RegistryDtcgPayload, userId: string | null = null): Promise<void> {
+/** The team-shared axis mapping config, or `null` when unset (empty `{}`). */
+export async function getAxisMappingConfig(): Promise<Record<string, unknown> | null> {
+  const row = await getRegistryDtcg();
+  const mapping = row?.axisMapping;
+  if (!mapping || typeof mapping !== 'object' || Object.keys(mapping).length === 0) return null;
+  return mapping;
+}
+
+/**
+ * The reference-preserving source tree, or `null` when a registry has none yet
+ * (empty `{}` — legacy/literal registries that haven't re-pushed with references).
+ * "Has a source" = a `Types.DtcgSource` with at least one axis or token group.
+ */
+export async function getDtcgSource(): Promise<Record<string, unknown> | null> {
+  const row = await getRegistryDtcg();
+  const source = row?.dtcgSource;
+  if (!source || typeof source !== 'object') return null;
+  const axes = (source as { axes?: unknown }).axes;
+  const tokens = (source as { tokens?: unknown }).tokens;
+  const hasAxes = Array.isArray(axes) && axes.length > 0;
+  const hasTokens = tokens != null && typeof tokens === 'object' && Object.keys(tokens as object).length > 0;
+  return hasAxes || hasTokens ? source : null;
+}
+
+/**
+ * Upsert the DTCG singleton. Accepts a PARTIAL payload: only the provided columns
+ * are written, so a token-only push (manifest/css/scss/tailwind/dtcg/brands) never
+ * clobbers `dtcg_source`, and a Figma-sync commit (dtcg_source/brands) never
+ * clobbers the precompiled bytes. Omitted columns keep their existing value on
+ * update and fall back to their schema default on first insert.
+ */
+export async function upsertRegistryDtcg(payload: Partial<RegistryDtcgPayload>, userId: string | null = null): Promise<void> {
   const db = getDb();
+  // Only forward keys the caller actually set (drop `undefined`), so a partial
+  // write leaves untouched columns intact under onConflictDoUpdate.
+  const cols: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(payload)) {
+    if (v !== undefined) cols[k] = v;
+  }
   await db
     .insert(handoffRegistryDtcg)
-    .values({ id: SINGLETON_ID, ...payload, updatedAt: new Date(), updatedByUserId: userId })
+    .values({ id: SINGLETON_ID, ...cols, updatedAt: new Date(), updatedByUserId: userId })
     .onConflictDoUpdate({
       target: handoffRegistryDtcg.id,
-      set: { ...payload, updatedAt: new Date(), updatedByUserId: userId },
+      set: { ...cols, updatedAt: new Date(), updatedByUserId: userId },
     });
 }
 
@@ -270,6 +322,39 @@ export async function insertTokensSnapshot(
     changeDetails: details,
     message: opts.message ?? null,
     snapshotId,
+  });
+}
+
+/**
+ * Append a `handoff_token_change` row for a Figma-sync DTCG commit (P1.6c). Unlike
+ * `insertTokensSnapshot` (which diffs the localStyles snapshot), this records a
+ * changeset already computed by `Dtcg.diffDtcgSource` — keys are DTCG dot-paths.
+ * Fire-and-forget: failures here never fail the commit.
+ */
+export async function insertDtcgTokenChange(
+  change: { addedKeys: string[]; modifiedKeys: string[]; removedKeys: string[]; totalCount: number },
+  opts: { trigger?: string; userId?: string | null; message?: string | null } = {}
+): Promise<void> {
+  const db = getDb();
+  let pushedByName: string | null = null;
+  if (opts.userId) {
+    const [u] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, opts.userId)).limit(1);
+    pushedByName = u?.name ?? u?.email ?? null;
+  }
+  await db.insert(handoffTokenChanges).values({
+    trigger: opts.trigger ?? 'figma-sync',
+    addedCount: change.addedKeys.length,
+    removedCount: change.removedKeys.length,
+    modifiedCount: change.modifiedKeys.length,
+    totalCount: change.totalCount,
+    addedKeys: change.addedKeys,
+    removedKeys: change.removedKeys,
+    modifiedKeys: change.modifiedKeys,
+    pushedByUserId: opts.userId ?? null,
+    pushedByName,
+    changeDetails: {},
+    message: opts.message ?? null,
+    snapshotId: null,
   });
 }
 

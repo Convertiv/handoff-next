@@ -19,6 +19,23 @@ import type { Types as CoreTypes } from 'handoff-core';
 
 type DtcgTree = Record<string, unknown>;
 
+/**
+ * A normalized object with optional axis provenance (P1.6b). When
+ * `carryAxisProvenance` is set, the same token name is kept once *per axis combo*
+ * (brand × scheme) rather than collapsed first-seen-wins, and each object records
+ * the `brand`/`scheme` it came from. Assignable to the bare core type (the extra
+ * fields are optional), so existing single-axis consumers are unaffected.
+ */
+export type WithAxis<T> = T & { brand?: string; scheme?: string };
+
+export interface NormalizeOptions {
+  /**
+   * Keep tokens per (brand, scheme) instead of deduping across brands. Off by
+   * default — the legacy single-list foundation displays rely on the collapse.
+   */
+  carryAxisProvenance?: boolean;
+}
+
 // ── Internal helpers ────────────────────────────────────────────────────────
 
 function humanize(s: string): string {
@@ -111,27 +128,29 @@ function leafToColorObject(leaf: DtcgLeaf, path: string[]): CoreTypes.IColorObje
 
 export function dtcgToColors(
   dtcg: DtcgTree,
-  brands?: Record<string, DtcgTree>
-): CoreTypes.IColorObject[] {
+  brands?: Record<string, DtcgTree>,
+  opts: NormalizeOptions = {}
+): WithAxis<CoreTypes.IColorObject>[] {
+  const carry = opts.carryAxisProvenance ?? false;
   const seen = new Set<string>();
-  const results: CoreTypes.IColorObject[] = [];
+  const results: WithAxis<CoreTypes.IColorObject>[] = [];
 
-  function collect(tree: DtcgTree) {
+  function collect(tree: DtcgTree, brand?: string, scheme?: string) {
     walkLeaves(tree, [], (leaf, path) => {
       if (leaf.$type !== 'color') return;
       if (typeof leaf.$value !== 'string') return;
       const obj = leafToColorObject(leaf, path);
-      if (!seen.has(obj.machineName)) {
-        seen.add(obj.machineName);
-        results.push(obj);
-      }
+      const key = carry ? `${brand ?? ''}::${scheme ?? ''}::${obj.machineName}` : obj.machineName;
+      if (seen.has(key)) return;
+      seen.add(key);
+      results.push(carry ? { ...obj, brand, scheme } : obj);
     });
   }
 
   collect(dtcg);
   if (brands) {
-    for (const brandTree of Object.values(brands)) {
-      collect(brandTree);
+    for (const [brand, brandTree] of Object.entries(brands)) {
+      collect(brandTree, carry ? brand : undefined);
     }
   }
 
@@ -198,25 +217,29 @@ function leafToTypographyObject(leaf: DtcgLeaf, path: string[]): CoreTypes.ITypo
 
 export function dtcgToTypography(
   dtcg: DtcgTree,
-  brands?: Record<string, DtcgTree>
-): CoreTypes.ITypographyObject[] {
+  brands?: Record<string, DtcgTree>,
+  opts: NormalizeOptions = {}
+): WithAxis<CoreTypes.ITypographyObject>[] {
+  const carry = opts.carryAxisProvenance ?? false;
   const seen = new Set<string>();
-  const results: CoreTypes.ITypographyObject[] = [];
+  const results: WithAxis<CoreTypes.ITypographyObject>[] = [];
 
-  function collect(tree: DtcgTree) {
+  function collect(tree: DtcgTree, brand?: string, scheme?: string) {
     walkLeaves(tree, [], (leaf, path) => {
       if (leaf.$type !== 'typography') return;
       const obj = leafToTypographyObject(leaf, path);
-      if (!obj || seen.has(obj.machine_name)) return;
-      seen.add(obj.machine_name);
-      results.push(obj);
+      if (!obj) return;
+      const key = carry ? `${brand ?? ''}::${scheme ?? ''}::${obj.machine_name}` : obj.machine_name;
+      if (seen.has(key)) return;
+      seen.add(key);
+      results.push(carry ? { ...obj, brand, scheme } : obj);
     });
   }
 
   collect(dtcg);
   if (brands) {
-    for (const brandTree of Object.values(brands)) {
-      collect(brandTree);
+    for (const [brand, brandTree] of Object.entries(brands)) {
+      collect(brandTree, carry ? brand : undefined);
     }
   }
 
@@ -264,25 +287,29 @@ function leafToEffectObject(leaf: DtcgLeaf, path: string[]): CoreTypes.IEffectOb
 
 export function dtcgToEffects(
   dtcg: DtcgTree,
-  brands?: Record<string, DtcgTree>
-): CoreTypes.IEffectObject[] {
+  brands?: Record<string, DtcgTree>,
+  opts: NormalizeOptions = {}
+): WithAxis<CoreTypes.IEffectObject>[] {
+  const carry = opts.carryAxisProvenance ?? false;
   const seen = new Set<string>();
-  const results: CoreTypes.IEffectObject[] = [];
+  const results: WithAxis<CoreTypes.IEffectObject>[] = [];
 
-  function collect(tree: DtcgTree) {
+  function collect(tree: DtcgTree, brand?: string, scheme?: string) {
     walkLeaves(tree, [], (leaf, path) => {
       if (leaf.$type !== 'shadow') return;
       const obj = leafToEffectObject(leaf, path);
-      if (!obj || seen.has(obj.machineName)) return;
-      seen.add(obj.machineName);
-      results.push(obj);
+      if (!obj) return;
+      const key = carry ? `${brand ?? ''}::${scheme ?? ''}::${obj.machineName}` : obj.machineName;
+      if (seen.has(key)) return;
+      seen.add(key);
+      results.push(carry ? { ...obj, brand, scheme } : obj);
     });
   }
 
   collect(dtcg);
   if (brands) {
-    for (const brandTree of Object.values(brands)) {
-      collect(brandTree);
+    for (const [brand, brandTree] of Object.entries(brands)) {
+      collect(brandTree, carry ? brand : undefined);
     }
   }
 
@@ -292,23 +319,52 @@ export function dtcgToEffects(
 // ── Top-level entry point ────────────────────────────────────────────────────
 
 export interface DtcgNormalized {
-  color: CoreTypes.IColorObject[];
-  typography: CoreTypes.ITypographyObject[];
-  effect: CoreTypes.IEffectObject[];
+  color: WithAxis<CoreTypes.IColorObject>[];
+  typography: WithAxis<CoreTypes.ITypographyObject>[];
+  effect: WithAxis<CoreTypes.IEffectObject>[];
 }
 
 /**
  * Converts a full DTCG registry payload (dtcg tree + optional brands map)
  * into localStyles-compatible arrays. Used to populate visual foundation
  * displays when localStyles.color/typography/effect are empty.
+ *
+ * Pass `{ carryAxisProvenance: true }` for multi-axis callers that need tokens
+ * kept per brand (not collapsed first-seen-wins) with `brand` stamped on each.
  */
 export function normalizeDtcgToLocalStyles(
   dtcg: Record<string, unknown>,
-  brands?: Record<string, Record<string, unknown>>
+  brands?: Record<string, Record<string, unknown>>,
+  opts: NormalizeOptions = {}
 ): DtcgNormalized {
   return {
-    color: dtcgToColors(dtcg, brands),
-    typography: dtcgToTypography(dtcg, brands),
-    effect: dtcgToEffects(dtcg, brands),
+    color: dtcgToColors(dtcg, brands, opts),
+    typography: dtcgToTypography(dtcg, brands, opts),
+    effect: dtcgToEffects(dtcg, brands, opts),
   };
+}
+
+/**
+ * Normalize a brand × scheme matrix (from {@link toAxisAwareBrands}) into a
+ * per-cell `{ [brand]: { [scheme]: DtcgNormalized } }` structure — each cell
+ * normalized independently, so nothing collapses across axes. Backs the
+ * brand × scheme visualization matrix (P1.6d).
+ */
+export function normalizeDtcgMatrix(
+  matrix: Record<string, Record<string, Record<string, unknown>>>
+): Record<string, Record<string, DtcgNormalized>> {
+  const out: Record<string, Record<string, DtcgNormalized>> = {};
+  for (const [brand, schemes] of Object.entries(matrix ?? {})) {
+    out[brand] = {};
+    for (const [scheme, tree] of Object.entries(schemes ?? {})) {
+      const normalized = normalizeDtcgToLocalStyles(tree, undefined, { carryAxisProvenance: true });
+      // Stamp brand/scheme provenance (matrix cells are single-tree, so the
+      // per-tree normalize doesn't know its own axis coordinates).
+      for (const c of normalized.color) { c.brand = brand; c.scheme = scheme; }
+      for (const t of normalized.typography) { t.brand = brand; t.scheme = scheme; }
+      for (const e of normalized.effect) { e.brand = brand; e.scheme = scheme; }
+      out[brand][scheme] = normalized;
+    }
+  }
+  return out;
 }

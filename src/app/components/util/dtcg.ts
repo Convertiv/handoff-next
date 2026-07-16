@@ -21,6 +21,14 @@ export async function fetchDtcgBrands() {
 }
 
 /**
+ * The reference-preserving multi-axis source tree (P1.6), or null on registries
+ * without one. Used by the colors page to build the brand × scheme matrix.
+ */
+export async function fetchDtcgSource() {
+  return getDataProvider().getDtcgSource();
+}
+
+/**
  * Fetch raw localStyles color objects from the pushed tokens snapshot.
  * Used as a fallback on the colors page when no DTCG brand tokens have been
  * pushed (e.g. projects that use primitive/semantic token dirs instead of brands/).

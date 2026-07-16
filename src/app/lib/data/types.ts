@@ -98,6 +98,12 @@ export interface DataProvider {
   getDtcgTokenStrings(type: DtcgTokenType): Promise<DtcgTokenStrings | null>;
   getDtcgManifest(): Promise<DtcgManifest | null>;
   getDtcgBrands(): Promise<DtcgBrandTokens | null>;
+  /**
+   * The reference-preserving, multi-axis `Types.DtcgSource` (P1.6) resolved for
+   * axis queries/visualization, or `null` on registries that predate references /
+   * haven't re-pushed. Never on the hot theme.css path (ADR-001 §2).
+   */
+  getDtcgSource(): Promise<CoreTypes.DtcgSource | null>;
   getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent>;
   getConfig(): ClientConfig;
   getMenu(): Promise<SectionLink[]>;

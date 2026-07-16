@@ -517,6 +517,21 @@ export class DynamicDataProvider implements DataProvider {
     return this.fallback.getDtcgBrands();
   }
 
+  async getDtcgSource(): Promise<import('handoff-core').Types.DtcgSource | null> {
+    let row: import('../db/registry-queries').RegistryDtcgPayload | null = null;
+    try {
+      const { getRegistryDtcg } = await import('../db/registry-queries');
+      row = await getRegistryDtcg();
+    } catch (err) {
+      if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
+      logDbFallback('handoff_registry_dtcg', err);
+    }
+    const { asDtcgSource } = await import('../dtcg-axes');
+    const source = asDtcgSource(row?.dtcgSource);
+    if (source) return source;
+    return this.fallback.getDtcgSource();
+  }
+
   async getPageContent(localPath: string, slug: string | string[] | undefined): Promise<DocPageContent> {
     // Derive the DB slug from the docs-relative path, e.g.
     //   localPath='docs/foundations/', slug='colors' → 'foundations/colors'
