@@ -1410,9 +1410,14 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
             uri: PREVIEW_UI_URI,
             mimeType: RESOURCE_MIME_TYPE,
             text: previewAppHtml,
-            // Allow the inner iframe to load the registry's built preview HTML +
-            // its module/CSS (same origin, served with CORS).
-            _meta: origin ? { ui: { csp: { resourceDomains: [origin], connectDomains: [origin] } } } : {},
+            // The app renders the registry's built preview HTML in a NESTED iframe.
+            // The host sandbox's CSP defaults to `frame-src 'none'`, so the origin
+            // must be declared in `frameDomains` (→ CSP frame-src) or the inner
+            // frame is blocked and shows blank. resourceDomains/connectDomains
+            // (→ default-src/connect-src) cover the app page's own fetches.
+            _meta: origin
+              ? { ui: { csp: { frameDomains: [origin], resourceDomains: [origin], connectDomains: [origin] } } }
+              : {},
           },
         ],
       })
