@@ -56,7 +56,7 @@ export default function LocalSetupClient({ mcpOnThisHost, fallbackMcpUrl }: Loca
             <Link href={`${handoffApiUrl('/login')}?callbackUrl=${encodeURIComponent(`${handoffBasePath()}/developer/local-setup`)}`}>Sign in</Link>
           </Button>
         </div>
-        <McpSetupSection handoffUrl={mcpHandoffUrl} mcpOnThisHost={mcpOnThisHost} />
+        <McpSetupSection handoffUrl={mcpHandoffUrl} mcpOnThisHost={mcpOnThisHost} heading="4. MCP for Cursor & Claude" />
       </div>
     );
   }
@@ -107,7 +107,7 @@ handoff-app push`}
         </div>
       </section>
 
-      <McpSetupSection handoffUrl={mcpHandoffUrl} mcpOnThisHost={mcpOnThisHost} />
+      <McpSetupSection handoffUrl={mcpHandoffUrl} mcpOnThisHost={mcpOnThisHost} heading="4. MCP for Cursor & Claude" />
 
       <section>
         <Button type="button" variant="ghost" size="sm" className="px-0" onClick={() => void copy('logout', 'handoff-app logout')}>

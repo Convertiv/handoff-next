@@ -8,6 +8,7 @@ import ejectThemeCommand from './eject/theme.js';
 import fetchCommand from './fetch/index.js';
 import initCommand from './init/index.js';
 import initClaudeCommand from './init-claude.js';
+import mcpTokenCommand from './mcp-token.js';
 import initVercelCommand from './init/vercel.js';
 import makeComponentCommand from './make/component.js';
 import makePageCommand from './make/page.js';
@@ -40,6 +41,7 @@ export const commands = [
   fetchCommand,
   initCommand,
   initClaudeCommand,
+  mcpTokenCommand,
   initVercelCommand,
   makePageCommand,
   makeComponentCommand,

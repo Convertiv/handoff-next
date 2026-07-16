@@ -11,6 +11,10 @@ type Props = {
   handoffUrl: string;
   /** True when this deployment runs MCP (Postgres / DATABASE_URL). */
   mcpOnThisHost: boolean;
+  /** Section heading (local-setup numbers it "4. …"; the MCP page uses the default). */
+  heading?: string;
+  /** Drop the top border/padding when embedded outside the numbered local-setup flow. */
+  bare?: boolean;
 };
 
 function buildMcpConfig(handoffUrl: string, token: string) {
@@ -27,7 +31,7 @@ function buildMcpConfig(handoffUrl: string, token: string) {
   };
 }
 
-export default function McpSetupSection({ handoffUrl, mcpOnThisHost }: Props) {
+export default function McpSetupSection({ handoffUrl, mcpOnThisHost, heading = 'MCP for Cursor & Claude', bare = false }: Props) {
   const [copied, setCopied] = useState<string | null>(null);
 
   const cursorJson = useMemo(
@@ -44,11 +48,11 @@ export default function McpSetupSection({ handoffUrl, mcpOnThisHost }: Props) {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const tokenCmd = `node -p "require('./.handoff/cli-auth.json').accessToken"`;
+  const tokenCmd = `handoff-app mcp-token`;
 
   return (
-    <section className="space-y-4 border-t pt-8">
-      <h2 className="text-base font-semibold">4. MCP for Cursor &amp; Claude</h2>
+    <section className={bare ? 'space-y-4' : 'space-y-4 border-t pt-8'}>
+      <h2 className="text-base font-semibold">{heading}</h2>
       <p className="text-muted-foreground">
         Connect AI assistants to this Handoff deployment for reference materials, components, sync, design library, and
         design-to-component generation. MCP uses the same OAuth token as the CLI — run{' '}
@@ -71,9 +75,10 @@ export default function McpSetupSection({ handoffUrl, mcpOnThisHost }: Props) {
       <div className="space-y-2">
         <h3 className="text-sm font-medium">Get your access token</h3>
         <p className="text-muted-foreground text-xs">
-          After <code className="rounded bg-muted px-1">handoff-app login</code>, read{' '}
-          <code className="rounded bg-muted px-1">.handoff/cli-auth.json</code> in your design repo (keep it out of git).
-          Replace <code className="rounded bg-muted px-1">{TOKEN_PLACEHOLDER}</code> in the configs below.
+          After <code className="rounded bg-muted px-1">handoff-app login</code>, run{' '}
+          <code className="rounded bg-muted px-1">handoff-app mcp-token</code> to print your token, and paste it in place of{' '}
+          <code className="rounded bg-muted px-1">{TOKEN_PLACEHOLDER}</code> below. (The token also lives in{' '}
+          <code className="rounded bg-muted px-1">.handoff/cli-auth.json</code> — keep it out of git.)
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <pre className="max-w-full overflow-x-auto rounded-md border bg-muted/40 p-3 text-xs">{tokenCmd}</pre>
