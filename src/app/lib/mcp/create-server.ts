@@ -1142,9 +1142,13 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     'handoff_create_page',
     {
       description:
-        'Compose a NEW playground page from component blocks and save it (source: playground). Each block ' +
-        'is {id (component id), preview? (existing preview key), args? (prop values)}. Every block is ' +
-        'validated against its component contract — unknown ids or out-of-contract args are rejected, not saved.',
+        'Compose a NEW playground page (landing page) from component blocks and save it (source: playground). ' +
+        'Each block is {id (component id), preview? (existing preview key), args? (prop values)}. To compose ' +
+        'blocks that render WELL (not just validly), first call handoff_get_component for each component and ' +
+        'base `args` on one of its `previews[].values` — that is the real, correctly-shaped prop set (slots, ' +
+        'nested objects, arrays). Or reference an existing preview by key via `preview` and override only what ' +
+        'changes in `args`. Every block is validated against its contract (unknown ids / out-of-contract args ' +
+        'are rejected). Returns editUrl (open in the playground builder) and viewUrl (rendered page).',
       inputSchema: {
         id: z.string().describe('Unique page id / slug.'),
         title: z.string(),
@@ -1164,7 +1168,15 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         { id, title, description, group, components: toComponents(blocks), source: 'playground' },
         patternActor(message)
       );
-      return textResult({ ok: true, id, url: `${id}.html`, blocks: blocks.length });
+      const base = issuerForCliSync(request);
+      return textResult({
+        ok: true,
+        id,
+        blocks: blocks.length,
+        // Real, openable links so the user can immediately see/refine the lander.
+        editUrl: `${base}/playground?pattern=${encodeURIComponent(id)}`,
+        viewUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
+      });
     }
   );
 
@@ -1199,7 +1211,14 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (blocks) updates.components = toComponents(blocks);
       if (Object.keys(updates).length === 0) return textResult({ ok: false, error: 'No updates provided.' });
       await patchPattern(id, updates, patternActor(message));
-      return textResult({ ok: true, id, ...(blocks ? { blocks: blocks.length } : {}) });
+      const base = issuerForCliSync(request);
+      return textResult({
+        ok: true,
+        id,
+        ...(blocks ? { blocks: blocks.length } : {}),
+        editUrl: `${base}/playground?pattern=${encodeURIComponent(id)}`,
+        viewUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
+      });
     }
   );
 
