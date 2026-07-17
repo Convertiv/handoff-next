@@ -26,6 +26,7 @@ import {
 import { deleteDocPage, getHandoffPageBySlug, listHandoffPages, moveDocPage, writeDocPage, type DocPageActor } from '@/lib/server/doc-pages';
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { COMPONENT_PREVIEW_APP_JS_B64 } from '@/lib/mcp/apps/component-preview.bundle';
+import { TOKEN_PALETTE_APP_JS_B64 } from '@/lib/mcp/apps/token-palette.bundle';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
@@ -1511,6 +1512,61 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           title: (comp as { title?: string }).title ?? id.trim(),
         };
         return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }], structuredContent: data };
+      }
+    );
+
+    // ─── Token / palette picker app ─────────────────────────────────────────────
+    // Pure-inline app (colors/type/spacing are CSS — no images, no network, no
+    // frame), so no CSP domains are needed. Clicking a token pushes it back to the
+    // model via the app→host bridge (updateModelContext).
+    const PALETTE_UI_URI = 'ui://handoff/token-palette';
+    const paletteJs = Buffer.from(TOKEN_PALETTE_APP_JS_B64, 'base64').toString('utf8');
+    const paletteHtml = `<!doctype html>
+<html><head><meta charset="utf-8" />
+<style>:root{color-scheme:light dark}html,body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif}</style></head>
+<body>
+  <div id="root">Loading…</div>
+  <script type="module">${paletteJs}</script>
+</body></html>`;
+
+    registerAppResource(
+      server,
+      'Token palette',
+      PALETTE_UI_URI,
+      { description: 'Interactive design-token palette (colors, type, spacing).', _meta: { ui: {} } },
+      async () => ({
+        contents: [{ uri: PALETTE_UI_URI, mimeType: RESOURCE_MIME_TYPE, text: paletteHtml, _meta: { ui: {} } }],
+      })
+    );
+
+    registerAppTool(
+      server,
+      'handoff_browse_tokens',
+      {
+        description:
+          'Open an INTERACTIVE inline palette of the design system\'s foundation tokens (color swatches, ' +
+          'type specimens, spacing scale). The user can click a token to hand it back to you. Use when the ' +
+          'user wants to SEE and pick tokens; use handoff_get_tokens for raw token data.',
+        inputSchema: {
+          brand: z.string().optional().describe('Brand axis value to resolve tokens for (multi-axis systems).'),
+          scheme: z.string().optional().describe('Scheme axis value, e.g. "light"/"dark" (multi-axis systems).'),
+        },
+        _meta: { ui: { resourceUri: PALETTE_UI_URI } },
+      },
+      async ({ brand, scheme }) => {
+        if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+        const selector: Record<string, string> = {};
+        if (brand) selector.brand = brand;
+        if (scheme) selector.scheme = scheme;
+        const tokens = await collectFoundationTokens(getDataProvider(), [], selector);
+        const data = {
+          colors: tokens.colors ?? [],
+          typography: tokens.typography ?? [],
+          spacing: tokens.spacing ?? [],
+          borderRadius: tokens.borderRadius ?? [],
+        };
+        const summary = `Palette: ${(data.colors as unknown[]).length} colors, ${(data.typography as unknown[]).length} type styles, ${(data.spacing as unknown[]).length} spacing steps.`;
+        return { content: [{ type: 'text' as const, text: summary }], structuredContent: data };
       }
     );
   }

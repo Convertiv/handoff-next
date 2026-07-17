@@ -23,6 +23,7 @@ const CATEGORY_BY_TOOL: Record<string, string> = {
   handoff_get_reference: 'Components',
   // Tokens
   handoff_get_tokens: 'Tokens',
+  handoff_browse_tokens: 'Tokens',
   handoff_export_design_md: 'Tokens',
   // Icons & Logos
   handoff_get_icon_catalog: 'Icons & Logos',

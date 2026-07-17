@@ -16,6 +16,11 @@ const APPS = [
     out: 'src/app/lib/mcp/apps/component-preview.bundle.ts',
     exportName: 'COMPONENT_PREVIEW_APP_JS_B64',
   },
+  {
+    entry: 'src/app/lib/mcp/apps/token-palette.client.ts',
+    out: 'src/app/lib/mcp/apps/token-palette.bundle.ts',
+    exportName: 'TOKEN_PALETTE_APP_JS_B64',
+  },
 ];
 
 for (const app of APPS) {
