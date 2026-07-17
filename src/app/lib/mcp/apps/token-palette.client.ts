@@ -29,28 +29,44 @@ function el(tag: string, props: Partial<HTMLElement> = {}, style = ''): HTMLElem
   return n;
 }
 
-function toast(msg: string, ok = true): void {
-  const t = document.getElementById('tp-toast');
-  if (!t) return;
-  t.textContent = msg;
-  t.style.color = ok ? '#16a34a' : '#dc2626';
-  t.style.opacity = '1';
-  window.setTimeout(() => { t.style.opacity = '0.55'; }, 2200);
+/** Resolve `p`, or reject after `ms` — so a host that never answers a request can't hang the click. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => window.setTimeout(() => rej(new Error(`no response in ${ms}ms`)), ms)),
+  ]);
 }
 
-/** Push a token choice back to the conversation. Returns false if the bridge call is unavailable. */
+/**
+ * On click: (1) always show the selected token + its reference (works no matter
+ * what — useful to copy), and (2) probe the app→model outbound path by attempting
+ * updateModelContext with a timeout, reporting the outcome so we can tell whether
+ * Claude's host actually supports pushing context back from an app.
+ */
 async function pickToken(kind: string, ref: string, detail: Record<string, unknown>): Promise<void> {
-  const label = `${kind} token \`${ref}\``;
+  const panel = document.getElementById('tp-selected');
+  if (panel) {
+    panel.innerHTML = '';
+    panel.appendChild(el('div', { textContent: 'Selected' }, 'font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#6b7280'));
+    panel.appendChild(el('div', { textContent: `${kind}: ${ref}` }, 'font-size:13px;font-weight:600;color:#111'));
+    const code = el('div', { textContent: ref }, 'font-size:12px;font-family:ui-monospace,monospace;background:#fff;border:1px solid #e5e7eb;border-radius:5px;padding:4px 6px;margin-top:4px;user-select:all');
+    panel.appendChild(code);
+    panel.appendChild(el('div', { id: 'tp-status', textContent: 'notifying assistant…' }, 'font-size:11px;color:#9ca3af;margin-top:4px'));
+  }
+  const status = () => document.getElementById('tp-status');
   try {
     if (!appRef) throw new Error('app not connected');
-    await appRef.updateModelContext({
-      content: [{ type: 'text', text: `User selected ${label} from the Handoff palette.` }],
-      structuredContent: { selectedToken: { kind, reference: ref, ...detail } },
-    });
-    toast(`✓ shared with the assistant: ${ref}`, true);
-  } catch {
-    // Outbound bridge unavailable — still useful: surface the reference to copy.
-    toast(`copy this reference: ${ref}`, false);
+    await withTimeout(
+      appRef.updateModelContext({
+        content: [{ type: 'text', text: `User selected ${kind} token \`${ref}\` from the Handoff palette.` }],
+        structuredContent: { selectedToken: { kind, reference: ref, ...detail } },
+      }),
+      3500
+    );
+    const s = status(); if (s) { s.textContent = '✓ shared with the assistant'; s.style.color = '#16a34a'; }
+  } catch (e) {
+    const s = status();
+    if (s) { s.textContent = `assistant not notified (${e instanceof Error ? e.message : 'error'}) — copy the reference above`; s.style.color = '#dc2626'; }
   }
 }
 
@@ -137,7 +153,13 @@ function paintShell(): void {
   root.appendChild(el('div', { textContent: 'Design tokens' }, 'font-weight:600;font-size:15px;margin-bottom:2px'));
   root.appendChild(el('div', { textContent: 'Click any token to hand it to the assistant.' }, 'font-size:12px;color:#6b7280;margin-bottom:14px'));
   root.appendChild(el('div', { id: 'tp-body', textContent: 'Loading tokens…' }));
-  root.appendChild(el('div', { id: 'tp-toast', textContent: '' }, 'position:sticky;bottom:0;font-size:12px;padding-top:10px;transition:opacity .3s'));
+  // Sticky selection panel — filled on click. Always visible feedback + the
+  // outbound-notification status.
+  root.appendChild(
+    el('div', { id: 'tp-selected' },
+      'position:sticky;bottom:0;background:#f9fafb;border-top:1px solid #e5e7eb;margin:12px -16px -16px;padding:10px 16px;min-height:18px')
+  );
+  root.appendChild(el('div', { id: 'tp-caps', textContent: '' }, 'font-size:10px;color:#c0c4cc;padding-top:6px'));
 }
 
 function extractData(params: unknown): TokenData | null {
@@ -156,6 +178,15 @@ async function main(): Promise<void> {
   });
   try {
     await app.connect();
+    // Surface what the host declares it supports — helps explain whether outbound
+    // methods (updateModelContext/sendMessage) are expected to work here.
+    const caps = document.getElementById('tp-caps');
+    try {
+      const hc = app.getHostCapabilities?.();
+      if (caps) caps.textContent = `host capabilities: ${hc ? JSON.stringify(hc) : '(none reported)'}`;
+    } catch {
+      /* non-fatal */
+    }
   } catch (e) {
     const body = document.getElementById('tp-body');
     if (body) body.textContent = `Failed to connect: ${e instanceof Error ? e.message : String(e)}`;
