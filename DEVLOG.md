@@ -5,6 +5,46 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-16 — figma-plugin API: CORS fix + contract alignment to the plugin spec
+
+Reviewed `handoff-figma-plugin/docs/p1.6-figma-plugin-api-spec.md` (the plugin is built against it).
+Two classes of fix — the CORS blocker, plus the route shapes (the plugin expects shapes that
+differ from what P1.6c first shipped). tsc clean; 108/108 tests; verified over HTTP against
+`next dev` (spec §6 checklist a/b/c all pass).
+
+**CORS (spec §1–2) — `src/app/proxy.ts` + `next.config.mjs`:**
+- The plugin UI runs in a sandboxed iframe (`Origin: null` desktop / `figma.com` web) — all calls
+  cross-origin; a missing CORS header shows as an opaque `Failed to fetch`. Added a `/api/figma-plugin/*`
+  branch in `proxy.ts` that answers `OPTIONS` preflight with `204` + CORS **before any auth**, and
+  stamps CORS (`Allow-Origin: *`, `Allow-Methods: GET,POST,DELETE,OPTIONS`, `Allow-Headers:
+  Authorization, Content-Type`, `Max-Age: 86400`) on `next()` so it merges onto every route
+  response **including errors** (401/410/500). No `Allow-Credentials` (Bearer-only, wildcard-safe).
+- **Trailing slash:** the app runs `trailingSlash: true`, which 308-redirected the plugin's no-slash
+  POSTs (a cross-origin 308 re-triggers preflight and drops the body). Next fires that redirect
+  **before** middleware, so proxy.ts can't intercept it, and Next has no per-path trailingSlash →
+  set **`skipTrailingSlashRedirect: true`** app-wide. Pages/routes now serve both `/foo` and `/foo/`
+  without redirecting (canonical link generation via `trailingSlash: true` is unchanged). Verified
+  pages still 200 at both forms.
+
+**Contract alignment (spec §4) — the routes now match what the plugin sends/expects:**
+- `auth/device` → **camelCase** `DeviceCodeResponse { deviceCode, userCode, verificationUrl, expiresIn, interval }`.
+- `auth/token` → body `{ deviceCode }`; **poll-status** `TokenPollResponse`: `{status:"pending"}` |
+  `{status:"approved", token, scopes[], user}`; **`410`** on expiry. (Extended `exchangeCliDeviceCode`
+  to also return `scopes` + `user` — additive, `/api/oauth/token` unaffected.)
+- `auth/revoke` → **`DELETE` → `204`** (was POST). Stateless JWT, best-effort.
+- `foundations/preview` → response is now `{ changeset: Dtcg.DtcgChangeset, diagnostics }` (the full
+  changeset incl. `next` with syncState + axes; dropped the separate source/axes/mappingUsed fields).
+- `foundations/commit` → **body is now `{ snapshot, mapping }`** (same as preview, not `{ source }`).
+  Curation is expressed entirely through `mapping`; the server **recomputes** the source
+  deterministically (`buildDtcgSourceFromFigmaSnapshot`) rather than trusting a client tree, then
+  persists + diffs. Response `{ ok, committedAt, committed:{added,modified,removed} }`.
+
+Note for the plugin team: this supersedes the P1.6c contract shapes in the entry below — the shapes
+above are current. Device/token need a live DB to exercise end-to-end (device-session storage); CORS,
+no-redirect, error-CORS, preview shape, and revoke were all driven over HTTP here.
+
+---
+
 ## 2026-07-16 — P1.6a–d built (storage · resolve/serve · figma-plugin routes · viz)
 
 All four sub-phases implemented on `feature/mcp-prototype` against `handoff-core@feature/

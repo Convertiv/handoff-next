@@ -5,45 +5,46 @@ import { issuerForCliSync } from '@/lib/server/request-public-url';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function parseBody(body: string, contentType: string | null): Record<string, string> {
-  const ct = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
-  if (ct === 'application/x-www-form-urlencoded') {
-    const out: Record<string, string> = {};
-    new URLSearchParams(body).forEach((v, k) => { out[k] = v; });
-    return out;
-  }
-  try {
-    return JSON.parse(body) as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
 /**
- * POST /api/figma-plugin/auth/token — RFC 8628 device-code token exchange for the
- * Figma plugin (P1.6c). Polls the shared cli-device-oauth session; returns the
- * scoped access token once the user has approved. Accepts JSON or form-encoded
- * `{ grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code }`
- * (grant_type optional — device_code is the only supported grant here).
+ * POST /api/figma-plugin/auth/token — device-code poll for the Figma plugin
+ * (P1.6, spec §4). The plugin polls every `interval` seconds with `{ deviceCode }`
+ * until approved. Response = TokenPollResponse:
+ *   { status: "pending" }
+ *   { status: "approved", token, scopes?, user? }
+ * A `410` means the device code expired (plugin restarts the flow). CORS is applied
+ * by proxy.ts. Public (no Bearer — this is how the token is obtained).
  */
 export async function POST(request: Request): Promise<Response> {
-  const raw = await request.text();
-  const fields = parseBody(raw, request.headers.get('content-type'));
-  const grantType = fields.grant_type;
-  if (grantType && grantType !== 'urn:ietf:params:oauth:grant-type:device_code') {
-    return NextResponse.json(
-      { error: 'unsupported_grant_type', error_description: 'Only the device_code grant is supported here.' },
-      { status: 400 }
-    );
+  let body: { deviceCode?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    body = {};
   }
-  const deviceCode = fields.device_code;
-  if (!deviceCode?.trim()) {
-    return NextResponse.json({ error: 'invalid_request', error_description: 'device_code is required.' }, { status: 400 });
+  const deviceCode = typeof body.deviceCode === 'string' ? body.deviceCode.trim() : '';
+  if (!deviceCode) {
+    return NextResponse.json({ error: 'deviceCode is required' }, { status: 400 });
   }
-  const result = await exchangeCliDeviceCode(deviceCode.trim(), issuerForCliSync(request));
+
+  const result = await exchangeCliDeviceCode(deviceCode, issuerForCliSync(request));
   if (result.ok) {
-    return NextResponse.json({ access_token: result.accessToken, token_type: result.tokenType, expires_in: result.expiresIn });
+    return NextResponse.json({
+      status: 'approved',
+      token: result.accessToken,
+      scopes: result.scopes ? result.scopes.split(/\s+/).filter(Boolean) : [],
+      user: result.user,
+    });
   }
+
   const failure = result as Extract<typeof result, { ok: false }>;
-  return NextResponse.json({ error: failure.error, error_description: failure.errorDescription }, { status: failure.httpStatus });
+  // Still waiting on the user to approve → keep polling.
+  if (failure.error === 'authorization_pending') {
+    return NextResponse.json({ status: 'pending' });
+  }
+  // Expired device code → 410 so the plugin restarts the flow.
+  if (failure.error === 'expired_token') {
+    return NextResponse.json({ error: 'Device code expired' }, { status: 410 });
+  }
+  // Denied / already-consumed / unknown → surface as an error the plugin can show.
+  return NextResponse.json({ error: failure.errorDescription ?? failure.error }, { status: failure.httpStatus });
 }

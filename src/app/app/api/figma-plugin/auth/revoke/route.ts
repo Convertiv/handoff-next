@@ -4,18 +4,12 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/figma-plugin/auth/revoke — RFC 7009-style revocation for the Figma
- * plugin (P1.6c). Device-flow access tokens are stateless HS256 JWTs with no
- * server-side session after issuance, so revocation is best-effort: the client
- * discards the token. Per RFC 7009 §2.2 an unsupported/unknown token still returns
- * 200 so the client can treat logout as successful. Accepts `{ token }`.
+ * DELETE /api/figma-plugin/auth/revoke — logout for the Figma plugin (P1.6, spec §4).
+ * Device-flow access tokens are stateless HS256 JWTs with no server-side session
+ * after issuance, so revocation is best-effort: the client discards the token. We
+ * always return 204 (per the contract) so the plugin can treat logout as successful.
+ * CORS is applied by proxy.ts.
  */
-export async function POST(request: Request): Promise<Response> {
-  // Accept and ignore the body shape — always succeed (client-side discard).
-  try {
-    await request.text();
-  } catch {
-    /* ignore */
-  }
-  return NextResponse.json({ ok: true });
+export async function DELETE(): Promise<Response> {
+  return new NextResponse(null, { status: 204 });
 }

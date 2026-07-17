@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { Dtcg, type Types } from 'handoff-core';
 import { verifyHandoffApiAuth } from '@/lib/mcp-auth';
 import { getDataProvider } from '@/lib/data';
-import { insertDtcgTokenChange, upsertRegistryDtcg } from '@/lib/db/registry-queries';
+import { getAxisMappingConfig, insertDtcgTokenChange, upsertRegistryDtcg } from '@/lib/db/registry-queries';
 import { asDtcgSource, buildResolvedBrandsCache } from '@/lib/dtcg-axes';
 
 export const runtime = 'nodejs';
@@ -10,47 +10,54 @@ export const dynamic = 'force-dynamic';
 
 const EMPTY_SOURCE: Types.DtcgSource = { schemaVersion: 1, axes: [], tokens: {} };
 
-/** A commit body's `source` must be a DtcgSource (axes[] + tokens object). */
-function isDtcgSource(v: unknown): v is Types.DtcgSource {
-  return (
-    !!v &&
-    typeof v === 'object' &&
-    Array.isArray((v as Types.DtcgSource).axes) &&
-    typeof (v as Types.DtcgSource).tokens === 'object' &&
-    (v as Types.DtcgSource).tokens !== null
-  );
-}
-
 /**
- * POST /api/figma-plugin/foundations/commit (P1.6c) — phase 2 of the two-phase
- * push. Persists the curated `DtcgSource` (the reference-preserving source of
- * truth, incl. originalId/syncState on leaves) + the team-shared axis mapping,
- * precomputes the resolved brand × scheme `brands` cache for the serving/viz path,
- * and appends a `handoff_token_change` record. Scoped to `figma:sync`.
+ * POST /api/figma-plugin/foundations/commit (P1.6, spec §4) — phase 2 of the
+ * two-phase push. Takes the SAME body as preview (`{ snapshot, mapping }`) and
+ * recomputes the DTCG source deterministically server-side — curation is expressed
+ * entirely through `mapping`, so the committed result is a pure function of
+ * (snapshot, mapping) and can't be tampered with via a client-serialized tree.
+ * Persists the source + team-shared mapping + resolved brands cache, and appends a
+ * `handoff_token_change`. Scoped to `figma:sync`. CORS via proxy.ts.
  *
- * Body: { source: DtcgSource, mapping?: Dtcg.AxisMappingConfig, message?: string }
- * Returns: { ok: true, counts:{added,modified,removed} }
+ * Returns FoundationsCommitResponse:
+ *   { ok, committedAt, committed: { added, modified, removed } }
  */
 export async function POST(request: Request): Promise<Response> {
   const auth = verifyHandoffApiAuth(request, { requireScopes: ['figma:sync'] });
   if (auth instanceof NextResponse) return auth;
 
-  let body: { source?: unknown; mapping?: unknown; message?: unknown };
+  let body: { snapshot?: unknown; mapping?: unknown };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
-  if (!isDtcgSource(body.source)) {
-    return NextResponse.json({ error: 'Expected { source: DtcgSource } with axes[] and tokens{} in body' }, { status: 400 });
+  if (!body.snapshot || typeof body.snapshot !== 'object') {
+    return NextResponse.json({ error: 'Expected { snapshot: FigmaFoundationsSnapshot } in body' }, { status: 400 });
   }
-  const source = body.source;
-  const mapping = (body.mapping && typeof body.mapping === 'object' && !Array.isArray(body.mapping))
-    ? (body.mapping as Record<string, unknown>)
-    : undefined;
-  const message = typeof body.message === 'string' ? body.message : null;
 
-  // Diff vs the stored source for the change record.
+  // Mapping is the curation surface; body wins, else the team-saved config.
+  let mapping = (body.mapping as Dtcg.AxisMappingConfig | undefined) ?? undefined;
+  if (!mapping) {
+    mapping = ((await getAxisMappingConfig()) as unknown as Dtcg.AxisMappingConfig | null) ?? undefined;
+  }
+  if (!mapping || !Array.isArray(mapping.axes)) {
+    return NextResponse.json(
+      { error: 'No axis mapping provided and none saved. Include { mapping: { axes: [{ axis, collection }, …] } }.' },
+      { status: 400 }
+    );
+  }
+
+  // Recompute the source deterministically from (snapshot, mapping).
+  let built: { source: Types.DtcgSource; diagnostics: Types.Diagnostic[] };
+  try {
+    built = Dtcg.buildDtcgSourceFromFigmaSnapshot(body.snapshot as Types.FigmaFoundationsSnapshot, mapping);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Snapshot ingest failed' }, { status: 422 });
+  }
+  const source = built.source;
+
+  // Diff vs the stored source for the change record + committed counts.
   let prev: Types.DtcgSource = EMPTY_SOURCE;
   try {
     prev = asDtcgSource(await getDataProvider().getDtcgSource()) ?? EMPTY_SOURCE;
@@ -66,7 +73,11 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     await upsertRegistryDtcg(
-      { dtcgSource: source as unknown as Record<string, unknown>, brands, ...(mapping ? { axisMapping: mapping } : {}) },
+      {
+        dtcgSource: source as unknown as Record<string, unknown>,
+        brands,
+        axisMapping: mapping as unknown as Record<string, unknown>,
+      },
       userId
     );
   } catch (e) {
@@ -82,7 +93,7 @@ export async function POST(request: Request): Promise<Response> {
         removedKeys: changeset.removed.map((e) => e.path),
         totalCount: changeset.added.length + changeset.modified.length + changeset.unchanged.length,
       },
-      { userId, message }
+      { userId }
     );
   } catch {
     /* ignore */
@@ -90,6 +101,11 @@ export async function POST(request: Request): Promise<Response> {
 
   return NextResponse.json({
     ok: true,
-    counts: { added: changeset.added.length, modified: changeset.modified.length, removed: changeset.removed.length },
+    committedAt: new Date().toISOString(),
+    committed: {
+      added: changeset.added.length,
+      modified: changeset.modified.length,
+      removed: changeset.removed.length,
+    },
   });
 }

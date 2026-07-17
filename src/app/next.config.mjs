@@ -91,6 +91,13 @@ const nextConfig = {
   reactStrictMode: true,
   pageExtensions: ['js', 'jsx', 'ts', 'tsx'],
   trailingSlash: true,
+  // Do NOT 308-redirect between /foo and /foo/ (P1.6). The Figma plugin calls the
+  // `/api/figma-plugin/*` routes with NO trailing slash from a cross-origin sandbox;
+  // a cross-origin 308 on a POST re-triggers preflight and drops the body. Next has
+  // no per-path trailingSlash, and the redirect fires before middleware so proxy.ts
+  // can't intercept it — so we disable the auto-redirect app-wide. `trailingSlash:
+  // true` still drives canonical link generation; routes/pages now serve BOTH forms.
+  skipTrailingSlashRedirect: true,
   // Map legacy .json-suffixed API URLs to their App Router equivalents.
   // In workspace mode these were real public/ files; in the DB-backed registry
   // there are no public files — only API routes. beforeFiles runs before static

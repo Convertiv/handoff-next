@@ -82,8 +82,18 @@ export async function approveCliDeviceSession(userCode: string, userId: string, 
   return { ok: true };
 }
 
+export type DeviceCodeUser = { id: string; name: string | null; email: string | null };
+
 export type ExchangeDeviceCodeResult =
-  | { ok: true; accessToken: string; expiresIn: number; tokenType: 'Bearer' }
+  | {
+      ok: true;
+      accessToken: string;
+      expiresIn: number;
+      tokenType: 'Bearer';
+      /** Space-delimited scopes granted (P1.6 — for the figma-plugin poll response). */
+      scopes: string;
+      user: DeviceCodeUser;
+    }
   | { ok: false; error: string; errorDescription?: string; httpStatus: number };
 
 /**
@@ -113,7 +123,11 @@ export async function exchangeCliDeviceCode(deviceCodePlain: string, issuer: str
     return { ok: false, error: 'authorization_pending', httpStatus: 400 };
   }
 
-  const userRows = await db.select({ role: users.role }).from(users).where(eq(users.id, row.userId)).limit(1);
+  const userRows = await db
+    .select({ role: users.role, name: users.name, email: users.email })
+    .from(users)
+    .where(eq(users.id, row.userId))
+    .limit(1);
   const actualRole = userRows[0]?.role ?? 'member';
 
   const TOKEN_TTL_SEC = 365 * 24 * 3600; // 1 year — CLI tokens are machine credentials, not browser sessions
@@ -128,7 +142,14 @@ export async function exchangeCliDeviceCode(deviceCodePlain: string, issuer: str
 
   await db.update(cliDeviceSessions).set({ status: 'consumed' }).where(eq(cliDeviceSessions.id, row.id));
 
-  return { ok: true, accessToken, expiresIn: TOKEN_TTL_SEC, tokenType: 'Bearer' };
+  return {
+    ok: true,
+    accessToken,
+    expiresIn: TOKEN_TTL_SEC,
+    tokenType: 'Bearer',
+    scopes: row.scopes,
+    user: { id: row.userId, name: userRows[0]?.name ?? null, email: userRows[0]?.email ?? null },
+  };
 }
 
 /** Delete expired sessions (best-effort cleanup). */

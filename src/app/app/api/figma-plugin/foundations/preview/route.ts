@@ -17,10 +17,12 @@ const EMPTY_SOURCE: Types.DtcgSource = { schemaVersion: 1, axes: [], tokens: {} 
  * stored source, and returns the changeset + diagnostics for the curate UI.
  * **No writes.** Scoped to `figma:sync`.
  *
- * Body: { snapshot: FigmaFoundationsSnapshot, mapping?: Dtcg.AxisMappingConfig }
- *   — mapping defaults to the team-saved config; a body mapping overrides it.
- * Returns: { changeset:{added,modified,removed,unchanged}, source (syncState-stamped),
- *            axes, diagnostics, mappingUsed }
+ * Body: FoundationsRequest { snapshot: FigmaFoundationsSnapshot, mapping: Dtcg.AxisMappingConfig }
+ *   — mapping is the sole curation surface; falls back to the team-saved config if omitted.
+ * Returns FoundationsPreviewResponse:
+ *   { changeset: Dtcg.DtcgChangeset (added/modified/removed/unchanged + `next` with
+ *     syncState stamped — the source tree, references preserved, axes on next.axes),
+ *     diagnostics: Types.Diagnostic[] }
  */
 export async function POST(request: Request): Promise<Response> {
   const auth = verifyHandoffApiAuth(request, { requireScopes: ['figma:sync'] });
@@ -63,16 +65,5 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const changeset = Dtcg.diffDtcgSource(built.source, prev);
-  return NextResponse.json({
-    changeset: {
-      added: changeset.added,
-      modified: changeset.modified,
-      removed: changeset.removed,
-      unchanged: changeset.unchanged,
-    },
-    source: changeset.next, // syncState stamped on each leaf
-    axes: built.source.axes,
-    diagnostics: built.diagnostics,
-    mappingUsed: mapping,
-  });
+  return NextResponse.json({ changeset, diagnostics: built.diagnostics });
 }
