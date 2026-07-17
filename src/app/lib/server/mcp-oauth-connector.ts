@@ -13,7 +13,10 @@ import { narrowScopesToRole } from '@/lib/oauth-scopes';
  */
 
 const AUTH_CODE_TTL_SEC = 120;
-const ACCESS_TOKEN_TTL_SEC = 3600;
+// 24h: long enough to cover a full work session without a mid-session refresh
+// (silent token refresh is the fragile path in some MCP hosts, so we lean on it
+// less often). The rotating 180-day refresh token remains the real backstop.
+const ACCESS_TOKEN_TTL_SEC = 24 * 3600;
 const REFRESH_TOKEN_TTL_SEC = 180 * 24 * 3600; // 180 days, rotated on each use
 
 function sha256Hex(input: string): string {
