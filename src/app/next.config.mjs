@@ -122,6 +122,21 @@ const nextConfig = {
           source: '/.well-known/oauth-protected-resource',
           destination: '/api/oauth/protected-resource-metadata',
         },
+        // Resource-path-aware discovery (RFC 9728 §3.1 / MCP auth spec): for a
+        // protected resource at `/api/mcp`, clients construct the metadata URL by
+        // inserting the resource path — `/.well-known/oauth-protected-resource/api/mcp`
+        // (and the AS variant). Without these, those probes fall through to the
+        // `[...slug]` doc catch-all and return the SPA's 200 text/html instead of
+        // JSON, which breaks the OAuth discovery/connect handshake (connector loops
+        // on "connect"). Serve the same metadata at the path-aware URLs.
+        {
+          source: '/.well-known/oauth-protected-resource/api/mcp',
+          destination: '/api/oauth/protected-resource-metadata',
+        },
+        {
+          source: '/.well-known/oauth-authorization-server/api/mcp',
+          destination: '/api/oauth/authorization-server-metadata',
+        },
       ],
     };
   },
