@@ -34,6 +34,7 @@ const EditContext = createContext<EditContextType | undefined>(undefined);
 export function EditContextProvider({
   component,
   onCommit,
+  targetIframeRef,
   children,
 }: {
   component: SelectedPlaygroundComponent | null;
@@ -41,6 +42,11 @@ export function EditContextProvider({
    *  passes its registry-save. Decouples this context from PlaygroundContext so
    *  both surfaces share the field builder + preview frame. */
   onCommit?: (updated: SelectedPlaygroundComponent) => void | Promise<void>;
+  /** An external preview iframe to also receive live prop updates — e.g. the
+   *  playground canvas. Lets the right-panel editor (which mounts no <Preview>
+   *  of its own) live-update the real page canvas via postMessage instead of
+   *  forcing a full canvas rebuild on every "Apply". */
+  targetIframeRef?: RefObject<HTMLIFrameElement | null>;
   children: ReactNode;
 }) {
   const [data, setData] = useState<any>(null);
@@ -77,12 +83,17 @@ export function EditContextProvider({
         initialRenderDone.current = true;
         return;
       }
-      // For React: send props update via postMessage to avoid reloading the module
-      if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage(
-          { type: 'update-props', props: data, blockId: component.uniqueId },
-          '*'
-        );
+      // For React: send props update via postMessage to avoid reloading the
+      // module. Post to the local preview iframe (EditSheet) AND any external
+      // target (the playground canvas), deduped. Each block's listener filters
+      // on blockId, so posting to a frame that lacks this block is a no-op.
+      const windows = [iframeRef.current?.contentWindow, targetIframeRef?.current?.contentWindow];
+      const seen = new Set<Window>();
+      for (const w of windows) {
+        if (w && !seen.has(w)) {
+          seen.add(w);
+          w.postMessage({ type: 'update-props', props: data, blockId: component.uniqueId }, '*');
+        }
       }
     } else {
       const html = renderHandlebarsPreview(component, data, basePath);

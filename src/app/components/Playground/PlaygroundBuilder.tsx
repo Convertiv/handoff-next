@@ -117,6 +117,9 @@ export default function PlaygroundBuilder() {
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  // The canvas preview iframe — shared with the right-panel editor so field
+  // edits live-update the real page via postMessage (no full canvas rebuild).
+  const canvasIframeRef = useRef<HTMLIFrameElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const toggleFullscreen = useCallback(() => {
@@ -452,7 +455,7 @@ export default function PlaygroundBuilder() {
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary"></div>
                 </div>
               ) : (
-                <Preview html={html} className="h-full" />
+                <Preview html={html} className="h-full" iframeRef={canvasIframeRef} />
               )}
             </div>
           </div>
@@ -462,7 +465,12 @@ export default function PlaygroundBuilder() {
         {rightPanelOpen && (
           <div className="flex w-[300px] shrink-0 flex-col border-l bg-background">
             {activeComponent ? (
-              <EditContextProvider key={activeComponent.uniqueId} component={activeComponent} onCommit={updateComponent}>
+              <EditContextProvider
+                key={activeComponent.uniqueId}
+                component={activeComponent}
+                onCommit={updateComponent}
+                targetIframeRef={canvasIframeRef}
+              >
                 <RightPanelContent />
                 <MediaBrowser />
               </EditContextProvider>
