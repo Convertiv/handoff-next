@@ -1457,25 +1457,32 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   <script type="module">${appJs}</script>
 </body></html>`;
 
+    // The app renders the registry's built preview HTML in a NESTED iframe, so the
+    // origin must be in `frameDomains` (→ CSP frame-src) or the host sandbox blocks
+    // it and the frame shows blank. resourceDomains/connectDomains (→ default-src/
+    // connect-src) cover the app page's own fetches.
+    //
+    // CRITICAL: the host reads this CSP from the `_meta.ui` on the RESOURCE (the
+    // `resources/list` descriptor — the config arg below) to build the sandbox
+    // policy. A `_meta.ui` on the resources/read content item only "takes
+    // precedence" if the host already picked the resource up from the list — so it
+    // must live on the descriptor. We set it on BOTH (descriptor + content item).
+    const previewUiMeta = origin
+      ? { ui: { csp: { frameDomains: [origin], resourceDomains: [origin], connectDomains: [origin] } } }
+      : {};
+
     registerAppResource(
       server,
       'Component preview',
       PREVIEW_UI_URI,
-      { description: 'Interactive component preview renderer.' },
+      { description: 'Interactive component preview renderer.', _meta: previewUiMeta },
       async () => ({
         contents: [
           {
             uri: PREVIEW_UI_URI,
             mimeType: RESOURCE_MIME_TYPE,
             text: previewAppHtml,
-            // The app renders the registry's built preview HTML in a NESTED iframe.
-            // The host sandbox's CSP defaults to `frame-src 'none'`, so the origin
-            // must be declared in `frameDomains` (→ CSP frame-src) or the inner
-            // frame is blocked and shows blank. resourceDomains/connectDomains
-            // (→ default-src/connect-src) cover the app page's own fetches.
-            _meta: origin
-              ? { ui: { csp: { frameDomains: [origin], resourceDomains: [origin], connectDomains: [origin] } } }
-              : {},
+            _meta: previewUiMeta,
           },
         ],
       })
