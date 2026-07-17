@@ -8,18 +8,18 @@ export const dynamic = 'force-dynamic';
  * RFC 8414 Authorization Server Metadata. Served at
  * /.well-known/oauth-authorization-server via a next.config.mjs rewrite.
  *
- * Endpoint URLs carry a trailing slash: next.config.mjs sets trailingSlash:true,
- * so the canonical form of every app-router route already ends in "/" — since
- * these endpoints are meant to be read from this document (not hardcoded by
- * clients), advertising the canonical URL avoids a 308 redirect on every call.
+ * Endpoint URLs are advertised WITHOUT trailing slashes. `skipTrailingSlashRedirect`
+ * (next.config.mjs) serves both the slash and no-slash forms directly with no 308,
+ * so the trailing slash is no longer needed to dodge a redirect — and dropping it
+ * keeps every advertised URL consistent with the no-slash form MCP clients use.
  */
 export async function GET(request: Request) {
   const issuer = issuerForCliSync(request);
   return NextResponse.json({
     issuer,
-    authorization_endpoint: `${issuer}/api/oauth/authorize/`,
-    token_endpoint: `${issuer}/api/oauth/token/`,
-    registration_endpoint: `${issuer}/api/oauth/register/`,
+    authorization_endpoint: `${issuer}/api/oauth/authorize`,
+    token_endpoint: `${issuer}/api/oauth/token`,
+    registration_endpoint: `${issuer}/api/oauth/register`,
     scopes_supported: OAUTH_SCOPES,
     response_types_supported: ['code'],
     response_modes_supported: ['query'],
