@@ -1433,34 +1433,22 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     const PREVIEW_UI_URI = 'ui://handoff/component-preview';
     const appJs = Buffer.from(COMPONENT_PREVIEW_APP_JS_B64, 'base64').toString('utf8');
 
+    // Inline probe: minimal shell. The app builds its own DOM into #root and
+    // renders everything inline (no nested iframe), so this shell just carries
+    // the module. Body starts with a plain "Loading…" so that if the sandbox
+    // renders the resource but the script never runs, that's still visible.
     const previewAppHtml = `<!doctype html>
 <html><head><meta charset="utf-8" />
-<style>
-  :root { color-scheme: light dark; }
-  html, body { margin: 0; height: 100%; font-family: ui-sans-serif, system-ui, sans-serif; }
-  #root { display: flex; flex-direction: column; height: 100vh; }
-  #hp-bar { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid rgba(128,128,128,.25); }
-  #hp-bar button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid rgba(128,128,128,.3); border-radius: 6px; background: transparent; cursor: pointer; color: inherit; }
-  #hp-bar button.active { background: rgba(37,99,235,.1); border-color: #2563eb; color: #2563eb; }
-  #hp-title { font-size: 12px; opacity: .7; margin-left: auto; }
-  #hp-stage { flex: 1; overflow: auto; display: flex; justify-content: center; padding: 12px; background: rgba(128,128,128,.06); }
-  #hp-wrap { width: 100%; max-width: 100%; height: 100%; margin: 0 auto; }
-  #hp-frame { width: 100%; height: 100%; border: 0; background: #fff; border-radius: 8px; }
-  #hp-empty { padding: 24px; text-align: center; font-size: 13px; opacity: .6; }
-</style></head>
+<style>:root{color-scheme:light dark}html,body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif}</style></head>
 <body>
-  <div id="root">
-    <div id="hp-bar"><span id="hp-title"></span></div>
-    <div id="hp-stage"><div id="hp-wrap"><iframe id="hp-frame" title="Component preview" sandbox="allow-scripts" style="display:none"></iframe></div></div>
-    <div id="hp-empty">Loading preview…</div>
-  </div>
+  <div id="root">Loading…</div>
   <script type="module">${appJs}</script>
 </body></html>`;
 
-    // The app renders the registry's built preview HTML in a NESTED iframe, so the
-    // origin must be in `frameDomains` (→ CSP frame-src) or the host sandbox blocks
-    // it and the frame shows blank. resourceDomains/connectDomains (→ default-src/
-    // connect-src) cover the app page's own fetches.
+    // CSP for the sandbox. The app renders inline (no nested iframe), so no
+    // frame-src is needed — only `resourceDomains` (→ CSP img-src) so a
+    // cross-origin <img> from the registry can load, plus `connectDomains`
+    // (→ connect-src) for any app fetches.
     //
     // CRITICAL: the host reads this CSP from the `_meta.ui` on the RESOURCE (the
     // `resources/list` descriptor — the config arg below) to build the sandbox
@@ -1468,7 +1456,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     // precedence" if the host already picked the resource up from the list — so it
     // must live on the descriptor. We set it on BOTH (descriptor + content item).
     const previewUiMeta = origin
-      ? { ui: { csp: { frameDomains: [origin], resourceDomains: [origin], connectDomains: [origin] } } }
+      ? { ui: { csp: { resourceDomains: [origin], connectDomains: [origin] } } }
       : {};
 
     registerAppResource(
@@ -1516,6 +1504,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           componentId: id.trim(),
           previewKey: previewKey ?? null,
           previewUrl,
+          // Cross-origin image for the inline app to render (img-src probe). The
+          // registry logo is guaranteed to exist; swap for a real component
+          // thumbnail/screenshot endpoint once the inline path is proven.
+          imageUrl: `${registryBase}/api/registry/logo.svg`,
           title: (comp as { title?: string }).title ?? id.trim(),
         };
         return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }], structuredContent: data };
