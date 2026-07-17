@@ -18,6 +18,7 @@ const CATEGORY_BY_TOOL: Record<string, string> = {
   handoff_get_brand_voice: 'Context',
   // Components
   handoff_search_components: 'Components',
+  handoff_browse_components: 'Components',
   handoff_get_component: 'Components',
   handoff_get_component_reference: 'Components',
   handoff_get_reference: 'Components',

@@ -27,6 +27,7 @@ import { deleteDocPage, getHandoffPageBySlug, listHandoffPages, moveDocPage, wri
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server';
 import { COMPONENT_PREVIEW_APP_JS_B64 } from '@/lib/mcp/apps/component-preview.bundle';
 import { TOKEN_PALETTE_APP_JS_B64 } from '@/lib/mcp/apps/token-palette.bundle';
+import { COMPONENT_GALLERY_APP_JS_B64 } from '@/lib/mcp/apps/component-gallery.bundle';
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
@@ -1567,6 +1568,71 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         };
         const summary = `Palette: ${(data.colors as unknown[]).length} colors, ${(data.typography as unknown[]).length} type styles, ${(data.spacing as unknown[]).length} spacing steps.`;
         return { content: [{ type: 'text' as const, text: summary }], structuredContent: data };
+      }
+    );
+
+    // ─── Component gallery / picker app ─────────────────────────────────────────
+    // Inline metadata card grid (no thumbnails yet — no prod-viable component-image
+    // source; cards carry an optional imageUrl for later). Click → select (pushes
+    // the choice back via updateModelContext); "Open ↗" → openLink to the live
+    // component detail page. Both degrade gracefully in the app.
+    const GALLERY_UI_URI = 'ui://handoff/component-gallery';
+    const galleryJs = Buffer.from(COMPONENT_GALLERY_APP_JS_B64, 'base64').toString('utf8');
+    const galleryHtml = `<!doctype html>
+<html><head><meta charset="utf-8" />
+<style>:root{color-scheme:light dark}html,body{margin:0;font-family:ui-sans-serif,system-ui,sans-serif}</style></head>
+<body>
+  <div id="root">Loading…</div>
+  <script type="module">${galleryJs}</script>
+</body></html>`;
+
+    registerAppResource(
+      server,
+      'Component gallery',
+      GALLERY_UI_URI,
+      { description: 'Interactive component catalog — search, select, and open components.', _meta: { ui: {} } },
+      async () => ({
+        contents: [{ uri: GALLERY_UI_URI, mimeType: RESOURCE_MIME_TYPE, text: galleryHtml, _meta: { ui: {} } }],
+      })
+    );
+
+    registerAppTool(
+      server,
+      'handoff_browse_components',
+      {
+        description:
+          'Open an INTERACTIVE inline gallery of the design system\'s components — a searchable card grid. ' +
+          'The user can Select a component to hand it back to you, or Open it in Handoff. Use when the user ' +
+          'wants to browse or pick a component; use handoff_search_components for raw catalog data.',
+        inputSchema: {
+          query: z.string().optional().describe('Optional initial substring filter (id/title/group/tag).'),
+          group: z.string().optional().describe('Optional group filter.'),
+        },
+      },
+      async ({ query, group }) => {
+        if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+        let list = await getDataProvider().getComponents();
+        const q = query?.trim().toLowerCase();
+        if (q) {
+          list = list.filter(
+            (c) =>
+              c.id.toLowerCase().includes(q) ||
+              (c.title || '').toLowerCase().includes(q) ||
+              (c.group || '').toLowerCase().includes(q) ||
+              JSON.stringify(c.tags ?? []).toLowerCase().includes(q)
+          );
+        }
+        if (group?.trim()) list = list.filter((c) => (c.group || '').toLowerCase() === group.trim().toLowerCase());
+        const components = list.map((c) => ({
+          id: c.id,
+          title: c.title,
+          group: c.group,
+          type: c.type,
+          tags: Array.isArray(c.tags) ? c.tags.slice(0, 6) : [],
+          detailUrl: `${registryBase}/system/component/${encodeURIComponent(c.id)}`,
+        }));
+        const data = { components };
+        return { content: [{ type: 'text' as const, text: `Gallery: ${components.length} components.` }], structuredContent: data };
       }
     );
   }

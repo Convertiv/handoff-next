@@ -21,6 +21,11 @@ const APPS = [
     out: 'src/app/lib/mcp/apps/token-palette.bundle.ts',
     exportName: 'TOKEN_PALETTE_APP_JS_B64',
   },
+  {
+    entry: 'src/app/lib/mcp/apps/component-gallery.client.ts',
+    out: 'src/app/lib/mcp/apps/component-gallery.bundle.ts',
+    exportName: 'COMPONENT_GALLERY_APP_JS_B64',
+  },
 ];
 
 for (const app of APPS) {
