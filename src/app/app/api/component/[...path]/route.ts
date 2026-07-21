@@ -17,6 +17,9 @@ const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'application/javascript; charset=utf-8',
+  // React hydration bundles ship as .mjs — must serve with a JS MIME or the
+  // browser refuses the ES-module import() (blocked: disallowed MIME type).
+  '.mjs': 'application/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
 };
 
@@ -50,6 +53,10 @@ function injectHeightReporter(html: string): string {
 function headersFor(filename: string, contentType: string): Record<string, string> {
   const ext = path.extname(filename).toLowerCase();
   const headers: Record<string, string> = { 'Content-Type': contentType, 'Cache-Control': CACHE };
+  // Force a JS MIME for scripts regardless of the stored/computed type — the
+  // browser blocks ES-module import() unless the MIME is JavaScript, and a row
+  // stored with a stale content-type (e.g. text/plain) must not re-break it.
+  if (ext === '.js' || ext === '.mjs') headers['Content-Type'] = 'application/javascript; charset=utf-8';
   if (ext === '.js' || ext === '.mjs' || ext === '.css') headers['Access-Control-Allow-Origin'] = '*';
   if (ext === '.html') headers['Content-Security-Policy'] = PREVIEW_CSP;
   return headers;
