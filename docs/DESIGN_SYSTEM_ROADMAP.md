@@ -113,6 +113,16 @@ writes = the new surface.
 - ⛔ **6.4 Claude Design native (goal 1):** design inside Claude Design pulling Handoff foundations
   natively — **gated on Anthropic** (Phase G). Now: the artifact bridge (`create_design_artifact` +
   `generate_component_from_design` + read-context).
+- ⬜ **6.5 Brand-guidelines ingest (backlog — idea 2026-07-21).** A tool that takes a **brand
+  guidelines PDF** (upload/base64) → parses it (PDF→text/vision via the AI infra) → extracts and
+  **writes canonical registry data**: foundation content (color/type/spacing narrative), brand
+  **voice** (→ design-workspace settings), **accessibility** conformance, logo/usage — as
+  doc pages (`guidelines/*`, `foundations/*`) and workspace settings. The point: write **once** to the
+  canonical source so it feeds **all three consumers** (UI pages, REST, MCP) uniformly. Rides the
+  existing instance-write surface — doc-page CRUD (6.1), `writeDocPage`/nav-sync, design-workspace /
+  brand-voice, the accessibility-page pattern already shipped, and the AI/PDF pipeline. Open
+  questions: how much becomes structured **tokens** vs. prose pages; human-review/approval gate before
+  publish; multi-page/section chunking of large PDFs.
 
 ### Track 2 — typed-React builder rollout *(PAUSED)*
 
