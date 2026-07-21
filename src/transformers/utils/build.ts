@@ -26,7 +26,14 @@ export const DEFAULT_CLIENT_BUILD_CONFIG: esbuild.BuildOptions = {
   platform: 'browser',
   jsx: 'automatic',
   sourcemap: false,
-  minify: false,
+  // Production + minified: the hydration bundle ships to the browser AND is
+  // uploaded on push (which caps a single artifact at ~3MB for Vercel's 4.5MB
+  // body limit). Development React + no minification produced ~3.3MB bundles
+  // that the push silently stripped — so React previews never got a hydration
+  // bundle in the registry (404 → frozen static fallback). `NODE_ENV=production`
+  // + minify drops that to a few hundred KB and dead-code-strips dev warnings.
+  minify: true,
+  define: { 'process.env.NODE_ENV': '"production"' },
 };
 
 /**
