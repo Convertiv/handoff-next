@@ -10,6 +10,12 @@ import { Button } from '../../../components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import type { AdminBuildTaskRow } from '../../../lib/admin-build-tasks-types';
 
+/** Poll cadence for the builds table. See the polling policy note below. */
+const ACTIVE_POLL_MS = 4000;
+const IDLE_POLL_MS = 15000;
+/** ~5 min of idle polling (20 × 15s), then stop until the tab is refocused. */
+const MAX_IDLE_POLL_TICKS = 20;
+
 function ComponentStatusBadge({ status }: { status: string }) {
   switch (status) {
     case 'queued':
@@ -239,13 +245,48 @@ export default function BuildsClient({
     setTasks(initialTasks);
   }, [initialTasks]);
 
+  // Polling policy (keeps Neon compute from being pinned awake by a forgotten
+  // open tab — see DEVLOG 2026-07-21):
+  //   • Active job  → poll fast (4s).
+  //   • Idle        → poll slowly (15s), but STOP after ~5 min of no activity.
+  //   • Tab hidden  → pause entirely; resume + refresh when it becomes visible.
   useEffect(() => {
     if (message) return;
-    void refresh();
-    const id = window.setInterval(() => {
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let idleTicks = 0;
+
+    const loop = () => {
+      if (cancelled || document.visibilityState === 'hidden') return;
+      // Idle budget exhausted: stop until the tab regains focus.
+      if (!hasActiveAssetJob && idleTicks >= MAX_IDLE_POLL_TICKS) return;
+      const delay = hasActiveAssetJob ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+      timer = setTimeout(async () => {
+        if (cancelled) return;
+        await refresh();
+        idleTicks = hasActiveAssetJob ? 0 : idleTicks + 1;
+        loop();
+      }, delay);
+    };
+
+    void refresh(); // immediate load
+    loop();
+
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      idleTicks = 0; // fresh idle budget on refocus
       void refresh();
-    }, hasActiveAssetJob ? 4000 : 12000);
-    return () => window.clearInterval(id);
+      if (timer) clearTimeout(timer);
+      loop();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [message, refresh, hasActiveAssetJob]);
 
   return (

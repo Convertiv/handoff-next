@@ -5,6 +5,62 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-21 — Neon compute reduction: cache the registry read hot-path + fix idle polling
+
+**Problem.** 8x8-handoff burned ~119 CU-hrs since Jul 1 on developer-only traffic.
+119.37 CU-hrs / ~20 days ≈ **0.24 CU sustained 24/7** — i.e. the compute endpoint
+was essentially never auto-suspending. Root cause was two-fold: (1) every registry
+request re-ran the root layout, which fired ~5–8 **uncached** Postgres reads
+(registry config, nav tree, component summaries, user count) + per-page content
+reads; and (2) a forgotten-open `/admin/builds` tab polled every 12s forever,
+pinning compute awake. React `cache()` only dedupes within one render — there was
+no cross-request caching.
+
+**Key insight.** The CU cost is DB *query volume*, not Vercel render mode. Wrapping
+the hot-path reads in Next's Data Cache means cache hits do **zero** Postgres work
+regardless of request volume → Neon can idle between real content changes. No risky
+layout/auth refactor needed (that would only help Vercel function compute, not Neon).
+
+**Changes (B/C/D):**
+- **C — cache the read hot-path.** New `src/app/lib/server/registry-cache.ts`:
+  `unstable_cache` wrappers (tags + 300s TTL floor) for registry config, navigation,
+  component summaries, user count (3600s), and per-slug page content. Wired into
+  `runtime-config.ts` (config), `dynamic-provider.ts` (nav + summaries — Data Cache
+  layered *under* the existing React `cache`), `app/layout.tsx` (user count), and the
+  public catch-all routes `app/[...slug]` + `app/foundations/[...slug]` (page body +
+  generateMetadata). **Freshness** via `revalidateTag(..., 'max')` on every write
+  path: `/api/registry/config`, `/api/registry/navigation`, `/api/registry/pages`,
+  `/api/sync/upload` (component/page changes), and `setup/actions.ts` (user create).
+  The 300s TTL is a safety net if a write path is missed.
+- **D** is folded into C — the per-slug page cache is the real "ISR" win. Note: the
+  root layout reads cookies (`auth()`) + `headers()`, so pages stay dynamically
+  rendered; route-level `revalidate` can't make them static HTML. That's a
+  Vercel-compute optimization, **not** a Neon one, so deliberately deferred.
+- **B — stop idle polling.** `admin/builds/BuildsClient.tsx`: poll 4s while a job is
+  active, 15s when idle but **stop after ~5 min** of no activity, and **pause when the
+  tab is hidden** (resume + refresh on `visibilitychange`). Kills the forgotten-tab
+  keep-awake.
+
+**Gotchas.**
+- Next 16.2.4 `revalidateTag(tag, profile)` now *requires* the 2nd arg — use `'max'`.
+  `unstable_cache` (not `"use cache"`) is correct here since `cacheComponents`/
+  `dynamicIO` is off in `next.config.mjs`.
+- `getCachedPageBySlug` guards on `usePostgres()` and falls back to the raw read in
+  workspace mode, so the no-DB filesystem path stays byte-identical.
+- Cached wrappers must never read `headers()`/`cookies()` (they don't — DB only).
+- Mutation/admin routes still call the raw `registry-queries` fns so they see fresh data.
+
+tsc clean on all changed files (2 remaining errors are pre-existing in `lib/mcp/`).
+**Not yet verified against a live DB** — needs a run pointed at a dev/8x8 database to
+confirm cache hits + tag invalidation on push. Data to watch afterward: Neon activity
+graph should go spiky (idle between pushes) instead of flat; enable `pg_stat_statements`
+to confirm the config/nav/summaries reads drop off the top-`calls` list.
+
+**Follow-up spun off:** build jobs (esp. workbench image/asset extraction) get stuck
+non-terminal → `_control/tasks/2026-07-21-handoff-build-jobs-image-extraction.md`.
+
+---
+
 ## 2026-07-16 — figma-plugin API: CORS fix + contract alignment to the plugin spec
 
 Reviewed `handoff-figma-plugin/docs/p1.6-figma-plugin-api-spec.md` (the plugin is built against it).

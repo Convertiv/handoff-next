@@ -5,7 +5,8 @@ import {
   getCurrentSection,
   MARKDOWN_CATCHALL_RESERVED_FIRST_SEGMENTS,
 } from '../../components/util';
-import { docsRouteToPageSlug, getHandoffPageBySlug, normalizePageMetadata } from '../../lib/server/doc-pages';
+import { docsRouteToPageSlug, normalizePageMetadata } from '../../lib/server/doc-pages';
+import { getCachedPageBySlug } from '../../lib/server/registry-cache';
 import { getDataProvider } from '../../lib/data';
 import { notFound, redirect } from 'next/navigation';
 import DocCatchAllClient from './DocCatchAllClient';
@@ -31,7 +32,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const pageSlug = docsRouteToPageSlug(dirParts, file);
 
   {
-    const row = await getHandoffPageBySlug(pageSlug);
+    const row = await getCachedPageBySlug(pageSlug);
     if (row) {
       const m = normalizePageMetadata(row.frontmatter);
       return {
@@ -70,7 +71,7 @@ export default async function MarkdownCatchAllPage({ params }: { params: Promise
   let props = (await fetchDocPageMarkdownAsync(docPath, file, sectionId)).props;
 
   {
-    const row = await getHandoffPageBySlug(pageSlug);
+    const row = await getCachedPageBySlug(pageSlug);
     if (row) {
       const menu = await getDataProvider().getMenu();
       props = {

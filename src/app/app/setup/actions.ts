@@ -44,5 +44,10 @@ export async function createFirstAdmin(_prevState: SetupResult, formData: FormDa
     emailVerified: new Date(),
   });
 
+  // Bust the cached user-count so the layout stops redirecting to /setup.
+  // Must run before redirect() (which throws NEXT_REDIRECT).
+  const { revalidateRegistryUsers } = await import('../../lib/server/registry-cache');
+  revalidateRegistryUsers();
+
   redirect('/login?setup=1');
 }

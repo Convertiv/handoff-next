@@ -3,7 +3,8 @@ import {
   getClientRuntimeConfig,
   getCurrentSection,
 } from '../../../components/util';
-import { docsRouteToPageSlug, getHandoffPageBySlug, normalizePageMetadata } from '../../../lib/server/doc-pages';
+import { docsRouteToPageSlug, normalizePageMetadata } from '../../../lib/server/doc-pages';
+import { getCachedPageBySlug } from '../../../lib/server/registry-cache';
 import { getDataProvider } from '../../../lib/data';
 import DocCatchAllClient from '../../[...slug]/DocCatchAllClient';
 
@@ -34,7 +35,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const { docPath, file, pageSlug } = resolveFoundationsSlug(slug);
 
-  const row = await getHandoffPageBySlug(pageSlug);
+  const row = await getCachedPageBySlug(pageSlug);
   if (row) {
     const m = normalizePageMetadata(row.frontmatter);
     return { title: (m.metaTitle as string) ?? 'Documentation', description: (m.metaDescription as string) ?? '' };
@@ -53,7 +54,7 @@ export default async function FoundationsCatchAllPage({ params }: { params: Prom
 
   let props = (await fetchDocPageMarkdownAsync(docPath, file, '/foundations')).props;
 
-  const row = await getHandoffPageBySlug(pageSlug);
+  const row = await getCachedPageBySlug(pageSlug);
   if (row) {
     const menu = await getDataProvider().getMenu();
     props = {

@@ -40,6 +40,8 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     await upsertRegistryConfig(body.data as Record<string, unknown>, authz.userId);
+    const { revalidateRegistryConfig } = await import('@/lib/server/registry-cache');
+    revalidateRegistryConfig();
     return NextResponse.json({ ok: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';

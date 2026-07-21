@@ -21,8 +21,10 @@ export async function getMergedRuntimeConfig(): Promise<ClientConfig> {
   if (!usePostgres()) return staticConfig;
 
   try {
-    const { getRegistryConfig } = await import('../db/registry-queries');
-    const dbConfig = await getRegistryConfig();
+    // Cached read: the root layout calls this on every request, so an uncached
+    // DB hit here kept Neon compute from ever idling. See registry-cache.ts.
+    const { getCachedRegistryConfig } = await import('./registry-cache');
+    const dbConfig = await getCachedRegistryConfig();
     if (!dbConfig || typeof dbConfig !== 'object') return staticConfig;
 
     // The DB row stores Config['app'] verbatim. Merge it over the static

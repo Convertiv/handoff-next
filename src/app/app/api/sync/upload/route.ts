@@ -21,6 +21,7 @@ export async function POST(request: Request) {
 
   const applied: string[] = [];
   let hadComponentChanges = false;
+  const changedTypes = new Set<string>();
 
   try {
     for (const ch of body.changes) {
@@ -35,11 +36,20 @@ export async function POST(request: Request) {
         userId: authz.userId,
       });
       applied.push(`${ch.entityType}:${ch.entityId}:${ch.action}`);
+      changedTypes.add(ch.entityType);
       if (ch.entityType === 'component') hadComponentChanges = true;
     }
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Upload failed';
     return NextResponse.json({ error: message, applied }, { status: 500 });
+  }
+
+  // Invalidate the read-path caches these entities feed, so the pushed changes
+  // surface immediately instead of waiting out the TTL floor (see registry-cache.ts).
+  if (changedTypes.size > 0) {
+    const cache = await import('@/lib/server/registry-cache');
+    if (changedTypes.has('component')) cache.revalidateRegistryComponents();
+    if (changedTypes.has('page')) cache.revalidateRegistryPages();
   }
 
   // After a component push, recompute the health snapshot across ALL components

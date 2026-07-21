@@ -26,8 +26,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     const pathname = hdrs.get('x-pathname') ?? '/';
     if (!pathname.startsWith('/setup') && !pathname.startsWith('/api') && !pathname.startsWith('/_next')) {
       try {
-        const { getUserCount } = await import('../lib/db/queries');
-        const userCount = await getUserCount();
+        // Cached: once users exist this is permanently non-zero, so we don't
+        // need a live COUNT(*) on every request. Invalidated on setup.
+        const { getCachedUserCount } = await import('../lib/server/registry-cache');
+        const userCount = await getCachedUserCount();
         if (userCount === 0) redirect('/setup');
       } catch {
         // DB unreachable — don't block; request errors will surface naturally

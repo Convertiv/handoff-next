@@ -54,6 +54,9 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const count = await bulkUpsertHandoffPages(pages);
+    // Page pushes change both page bodies and (potentially) the nav tree.
+    const { revalidateRegistryPages } = await import('@/lib/server/registry-cache');
+    revalidateRegistryPages();
     return NextResponse.json({ ok: true, count });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';

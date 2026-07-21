@@ -42,6 +42,8 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     await upsertRegistryNavigation(body.tree as NavigationNode[], authz.userId);
+    const { revalidateRegistryNavigation } = await import('@/lib/server/registry-cache');
+    revalidateRegistryNavigation();
     return NextResponse.json({ ok: true, nodes: body.tree.length });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Error';

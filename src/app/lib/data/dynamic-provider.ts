@@ -1,4 +1,5 @@
 import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 import type { InferSelectModel } from 'drizzle-orm';
 import type { ComponentListObject, ComponentObject, PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
 import type { ClientConfig } from '@handoff/types/config';
@@ -19,6 +20,7 @@ import {
   getDbPatterns,
   getDbTokensSnapshot,
 } from '../db/queries';
+import { REGISTRY_TAGS } from '../server/registry-cache';
 import type { DataProvider, DocPageContent, DtcgManifest, DtcgTokenStrings, DtcgTokenType } from './types';
 import { StaticDataProvider } from './static-provider';
 import { injectSystemUtilityLinks, mergeDbNavIntoSkeleton, shapeComponentCatalogSubSections } from './menu-merge';
@@ -382,8 +384,19 @@ async function safeDbComponentSummaries(): Promise<ComponentSummaryRow[]> {
 // single render issues — e.g. the component detail page calls getMenu() +
 // getComponents() (and generateMetadata) within one request — into one DB hit.
 const cachedDbComponents = cache(safeDbComponents);
-const cachedDbComponentSummaries = cache(safeDbComponentSummaries);
 const cachedTokensSnapshot = cache(getDbTokensSnapshot);
+
+// Component summaries back the sidebar menu, which the root layout renders on
+// EVERY request. React `cache` only dedupes within one render, so uncached this
+// was a live DB read per request (a top Neon-compute driver — see registry-cache.ts).
+// Layer Next's cross-request Data Cache under the request-scoped cache, tagged so
+// component pushes invalidate it immediately (else a 5-min TTL floor applies).
+const dataCachedDbComponentSummaries = unstable_cache(
+  safeDbComponentSummaries,
+  ['registry-component-summaries'],
+  { tags: [REGISTRY_TAGS.components], revalidate: 300 }
+);
+const cachedDbComponentSummaries = cache(dataCachedDbComponentSummaries);
 
 async function safeDbPatterns(): Promise<HandoffPatternRow[]> {
   try {
@@ -626,8 +639,9 @@ export class DynamicDataProvider implements DataProvider {
 
     let dbTree: import('./menu-merge').DbNavNode[] | null = null;
     try {
-      const { getRegistryNavigation } = await import('../db/registry-queries');
-      dbTree = await getRegistryNavigation();
+      // Cached read — the menu renders on every request. Invalidated on nav/page push.
+      const { getCachedRegistryNavigation } = await import('../server/registry-cache');
+      dbTree = await getCachedRegistryNavigation();
     } catch (err) {
       if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
       logDbFallback('handoff_registry_navigation', err);
