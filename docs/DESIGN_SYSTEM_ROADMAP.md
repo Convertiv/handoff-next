@@ -121,10 +121,13 @@ writes = the new surface.
   canonical source so it feeds **all three consumers** (UI pages, REST, MCP) uniformly. Rides the
   existing instance-write surface — doc-page CRUD (6.1), `writeDocPage`/nav-sync, design-workspace /
   brand-voice, the accessibility-page pattern already shipped, and the AI/PDF pipeline.
-  - Open questions:
-    - How much of the PDF becomes structured **tokens** vs. prose doc pages?
-    - **Human review/approval gate** before anything publishes (likely required — eyeball extractions).
-    - **Chunking** large, multi-section PDFs into discrete page writes.
+  - Decisions:
+    - **Tokens where the PDF supports it, prose otherwise.** Fonts, colors, spacing, radius are pulled
+      as real structured **tokens**; narrative (voice, usage, principles) becomes prose doc pages. The
+      split is PDF-dependent.
+    - **Human review/approval gate is required** — nothing publishes until a person confirms the
+      extractions.
+    - **Chunk** large, multi-section PDFs into discrete writes (settled — not a question).
 
 ### Track 2 — typed-React builder rollout *(PAUSED)*
 
