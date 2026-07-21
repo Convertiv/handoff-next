@@ -1627,6 +1627,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           query: z.string().optional().describe('Optional initial substring filter (id/title/group/tag).'),
           group: z.string().optional().describe('Optional group filter.'),
         },
+        _meta: { ui: { resourceUri: GALLERY_UI_URI } },
       },
       async ({ query, group }) => {
         if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);

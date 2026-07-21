@@ -22,7 +22,7 @@ interface TokenData { colors?: ColorToken[]; typography?: TypeToken[]; spacing?:
 
 let appRef: App | null = null;
 
-function el(tag: string, props: Partial<HTMLElement> = {}, style = ''): HTMLElement {
+function el(tag: string, props: Record<string, unknown> = {}, style = ''): HTMLElement {
   const n = document.createElement(tag);
   Object.assign(n, props);
   if (style) n.setAttribute('style', style);
