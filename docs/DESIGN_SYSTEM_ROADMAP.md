@@ -128,6 +128,28 @@ writes = the new surface.
     - **Human review/approval gate is required** — nothing publishes until a person confirms the
       extractions.
     - **Chunk** large, multi-section PDFs into discrete writes (settled — not a question).
+- 🔄 **6.6 Vendor/core bundle splitting for React previews (NOW — started 2026-07-22).**
+  Today each React component's `<id>-client.mjs` hydration bundle **re-bundles React + ReactDOM
+  + the entire component library per component** → ~3.3MB dev / ~1.3MB prod-min *each*. This has
+  been a recurring pain: bundles too big for the push size cap (stripped → 404 → frozen preview;
+  see `a2166567` prod-minify, `dcb8731e` 4MB cap) and slow to load (React re-downloaded per block).
+  **Goal:** isolate vendor (React/ReactDOM + the workspace component library) from core (each
+  component's own template) so vendor loads **once, shared + cached**, and each component bundle is
+  tens of KB.
+  - **Approach (recommended): esbuild code-splitting.** Build all component client entries in ONE
+    esbuild pass with `splitting:true, format:'esm', outdir` → esbuild auto-extracts shared deps
+    into shared chunks; each entry becomes small and imports `./chunk-*.mjs` (relative → same
+    `/api/component/` origin, no import map needed). Alternative (fiddlier): externalize vendors +
+    a hand-built vendor bundle + `<script type="importmap">` in the preview HTML.
+  - **Main obstacle:** the client bundle is built **per-component** inside `ssrRenderPlugin`'s
+    `generateBundle` hook (`ssr-render.ts:328`), one esbuild call per component — no place sees all
+    components at once. Splitting needs a **new batched build phase** after per-component builds
+    (collect entries → one esbuild → emit entries + shared chunks). Also: serve + push the shared
+    chunk files (`/api/component/[...path]` already serves `.mjs`; the push must include the chunks).
+  - **Verification:** runnable via `handoff-app build` on 8x8 — check per-component `.mjs` drops to
+    KB + a shared chunk appears (no browser needed for structure); browser hydrate confirms the
+    relative chunk import resolves. **Central shared-build-tool change — must be verified before
+    trusting (it's the same subsystem that just broke previews for a dozen turns).**
 
 ### Track 2 — typed-React builder rollout *(PAUSED)*
 
