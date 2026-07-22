@@ -364,9 +364,16 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
   //      (e.g. enormous source files), skip it entirely so one bad component
   //      never blocks the rest of the push.
   const url = `${baseUrl}/api/sync/upload`;
-  const MAX_BATCH_BYTES        = 3 * 1024 * 1024;  // 3 MB per batch
-  const MAX_ITEM_BYTES         = 3 * 1024 * 1024;  // 3 MB per single change (must fit in one batch)
-  const MAX_ARTIFACT_FILE_BYTES = 1 * 1024 * 1024; // 1 MB per individual artifact file
+  // Ceilings sized against Vercel's ~4.5 MB serverless request-body limit, with
+  // headroom for the batch wrapper. A minified production React hydration bundle
+  // (<id>-client.mjs) is ~1.3-1.5 MB even after prod+minify — the old 1 MB
+  // per-file cap stripped it (→ 404 → frozen preview). Allow a single artifact up
+  // to 4 MB and a change/batch up to 4 MB (still under Vercel's 4.5 MB wall).
+  // (Long-term, externalizing React into one shared vendor artifact would drop
+  // these bundles to tens of KB — see roadmap.)
+  const MAX_BATCH_BYTES         = 4 * 1024 * 1024; // 4 MB per batch
+  const MAX_ITEM_BYTES          = 4 * 1024 * 1024; // 4 MB per single change (must fit in one batch)
+  const MAX_ARTIFACT_FILE_BYTES = 4 * 1024 * 1024; // 4 MB per individual artifact file
   // Stamp the push "why" onto every change so each recorded version carries it.
   const pushMessage = opts?.message?.trim();
   if (pushMessage) {
