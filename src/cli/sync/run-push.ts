@@ -187,6 +187,22 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
   const configuredPatIds = Object.keys(handoff.runtimeConfig?.entries?.patterns ?? {});
   const pushingEntities = compIdsToScan.length > 0 || (selective ? (opts?.patternIds?.length ?? 0) > 0 : configuredPatIds.length > 0);
   const runBuild = shouldRunBuild(opts, pushingEntities);
+
+  // Vendor-split (roadmap 6.6): the batched phase that emits shared React/library
+  // bundles + importmap + tiny per-component entries runs ONLY on a FULL build
+  // (processComponents with no id). Per-component builds (the default in the loop
+  // below) re-emit fat self-contained bundles and skip the split. So for a full
+  // (non-selective) push of a split-enabled project, build ALL components in one
+  // pass up front, then skip the per-component rebuild in the loop (it would
+  // clobber the tiny entries). Non-split projects keep the per-component build.
+  const splitEnabled = (handoff.config?.preview?.sharedPackages?.length ?? 0) > 0;
+  let buildPerComponentInLoop = runBuild;
+  if (runBuild && !selective && splitEnabled && compIdsToScan.length > 0) {
+    Logger.info('Vendor-split enabled — building all components in one pass (shared bundles + importmap)…');
+    await handoff.component(null);
+    buildPerComponentInLoop = false;
+  }
+
   let sharedAssets: Record<string, string> | undefined;
   let sharedAttached = false;
 
@@ -205,7 +221,7 @@ async function _runPushInner(handoff: Handoff, opts?: RunPushOptions): Promise<v
         }
       }
 
-      if (runBuild) {
+      if (buildPerComponentInLoop) {
         Logger.info(`Building component "${id}"…`);
         await buildEntity(handoff, 'component', id);
       }

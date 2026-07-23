@@ -181,7 +181,11 @@ writes = the new surface.
     components in the loop → calls the phase after it, gated `!id`), push collection
     (`collect-build-artifacts.ts` globs `hvendor-*`), registry routing (`component-artifact-queries.ts`
     routes `hvendor-*` → `__shared__`), and playground/static importmap injection (`Preview.tsx`
-    fetches+injects `hvendor-importmap.json`; static HTML patched in the phase). Two runtime traps
+    fetches+injects `hvendor-importmap.json`; static HTML patched in the phase). Push-flow fix
+    (`run-push.ts`): `push` builds PER-COMPONENT (`handoff.component(id)`), which skips the
+    full-build-gated split phase AND clobbers tiny entries with fat ones — so a full, non-selective,
+    split-enabled `push` now does ONE full build up front and skips the per-component rebuild
+    (non-split projects keep the per-component path). Two runtime traps
     found + fixed via smoke tests: (a) React is CJS so `export *` gives DYNAMIC re-exports a static
     `import {jsxs}` can't see → we ENUMERATE exports (`require` keys) and emit them statically
     (esm.sh approach); (b) `react-dom`'s CJS `require('react')` throws "Dynamic require not supported"
