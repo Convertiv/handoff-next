@@ -128,28 +128,72 @@ writes = the new surface.
     - **Human review/approval gate is required** — nothing publishes until a person confirms the
       extractions.
     - **Chunk** large, multi-section PDFs into discrete writes (settled — not a question).
-- 🔄 **6.6 Vendor/core bundle splitting for React previews (NOW — started 2026-07-22).**
+- 🔄 **6.6 Vendor-isolated component-library build (NOW — started 2026-07-22, expanded 2026-07-23).**
   Today each React component's `<id>-client.mjs` hydration bundle **re-bundles React + ReactDOM
   + the entire component library per component** → ~3.3MB dev / ~1.3MB prod-min *each*. This has
   been a recurring pain: bundles too big for the push size cap (stripped → 404 → frozen preview;
   see `a2166567` prod-minify, `dcb8731e` 4MB cap) and slow to load (React re-downloaded per block).
-  **Goal:** isolate vendor (React/ReactDOM + the workspace component library) from core (each
-  component's own template) so vendor loads **once, shared + cached**, and each component bundle is
-  tens of KB.
-  - **Approach (recommended): esbuild code-splitting.** Build all component client entries in ONE
-    esbuild pass with `splitting:true, format:'esm', outdir` → esbuild auto-extracts shared deps
-    into shared chunks; each entry becomes small and imports `./chunk-*.mjs` (relative → same
-    `/api/component/` origin, no import map needed). Alternative (fiddlier): externalize vendors +
-    a hand-built vendor bundle + `<script type="importmap">` in the preview HTML.
-  - **Main obstacle:** the client bundle is built **per-component** inside `ssrRenderPlugin`'s
-    `generateBundle` hook (`ssr-render.ts:328`), one esbuild call per component — no place sees all
-    components at once. Splitting needs a **new batched build phase** after per-component builds
-    (collect entries → one esbuild → emit entries + shared chunks). Also: serve + push the shared
-    chunk files (`/api/component/[...path]` already serves `.mjs`; the push must include the chunks).
-  - **Verification:** runnable via `handoff-app build` on 8x8 — check per-component `.mjs` drops to
-    KB + a shared chunk appears (no browser needed for structure); browser hydrate confirms the
-    relative chunk import resolves. **Central shared-build-tool change — must be verified before
-    trusting (it's the same subsystem that just broke previews for a dozen turns).**
+  - **Reframe (2026-07-23):** this isn't just a preview fix — it's a **distributable, vendor-isolated
+    component library** with THREE consumers: (1) in-app preview/playground, (2) static HTML / HubSpot
+    / SS&C drop-in, (3) users importing the raw libraries into their own build. All three want the same
+    isolation; only *how the component entry finds its vendor* differs. The shared vendor bundle **is**
+    the "raw library" deliverable.
+  - **Decided model (Brad, 2026-07-23): ESM + importmap, unified build now.** Externalize the shared
+    packages from each per-component entry and emit them as ONE set of hashed, immutable shared ESM
+    bundles referenced via an **importmap**. One portable entry artifact works everywhere; only the
+    importmap base changes per host (in-app: injected into the srcdoc iframe + static preview HTML;
+    HubSpot/SS&C: site-header importmap; user's own bundler: resolves the bare specifiers itself).
+  - **Vendor graph (proven via scratchpad smoke test 2026-07-23).** Shared set = the React ecosystem
+    (`react`, `react-dom`, `react-dom/client`, `react/jsx-runtime`) + config-declared workspace
+    packages (e.g. `8x8-component-library`). Each shared bundle **owns** one specifier and marks the
+    others `external`, so nothing is duplicated: `react.mjs` bundles react (8kb, exposes default+named);
+    `react-dom.mjs` external react; `react-dom/client.mjs` external react+react-dom; `library.mjs`
+    bundles the barrel + its deep deps (framer-motion/radix/leaflet/lottie/maps ≈ 2.5MB) external react.
+    Each **component entry drops to ~0.2kb** (its template only), importing the shared specifiers bare.
+  - **Two mechanics the smoke test nailed:** (a) `createReactResolvePlugin`'s `onResolve` **overrides
+    `external`** and re-bundles react — so the external component/library builds must run **without**
+    that plugin (rely on `external` + `resolveDir`); the plugin runs only on the react-owning bundle.
+    (b) 8x8's 132 components use ~70 of the library's exports incl. the maps/lottie stack, so a
+    used-exports barrel wouldn't trim much → **ship the full barrel, loaded once + cached** (v1);
+    per-page a used-exports/sub-split barrel is a later optimization.
+  - **Config:** add `preview.sharedPackages?: string[]` to `Config` (React trio always shared;
+    workspaces add their library). Generic across Cynosure/SSC/8x8 — never hardcode `8x8-component-library`.
+  - **Insertion point:** new batched phase after the per-component loop in `processComponents`
+    (`builder.ts:~573`, gated `if (!id)` so single-component builds keep the fat bundle). Build shared
+    bundles + tiny entries + `importmap.json` + `manifest.json`; write shared files to
+    `public/api/component/`, entries to `components/<id>/dist/`. Skip the per-component client esbuild
+    in `ssr-render.ts:305-353` on full builds (flag) to avoid double work.
+  - **Serve/push/inject:** shared `.mjs` + `importmap.json` + `manifest.json` go through
+    `collectSharedComponentAssets` (push) and route to `SHARED_COMPONENT_ID` in
+    `component-artifact-queries.ts`; serve route already handles 1-segment `.mjs`/json. Inject the
+    importmap into the srcdoc iframe (`Preview.tsx`) and the static preview HTML head.
+  - **Risks:** single-component push after a library bump references a stale hash → keep single builds
+    on the fat bundle (the gate) or force a full split; stale hashed shared files accumulate → clean
+    before write; importmap browser support ~94% (fine for app + modern hosts; UMD/global is the later
+    fallback for older HubSpot hosts if needed).
+  - **Verification:** `handoff-app build` on 8x8 → per-component `.mjs` = KB, one shared `library-*.mjs`
+    + react bundle + `importmap.json` appear; browser hydrate in the playground confirms importmap
+    resolves + live-edit works. **Central shared-build-tool change — verify on a real 8x8 build before
+    trusting (same subsystem that just broke previews for a dozen turns).**
+  - **STATUS 2026-07-23 — IMPLEMENTED + module verified end-to-end; full-build wiring pending.**
+    Built: `src/transformers/preview/component/build-shared-bundles.ts` (the phase), config
+    `preview.sharedPackages` (`types/config.ts`), builder wiring (`builder.ts` collects react
+    components in the loop → calls the phase after it, gated `!id`), push collection
+    (`collect-build-artifacts.ts` globs `hvendor-*`), registry routing (`component-artifact-queries.ts`
+    routes `hvendor-*` → `__shared__`), and playground/static importmap injection (`Preview.tsx`
+    fetches+injects `hvendor-importmap.json`; static HTML patched in the phase). Two runtime traps
+    found + fixed via smoke tests: (a) React is CJS so `export *` gives DYNAMIC re-exports a static
+    `import {jsxs}` can't see → we ENUMERATE exports (`require` keys) and emit them statically
+    (esm.sh approach); (b) `react-dom`'s CJS `require('react')` throws "Dynamic require not supported"
+    when react is external → we COMBINE react+react-dom into one bundle AND add a require-shim banner
+    (esbuild's `__require` falls back to a banner-defined `require`) to any bundle that externalizes
+    react (covers the library's CJS deps). **Verified against 8x8's REAL config hook**: hero-background
+    entry 1.3MB→3.2KB, hero-split→26KB, shared react 191KB + library 2.5MB (once); a real browser
+    loaded the importmap, deduped React (no invalid-hook), and hydrated hero-background to live HTML.
+    NOT yet run: the full 132-component `build:components` (exercises builder wiring + HTML injection +
+    push at scale) and the deployed playground. **Next:** user relinks (`npm link handoff-app` in 8x8
+    — currently a stale installed copy), adds `preview.sharedPackages: ['8x8-component-library']`,
+    full build + `push --force`, verify playground live-edit + `.mjs` sizes on the registry.
 
 ### Track 2 — typed-React builder rollout *(PAUSED)*
 

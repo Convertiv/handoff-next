@@ -114,6 +114,24 @@ export function renderHandlebarsPreview(
   return template(context);
 }
 
+// Vendor-isolated bundles (roadmap 6.6): the tiny per-component `-client.mjs`
+// entries import react / react-dom / the component library by BARE specifier,
+// resolved via an importmap served at /api/component/hvendor-importmap.json.
+// We fetch + inject it ONCE per iframe document, exposing a readiness promise
+// (`window.__handoffImportmapReady`) that every dynamic `import()` awaits. This
+// must run from a CLASSIC script (an inline `type="module"` would trigger the
+// import-map lockout) and BEFORE any `import()`. Older self-contained bundles
+// simply ignore the (possibly absent) importmap, so this degrades cleanly.
+const IMPORTMAP_FILE = 'hvendor-importmap.json';
+function importmapReadyScript(basePath: string): string {
+  return `<script>
+window.__handoffImportmapReady = fetch(${JSON.stringify(basePath)} + '/api/component/${IMPORTMAP_FILE}')
+  .then(function(r){ return r.ok ? r.json() : null; })
+  .then(function(map){ try { if (map) { var s=document.createElement('script'); s.type='importmap'; s.textContent=JSON.stringify(map); document.head.appendChild(s); } } catch(e){} })
+  .catch(function(){});
+</script>`;
+}
+
 /**
  * Construct an iframe HTML document that loads a React/CSF component module
  * and renders it with the given props. The module is served from
@@ -140,6 +158,7 @@ export function renderReactPreview(
   return `<!DOCTYPE html>
 <html>
   <head>
+    ${importmapReadyScript(basePath)}
     <link rel="stylesheet" href="${basePath}/api/registry/theme.css" />
     <link rel="stylesheet" href="${basePath}/api/component/main.css" />
     <link rel="stylesheet" href="${basePath}/api/component/${component.id}.css" />
@@ -149,23 +168,25 @@ export function renderReactPreview(
     <div id="root"></div>
     <script id="__PROPS__" type="application/json">${props}</script>
     <script id="__FALLBACK__" type="application/json">${fallbackHtml}</script>
-    <script type="module">
-      const container = document.getElementById('root');
-      const initialProps = JSON.parse(document.getElementById('__PROPS__').textContent || '{}');
-      const fallbackHtml = JSON.parse(document.getElementById('__FALLBACK__').textContent || '""');
+    <script>
+      var container = document.getElementById('root');
+      var initialProps = JSON.parse(document.getElementById('__PROPS__').textContent || '{}');
+      var fallbackHtml = JSON.parse(document.getElementById('__FALLBACK__').textContent || '""');
 
-      import('${basePath}/api/component/${component.id}-client.mjs')
-        .then(({ render, update }) => {
-          render(container, initialProps);
-          window.addEventListener('message', (event) => {
+      // Await importmap injection, then load the (bare-specifier) client module.
+      (window.__handoffImportmapReady || Promise.resolve())
+        .then(function () { return import('${basePath}/api/component/${component.id}-client.mjs'); })
+        .then(function (m) {
+          m.render(container, initialProps);
+          window.addEventListener('message', function (event) {
             if (event.data && event.data.type === 'update-props') {
               ${blockFilter}
-              update(event.data.props);
+              m.update(event.data.props);
             }
           });
         })
-        .catch(() => {
-          // module.js not available — render static HTML snapshot instead
+        .catch(function () {
+          // module not available — render static HTML snapshot instead
           if (fallbackHtml) container.innerHTML = fallbackHtml;
         });
     </script>
@@ -273,7 +294,10 @@ export async function constructComponentPreview(
         `<script id="${propsId}" type="application/json">${propsJson}</script>` +
         `<script id="${fallbackId}" type="application/json">${fallbackHtml}</script>` +
         `<div id="${rootId}"></div>`;
-      reactScripts.push(`    <script type="module">
+      // Classic script (NOT type="module") so the shared importmap can be
+      // injected first; each block awaits `__handoffImportmapReady` before its
+      // dynamic import so bare-specifier vendors resolve. See importmapReadyScript.
+      reactScripts.push(`    <script>
       (function(){
         var blockId = ${JSON.stringify(bid)};
         var container = document.getElementById(${JSON.stringify(rootId)});
@@ -281,7 +305,8 @@ export async function constructComponentPreview(
         var initialProps = el ? JSON.parse(el.textContent || '{}') : {};
         var fb = document.getElementById(${JSON.stringify(fallbackId)});
         var fallbackHtml = fb ? JSON.parse(fb.textContent || '""') : '';
-        import('${basePath}/api/component/${component.id}-client.mjs')
+        (window.__handoffImportmapReady || Promise.resolve())
+          .then(function(){ return import('${basePath}/api/component/${component.id}-client.mjs'); })
           .then(function(m) {
             m.render(container, initialProps);
             window.addEventListener('message', function (event) {
@@ -291,7 +316,7 @@ export async function constructComponentPreview(
             });
           })
           .catch(function() {
-            // module.js not available — render static HTML snapshot instead
+            // module not available — render static HTML snapshot instead
             if (fallbackHtml) container.innerHTML = fallbackHtml;
           });
       })();
@@ -322,6 +347,7 @@ export async function constructComponentPreview(
 
   return `<html>
     <head>
+      ${importmapReadyScript(basePath)}
       <link rel="stylesheet" href="${basePath}/api/registry/theme.css" />
       <link rel="stylesheet" href="${basePath}/api/component/main.css" />
       <link rel="stylesheet" href="${basePath}/assets/css/preview.css" />${perComponentCss}${cssOverrideLinks}

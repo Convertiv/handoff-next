@@ -28,9 +28,11 @@ import { readComponentApi, readComponentMetadataApi, writeComponentApi } from '.
 import { removeComponentApi, syncComponentArtifacts } from './artifacts';
 import { getDocumentedPreviews } from './previews';
 import { removeComponentFromSummaryApi, updateComponentSummaryApi } from './summary';
+import path from 'path';
 import buildComponentCss from './css';
-import buildPreviews from './html';
+import buildPreviews, { resolveRenderer } from './html';
 import buildComponentJs from './javascript';
+import { buildSharedClientBundles, type ReactSplitInput } from './build-shared-bundles';
 
 const defaultComponent: TransformComponentTokensResult = {
   id: '',
@@ -223,6 +225,9 @@ export async function processComponents(
   options?: ProcessComponentsOptions
 ): Promise<ComponentListObject[]> {
   const result: ComponentListObject[] = [];
+  // React components built this pass — fed to the batched vendor-split phase
+  // after the loop (roadmap 6.6). Each becomes a tiny externalized entry.
+  const reactSplitInputs: ReactSplitInput[] = [];
 
   const documentationObject = await handoff.getDocumentationObject();
   const components = documentationObject?.components ?? ({} as CoreTypes.IDocumentationObject['components']);
@@ -435,6 +440,21 @@ export async function processComponents(
       );
     }
 
+    // Collect React components for the batched vendor-split phase (6.6). Only
+    // React components emit a `<id>-client.mjs` hydration bundle; the phase
+    // rebuilds each as a tiny externalized entry after the loop.
+    if (resolveRenderer(data) === 'react' && data.entries?.template) {
+      const declaredFields = (data as { fields?: Record<string, unknown> }).fields;
+      reactSplitInputs.push({
+        id: runtimeComponentId,
+        templatePath: path.resolve(handoff.workingPath, data.entries.template),
+        declarationPath: data.entries?.declaration
+          ? path.resolve(handoff.workingPath, data.entries.declaration)
+          : undefined,
+        hasFields: !!declaredFields && Object.keys(declaredFields).length > 0,
+      });
+    }
+
     /**
      * Screenshot generation, deliberately OUTSIDE the `buildPlan.previews`
      * gate. We want it idempotent: generate when screenshot.png is missing on
@@ -581,6 +601,21 @@ export async function processComponents(
   const isFullRebuild = !id;
   await updateComponentSummaryApi(handoff, result, isFullRebuild);
   await syncComponentArtifacts(handoff);
+
+  // Vendor-isolated component-library build (roadmap 6.6). Runs on full builds
+  // only: after every component is built, rebuild all React client entries as
+  // tiny externalized bundles + emit shared React/library bundles + importmap.
+  // Single-component builds keep the self-contained per-component bundle that
+  // ssrRenderPlugin already emitted (no importmap dependency), so a partial
+  // rebuild/push never references a shared bundle that wasn't regenerated.
+  if (isFullRebuild && reactSplitInputs.length > 0) {
+    try {
+      await buildSharedClientBundles(handoff, reactSplitInputs);
+    } catch (err) {
+      Logger.error('Vendor-split phase failed — components fall back to their per-component bundles.');
+      Logger.error(String((err as Error)?.message ?? err));
+    }
+  }
 
   // Release the shared chromium process kept alive across components for
   // screenshot generation. Idempotent — no-op if no screenshots were taken.

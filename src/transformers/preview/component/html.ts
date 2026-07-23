@@ -9,7 +9,7 @@ import viteBaseConfig from '@handoff/transformers/vite-config';
 import { getComponentOutputPath } from '@handoff/transformers/preview/component';
 import { TransformComponentTokensResult } from '@handoff/transformers/preview/types';
 
-const resolveRenderer = (data: TransformComponentTokensResult): RendererKind | undefined => {
+export const resolveRenderer = (data: TransformComponentTokensResult): RendererKind | undefined => {
   const templatePath = data.entries?.template || '';
   return (
     data.renderer ||

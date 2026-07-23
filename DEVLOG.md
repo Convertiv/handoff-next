@@ -5,6 +5,34 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-23 — Idempotent fonts mkdir + diagnosis of `public/api` EEXIST build race
+
+**Reported bug (from ssc-handoff).** `handoff-app build:app` exits 1 during doc
+assembly with `EEXIST: mkdir '.../.handoff/<id>/public/api'`.
+
+**Diagnosis.** All `public/api` dir creations in the current source *and* the
+published `1.2.2-7` dist already use `fs.mkdirSync(..., { recursive: true })` /
+`fs-extra.ensureDir` — recursive does not throw EEXIST on an existing leaf, so a
+missing flag is **not** the cause. Reproduced in ssc-handoff: the EEXIST (and
+sibling `ENOENT chmod` / `ENOENT copyfile` variants) only occurred while a
+`handoff-app start` dev server was running concurrently against the **same**
+`node_modules/handoff-app/.handoff/<projectId>/` working dir. The build's
+`syncPublicFiles` → `mirrorDirectory` (`fs.remove` + `ensureDir` + `copy`) races
+the dev server regenerating `public/api` → TOCTOU inside fs-extra. Stopping the dev
+server and cleaning `.handoff` → `npm run build` exits **0** deterministically.
+
+**Fix applied.** Hardened the one genuine non-idempotent mkdir in the build:app
+path: `src/pipeline/styles.ts` `buildCustomFonts` used a TOCTOU
+`if (!existsSync) mkdirSync(fontsFolder)` (non-recursive, inside a `Promise.all`
+over font families — can EEXIST on parallel families or a re-invoked build, and
+ENOENT if the parent is missing). Replaced with
+`fs.mkdirSync(fontsFolder, { recursive: true })`. Compiles clean (`npm run build`).
+
+**Follow-up worth considering.** build:app and a running `start` dev server share
+one `.handoff/<projectId>` working dir; concurrent use will keep racing on
+`public/api` regardless of per-call mkdir flags. Isolating the working dir per
+process (or serializing) would remove the class of error.
+
 ## 2026-07-21 — Neon compute reduction: cache the registry read hot-path + fix idle polling
 
 **Problem.** 8x8-handoff burned ~119 CU-hrs since Jul 1 on developer-only traffic.

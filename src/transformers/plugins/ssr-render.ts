@@ -112,7 +112,7 @@ async function loadComponentSchemaAndModule(
  * @param declarationPath Path to the declaration file (for `fields[*].render`), or undefined.
  * @param hasFields       Whether the component declares any `fields`.
  */
-function generateClientHydrationSource(
+export function generateClientHydrationSource(
   componentPath: string,
   declarationPath: string | undefined,
   hasFields: boolean

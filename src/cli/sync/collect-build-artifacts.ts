@@ -94,14 +94,30 @@ export async function collectPatternBuildArtifacts(handoff: Handoff, patternId: 
 
 export async function collectSharedComponentAssets(handoff: Handoff): Promise<Record<string, string>> {
   const dir = path.join(handoff.workingPath, 'public/api/component');
-  const sharedFiles = ['main.css', 'shared.css', 'main.js'];
   const out: Record<string, string> = {};
+
+  const sharedFiles = ['main.css', 'shared.css', 'main.js'];
   for (const name of sharedFiles) {
     const abs = path.join(dir, name);
     if (await fs.pathExists(abs)) {
       out[name] = await fs.readFile(abs, 'utf8');
     }
   }
+
+  // Vendor-isolated bundles (roadmap 6.6): the hashed shared React/library
+  // bundles + importmap + manifest emitted by build-shared-bundles.ts. These
+  // are NOT component-prefixed, so the per-component collector never sees them;
+  // they must ride the shared-assets path or the tiny component entries 404
+  // their bare-specifier imports on the registry. Prefix must stay in sync with
+  // SHARED_ARTIFACT_PREFIX ('hvendor-').
+  if (await fs.pathExists(dir)) {
+    for (const name of await fs.readdir(dir)) {
+      if (name.startsWith('hvendor-') && (name.endsWith('.mjs') || name.endsWith('.json'))) {
+        out[name] = await fs.readFile(path.join(dir, name), 'utf8');
+      }
+    }
+  }
+
   return out;
 }
 

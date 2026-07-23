@@ -4,6 +4,12 @@ import { componentArtifacts } from './schema';
 
 const SHARED_COMPONENT_ID = '__shared__';
 const SHARED_FILENAMES = new Set(['main.css', 'shared.css', 'main.js']);
+// Vendor-isolated bundles (roadmap 6.6): hashed React/library ESM bundles +
+// importmap + manifest, all prefixed `hvendor-`. They belong to every
+// component, so they're stored/read under the shared owner id — the tiny
+// per-component entries import them by bare specifier via the importmap. Keep
+// this prefix in sync with SHARED_ARTIFACT_PREFIX in build-shared-bundles.ts.
+const SHARED_ARTIFACT_PREFIX = 'hvendor-';
 
 function contentTypeForFilename(filename: string): string {
   const ext = filename.slice(filename.lastIndexOf('.')).toLowerCase();
@@ -23,7 +29,7 @@ function isBinaryContentType(contentType: string): boolean {
 }
 
 export function artifactComponentIdForFilename(filename: string, defaultComponentId: string): string {
-  if (SHARED_FILENAMES.has(filename)) return SHARED_COMPONENT_ID;
+  if (SHARED_FILENAMES.has(filename) || filename.startsWith(SHARED_ARTIFACT_PREFIX)) return SHARED_COMPONENT_ID;
   return defaultComponentId;
 }
 

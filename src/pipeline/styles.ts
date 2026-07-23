@@ -29,9 +29,11 @@ export const buildCustomFonts = async (handoff: Handoff, documentationObject: Ha
       const stream = fs.createWriteStream(path.join(fontLocation, `${name}.zip`));
       await zip(fontDirName, stream);
       const fontsFolder = path.resolve(handoff.workingPath, handoff.exportsDirectory, handoff.getProjectId(), 'fonts');
-      if (!fs.existsSync(fontsFolder)) {
-        fs.mkdirSync(fontsFolder);
-      }
+      // Idempotent: `recursive: true` creates missing parents and does not throw
+      // EEXIST when the folder already exists (avoids a TOCTOU race between the
+      // existsSync check and mkdir when font families are zipped in parallel or
+      // the build:app step is re-invoked).
+      fs.mkdirSync(fontsFolder, { recursive: true });
       fs.copySync(fontDirName, fontsFolder);
     }
   }));

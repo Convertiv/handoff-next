@@ -160,6 +160,28 @@ export interface Config {
   };
   app?: NextAppConfig;
   /**
+   * React preview / hydration-bundle configuration.
+   *
+   * Controls how each component's client hydration bundle is built. When
+   * `sharedPackages` is set, the batched build phase externalizes those
+   * packages (plus the React ecosystem, which is always shared) from every
+   * per-component bundle and emits them as ONE set of hashed, immutable,
+   * importmap-referenced ESM bundles — loaded once and cached, instead of
+   * re-bundled into every component. This isolates vendor code from each
+   * component's own template for previews AND downstream distribution
+   * (static HTML / HubSpot / consumer builds).
+   */
+  preview?: {
+    /**
+     * Additional bare package specifiers to treat as SHARED vendor bundles.
+     * The React ecosystem (`react`, `react-dom`, `react-dom/client`,
+     * `react/jsx-runtime`) is always shared. Add your workspace's component
+     * library so it loads once instead of per component.
+     * @example ['8x8-component-library']
+     */
+    sharedPackages?: string[];
+  };
+  /**
    * Component validation framework (ADR-002). List of validators to run on
    * each component during build. Mix of built-in factories (axe, schema,
    * contrast) and inline custom validators.
