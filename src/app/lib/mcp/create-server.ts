@@ -21,6 +21,7 @@ import { validatePreviewValues } from '@handoff/transformers/preview/component/p
 import {
   createComponentPreview,
   updateComponentPreview,
+  listComponentPreviews,
   PreviewValidationFailed,
 } from '@/lib/db/component-preview-queries';
 import { deleteDocPage, getHandoffPageBySlug, listHandoffPages, moveDocPage, writeDocPage, type DocPageActor } from '@/lib/server/doc-pages';
@@ -1071,26 +1072,119 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     args: z.record(z.string(), z.any()).optional().describe('Prop values for this block (validated against the component contract)'),
   });
 
-  /** Validate blocks against component contracts; returns error list (empty = ok). */
-  async function validateBlocks(blocks: { id: string; preview?: string; args?: Record<string, unknown> }[]) {
+  // ── Field-shape helpers (shared by contractReport + handoff_scaffold_args) ──
+  // The authoring "shape" of a prop is driven by its editorType (falling back to
+  // the inferred type/kind). These keep the scaffold, the shape warnings, and
+  // the report speaking the same language.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const editorOf = (m: any): string => m?.editorType ?? m?.type ?? m?.kind ?? 'any';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isVisualSlot = (m: any) =>
+    ['richtext', 'text', 'image', 'slot'].includes(m?.editorType) || m?.type === 'React.ReactNode' || m?.kind === 'slot';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const shapeNote = (m: any): string => {
+    switch (editorOf(m)) {
+      case 'richtext': return 'HTML string, e.g. "<p>Copy with <b>bold</b></p>"';
+      case 'text': case 'slot': case 'string': return 'string';
+      case 'image': return '{ src, alt, width?, height? }';
+      case 'button': return '{ label, href, variant? }';
+      case 'link': return '{ label, href }';
+      case 'select': case 'enum': return `one of: ${(m?.options ?? []).map((o: unknown) => JSON.stringify((o as { value?: unknown })?.value ?? o)).join(', ') || '(options)'}`;
+      case 'boolean': return 'boolean';
+      case 'number': return 'number';
+      case 'array': return `array of ${m?.items?.editorType ?? m?.items?.type ?? 'items'}`;
+      case 'object': return 'object';
+      default: return editorOf(m);
+    }
+  };
+  // A shape-correct placeholder value for a field, when no base-preview value exists.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const placeholderValue = (m: any): unknown => {
+    switch (editorOf(m)) {
+      case 'richtext': return '<p>Placeholder copy</p>';
+      case 'text': case 'slot': case 'string': return 'Text';
+      case 'image': return { src: '', alt: '', width: 0, height: 0 };
+      case 'button': return { label: 'Button', href: '#' };
+      case 'link': return { label: 'Link', href: '#' };
+      case 'select': case 'enum': { const o = m?.options?.[0]; return (o as { value?: unknown })?.value ?? o ?? ''; }
+      case 'boolean': return false;
+      case 'number': return 0;
+      case 'array': return [];
+      case 'object': return {};
+      default: return null;
+    }
+  };
+  // Flag a provided value whose JS shape doesn't match its editorType (renders wrong).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const shapeMismatch = (m: any, v: unknown): string | null => {
+    if (v == null) return null;
+    const e = editorOf(m);
+    const isObj = typeof v === 'object' && !Array.isArray(v);
+    if (['richtext', 'text', 'slot', 'string'].includes(e) && typeof v !== 'string') return `expected a string (${e})`;
+    if (e === 'image' && !isObj) return 'expected { src, alt, width?, height? }';
+    if ((e === 'button' || e === 'link') && !isObj) return `expected ${shapeNote(m)}`;
+    if (e === 'array' && !Array.isArray(v)) return 'expected an array';
+    if (e === 'boolean' && typeof v !== 'boolean') return 'expected a boolean';
+    if (e === 'number' && typeof v !== 'number') return 'expected a number';
+    return null;
+  };
+
+  /**
+   * Structured contract report for one value-set — the no-render "will this
+   * render WELL?" signal (Phase 1a/1b verify). Beyond validity it surfaces:
+   * visual slots left EMPTY (render blank — the #1 cause of a lifeless block),
+   * out-of-contract keys, per-field editorType, and shapeWarnings (a provided
+   * value whose JS shape doesn't match its editorType, e.g. an image given a
+   * bare string). Use handoff_scaffold_args to get correctly-shaped values.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function contractReport(properties: Record<string, any> | undefined, args: Record<string, unknown> | undefined) {
+    const props = properties ?? {};
+    const provided = new Set(Object.keys(args ?? {}));
+    const emptySlots: string[] = [];
+    const fields: Record<string, string> = {};
+    for (const [k, m] of Object.entries(props)) {
+      fields[k] = editorOf(m);
+      if (isVisualSlot(m) && !provided.has(k)) emptySlots.push(k);
+    }
+    const unknownKeys = [...provided].filter((k) => !(k in props));
+    const shapeWarnings: string[] = [];
+    for (const [k, v] of Object.entries(args ?? {})) {
+      const m = props[k];
+      if (!m) continue; // unknown key already reported
+      const msg = shapeMismatch(m, v);
+      if (msg) shapeWarnings.push(`${k}: ${msg}`);
+    }
+    return { declared: Object.keys(props).length, provided: provided.size, unknownKeys, emptySlots, shapeWarnings, fields };
+  }
+
+  /**
+   * Validate blocks against component contracts AND build a per-block contract
+   * report. `errors` empty = valid; `report` is always returned (even on
+   * success) so the caller can self-verify what will render.
+   */
+  async function checkBlocks(blocks: { id: string; preview?: string; args?: Record<string, unknown> }[]) {
     const provider = getDataProvider();
     const errors: { block: number; id: string; key?: string; message: string }[] = [];
+    const report: Array<Record<string, unknown>> = [];
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
       const comp = await provider.getComponent(b.id.trim());
       if (!comp) {
         errors.push({ block: i, id: b.id, message: 'unknown component id' });
+        report.push({ block: i, id: b.id, error: 'unknown component id' });
         continue;
       }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const props = (comp as any)?.properties ?? {};
       if (b.args) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const props = (comp as any)?.properties ?? {};
         for (const e of validatePreviewValues(b.args, props)) {
           errors.push({ block: i, id: b.id, key: e.key, message: e.message });
         }
       }
+      report.push({ block: i, id: b.id, ...contractReport(props, b.args) });
     }
-    return errors;
+    return { errors, report };
   }
 
   const toComponents = (blocks: { id: string; preview?: string; args?: Record<string, unknown> }[]) =>
@@ -1139,16 +1233,76 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   );
 
   server.registerTool(
+    'handoff_scaffold_args',
+    {
+      description:
+        'Get a ready-to-fill `args` template for a component so you dispatch blocks/previews that render ' +
+        'WELL instead of guessing prop shapes. Seeds `args` from a real preview (correctly-shaped slots, ' +
+        'images, arrays) when one exists, and annotates every field with its editorType + expected shape ' +
+        '(richtext = HTML string, image = { src, alt, … }, etc). Fill/tweak the returned `args`, then pass ' +
+        'it to handoff_create_page (as a block\'s args) or handoff_create_preview. Call this BEFORE authoring ' +
+        'to avoid empty slots / wrong-shaped values.',
+      inputSchema: {
+        componentId: z.string(),
+        fromPreview: z
+          .string()
+          .optional()
+          .describe('Base preview key to seed real values from; defaults to "generic" or the first available.'),
+      },
+    },
+    async ({ componentId, fromPreview }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const comp = await getDataProvider().getComponent(componentId.trim());
+      if (!comp) return textResult({ error: 'Not found' });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const props = (comp as any)?.properties ?? {};
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const previews = (comp as any)?.previews ?? {};
+      const keys = Object.keys(previews);
+      const baseKey =
+        fromPreview && keys.includes(fromPreview) ? fromPreview : keys.includes('generic') ? 'generic' : keys[0] ?? null;
+      // A preview entry is `{ values, … }`; tolerate a bare values object too.
+      const baseValues: Record<string, unknown> = baseKey
+        ? (previews[baseKey]?.values ?? previews[baseKey] ?? {})
+        : {};
+      const args: Record<string, unknown> = {};
+      const fields: Record<string, unknown> = {};
+      for (const [k, m] of Object.entries(props)) {
+        const hasBase = k in baseValues;
+        args[k] = hasBase ? baseValues[k] : placeholderValue(m);
+        fields[k] = {
+          editorType: editorOf(m),
+          shape: shapeNote(m),
+          fromBase: hasBase,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...((m as any)?.options ? { options: (m as any).options } : {}),
+        };
+      }
+      return textResult({
+        componentId: componentId.trim(),
+        basePreview: baseKey,
+        note: baseKey
+          ? `args seeded from preview "${baseKey}" (real values) — tweak and dispatch.`
+          : 'no base preview available — args are typed placeholders; fill them in.',
+        args,
+        fields,
+      });
+    }
+  );
+
+  server.registerTool(
     'handoff_create_page',
     {
       description:
         'Compose a NEW playground page (landing page) from component blocks and save it (source: playground). ' +
         'Each block is {id (component id), preview? (existing preview key), args? (prop values)}. To compose ' +
-        'blocks that render WELL (not just validly), first call handoff_get_component for each component and ' +
-        'base `args` on one of its `previews[].values` — that is the real, correctly-shaped prop set (slots, ' +
-        'nested objects, arrays). Or reference an existing preview by key via `preview` and override only what ' +
-        'changes in `args`. Every block is validated against its contract (unknown ids / out-of-contract args ' +
-        'are rejected). Returns editUrl (open in the playground builder) and viewUrl (rendered page).',
+        'blocks that render WELL (not just validly), call handoff_scaffold_args for each component first — it ' +
+        'returns correctly-shaped `args` (seeded from a real preview) + per-field shapes; tweak and pass them ' +
+        'here. Or reference an existing preview by key via `preview` and override only what changes in `args`. ' +
+        'Every block is validated against its contract (unknown ids / out-of-contract args ' +
+        'are rejected). Note richtext fields take HTML strings, and any VISUAL slot you leave unset renders ' +
+        'blank — the returned `report[].emptySlots` flags those. `editUrl` renders your exact args live now; ' +
+        '`publishedUrl` (the standalone page) only reflects this composition after a rebuild.',
       inputSchema: {
         id: z.string().describe('Unique page id / slug.'),
         title: z.string(),
@@ -1162,8 +1316,8 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
-      const errors = await validateBlocks(blocks);
-      if (errors.length) return textResult({ ok: false, errors });
+      const { errors, report } = await checkBlocks(blocks);
+      if (errors.length) return textResult({ ok: false, errors, report });
       await writePattern(
         { id, title, description, group, components: toComponents(blocks), source: 'playground' },
         patternActor(message)
@@ -1173,9 +1327,13 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         ok: true,
         id,
         blocks: blocks.length,
-        // Real, openable links so the user can immediately see/refine the lander.
+        // editUrl renders the exact stored args live (playground client-hydrates
+        // each block); publishedUrl is the standalone page, stale until a rebuild.
         editUrl: `${base}/playground?pattern=${encodeURIComponent(id)}`,
-        viewUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
+        publishedUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
+        publishedNote:
+          'publishedUrl reflects this composition only after a rebuild (handoff_enqueue_build). editUrl shows your exact args now.',
+        report,
       });
     }
   );
@@ -1200,9 +1358,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
+      let report: Array<Record<string, unknown>> | undefined;
       if (blocks) {
-        const errors = await validateBlocks(blocks);
-        if (errors.length) return textResult({ ok: false, errors });
+        const checked = await checkBlocks(blocks);
+        if (checked.errors.length) return textResult({ ok: false, errors: checked.errors, report: checked.report });
+        report = checked.report;
       }
       const updates: Record<string, unknown> = {};
       if (title !== undefined) updates.title = title;
@@ -1217,7 +1377,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         id,
         ...(blocks ? { blocks: blocks.length } : {}),
         editUrl: `${base}/playground?pattern=${encodeURIComponent(id)}`,
-        viewUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
+        publishedUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
+        publishedNote:
+          'publishedUrl reflects this composition only after a rebuild (handoff_enqueue_build). editUrl shows your exact args now.',
+        ...(report ? { report } : {}),
       });
     }
   );
@@ -1229,8 +1392,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     {
       description:
         'Author a NEW registry preview for a component — a named, semantic value-set (e.g. a "Primary ' +
-        'CTA" button). Values are validated against the component contract; invalid values are rejected, ' +
-        'not saved. This is how Claude publishes a configured, meaningful example to the workbench.',
+        'CTA" button). Call handoff_scaffold_args first for correctly-shaped `values`. Values are validated ' +
+        'against the component contract; invalid values are rejected, not saved. This is how Claude publishes ' +
+        'a configured, meaningful example to the workbench. Richtext ' +
+        'fields take HTML strings. Returns `verifyUrl` (renders this value-set in the workbench immediately — ' +
+        'no rebuild) and a `report` (empty visual slots + each field\'s editorType) to self-check the values.',
       inputSchema: {
         componentId: z.string(),
         title: z.string().describe('Human label, e.g. "Primary — main page CTA".'),
@@ -1255,7 +1421,18 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           source: 'llm',
           authorId: patternActor().userId,
         });
-        return textResult({ ok: true, id: rec.id, previewKey: rec.previewKey });
+        // Registry previews render client-side in the workbench immediately (no
+        // rebuild) — verifyUrl opens the component surface showing this value-set.
+        const base = issuerForCliSync(request);
+        const comp = await getDataProvider().getComponent(componentId.trim());
+        return textResult({
+          ok: true,
+          id: rec.id,
+          previewKey: rec.previewKey,
+          verifyUrl: `${base}/system/component/${encodeURIComponent(componentId.trim())}?preview=${encodeURIComponent(rec.previewKey)}`,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          report: contractReport((comp as any)?.properties, values),
+        });
       } catch (e) {
         if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
         return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to create preview' });
@@ -1289,7 +1466,16 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           ...(rationale !== undefined ? { rationale } : {}),
         });
         if (!rec) return textResult({ ok: false, error: 'Not found' });
-        return textResult({ ok: true, id: rec.id, previewKey: rec.previewKey });
+        const base = issuerForCliSync(request);
+        const comp = await getDataProvider().getComponent(rec.componentId);
+        return textResult({
+          ok: true,
+          id: rec.id,
+          previewKey: rec.previewKey,
+          verifyUrl: `${base}/system/component/${encodeURIComponent(rec.componentId)}?preview=${encodeURIComponent(rec.previewKey)}`,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ...(values !== undefined ? { report: contractReport((comp as any)?.properties, values) } : {}),
+        });
       } catch (e) {
         if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
         return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to update preview' });
@@ -1517,7 +1703,24 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         if (!comp) return textResult({ error: 'Not found' });
         const previews = ((comp as { previews?: Record<string, unknown> }).previews) ?? {};
         const keys = Object.keys(previews);
-        const previewKey = preview && keys.includes(preview) ? preview : keys.includes('generic') ? 'generic' : keys[0];
+        const requestedIsBuilt = preview ? keys.includes(preview) : false;
+
+        // A registry-authored (DB) preview has NO static <id>-<key>.html — the
+        // inline app can only render BUILT previews. If the caller asks for a key
+        // that isn't built, don't silently fall back to "generic" (that renders
+        // the wrong thing): if it's a DB preview, surface a verifyUrl to the
+        // workbench (which client-renders it) instead.
+        let dbVerifyUrl: string | undefined;
+        let dbNote: string | undefined;
+        if (preview && !requestedIsBuilt) {
+          const dbMatch = (await listComponentPreviews(id.trim())).find((p) => p.previewKey === preview);
+          if (dbMatch) {
+            dbVerifyUrl = `${registryBase}/system/component/${encodeURIComponent(id.trim())}?preview=${encodeURIComponent(preview)}`;
+            dbNote = `"${preview}" is a registry-authored preview with no inline static render — open verifyUrl to see it in the workbench.`;
+          }
+        }
+
+        const previewKey = requestedIsBuilt ? preview! : keys.includes('generic') ? 'generic' : keys[0];
         const previewUrl = previewKey
           ? `${registryBase}/api/component/${encodeURIComponent(id.trim())}/${encodeURIComponent(`${id.trim()}-${previewKey}`)}.html`
           : null;
@@ -1525,6 +1728,8 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           componentId: id.trim(),
           previewKey: previewKey ?? null,
           previewUrl,
+          ...(dbVerifyUrl ? { verifyUrl: dbVerifyUrl } : {}),
+          ...(dbNote ? { note: dbNote } : {}),
           // Cross-origin image for the inline app to render (img-src probe). The
           // registry logo is guaranteed to exist; swap for a real component
           // thumbnail/screenshot endpoint once the inline path is proven.

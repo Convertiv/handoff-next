@@ -127,13 +127,21 @@ export function generateClientHydrationSource(
     ${declImport}
 
     const __fields = ${fieldsExpr};
-    // Map serializable field values → real props via each field's render fn.
+    // Map serializable field values → real props. A field's own render fn wins;
+    // otherwise an editorType:'richtext' string is rendered as REAL HTML (else
+    // the raw markup shows as escaped, visible tags). Keep this default in sync
+    // with applyRenderFns' richtextNode in ssr-render.ts (SSR ⇄ hydration).
     function __map(props) {
       if (!props || typeof props !== 'object') return props;
       const out = { ...props };
       for (const k in __fields) {
-        const r = __fields[k] && __fields[k].render;
-        if (typeof r === 'function' && k in out) out[k] = r(out[k]);
+        const f = __fields[k];
+        if (!f || !(k in out)) continue;
+        if (typeof f.render === 'function') {
+          out[k] = f.render(out[k]);
+        } else if (f.editorType === 'richtext' && typeof out[k] === 'string') {
+          out[k] = React.createElement('span', { style: { display: 'contents' }, dangerouslySetInnerHTML: { __html: out[k] } });
+        }
       }
       return out;
     }
@@ -360,7 +368,14 @@ export function ssrRenderPlugin(
         // Map serializable field values → real props (nodes) for SSR. The JSON
         // props script below stays RAW/serializable so the client re-maps the
         // same way (SSR ⇄ hydration agreement).
-        const renderProps = applyRenderFns(previewProps as Record<string, unknown>, declaredFieldsForRender);
+        const renderProps = applyRenderFns(
+          previewProps as Record<string, unknown>,
+          declaredFieldsForRender,
+          // Default richtext render — must match the inline __map in the client
+          // bundle (generateClientHydrationSource). display:contents so the
+          // wrapper doesn't introduce a box around block content (lists, etc).
+          (html) => React.createElement('span', { style: { display: 'contents' }, dangerouslySetInnerHTML: { __html: html } })
+        );
 
         // Server-side render the component
         const serverRenderedHtml = ReactDOMServer.renderToString(React.createElement(ReactComponent, renderProps));

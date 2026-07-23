@@ -47,6 +47,7 @@ const CATEGORY_BY_TOOL: Record<string, string> = {
   // Pages & compositions
   handoff_list_pages: 'Pages & Compositions',
   handoff_get_page: 'Pages & Compositions',
+  handoff_scaffold_args: 'Pages & Compositions',
   handoff_create_page: 'Pages & Compositions',
   handoff_update_page: 'Pages & Compositions',
   // Previews

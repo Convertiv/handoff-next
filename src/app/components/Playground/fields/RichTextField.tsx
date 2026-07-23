@@ -41,7 +41,14 @@ export function RichTextField({ identifier }: { identifier: string[]; value: any
   }, [idKey, getData, identifier]);
 
   const push = () => {
-    if (ref.current) handleInputChange([...identifier], ref.current.innerHTML);
+    const el = ref.current;
+    if (!el) return;
+    let html = el.innerHTML;
+    // A visually-empty editor still leaves browser artifacts (`<br>`,
+    // `<div><br></div>`). Store "" so the slot renders empty instead of a stray
+    // tag/line. Keep non-text embeds (image/hr/etc.) even with no text.
+    if (!el.textContent?.trim() && !/<(img|hr|iframe|svg|video)/i.test(html)) html = '';
+    handleInputChange([...identifier], html);
   };
 
   // Toolbar commands mutate the DOM directly; push the result so the preview +

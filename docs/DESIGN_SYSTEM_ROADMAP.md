@@ -21,7 +21,13 @@ the spec docs).
 2. **Specs are adapters, never the internal model.** The internal model is a superset (provenance,
    sync state, lineage, ownership). Import normalizes *into* canonical; export serializes *out*.
 3. **Two layers, two specs.** Token *values* → **DTCG** (stable). Documentation/system layer →
-   **DSDS** (draft, version-pinned, output-first).
+   **DSDS** (draft, version-pinned, output-first). Pinned to **DSDS v0.15.2** (designsystemdocspec.org,
+   repo `somerandomdude/design-system-documentation-schema`). v0.15.2 **explicitly complements DTCG,
+   not replaces it** — validating this split. Its 8 entities (component / token / token-group / theme /
+   foundation / pattern / guide / chunk) + 16 doc-block kinds map cleanly onto our model, and it now
+   carries an **`agentDocumentBlocks`** layer (agent-facing docs alongside human `documentBlocks`) that
+   lands on our author-once-project-to-agents thesis (#6). What DSDS deliberately omits — provenance,
+   lineage, sync-state, ownership — is exactly our superset (#2).
 4. **Each token area is a vertical slice.** Schema → seed values → human UI page → transform output.
 5. **Native, not standalone.** All UI lives inside the handoff app; the standalone POC generators
    proved the shape but are not the destination.
@@ -108,6 +114,31 @@ writes = the new surface.
     rendering has known open flakiness; ~384 KB inlined bundle (optimize later).
   - ⬜ Embedded **page-composition builder** (playground field builder + render bridge).
   - ⬜ Embedded **changelog/diff review** panel.
+- 🔄 **6.7 Clean asset dispatch — author → verify → workbench loop (NOW, 2026-07-23).** Extends 6.1:
+  make the MCP dispatch playground/workbench assets that render WELL, that Claude can verify, and
+  ultimately drive the full workbench build loop. Sequenced (agreed with Brad): **Phase 1 author+verify
+  together** (verification is how "clean" is proven), then **Phase 2 the full workbench loop**.
+  - ✅ **Phase 1a — verify (no-chromium; "Live URLs + contract report", Brad's pick).** Grounding
+    investigation established: runtime SSR of arbitrary args does NOT exist and the vendor-split makes it
+    harder (bare specifiers need a browser importmap) → do NOT build runtime render now. MCP-authored
+    *previews* render immediately client-side in the workbench; *pages* render live only at
+    `/playground?pattern=` (`/system/pattern/` is build-time-stale). Implemented in `create-server.ts`:
+    `create/update_page` now return `editUrl` (renders exact args live) + `publishedUrl` + a rebuild note
+    (was returning a stale `viewUrl`); `create/update_preview` return a `verifyUrl` to the workbench
+    surface; `handoff_preview_component` no longer silently 404s / wrong-renders a DB preview key (routes
+    to a verifyUrl). Added a `contractReport` (empty visual slots, out-of-contract keys, per-field
+    editorType) surfaced on every page/preview write — the strongest no-render "will it render well?"
+    signal, and the seed for the 1b scaffold. App tsconfig clean. **Deploy-gated** (app redeploy to verify live).
+  - ✅ **Phase 1b — authoring correctness.** New `handoff_scaffold_args` tool returns a ready-to-fill
+    `args` template **seeded from a real preview** (correctly-shaped slots/images/arrays) + per-field
+    `{editorType, shape, options}` guidance, so Claude fills values instead of guessing shapes.
+    `contractReport` gained `shapeWarnings` (a provided value whose JS shape mismatches its editorType —
+    e.g. an image given a bare string). Shared shape helpers (editorOf/shapeNote/placeholderValue/
+    shapeMismatch) keep scaffold + report + warnings consistent. create_page/create_preview descriptions
+    now point at the scaffold. App tsconfig clean. **Deploy-gated.**
+  - ⬜ **Phase 2 — full workbench build loop.** prototype → show samples (1a) → approve → save preview
+    (1b) → extract assets → spec + image gen; mostly composition of the Phase 1 primitives + existing
+    `handoff_create_design_artifact` / `handoff_get_component_spec`.
 - ⬜ **6.3 Component source-patch tool (goal 3):** expose editable source files
   (`handoff_component_sources`) for Claude Code to patch → build → push. Small; rides the existing loop.
 - ⛔ **6.4 Claude Design native (goal 1):** design inside Claude Design pulling Handoff foundations
@@ -223,7 +254,13 @@ Engine is done and proven (Hagyard ProductCard + 8x8 hero-split overlay). Remain
   boxShadow→shadow), composite expansion (typography/shadow/border), inline-math eval, `{alias}`
   resolution across `source` sets, `$metadata.tokenSetOrder` flatten, strip `$figma*`. Set→tier via
   `$themes[].selectedTokenSets` tri-state. Generalize the Figma crawler into the first `Source` plugin.
-- ⬜ **Phase 5 — DSDS export adapter** (version-pinned, output-only) + drift/reconciliation UI.
+- ⬜ **Phase 5 — DSDS export adapter** (pinned to **v0.15.2**, output-only) + drift/reconciliation UI.
+  Serialize canonical → DSDS entity docs: our component contract+previews → `component`/`chunk`; DTCG
+  values → `token`/`token-group` (DSDS wraps values, doesn't own them); foundation pages → `foundation`;
+  playground patterns → `pattern`; doc pages → `guide`; multi-axis themes → `theme`. Emit
+  `agentDocumentBlocks` from our MCP/DESIGN.md context. Validate against
+  `designsystemdocspec.org/v0.15.2/dsds.bundled.schema.json`. Watch for spec drift — it moved v0.1→0.15.2
+  fast (0.15.2 dated 2026-07-16); re-check the pinned schema before building.
 - ⬜ Phase 0 hardening: AJV validation of DTCG files + manifest (aspirational).
 
 ### Track 3 — remaining MCP read/context

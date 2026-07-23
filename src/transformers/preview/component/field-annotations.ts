@@ -20,22 +20,31 @@ export interface SerializableFieldAnnotation {
 /**
  * Apply each field's `render` (the Storybook `mapping` step) to the matching
  * prop value: serializable editor value → real prop value (often a React node).
- * Only fields whose annotation carries a function `render` transform anything;
- * all other props pass through untouched. Pure; returns a new object.
+ * Fields with a function `render` use it. Fields annotated `editorType:'richtext'`
+ * with NO custom render default to rendering their HTML STRING as real HTML (via
+ * `richtextNode`) — otherwise the raw markup (`<b>`, `<br>`, …) reaches a
+ * `ReactNode` slot and renders as escaped, visible tags. All other props pass
+ * through untouched. Pure; returns a new object.
  *
- * Used at SSR (build, in-process) and mirrored inline in the client bundle so
- * the static render and the live/hydrated render agree.
+ * `richtextNode` is injected (this module can't import React); SSR passes a
+ * React factory. Used at SSR (build, in-process) and mirrored inline in the
+ * client bundle (see `generateClientHydrationSource`) so static, hydrated, and
+ * live renders agree — keep the two richtext defaults identical.
  */
 export function applyRenderFns(
   props: Record<string, unknown> | null | undefined,
-  fields: Record<string, { render?: unknown } | undefined> | undefined
+  fields: Record<string, { render?: unknown; editorType?: string } | undefined> | undefined,
+  richtextNode?: (html: string) => unknown
 ): Record<string, unknown> {
   const out: Record<string, unknown> = { ...(props ?? {}) };
   if (!fields) return out;
   for (const [key, ann] of Object.entries(fields)) {
-    const render = ann && typeof ann === 'object' ? (ann as { render?: unknown }).render : undefined;
-    if (typeof render === 'function' && key in out) {
+    if (!ann || typeof ann !== 'object' || !(key in out)) continue;
+    const render = (ann as { render?: unknown }).render;
+    if (typeof render === 'function') {
       out[key] = (render as (v: unknown) => unknown)(out[key]);
+    } else if (richtextNode && (ann as { editorType?: string }).editorType === 'richtext' && typeof out[key] === 'string') {
+      out[key] = richtextNode(out[key] as string);
     }
   }
   return out;
