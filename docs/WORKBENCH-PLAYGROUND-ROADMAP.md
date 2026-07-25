@@ -14,8 +14,12 @@ hardened base. Each phase is independently shippable.
   means a *team sharing that system* — per-user ownership of playground/workbench designs plus
   sharing/visibility among teammates. **No new org/tenant entity.** (Model the ownership/visibility
   layer cleanly enough that an org tier *could* be added later, but do not build it now.)
-- **Image storage = Vercel Blob.** Move inline base64 out of Postgres into Blob (private by default,
-  public URLs for shared assets); keep only URLs in the DB.
+- **Image storage = Vercel Blob.** Move inline base64 out of Postgres into Blob; keep only URLs in the DB.
+- **Serving model = public, unguessable URLs** (chosen 2026-07-24). `access:'public'` with a random
+  suffix so the blob URL is the capability (like Figma/Slack/Notion image embeds) — knowing an artifact's
+  UUID is not enough to reach its images. Chosen over private+proxy for simplicity, CDN speed, and
+  testability; the URL only appears in owner-authed API responses. Private+authenticated-proxy remains an
+  optional Phase 1.5 hardening if strict confidentiality is later required.
 
 **De-confliction:** the MCP write cycle (Track 6 in [DESIGN_SYSTEM_ROADMAP.md](DESIGN_SYSTEM_ROADMAP.md))
 is active in another session, including **6.7 clean asset dispatch → workbench loop**. The two overlap
@@ -88,20 +92,34 @@ in-flight fetch dedup. Full `tsc --noEmit` clean.
 **Exit:** Library list and saved-design open drop from multi-MB / multi-second to sub-second on the
 current Neon size; playground cold-load is one round of parallel fetches, not a serial chain.
 
-## Phase 1 — Get images out of Postgres → Vercel Blob (the root fix)
+## Phase 1 — Get images out of Postgres → Vercel Blob (the root fix) — 🔄 IN PROGRESS 2026-07-24
 
 ⚠️ **Track-6 seam:** design artifacts are written by both `/design` and MCP `create_design_artifact` /
-6.7 asset dispatch. Do the write-side switch behind a helper both paths call.
+6.7 asset dispatch. The write-side switch lives behind ONE helper both paths call (the four write
+functions in `queries.ts`), so the seam is a single shared core.
 
-- **1.1** Introduce a Blob storage helper (private by default; public URL only when an artifact is shared).
-- **1.2** On write, upload `imageUrl` / `sourceImages` / `conversationHistory[].imageUrl` / `assets[]`
-  to Blob; persist **URLs**, not data URLs. Keep a small `thumbnail` (URL) for lists.
-- **1.3** Backfill migration: stream existing rows, push base64 → Blob, rewrite columns to URLs.
-  (Job-based, idempotent, resumable — these rows are large.)
-- **1.4** Reads return URLs; the browser loads images directly from Blob (CDN), off the DB request path.
+- **1.1 ✅ Blob offload helper** — `src/app/lib/storage/artifact-images.ts`: `offloadArtifactImages()`
+  uploads inline `data:` URLs to Blob (`access:'public'`, random suffix) and returns URLs; passthrough
+  when `BLOB_READ_WRITE_TOKEN` is unset (local/workspace mode) or on failure — offload never blocks a save.
+- **1.2 ✅ Write-path wiring** — `insertDesignArtifact` / `updateDesignArtifact` /
+  `updateDesignArtifactById` / `finalizeDesignArtifactExtraction` all offload `imageUrl` /
+  `sourceImages[].dataUrl` / `conversationHistory[].imageUrl` / `assets[].imageUrl` before persisting.
+  New saves store URLs, not base64. (tsc clean.)
+- **1.3 ✅ Backfill** — admin-only resumable batch route `POST /api/handoff/admin/backfill-artifact-blobs`
+  (`{limit?,cursor?}` → `{processed,offloaded,skipped,nextCursor,done}`); offloads existing rows' inline
+  images via the shared helper, preserving `updatedAt`; loop until `done`. Audit confirmed no write path
+  (incl. MCP create + background workers) bypasses the offload. (tsc clean.)
+- **1.4 Reads need NO change** — the public blob URL is stored in the same column, so the client renders
+  it directly off the CDN. No proxy, no read-path rewrite. (Serving decision above.)
+
+**Env prerequisite:** create a Blob store per deployment and `vercel env pull` so `BLOB_READ_WRITE_TOKEN`
+is present. Until then everything runs in graceful-passthrough mode (images stay inline, no breakage).
+
+**Follow-up (not blocking):** re-saving an artifact orphans its previous blobs (random-suffix paths, no
+overwrite). Add a cleanup pass (delete blobs no longer referenced by any row) — minor, deferred.
 
 **Exit:** Postgres rows for artifacts shrink ~10–100×; DB transfer no longer scales with image count;
-polling and lists are metadata-only.
+lists/polls are already metadata-only after Phase 0.
 
 ## Phase 2 — Robustness & scale headroom
 
@@ -181,6 +199,35 @@ Nothing exists today (Figma is inbound-only; sync is Handoff-internal registry �
 - **D.3 Provenance on export:** record what was shipped where (extends the sync/event model), so a
   design artifact or pattern carries its outbound lineage. ⚠️ **Track-6 seam:** this is the natural
   join with the MCP-driven "author → verify → ship" arc — export should be reachable as MCP tools too.
+
+---
+
+# Part 3 — Onboarding & provisioning installer
+
+Productization layer: stand up a new Handoff deployment (per-client registry) with Postgres + Blob
+wired **automatically**, so adopters other than Brad — and Brad's own per-client rollouts — don't
+hand-wire infra. Decoupled from Parts 1–2; must never block them.
+
+**Principle: the installer orchestrates; the user authenticates and consents.** No resource is
+provisioned into a user's account without an explicit, cost-surfaced yes ("this creates a billable Neon
+DB + Blob store on *your* Vercel account"). Re-runs are idempotent — detect and wire existing resources,
+never duplicate (critical when re-provisioning a half-set-up client).
+
+- **3.1 `handoff init` CLI — FIRST (Brad's priority).** Extend the existing Handoff CLI with a
+  provisioning command: Vercel auth/link → provision **Neon** (`vercel integration add neon` Marketplace,
+  or Neon API) → create + connect a **Blob** store (injects `BLOB_READ_WRITE_TOKEN`) → `vercel env pull`
+  → migrations auto-run on boot → seed → deploy. Takes a client/project name so each deployment gets
+  isolated DB + Blob (matches the per-deployment isolation model today). The agency-scale accelerator for
+  spinning up client registries.
+- **3.2 Deploy Button + template — LATER.** A template repo declaring required storage integrations so a
+  non-technical adopter clicks Deploy, Vercel walks them through connecting Neon + Blob, env vars inject
+  automatically. Zero CLI. Lower-control, higher-reach counterpart to 3.1.
+- **3.3 Spike (prerequisite for 3.1).** Confirm which provisioning steps are stable as CLI subcommands
+  (`vercel blob store add`, `vercel integration add neon`) vs REST API in current Vercel CLI (57.x), so
+  3.1 targets stable surfaces. Small; do before building 3.1.
+
+⚠️ Depends on nothing in Parts 1–2, but **benefits from Phase 1**: once images live in Blob a fresh
+install needs a Blob store from first boot — 3.1 provisions it as a standard part of setup.
 
 ---
 

@@ -1,7 +1,8 @@
-import { and, asc, count, desc, eq, gte, ilike, like, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, ilike, like, lte, ne, or, sql } from 'drizzle-orm';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
+import { offloadArtifactImages, isDataUrl } from '../storage/artifact-images';
 import {
   componentBuildJobs,
   componentGenerationJobs,
@@ -481,21 +482,33 @@ export type DesignArtifactInsert = {
 
 export async function insertDesignArtifact(input: DesignArtifactInsert) {
   const db = getDb();
+  // Generate the id up front so Blob paths are scoped to it (Phase 1: offload
+  // inline base64 images to Blob before persisting; passthrough when Blob is off).
+  const id = input.id ?? crypto.randomUUID();
+  const imaged = await offloadArtifactImages(
+    {
+      imageUrl: input.imageUrl,
+      sourceImages: input.sourceImages,
+      conversationHistory: input.conversationHistory,
+      assets: input.assets,
+    },
+    id
+  );
   const [row] = await db
     .insert(handoffDesignArtifacts)
     .values({
-      ...(input.id ? { id: input.id } : {}),
+      id,
       title: input.title,
       description: input.description,
       status: input.status ?? 'review',
       userId: input.userId,
-      imageUrl: input.imageUrl,
-      sourceImages: (input.sourceImages ?? []) as Record<string, unknown>,
+      imageUrl: imaged.imageUrl ?? '',
+      sourceImages: (imaged.sourceImages ?? []) as Record<string, unknown>,
       componentGuides: (input.componentGuides ?? []) as Record<string, unknown>,
       foundationContext: (input.foundationContext ?? {}) as Record<string, unknown>,
-      conversationHistory: (input.conversationHistory ?? []) as Record<string, unknown>,
+      conversationHistory: (imaged.conversationHistory ?? []) as Record<string, unknown>,
       metadata: (input.metadata ?? {}) as Record<string, unknown>,
-      assets: (input.assets ?? []) as typeof handoffDesignArtifacts.$inferInsert.assets,
+      assets: (imaged.assets ?? []) as typeof handoffDesignArtifacts.$inferInsert.assets,
       assetsStatus: input.assetsStatus ?? 'none',
       publicAccess: input.publicAccess ?? false,
     })
@@ -509,20 +522,29 @@ export async function updateDesignArtifact(
   patch: Partial<Omit<DesignArtifactInsert, 'id' | 'userId'>>
 ): Promise<boolean> {
   const db = getDb();
+  const imaged = await offloadArtifactImages(
+    {
+      imageUrl: patch.imageUrl,
+      sourceImages: patch.sourceImages,
+      conversationHistory: patch.conversationHistory,
+      assets: patch.assets,
+    },
+    id
+  );
   const values: Partial<typeof handoffDesignArtifacts.$inferInsert> = { updatedAt: new Date() };
   if (patch.title !== undefined) values.title = patch.title;
   if (patch.description !== undefined) values.description = patch.description;
   if (patch.status !== undefined) values.status = patch.status;
-  if (patch.imageUrl !== undefined) values.imageUrl = patch.imageUrl;
-  if (patch.sourceImages !== undefined) values.sourceImages = patch.sourceImages as typeof handoffDesignArtifacts.$inferInsert.sourceImages;
+  if (patch.imageUrl !== undefined) values.imageUrl = imaged.imageUrl as string;
+  if (patch.sourceImages !== undefined) values.sourceImages = imaged.sourceImages as typeof handoffDesignArtifacts.$inferInsert.sourceImages;
   if (patch.componentGuides !== undefined)
     values.componentGuides = patch.componentGuides as typeof handoffDesignArtifacts.$inferInsert.componentGuides;
   if (patch.foundationContext !== undefined)
     values.foundationContext = patch.foundationContext as typeof handoffDesignArtifacts.$inferInsert.foundationContext;
   if (patch.conversationHistory !== undefined)
-    values.conversationHistory = patch.conversationHistory as typeof handoffDesignArtifacts.$inferInsert.conversationHistory;
+    values.conversationHistory = imaged.conversationHistory as typeof handoffDesignArtifacts.$inferInsert.conversationHistory;
   if (patch.metadata !== undefined) values.metadata = patch.metadata as typeof handoffDesignArtifacts.$inferInsert.metadata;
-  if (patch.assets !== undefined) values.assets = patch.assets as typeof handoffDesignArtifacts.$inferInsert.assets;
+  if (patch.assets !== undefined) values.assets = imaged.assets as typeof handoffDesignArtifacts.$inferInsert.assets;
   if (patch.assetsStatus !== undefined) values.assetsStatus = patch.assetsStatus;
   if (patch.componentSpec !== undefined) values.componentSpec = patch.componentSpec as typeof handoffDesignArtifacts.$inferInsert.componentSpec;
   if (patch.componentSpecMd !== undefined) values.componentSpecMd = patch.componentSpecMd;
@@ -542,20 +564,29 @@ export async function updateDesignArtifactById(
   patch: Partial<Omit<DesignArtifactInsert, 'id' | 'userId'>>
 ): Promise<boolean> {
   const db = getDb();
+  const imaged = await offloadArtifactImages(
+    {
+      imageUrl: patch.imageUrl,
+      sourceImages: patch.sourceImages,
+      conversationHistory: patch.conversationHistory,
+      assets: patch.assets,
+    },
+    id
+  );
   const values: Partial<typeof handoffDesignArtifacts.$inferInsert> = { updatedAt: new Date() };
   if (patch.title !== undefined) values.title = patch.title;
   if (patch.description !== undefined) values.description = patch.description;
   if (patch.status !== undefined) values.status = patch.status;
-  if (patch.imageUrl !== undefined) values.imageUrl = patch.imageUrl;
-  if (patch.sourceImages !== undefined) values.sourceImages = patch.sourceImages as typeof handoffDesignArtifacts.$inferInsert.sourceImages;
+  if (patch.imageUrl !== undefined) values.imageUrl = imaged.imageUrl as string;
+  if (patch.sourceImages !== undefined) values.sourceImages = imaged.sourceImages as typeof handoffDesignArtifacts.$inferInsert.sourceImages;
   if (patch.componentGuides !== undefined)
     values.componentGuides = patch.componentGuides as typeof handoffDesignArtifacts.$inferInsert.componentGuides;
   if (patch.foundationContext !== undefined)
     values.foundationContext = patch.foundationContext as typeof handoffDesignArtifacts.$inferInsert.foundationContext;
   if (patch.conversationHistory !== undefined)
-    values.conversationHistory = patch.conversationHistory as typeof handoffDesignArtifacts.$inferInsert.conversationHistory;
+    values.conversationHistory = imaged.conversationHistory as typeof handoffDesignArtifacts.$inferInsert.conversationHistory;
   if (patch.metadata !== undefined) values.metadata = patch.metadata as typeof handoffDesignArtifacts.$inferInsert.metadata;
-  if (patch.assets !== undefined) values.assets = patch.assets as typeof handoffDesignArtifacts.$inferInsert.assets;
+  if (patch.assets !== undefined) values.assets = imaged.assets as typeof handoffDesignArtifacts.$inferInsert.assets;
   if (patch.assetsStatus !== undefined) values.assetsStatus = patch.assetsStatus;
   if (patch.componentSpec !== undefined) values.componentSpec = patch.componentSpec as typeof handoffDesignArtifacts.$inferInsert.componentSpec;
   if (patch.componentSpecMd !== undefined) values.componentSpecMd = patch.componentSpecMd;
@@ -619,15 +650,101 @@ export async function finalizeDesignArtifactExtraction(
   if (opts.extractionError) prevMeta.assetsExtractionError = opts.extractionError;
   else delete prevMeta.assetsExtractionError;
 
+  // Offload any inline base64 in extracted assets to Blob before persisting (Phase 1).
+  const imaged = await offloadArtifactImages({ assets: opts.assets }, id);
+
   await db
     .update(handoffDesignArtifacts)
     .set({
-      assets: opts.assets as typeof handoffDesignArtifacts.$inferInsert.assets,
+      assets: (imaged.assets ?? opts.assets) as typeof handoffDesignArtifacts.$inferInsert.assets,
       assetsStatus: opts.assetsStatus,
       metadata: prevMeta as typeof handoffDesignArtifacts.$inferInsert.metadata,
       updatedAt: new Date(),
     })
     .where(eq(handoffDesignArtifacts.id, id));
+}
+
+/** True if any element of `arr` has an inline `data:` URL at `urlKey`. */
+function arrayHasInlineImage(arr: unknown, urlKey: 'dataUrl' | 'imageUrl'): boolean {
+  if (!Array.isArray(arr)) return false;
+  return arr.some((item) => item && typeof item === 'object' && isDataUrl((item as Record<string, unknown>)[urlKey]));
+}
+
+export type BackfillArtifactBlobsResult = {
+  processed: number;
+  offloaded: number;
+  skipped: number;
+  nextCursor: string | null;
+  done: boolean;
+};
+
+/**
+ * Phase 1 backfill: for one batch of existing artifacts (ordered by `id` after
+ * `cursor`), push any inline base64 images out to Blob. Direct writes here DO NOT
+ * touch `updatedAt` so existing ordering is preserved. Per-row failures are caught
+ * and counted as `skipped` so one bad row can't abort the batch. Caller must ensure
+ * Blob is configured (offload is a no-op otherwise, so nothing would change).
+ */
+export async function backfillArtifactBlobsBatch(
+  cursor: string | undefined,
+  limit: number
+): Promise<BackfillArtifactBlobsResult> {
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(handoffDesignArtifacts)
+    .where(cursor ? gt(handoffDesignArtifacts.id, cursor) : undefined)
+    .orderBy(asc(handoffDesignArtifacts.id))
+    .limit(limit);
+
+  let offloaded = 0;
+  let skipped = 0;
+  let nextCursor: string | null = cursor ?? null;
+
+  for (const row of rows) {
+    nextCursor = row.id;
+    try {
+      const hasInline =
+        isDataUrl(row.imageUrl) ||
+        arrayHasInlineImage(row.sourceImages, 'dataUrl') ||
+        arrayHasInlineImage(row.conversationHistory, 'imageUrl') ||
+        arrayHasInlineImage(row.assets, 'imageUrl');
+      if (!hasInline) {
+        skipped++;
+        continue;
+      }
+      const imaged = await offloadArtifactImages(
+        {
+          imageUrl: row.imageUrl,
+          sourceImages: row.sourceImages,
+          conversationHistory: row.conversationHistory,
+          assets: row.assets,
+        },
+        row.id
+      );
+      await db
+        .update(handoffDesignArtifacts)
+        .set({
+          imageUrl: (imaged.imageUrl ?? row.imageUrl) as string,
+          sourceImages: imaged.sourceImages as typeof handoffDesignArtifacts.$inferInsert.sourceImages,
+          conversationHistory:
+            imaged.conversationHistory as typeof handoffDesignArtifacts.$inferInsert.conversationHistory,
+          assets: imaged.assets as typeof handoffDesignArtifacts.$inferInsert.assets,
+        })
+        .where(eq(handoffDesignArtifacts.id, row.id));
+      offloaded++;
+    } catch (err) {
+      console.warn(
+        '[handoff] artifact blob backfill failed for row',
+        row.id,
+        err instanceof Error ? err.message : String(err)
+      );
+      skipped++;
+    }
+  }
+
+  const done = rows.length < limit;
+  return { processed: rows.length, offloaded, skipped, nextCursor, done };
 }
 
 export type DesignArtifactListFilter = {
