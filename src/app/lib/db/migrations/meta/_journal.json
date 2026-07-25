@@ -162,6 +162,13 @@
       "when": 1783000000000,
       "tag": "0022_dtcg_source",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1783100000000,
+      "tag": "0023_perf_indexes",
+      "breakpoints": true
     }
   ]
 }

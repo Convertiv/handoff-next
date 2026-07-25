@@ -18,6 +18,7 @@ import {
   getDbComponentById,
   getDbComponentSummaries,
   getDbPatterns,
+  getDbPatternById,
   getDbTokensSnapshot,
 } from '../db/queries';
 import { REGISTRY_TAGS } from '../server/registry-cache';
@@ -410,6 +411,18 @@ async function safeDbPatterns(): Promise<HandoffPatternRow[]> {
   }
 }
 
+async function safeDbPatternById(id: string): Promise<HandoffPatternRow | null> {
+  try {
+    return await getDbPatternById(id);
+  } catch (err) {
+    if (isBuildPhase() || isUndefinedTableError(err)) {
+      logDbFallback('handoff_pattern', err);
+      return null;
+    }
+    throw err;
+  }
+}
+
 export class DynamicDataProvider implements DataProvider {
   private fallback = new StaticDataProvider();
 
@@ -453,8 +466,10 @@ export class DynamicDataProvider implements DataProvider {
   }
 
   async getPattern(id: string): Promise<PatternObject | null> {
-    const rows = await safeDbPatterns();
-    const row = rows.find((r) => r.id === id);
+    // Fetch only the requested row instead of scanning the whole table (mirrors
+    // getComponent). The old full-scan-then-.find() read every pattern's jsonb
+    // `data`/`components` blob just to return one.
+    const row = await safeDbPatternById(id);
     if (row?.data && typeof row.data === 'object') {
       return row.data as PatternObject;
     }

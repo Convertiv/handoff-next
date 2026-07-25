@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import {
   getDesignArtifactById,
-  getDesignArtifacts,
+  getDesignArtifactSummaries,
   insertDesignArtifact,
   updateDesignArtifact,
   updateDesignArtifactById,
@@ -278,12 +278,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const rows = isAdmin
-      ? await getDesignArtifacts({
+      ? await getDesignArtifactSummaries({
           status,
           userId: userIdParam,
           limit: Number.isFinite(limit) ? limit : 50,
         })
-      : await getDesignArtifacts({
+      : await getDesignArtifactSummaries({
           status,
           userId: session.user.id,
           limit: Number.isFinite(limit) ? limit : 50,

@@ -575,6 +575,21 @@ export async function getDesignArtifactById(id: string) {
   return row ?? null;
 }
 
+/**
+ * Light owner lookup — only `id` + `userId`, no JSONB blobs. Used by the
+ * status subroute so the ownership check doesn't re-download the full artifact
+ * on every poll tick (which would defeat `getDesignArtifactStatus`'s purpose).
+ */
+export async function getDesignArtifactOwnerId(id: string) {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: handoffDesignArtifacts.id, userId: handoffDesignArtifacts.userId })
+    .from(handoffDesignArtifacts)
+    .where(eq(handoffDesignArtifacts.id, id))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Atomically move `assets_status` from `pending` to `extracting`. Returns false if another worker claimed or status changed. */
 export async function claimDesignArtifactForExtraction(id: string): Promise<boolean> {
   const db = getDb();
@@ -640,6 +655,80 @@ export async function getDesignArtifacts(filter: DesignArtifactListFilter = {}) 
     .where(and(...clauses))
     .orderBy(desc(handoffDesignArtifacts.updatedAt))
     .limit(limit);
+}
+
+/**
+ * Light list projection for the Library grid. Drops the heavy JSONB arrays
+ * (`sourceImages`, `componentGuides`, `foundationContext`, `conversationHistory`,
+ * `assets`, `componentSpec`, `componentSpecMd`) that `getDesignArtifacts()` pulls
+ * as full rows — `conversationHistory` alone carries one base64 image PER iteration
+ * turn, so a full-row list of 100 artifacts transfers many MB for a thumbnail grid.
+ * `imageUrl` is retained (single final image; becomes a Blob URL in Phase 1).
+ */
+export async function getDesignArtifactSummaries(filter: DesignArtifactListFilter = {}) {
+  const db = getDb();
+  const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
+  const cols = {
+    id: handoffDesignArtifacts.id,
+    title: handoffDesignArtifacts.title,
+    description: handoffDesignArtifacts.description,
+    status: handoffDesignArtifacts.status,
+    userId: handoffDesignArtifacts.userId,
+    imageUrl: handoffDesignArtifacts.imageUrl,
+    assetsStatus: handoffDesignArtifacts.assetsStatus,
+    specStatus: handoffDesignArtifacts.specStatus,
+    publicAccess: handoffDesignArtifacts.publicAccess,
+    metadata: handoffDesignArtifacts.metadata,
+    createdAt: handoffDesignArtifacts.createdAt,
+    updatedAt: handoffDesignArtifacts.updatedAt,
+  };
+  const clauses = [];
+  if (filter.status?.trim()) {
+    clauses.push(eq(handoffDesignArtifacts.status, filter.status.trim()));
+  }
+  if (filter.userId?.trim()) {
+    clauses.push(eq(handoffDesignArtifacts.userId, filter.userId.trim()));
+  }
+  if (clauses.length === 0) {
+    return db.select(cols).from(handoffDesignArtifacts).orderBy(desc(handoffDesignArtifacts.updatedAt)).limit(limit);
+  }
+  return db
+    .select(cols)
+    .from(handoffDesignArtifacts)
+    .where(and(...clauses))
+    .orderBy(desc(handoffDesignArtifacts.updatedAt))
+    .limit(limit);
+}
+
+/**
+ * Status-only projection for the saved-design detail poll. The detail page polls
+ * `assetsStatus`/`specStatus` every 4–5s; `getDesignArtifactById()` (SELECT *)
+ * re-downloaded the entire multi-MB blob on every tick. Returns only what the
+ * poll needs (incl. `assetsExtractionError` surfaced from metadata).
+ */
+export async function getDesignArtifactStatus(id: string) {
+  const db = getDb();
+  const [row] = await db
+    .select({
+      id: handoffDesignArtifacts.id,
+      status: handoffDesignArtifacts.status,
+      assetsStatus: handoffDesignArtifacts.assetsStatus,
+      specStatus: handoffDesignArtifacts.specStatus,
+      metadata: handoffDesignArtifacts.metadata,
+      updatedAt: handoffDesignArtifacts.updatedAt,
+    })
+    .from(handoffDesignArtifacts)
+    .where(eq(handoffDesignArtifacts.id, id))
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    assetsStatus: row.assetsStatus,
+    specStatus: row.specStatus,
+    assetsExtractionError: assetsExtractionErrorFromMetadata(row.metadata),
+    updatedAt: row.updatedAt,
+  };
 }
 
 /** Reference materials for design-to-component LLM context. */

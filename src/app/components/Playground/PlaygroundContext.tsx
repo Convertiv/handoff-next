@@ -47,37 +47,51 @@ const TEMPLATE_PREFIX = 'handoff-playground-template-';
 const PlaygroundContext = createContext<PlaygroundContextType | undefined>(undefined);
 
 const componentCache: Record<string, PlaygroundComponent> = {};
+// Dedupe concurrent fetches of the same id (e.g. a pattern that repeats a
+// component) so a parallel bulk load issues one network request per unique id.
+const inFlightFetches: Record<string, Promise<PlaygroundComponent>> = {};
 
 async function fetchComponentDetail(id: string, basePath: string): Promise<PlaygroundComponent> {
   if (componentCache[id]) {
     return { ...componentCache[id] };
   }
 
-  const response = await fetch(`${basePath}/api/component/${id}.json`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch component: ${response.statusText}`);
+  if (!inFlightFetches[id]) {
+    inFlightFetches[id] = (async () => {
+      const response = await fetch(`${basePath}/api/component/${id}.json`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch component: ${response.statusText}`);
+      }
+
+      const component = await response.json();
+      if (component.previews?.generic) {
+        component.data = component.previews.generic.values;
+      } else {
+        const firstPreview = Object.values(component.previews)[0];
+        if (firstPreview) {
+          component.data = (firstPreview as { values: Record<string, any> }).values;
+        } else {
+          component.data = {};
+        }
+      }
+
+      delete component.jsCompiled;
+      delete component.css;
+      delete component.js;
+      delete component.entries;
+      delete component.options;
+      delete component.sass;
+
+      componentCache[id] = component;
+      return component as PlaygroundComponent;
+    })().finally(() => {
+      delete inFlightFetches[id];
+    });
   }
 
-  const component = await response.json();
-  if (component.previews?.generic) {
-    component.data = component.previews.generic.values;
-  } else {
-    const firstPreview = Object.values(component.previews)[0];
-    if (firstPreview) {
-      component.data = (firstPreview as { values: Record<string, any> }).values;
-    } else {
-      component.data = {};
-    }
-  }
-
-  delete component.jsCompiled;
-  delete component.css;
-  delete component.js;
-  delete component.entries;
-  delete component.options;
-  delete component.sass;
-
-  componentCache[id] = component;
+  const component = await inFlightFetches[id];
+  // Return a fresh shallow copy so per-caller mutations (data / rendered) never
+  // clobber the shared cached object.
   return { ...component };
 }
 
@@ -146,23 +160,30 @@ export function PlaygroundProvider({
 
   const bulkAddComponents = useCallback(
     async (entries: BulkComponentEntry[], replace = true) => {
-      const results: SelectedPlaygroundComponent[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        const { componentId, data } = entries[i];
-        try {
-          const detail = await fetchComponentDetail(componentId, basePath);
-          detail.data = { ...detail.data, ...data };
-          detail.rendered = await renderPreview(detail, detail.data, basePath);
-          results.push({
-            ...detail,
-            order: i,
-            quantity: 1,
-            uniqueId: `${componentId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          });
-        } catch (err) {
-          console.warn(`Playground: skipping unknown component "${componentId}"`, err);
-        }
-      }
+      // Fan out fetch+render per component in parallel. Promise.all preserves
+      // array order regardless of completion order, so the assembled layout
+      // matches the pattern's original ordering. A single failing component
+      // resolves to null (logged) instead of aborting the whole load.
+      const settled = await Promise.all(
+        entries.map(async (entry, i): Promise<SelectedPlaygroundComponent | null> => {
+          const { componentId, data } = entry;
+          try {
+            const detail = await fetchComponentDetail(componentId, basePath);
+            detail.data = { ...detail.data, ...data };
+            detail.rendered = await renderPreview(detail, detail.data, basePath);
+            return {
+              ...detail,
+              order: i,
+              quantity: 1,
+              uniqueId: `${componentId}-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`,
+            };
+          } catch (err) {
+            console.warn(`Playground: skipping unknown component "${componentId}"`, err);
+            return null;
+          }
+        })
+      );
+      const results = settled.filter((r): r is SelectedPlaygroundComponent => r !== null);
       if (replace) {
         setSelectedComponents(results);
       } else {

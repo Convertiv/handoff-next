@@ -57,9 +57,15 @@ compiled fields only to discard them client-side (`:73`).
 
 # Part 1 — Foundation hardening (robust + optimized)
 
-## Phase 0 — Quick wins (no data migration; days, not weeks)
+## Phase 0 — Quick wins (no data migration; days, not weeks) — ✅ SHIPPED 2026-07-24
 
 Highest impact-per-effort. None of these require moving data or bumping Neon.
+Landed (working tree, branch `feature/mcp-prototype`): migration `0023_perf_indexes.sql` + journal
+entry (auto-applies on boot); `getDesignArtifactSummaries` / `getDesignArtifactStatus` /
+`getDesignArtifactOwnerId` projections in `queries.ts`; list route + `SavedDesignDetailClient` poll +
+new `/design-artifact/[id]/status` route rewired to the light paths; `getPattern` single-row fix;
+pooler-safe `getDb()` (`prepare:false` + timeouts); playground `bulkAddComponents` parallelized with
+in-flight fetch dedup. Full `tsc --noEmit` clean.
 
 - **0.1 Add indexes** (hand-written idempotent SQL migration + journal entry — never `db:generate`):
   - `handoff_design_artifact (user_id)`, `(status)`, `(updated_at DESC)`
@@ -106,6 +112,12 @@ polling and lists are metadata-only.
   serverless latency; adopt whichever wins. Document in an ADR.
 - **2.4 Caching:** short-TTL cache on read-heavy list endpoints keyed by user+visibility; verify the
   workbench server-render uses `getComponentSummaries()` (never jsonb `data`) not `getComponents()`.
+- **2.5 Light component-artifact variant (deferred from Phase 0).** The playground's
+  `fetchComponentDetail` downloads the full component artifact then discards `jsCompiled`/`css`/`js`/
+  `entries`/`options`/`sass` client-side. The detail endpoint (`/api/component/[...path]`) serves a
+  prebuilt artifact verbatim through a CSP/CORS-hardened choke point, so stripping fields there is not
+  low-risk. Follow-up: emit a `[id].light.json` at component-build time (or a `?fields=light` branch
+  reading a precomputed light row) and point the playground fetch at it.
 
 ---
 

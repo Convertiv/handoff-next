@@ -50,7 +50,20 @@ export function getDb(): HandoffDb {
   if (!globalForDb.handoffDrizzle) {
     const url = requireDatabaseUrl();
     try {
-      const client = postgres(url, { max: 10 });
+      // Match the pooler-aware config the migration client uses (auto-migrate.ts).
+      // Neon's `-pooler` endpoint is PgBouncer in transaction mode, which cannot
+      // use prepared statements — `prepare: true` there causes "prepared statement
+      // already exists" errors under concurrency. Timeouts fail fast instead of
+      // silently consuming the lambda budget; a modest idle_timeout releases
+      // connections so many warm isolates don't pin the small-Neon connection cap.
+      const isPooler = /-pooler\.|pooler\.|neon\.tech/i.test(url);
+      const client = postgres(url, {
+        max: 10,
+        idle_timeout: 20,
+        connect_timeout: 15,
+        prepare: !isPooler,
+        ssl: 'require',
+      });
       globalForDb.handoffPostgres = client;
       globalForDb.handoffDrizzle = drizzlePg(client, { schema: pgSchema });
     } catch (err) {

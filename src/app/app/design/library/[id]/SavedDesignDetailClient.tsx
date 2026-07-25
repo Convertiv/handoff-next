@@ -34,6 +34,16 @@ export type SavedDesignArtifactDetail = {
   updatedAt: string | Date;
 };
 
+/** Light status-only shape returned by the `[id]/status` subroute. */
+type ArtifactStatus = {
+  id: string;
+  status: string;
+  assetsStatus?: string;
+  specStatus?: string;
+  assetsExtractionError?: string | null;
+  updatedAt: string | Date;
+};
+
 type Props = {
   config: ClientConfig;
   menu: SectionLink[];
@@ -176,6 +186,19 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
     return normalizeArtifactDetail(json.artifact as Record<string, unknown>);
   }, [artifactId, message]);
 
+  // Light status-only poll — hits the `/status` subroute (no JSONB blobs) so the
+  // 4–5s polls don't re-download the whole multi-MB artifact on every tick.
+  const fetchStatus = useCallback(async (): Promise<ArtifactStatus | null> => {
+    if (message || !artifactId) return null;
+    const res = await fetch(
+      handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}/status`),
+      { credentials: 'include' }
+    );
+    const json = (await res.json().catch(() => ({}))) as ArtifactStatus & { error?: string };
+    if (!res.ok) throw new Error(json.error || `Failed to load (${res.status})`);
+    return json;
+  }, [artifactId, message]);
+
   useEffect(() => {
     if (message || !artifactId) {
       setLoaded(true);
@@ -220,13 +243,18 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
           return;
         }
         try {
-          const a = await fetchArtifact();
-          if (a) setArtifact(a);
+          const s = await fetchStatus();
+          const next = s?.assetsStatus;
+          // Only pull the full artifact once, when extraction reaches a terminal state.
+          if (next && next !== 'pending' && next !== 'extracting') {
+            const a = await fetchArtifact();
+            if (a) setArtifact(a);
+          }
         } catch { /* keep last artifact */ }
       })();
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [shouldPollAssets, fetchArtifact]);
+  }, [shouldPollAssets, fetchStatus, fetchArtifact]);
 
   useEffect(() => {
     if (assetsStatus === 'done' || assetsStatus === 'failed' || assetsStatus === 'none') {
@@ -254,17 +282,22 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
           return;
         }
         try {
-          const a = await fetchArtifact();
-          if (a) {
-            setArtifact(a);
-            // Only update editor if the user hasn't made edits
-            if (!specDirty) setSpecMd(a.componentSpecMd ?? '');
+          const s = await fetchStatus();
+          const next = s?.specStatus;
+          // Only pull the full artifact once, when spec generation reaches a terminal state.
+          if (next && next !== 'pending' && next !== 'generating') {
+            const a = await fetchArtifact();
+            if (a) {
+              setArtifact(a);
+              // Only update editor if the user hasn't made edits
+              if (!specDirty) setSpecMd(a.componentSpecMd ?? '');
+            }
           }
         } catch { /* keep last */ }
       })();
     }, SPEC_POLL_MS);
     return () => window.clearInterval(id);
-  }, [shouldPollSpec, fetchArtifact, specDirty]);
+  }, [shouldPollSpec, fetchStatus, fetchArtifact, specDirty]);
 
   useEffect(() => {
     if (specStatus === 'done' || specStatus === 'failed' || specStatus === 'none') {
