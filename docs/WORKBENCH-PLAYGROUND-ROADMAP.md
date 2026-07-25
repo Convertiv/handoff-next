@@ -121,15 +121,32 @@ overwrite). Add a cleanup pass (delete blobs no longer referenced by any row) �
 **Exit:** Postgres rows for artifacts shrink ~10–100×; DB transfer no longer scales with image count;
 lists/polls are already metadata-only after Phase 0.
 
-## Phase 2 — Robustness & scale headroom
+## Phase 2 — Robustness & scale headroom — ✅ MOSTLY SHIPPED 2026-07-24 (2.5 + 2.6 remain)
 
-- **2.1 Pagination** for the Library (cursor on `updated_at,id`) — replace the hard `limit 200`.
-- **2.2 Bounded feeds:** add `LIMIT` + cursor to `fetchSyncChangesSince` (`sync-queries.ts:63`) and the
-  append-only `sync_event` / `event_log` reads; consider retention/rollup for the change-log tables.
-- **2.3 Driver decision:** benchmark `@neondatabase/serverless` (HTTP) vs tuned `postgres-js` for cold
-  serverless latency; adopt whichever wins. Document in an ADR.
-- **2.4 Caching:** short-TTL cache on read-heavy list endpoints keyed by user+visibility; verify the
-  workbench server-render uses `getComponentSummaries()` (never jsonb `data`) not `getComponents()`.
+- **2.1 ✅ Pagination** — cursor-based Library list: opaque composite cursor on `(updated_at, id)` (no
+  skips/dupes on tied timestamps), `getDesignArtifactSummariesPage` + route `nextCursor` + a "Load more"
+  button. Fresh loads and post-save refresh fetch page one.
+- **2.2 ✅ Bounded feeds** — `fetchSyncChangesSince` now takes a `limit` (default 500, cap 1000) and
+  returns `{ version, changes, hasMore, nextCursor }`. **Correctness pin:** `version = hasMore ? nextCursor
+  : latest`, so a client advancing by `version` alone can never skip the undelivered tail. Consumers drain:
+  HTTP route passes `limit` + surfaces `hasMore`/`nextCursor`; the one-shot CLI pull got a crash-safe drain
+  loop (persists cursor per page); MCP `handoff_sync_pull` documents re-pull-while-`hasMore`. `event_log`
+  reads were already bounded/aggregate (no change).
+- **2.3 ✅ Driver decision — [ADR-003](ADR-003-postgres-driver.md).** Stay on tuned `postgres-js` (Fluid
+  Compute keeps the `globalThis` pool warm; Phase 0 fixed the pooler path; migrations depend on it). Adopt
+  `neon-http` (hybrid) only if a benchmark shows cold-start-latency or connection-cap pain — plan in the ADR.
+- **2.4 ✅ Resolved (no change needed).** Two findings, both verified-before-touching: (a) the workbench
+  server render (`design/page.tsx`) *legitimately* needs full components — `buildComponentRows` reads
+  `properties` + preview refs that live only in the jsonb `data`, and thumbnails come from it; switching to
+  summaries would break the page. The earlier "should use summaries" premise was wrong for this path.
+  (b) List caching **intentionally skipped**: the Library is a mutable per-user feed refetched right after
+  every save, so a TTL cache would serve stale data; safe caching needs per-user tag invalidation wired
+  into all write paths (incl. the Track-6 MCP seam) for marginal gain now the query is metadata-only +
+  indexed. Correct-uncached beats subtly-wrong-cached.
+- **2.6 Retention/rollup (follow-up, not started).** Pagination bounds *per-request* cost, not table size.
+  `sync_event` is append-only with full push payloads → prune/rollup events older than the slowest active
+  client cursor, or snapshot-compact superseded events per entity. `event_log` (category `ai`) → time-based
+  retention or a daily-cost rollup table (lower priority; its reads are already bounded).
 - **2.5 Light component-artifact variant (deferred from Phase 0).** The playground's
   `fetchComponentDetail` downloads the full component artifact then discards `jsCompiled`/`css`/`js`/
   `entries`/`options`/`sass` client-side. The detail endpoint (`/api/component/[...path]`) serves a
@@ -147,21 +164,55 @@ pages are team-wide with no ownership predicate** — `patchPattern`/`removePatt
 update/delete purely by `id`, so any path reaching them can edit/delete anyone's work. Sharing is a
 single binary `public_access` on design artifacts only. No share tokens, no per-resource ACL.
 
-## Phase A — Ownership & authorization consistency *(must precede any feature work)*
+## Phase A — Ownership & authorization consistency *(must precede any feature work)* — ✅ SHIPPED 2026-07-24
 
-- **A.1 Unify the ownership model.** Ensure `handoff_pattern` and any user-authored content carry a
-  non-null `owner_user_id`; backfill existing rows (attribute to admin/creator where known).
-- **A.2 Enforce authz *inside the shared write cores*, not just routes.** Add ownership/permission
-  checks in `pattern-write.ts` and `doc-pages.ts` so **both** the browser server-actions path and the
-  MCP path are covered. ⚠️ **Track-6 seam:** MCP writes are currently scope-gated but **not
-  ownership-gated** — closing this in the core is what keeps the MCP cycle from bypassing it.
-- **A.3 Introduce a thin policy layer** (`can(user, action, resource)`) both cores + routes call, so
-  authorization logic lives in one place. Design its signature to accept a future `orgId` without churn.
-- **A.4 Audit every pattern/page route** for the missing owner filter (list, `[id]`, clone, delete).
+**Scope decisions (2026-07-24):** (1) **Doc pages (`handoff_page`) stay out** — shared/team content,
+scope-gated; ownership deferred (see backlog: doc-page changelog created/edited-by tracking is the
+adequate near-term step). (2) **Null-owner patterns are team-editable** — enforcement applies only when an
+owner is set; every new pattern gets an owner. Existing playground data is disposable, so no backfill.
 
-**Exit:** no route or MCP tool can read/mutate content the actor doesn't own or isn't shared with.
+- **A.1 Ownership model** — `handoff_pattern.user_id` already exists; keep it. No forced non-null backfill
+  (null = team-editable). New writes set owner = actor.
+- **A.2 ✅ Enforce authz *inside the shared write core*.** `patchPattern`/`removePattern`
+  (`pattern-write.ts`) now fetch the owner and call the policy BEFORE mutating — covers the browser
+  server-actions path AND the MCP path in one place. The CLI/registry **sync-replication path writes
+  patterns directly (not via the core), so it is unaffected** — the scariest collision risk is a non-issue.
+- **A.3 ✅ Policy layer** — `src/app/lib/auth/policy.ts`: `canMutatePattern`/`assertCanMutatePattern` +
+  `AuthorizationError`; `MutateActor` carries an unused `orgId` seam for a future org tier. Rule: admin
+  (incl. service/workspace MCP actors) OR owner; null-owner → team-editable.
+- **A.4 ✅ Route audit** — pattern reads (list, `[id]` GET) are intentionally team-wide (Phase B adds
+  visibility); the only mutating route is `clone` (creates an *owned* copy — fine). All update/delete flow
+  through server actions + MCP `update_page`, now core-enforced. ✅ MCP `patternActor` carries `role`
+  (admin/service bypass; non-admin editing another's pattern denied) and `AuthorizationError` maps to a
+  clean `{ok:false, error:'Forbidden — …'}` tool result. Confirmed no MCP delete-pattern path exists.
 
-## Phase B — Sharing & visibility
+**Exit ✅:** no server action or MCP tool can mutate a pattern the actor doesn't own (unless admin). Full
+`tsc` clean. Working tree, uncommitted.
+
+## Phase B — Sharing & visibility — 🔄 IN PROGRESS 2026-07-24
+
+**Approved via interactive mockup** (`docs`/artifact, 2026-07-24). Spec locked to the mockup: three
+*independent* axes — ownership (derived; shown via lanes + attribution), lifecycle (semantic color chip),
+visibility/access (icon-encoded). Defaults: **private-until-shared**; **5 lifecycle states**
+(prototype→draft→review→approved→archived, `approved` maintainer-gated); nouns stay "pattern"/"design".
+Permissions object drives all UI affordances (edit vs duplicate). Duplicate = the escape hatch on
+not-mine assets. Public link = client-facing, read-only, safe-subset, revocable.
+
+**Build stages (dependency order, each shippable):**
+1. ✅ **Data + policy foundation** (2026-07-24) — `visibility`+`status`(lifecycle) on patterns & artifacts
+   (`0024_phase_b_visibility.sql`), migrated `public_access`→visibility, `handoff_resource_grant` +
+   `handoff_share_link` tables, policy `computePermissions()` (+`canView` unowned fix). Additive/inert.
+2. ✅ **Read model + API** (2026-07-24) — `grant-queries.ts`: bulk grant resolution (no N+1), lane-aware
+   SQL-filtered lists (`listPatternsByLane`/`listDesignArtifactsByLane`), `attachPermissions`; routes take
+   opt-in `?lane=` + return per-asset `permissions` (default no-lane responses UNCHANGED — backward compat);
+   `setPatternMeta` + artifact PATCH visibility/status setters (approve=maintainer-gated); share-link
+   create/revoke + public `share/[token]` route (safe subset — no base64/PII leak). tsc clean, reviewed.
+   ⚠️ Hard view-enforcement deliberately deferred to the Stage 3 cutover; the `setPatternMetaFields` approve
+   gate lives in the server action (no MCP visibility/status setter exists yet — add the gate to the core if
+   one is introduced).
+3. ⬜ **UI cutover** — build the library (lanes, cards, inspector, controls, duplicate, share) into the real
+   Playground + Workbench, driven by the `permissions` object + `?lane=` endpoints. This is where view
+   filtering goes live. Best built against the running app for visual verification.
 
 - **B.1 Unified visibility enum** across patterns, design artifacts, and (where relevant) doc pages:
   `private` → `team` (all authenticated users in the deployment) → `public`. Replaces the one-off
@@ -171,6 +222,11 @@ single binary `public_access` on design artifacts only. No share tokens, no per-
 - **B.3 Lightweight per-resource grants** (share *with specific teammates*, view vs edit). This is the
   seam an org/role tier would later plug into; keep it minimal now (owner + explicit grants + team + public).
 - **B.4 Public read paths** stay a *safe field subset* (the design-artifact `/public` route is the model).
+- **B.5 Doc-page changelog tracking (backlog, captured 2026-07-24).** Doc pages (`handoff_page`) stay
+  shared/unowned for now (Phase A decision), but should track **who created and edited** each page via a
+  changelog — adequate near-term substitute for ownership/permissions. `handoff_page_change` already logs
+  `pushed_by` on pushes; extend to cover all edit surfaces + surface created/edited-by in the doc UI.
+  Ownership/permissions for docs may follow later if needed.
 
 ## Phase C — Workbench & playground multiplayer UX
 

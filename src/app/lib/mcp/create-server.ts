@@ -17,6 +17,7 @@ import { getUnifiedChangelog, type UnifiedChangelogEntry } from '@/lib/db/change
 import { getComponentVersionHistory } from '@/lib/db/component-version-queries';
 import { resolveChangeWhy } from '@/lib/server/change-why';
 import { writePattern, patchPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
+import { isAuthorizationError } from '@/lib/authz/policy';
 import { validatePreviewValues } from '@handoff/transformers/preview/component/preview-validation';
 import {
   createComponentPreview,
@@ -606,12 +607,17 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_sync_pull',
     {
-      description: 'Fetch sync changes since cursor (JSON patches for local apply). Registry mode only.',
-      inputSchema: { since: z.number().int().min(0).optional() },
+      description:
+        'Fetch a bounded page of sync changes since cursor (JSON patches for local apply). Registry mode only. ' +
+        'Results are paginated: if the response has `hasMore: true`, pull again with `since` set to `nextCursor` and repeat until `hasMore` is false to drain the full feed.',
+      inputSchema: {
+        since: z.number().int().min(0).optional(),
+        limit: z.number().int().min(1).max(1000).optional(),
+      },
     },
-    async ({ since }) => {
+    async ({ since, limit }) => {
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
-      const changeset = await fetchSyncChangesSince(since ?? 0);
+      const changeset = await fetchSyncChangesSince(since ?? 0, limit);
       return textResult(changeset);
     }
   );
@@ -1202,6 +1208,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   /** MCP caller → pattern-write actor (drop synthetic ids from sync attribution). */
   const patternActor = (message?: string): PatternWriteActor => ({
     userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
+    role: auth.role ?? null,
     historyLabel: `mcp:${auth.userId}`,
     message: message ?? null,
     trigger: 'mcp',
@@ -1467,10 +1474,15 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (denied) return denied;
       const { errors, report } = await checkBlocks(blocks);
       if (errors.length) return textResult({ ok: false, errors, report });
-      await writePattern(
-        { id, title, description, group, components: toComponents(blocks), source: 'playground' },
-        patternActor(message)
-      );
+      try {
+        await writePattern(
+          { id, title, description, group, components: toComponents(blocks), source: 'playground' },
+          patternActor(message)
+        );
+      } catch (e) {
+        if (isAuthorizationError(e)) return textResult({ ok: false, error: `Forbidden — ${e.message}` });
+        throw e;
+      }
       const base = issuerForCliSync(request);
       return textResult({
         ok: true,
@@ -1519,7 +1531,12 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (group !== undefined) updates.group = group;
       if (blocks) updates.components = toComponents(blocks);
       if (Object.keys(updates).length === 0) return textResult({ ok: false, error: 'No updates provided.' });
-      await patchPattern(id, updates, patternActor(message));
+      try {
+        await patchPattern(id, updates, patternActor(message));
+      } catch (e) {
+        if (isAuthorizationError(e)) return textResult({ ok: false, error: `Forbidden — ${e.message}` });
+        throw e;
+      }
       const base = issuerForCliSync(request);
       return textResult({
         ok: true,

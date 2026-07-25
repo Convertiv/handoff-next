@@ -85,9 +85,19 @@ export interface SyncChange {
 }
 
 export interface SyncChangeset {
-  /** Highest `sync_event.id` in the database (cursor for `sync:status` / next pull baseline) */
+  /**
+   * Cursor the client should save as its next pull baseline.
+   * When the page is bounded (`hasMore` true) this is `nextCursor` — the highest
+   * `sync_event.id` actually delivered in this page — NOT the DB-wide latest, so a
+   * client that advances by `version` never skips the undelivered tail. When fully
+   * drained it is the highest `sync_event.id` in the database.
+   */
   version: number;
   changes: SyncChange[];
+  /** True when more events exist beyond `nextCursor`; pull again from `nextCursor` to continue draining. */
+  hasMore?: boolean;
+  /** Highest `sync_event.id` delivered in this page (equals `version` when `hasMore` is true). */
+  nextCursor?: number;
 }
 
 export interface SyncStatusResponse {

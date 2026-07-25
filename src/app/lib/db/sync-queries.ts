@@ -60,14 +60,35 @@ export async function getLatestSyncEventId(): Promise<number> {
   return rows[0]?.id ?? 0;
 }
 
-export async function fetchSyncChangesSince(since: number): Promise<SyncChangeset> {
+/** Default page size for a bounded sync pull. */
+export const DEFAULT_SYNC_PULL_LIMIT = 500;
+/** Hard cap on a single sync-pull page — the change feed is append-only and payloads are large. */
+export const MAX_SYNC_PULL_LIMIT = 1000;
+
+/**
+ * Fetch a bounded page of sync changes with `id > since`, ordered by id ASC.
+ *
+ * The feed is append-only and `sync_event.payload` holds full push payloads, so this is
+ * paginated to avoid streaming the entire table in one query. `ORDER BY id ASC LIMIT n`
+ * returns the smallest `n` ids above `since` — a contiguous prefix — so events are never
+ * dropped or reordered; a caller simply pulls again from `nextCursor` until `hasMore` is
+ * false (or lets its normal re-poll interval catch up over successive ticks).
+ */
+export async function fetchSyncChangesSince(since: number, limit?: number): Promise<SyncChangeset> {
   const db = getDb();
   const latest = await getLatestSyncEventId();
+
+  const effectiveLimit = Math.min(
+    Math.max(1, Math.floor(limit ?? DEFAULT_SYNC_PULL_LIMIT)),
+    MAX_SYNC_PULL_LIMIT
+  );
+
   const rows = await db
     .select()
     .from(syncEvents)
     .where(gt(syncEvents.id, since))
-    .orderBy(syncEvents.id);
+    .orderBy(syncEvents.id)
+    .limit(effectiveLimit);
 
   const changes: SyncChange[] = rows.map((r) => ({
     version: r.id,
@@ -78,7 +99,17 @@ export async function fetchSyncChangesSince(since: number): Promise<SyncChangese
     data: (r.payload as SyncChange['data']) ?? null,
   }));
 
-  return { version: latest, changes };
+  // Highest id actually delivered in this page (the page is a contiguous prefix from `since`).
+  const nextCursor = changes.length > 0 ? changes[changes.length - 1].version : since;
+  const hasMore = nextCursor < latest;
+
+  // `version` is the cursor a client saves as its next pull baseline. When the page is
+  // bounded it MUST equal `nextCursor` — never the DB-wide `latest` — or a client that
+  // advances by `version` alone would silently skip the undelivered tail. When fully
+  // drained it equals `latest` (preserving the original unbounded behavior exactly).
+  const version = hasMore ? nextCursor : latest;
+
+  return { version, changes, hasMore, nextCursor };
 }
 
 export async function getSyncStatus(): Promise<SyncStatusResponse> {

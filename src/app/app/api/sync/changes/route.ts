@@ -12,6 +12,13 @@ export async function GET(request: Request) {
   const since = raw === null || raw === '' ? 0 : Number(raw);
   const sinceSafe = Number.isFinite(since) ? Math.max(0, Math.floor(since)) : 0;
 
-  const changeset = await fetchSyncChangesSince(sinceSafe);
+  const rawLimit = searchParams.get('limit');
+  const limit = rawLimit === null || rawLimit === '' ? undefined : Number(rawLimit);
+  const limitSafe = limit !== undefined && Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : undefined;
+
+  // Bounded page: the response carries `hasMore`/`nextCursor`, and `version` advances only
+  // to the last delivered id when bounded, so a client that re-pulls (either looping on
+  // `hasMore` or on its normal poll interval) drains the feed without skipping events.
+  const changeset = await fetchSyncChangesSince(sinceSafe, limitSafe);
   return NextResponse.json(changeset);
 }

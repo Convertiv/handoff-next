@@ -133,6 +133,10 @@ export const handoffPatterns = pgTable('handoff_pattern', {
   /** playground | build | import | ai */
   source: text('source').notNull().default('build'),
   thumbnail: text('thumbnail'),
+  /** Sharing visibility: private | shared | team | public (Phase B). */
+  visibility: text('visibility').notNull().default('private'),
+  /** Lifecycle: prototype | draft | review | approved | archived (Phase B). */
+  status: text('status').notNull().default('draft'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -172,9 +176,56 @@ export const handoffDesignArtifacts = pgTable('handoff_design_artifact', {
   specStatus: text('spec_status').notNull().default('none'),
   /** When true, public share API and share page may expose safe fields. */
   publicAccess: boolean('public_access').notNull().default(false),
+  /** Sharing visibility: private | shared | team | public (Phase B; supersedes publicAccess). */
+  visibility: text('visibility').notNull().default('private'),
   createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
   updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
 });
+
+/**
+ * Explicit per-user grants on a resource (Phase B sharing).
+ * resource_type = pattern | design_artifact. level = view | edit.
+ */
+export const handoffResourceGrants = pgTable(
+  'handoff_resource_grant',
+  {
+    id: serial('id').primaryKey(),
+    /** pattern | design_artifact */
+    resourceType: text('resource_type').notNull(),
+    resourceId: text('resource_id').notNull(),
+    granteeUserId: text('grantee_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** view | edit */
+    level: text('level').notNull().default('view'),
+    grantedByUserId: text('granted_by_user_id'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => [
+    index('resource_grant_resource_idx').on(t.resourceType, t.resourceId),
+    index('resource_grant_grantee_idx').on(t.granteeUserId),
+    uniqueIndex('resource_grant_unique').on(t.resourceType, t.resourceId, t.granteeUserId),
+  ]
+);
+
+/**
+ * Tokenized share links for a resource (Phase B sharing).
+ * resource_type = pattern | design_artifact.
+ */
+export const handoffShareLinks = pgTable(
+  'handoff_share_link',
+  {
+    token: text('token').primaryKey(),
+    /** pattern | design_artifact */
+    resourceType: text('resource_type').notNull(),
+    resourceId: text('resource_id').notNull(),
+    createdByUserId: text('created_by_user_id'),
+    expiresAt: timestamp('expires_at'),
+    revokedAt: timestamp('revoked_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => [index('share_link_resource_idx').on(t.resourceType, t.resourceId)]
+);
 
 export const handoffTokensSnapshots = pgTable('handoff_tokens_snapshot', {
   id: serial('id').primaryKey(),

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import {
   getDesignArtifactById,
-  getDesignArtifactSummaries,
+  getDesignArtifactSummariesPage,
   insertDesignArtifact,
   updateDesignArtifact,
   updateDesignArtifactById,
@@ -14,8 +14,17 @@ import {
 } from '@/lib/server/design-artifact-persist';
 import { scheduleDesignAssetExtraction, scheduleSpecGeneration } from '@/lib/server/design-asset-schedule';
 import { isServerAiConfigured, shouldProxyAi } from '@/lib/server/ai-client';
+import {
+  getActorGrant,
+  getActorGrantsForResources,
+  listDesignArtifactsByLane,
+  type Lane,
+} from '@/lib/db/grant-queries';
+import { attachPermissions, computePermissions, toVisibility, type MutateActor } from '@/lib/authz/policy';
 
 const ALLOWED_STATUS = new Set(['draft', 'review', 'approved']);
+const ALLOWED_VISIBILITY = new Set(['private', 'shared', 'team', 'public']);
+const LANES = new Set<Lane>(['yours', 'shared', 'team', 'public']);
 
 type PostBody = {
   id?: string;
@@ -130,6 +139,8 @@ type PatchBody = {
   extractAssets?: boolean;
   regenerateSpec?: boolean;
   componentSpecMd?: string;
+  visibility?: string;
+  status?: string;
 };
 
 export async function PATCH(request: NextRequest) {
@@ -258,7 +269,47 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ id, specSaved: true });
     }
 
-    return NextResponse.json({ error: 'No supported patch fields (use publicAccess, extractAssets, regenerateSpec, or componentSpecMd).' }, { status: 400 });
+    // Phase B: visibility + lifecycle setters, gated by computePermissions.
+    if (body.visibility !== undefined || body.status !== undefined) {
+      const actor: MutateActor = { userId, role: session.user.role ?? null };
+      const grant = await getActorGrant('design_artifact', id, userId);
+      const perms = computePermissions(
+        actor,
+        { ownerUserId: row.userId, visibility: toVisibility(row.visibility) },
+        grant
+      );
+      const patch: { visibility?: string; status?: string } = {};
+
+      if (body.visibility !== undefined && body.visibility !== row.visibility) {
+        if (!ALLOWED_VISIBILITY.has(body.visibility)) {
+          return NextResponse.json({ error: 'invalid visibility' }, { status: 400 });
+        }
+        if (!perms.canChangeVisibility) {
+          return NextResponse.json({ error: 'Not permitted to change visibility' }, { status: 403 });
+        }
+        patch.visibility = body.visibility;
+      }
+
+      if (body.status !== undefined && body.status !== row.status) {
+        if (!ALLOWED_STATUS.has(body.status)) {
+          return NextResponse.json({ error: 'invalid status' }, { status: 400 });
+        }
+        if (body.status === 'approved') {
+          if (!perms.canApprove) return NextResponse.json({ error: 'Only a maintainer can approve' }, { status: 403 });
+        } else if (!perms.canEdit) {
+          return NextResponse.json({ error: 'Not permitted to change status' }, { status: 403 });
+        }
+        patch.status = body.status;
+      }
+
+      if (patch.visibility !== undefined || patch.status !== undefined) {
+        const ok = await updateDesignArtifactById(id, patch);
+        if (!ok) return NextResponse.json({ error: 'Not found or not owned by you' }, { status: 404 });
+      }
+      return NextResponse.json({ id, visibility: patch.visibility ?? row.visibility, status: patch.status ?? row.status });
+    }
+
+    return NextResponse.json({ error: 'No supported patch fields (use publicAccess, extractAssets, regenerateSpec, componentSpecMd, visibility, or status).' }, { status: 400 });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Patch failed';
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -273,22 +324,43 @@ export async function GET(request: NextRequest) {
 
   const status = request.nextUrl.searchParams.get('status')?.trim() || undefined;
   const userIdParam = request.nextUrl.searchParams.get('userId')?.trim() || undefined;
+  const cursor = request.nextUrl.searchParams.get('cursor')?.trim() || undefined;
   const limit = Number(request.nextUrl.searchParams.get('limit') ?? '50');
+  const laneParam = request.nextUrl.searchParams.get('lane')?.trim() || undefined;
   const isAdmin = session.user.role === 'admin';
+  const userId = session.user.id;
+  const actor: MutateActor = { userId, role: session.user.role ?? null };
 
   try {
-    const rows = isAdmin
-      ? await getDesignArtifactSummaries({
-          status,
-          userId: userIdParam,
-          limit: Number.isFinite(limit) ? limit : 50,
-        })
-      : await getDesignArtifactSummaries({
-          status,
-          userId: session.user.id,
-          limit: Number.isFinite(limit) ? limit : 50,
-        });
-    return NextResponse.json({ artifacts: rows });
+    // Opt-in lane mode: SQL-level visibility filtering (Phase B, Stage 2).
+    if (laneParam && LANES.has(laneParam as Lane)) {
+      const page = await listDesignArtifactsByLane({
+        lane: laneParam as Lane,
+        actorUserId: userId,
+        actorRole: session.user.role ?? null,
+        cursor,
+        limit: Number.isFinite(limit) ? limit : 50,
+        status,
+      });
+      const grants = await getActorGrantsForResources(
+        'design_artifact',
+        page.rows.map((r) => r.id),
+        userId
+      );
+      return NextResponse.json({ artifacts: attachPermissions(page.rows, actor, grants), nextCursor: page.nextCursor });
+    }
+
+    // Default (no lane): unchanged scoping/behaviour. Admins may scope to any user
+    // (or all); everyone else is hard-scoped to their own artifacts. `permissions`
+    // is added as a harmless additive field.
+    const page = await getDesignArtifactSummariesPage({
+      status,
+      userId: isAdmin ? userIdParam : userId,
+      limit: Number.isFinite(limit) ? limit : 50,
+      cursor,
+    });
+    const grants = await getActorGrantsForResources('design_artifact', page.rows.map((r) => r.id), userId);
+    return NextResponse.json({ artifacts: attachPermissions(page.rows, actor, grants), nextCursor: page.nextCursor });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'List failed';
     return NextResponse.json({ error: msg }, { status: 500 });

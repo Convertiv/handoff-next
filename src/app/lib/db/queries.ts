@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, ilike, like, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, ilike, like, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
@@ -478,6 +478,7 @@ export type DesignArtifactInsert = {
   componentSpecMd?: string;
   specStatus?: string;
   publicAccess?: boolean;
+  visibility?: string;
 };
 
 export async function insertDesignArtifact(input: DesignArtifactInsert) {
@@ -550,6 +551,7 @@ export async function updateDesignArtifact(
   if (patch.componentSpecMd !== undefined) values.componentSpecMd = patch.componentSpecMd;
   if (patch.specStatus !== undefined) values.specStatus = patch.specStatus;
   if (patch.publicAccess !== undefined) values.publicAccess = patch.publicAccess;
+  if (patch.visibility !== undefined) values.visibility = patch.visibility;
   const updated = await db
     .update(handoffDesignArtifacts)
     .set(values)
@@ -592,6 +594,7 @@ export async function updateDesignArtifactById(
   if (patch.componentSpecMd !== undefined) values.componentSpecMd = patch.componentSpecMd;
   if (patch.specStatus !== undefined) values.specStatus = patch.specStatus;
   if (patch.publicAccess !== undefined) values.publicAccess = patch.publicAccess;
+  if (patch.visibility !== undefined) values.visibility = patch.visibility;
   const updated = await db
     .update(handoffDesignArtifacts)
     .set(values)
@@ -815,6 +818,95 @@ export async function getDesignArtifactSummaries(filter: DesignArtifactListFilte
     .where(and(...clauses))
     .orderBy(desc(handoffDesignArtifacts.updatedAt))
     .limit(limit);
+}
+
+/**
+ * Opaque, stable composite cursor over `(updated_at, id)`. Encodes the sort key
+ * of the last row of a page so the next page can resume without skips or dupes
+ * when several rows share an `updated_at` timestamp. base64url so it is URL-safe.
+ */
+export type DesignArtifactCursor = { updatedAt: Date; id: string };
+
+export function encodeDesignArtifactCursor(row: { updatedAt: Date | string; id: string }): string {
+  const iso = row.updatedAt instanceof Date ? row.updatedAt.toISOString() : new Date(row.updatedAt).toISOString();
+  return Buffer.from(`${iso}|${row.id}`, 'utf8').toString('base64url');
+}
+
+export function decodeDesignArtifactCursor(raw: string): DesignArtifactCursor | null {
+  try {
+    const decoded = Buffer.from(raw, 'base64url').toString('utf8');
+    const sep = decoded.lastIndexOf('|');
+    if (sep === -1) return null;
+    const iso = decoded.slice(0, sep);
+    const id = decoded.slice(sep + 1);
+    const updatedAt = new Date(iso);
+    if (!id || Number.isNaN(updatedAt.getTime())) return null;
+    return { updatedAt, id };
+  } catch {
+    return null;
+  }
+}
+
+export type DesignArtifactSummaryRow = Awaited<ReturnType<typeof getDesignArtifactSummaries>>[number];
+export type DesignArtifactSummariesPage = {
+  rows: DesignArtifactSummaryRow[];
+  nextCursor: string | null;
+};
+
+/**
+ * Cursor-paginated variant of `getDesignArtifactSummaries` for the Library grid.
+ * Orders by `updated_at DESC, id DESC` (composite key matching the cursor) and
+ * over-fetches one row to determine `hasMore`. Preserves the same owner/status
+ * scoping and the same light projection (never the base64 JSONB columns).
+ */
+export async function getDesignArtifactSummariesPage(
+  filter: DesignArtifactListFilter & { cursor?: string | null } = {}
+): Promise<DesignArtifactSummariesPage> {
+  const db = getDb();
+  const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
+  const cols = {
+    id: handoffDesignArtifacts.id,
+    title: handoffDesignArtifacts.title,
+    description: handoffDesignArtifacts.description,
+    status: handoffDesignArtifacts.status,
+    userId: handoffDesignArtifacts.userId,
+    imageUrl: handoffDesignArtifacts.imageUrl,
+    assetsStatus: handoffDesignArtifacts.assetsStatus,
+    specStatus: handoffDesignArtifacts.specStatus,
+    publicAccess: handoffDesignArtifacts.publicAccess,
+    metadata: handoffDesignArtifacts.metadata,
+    createdAt: handoffDesignArtifacts.createdAt,
+    updatedAt: handoffDesignArtifacts.updatedAt,
+  };
+  const clauses = [];
+  if (filter.status?.trim()) {
+    clauses.push(eq(handoffDesignArtifacts.status, filter.status.trim()));
+  }
+  if (filter.userId?.trim()) {
+    clauses.push(eq(handoffDesignArtifacts.userId, filter.userId.trim()));
+  }
+  const cursor = filter.cursor ? decodeDesignArtifactCursor(filter.cursor) : null;
+  if (cursor) {
+    // Rows strictly "after" the cursor in `(updated_at DESC, id DESC)` order.
+    clauses.push(
+      or(
+        lt(handoffDesignArtifacts.updatedAt, cursor.updatedAt),
+        and(eq(handoffDesignArtifacts.updatedAt, cursor.updatedAt), lt(handoffDesignArtifacts.id, cursor.id))
+      )
+    );
+  }
+  const where = clauses.length ? and(...clauses) : undefined;
+  const rows = await db
+    .select(cols)
+    .from(handoffDesignArtifacts)
+    .where(where)
+    .orderBy(desc(handoffDesignArtifacts.updatedAt), desc(handoffDesignArtifacts.id))
+    .limit(limit + 1);
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const last = page[page.length - 1];
+  const nextCursor = hasMore && last ? encodeDesignArtifactCursor(last) : null;
+  return { rows: page, nextCursor };
 }
 
 /**

@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
 import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
+import { assertCanMutatePattern } from '../authz/policy';
 
 /**
  * Shared pattern (playground page) write core — actor-parameterized so BOTH the
@@ -13,6 +14,8 @@ import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
 export interface PatternWriteActor {
   /** User id for sync attribution (null for token/legacy callers). */
   userId: string | null;
+  /** Actor role; 'admin' bypasses pattern ownership (registry admins + service/workspace MCP actors). */
+  role?: string | null;
   /** Label for the edit-history row (id or email); defaults to userId. */
   historyLabel?: string | null;
   /** Optional human "why" for this write — recorded on the pattern-change row. */
@@ -118,6 +121,14 @@ export async function patchPattern(
 ): Promise<void> {
   const db = getDb();
 
+  // Authorize BEFORE mutating: owner or admin only (null-owner = team-editable).
+  const [existing] = await db
+    .select({ userId: handoffPatterns.userId })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.id, id))
+    .limit(1);
+  if (existing) assertCanMutatePattern(actor, existing.userId);
+
   await db
     .update(handoffPatterns)
     .set({ ...updates, updatedAt: new Date() })
@@ -150,8 +161,59 @@ export async function patchPattern(
   });
 }
 
+/**
+ * Persist a pattern's Phase B meta (`visibility` / `status`) only. Baseline
+ * owner/admin gate is enforced here via `assertCanMutatePattern`; the EXTRA
+ * lifecycle gates (approve = maintainer, change-visibility = owner/admin) are
+ * enforced by the caller (`setPatternMeta` server action) with `computePermissions`.
+ * Records edit-history + a pattern-change row so the write stays tracked.
+ */
+export async function setPatternMetaFields(
+  id: string,
+  meta: { visibility?: string; status?: string },
+  actor: PatternWriteActor
+): Promise<void> {
+  const db = getDb();
+
+  const [existing] = await db
+    .select({ userId: handoffPatterns.userId })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.id, id))
+    .limit(1);
+  if (existing) assertCanMutatePattern(actor, existing.userId);
+
+  const set: Partial<typeof handoffPatterns.$inferInsert> = { updatedAt: new Date() };
+  if (meta.visibility !== undefined) set.visibility = meta.visibility;
+  if (meta.status !== undefined) set.status = meta.status;
+  await db.update(handoffPatterns).set(set).where(eq(handoffPatterns.id, id));
+
+  await db.insert(editHistory).values({
+    entityType: 'pattern',
+    entityId: id,
+    userId: actor.historyLabel ?? actor.userId,
+    diff: { action: 'meta', meta },
+  });
+
+  const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
+  await recordPatternChange(db, {
+    patternId: id,
+    action: 'updated',
+    title: row?.title ?? null,
+    blockCount: Array.isArray(row?.components) ? (row!.components as unknown[]).length : null,
+    actor,
+  });
+}
+
 export async function removePattern(id: string, actor: PatternWriteActor): Promise<void> {
   const db = getDb();
+
+  // Authorize BEFORE deleting: owner or admin only (null-owner = team-editable).
+  const [existing] = await db
+    .select({ userId: handoffPatterns.userId })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.id, id))
+    .limit(1);
+  if (existing) assertCanMutatePattern(actor, existing.userId);
 
   await insertSyncEvent({
     entityType: 'pattern',

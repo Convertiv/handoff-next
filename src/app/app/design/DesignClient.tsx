@@ -223,6 +223,8 @@ const DesignWorkbenchPage = ({
   const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
   const [libraryArtifacts, setLibraryArtifacts] = useState<LibraryArtifactRow[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
+  const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
+  const [libraryCursor, setLibraryCursor] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
 
@@ -288,19 +290,32 @@ const DesignWorkbenchPage = ({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
-  const fetchLibrary = useCallback(async () => {
-    setLibraryLoading(true);
+  // `cursor` appends the next page; omit it for a fresh first-page load/refresh.
+  const fetchLibrary = useCallback(async (cursor?: string | null) => {
+    const append = Boolean(cursor);
+    if (append) setLibraryLoadingMore(true);
+    else setLibraryLoading(true);
     setLibraryError(null);
     try {
-      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact?limit=100'), { credentials: 'include' });
-      const json = (await res.json().catch(() => ({}))) as { artifacts?: LibraryArtifactRow[]; error?: string };
+      const url = cursor
+        ? `/api/handoff/ai/design-artifact?limit=100&cursor=${encodeURIComponent(cursor)}`
+        : '/api/handoff/ai/design-artifact?limit=100';
+      const res = await fetch(handoffApiUrl(url), { credentials: 'include' });
+      const json = (await res.json().catch(() => ({}))) as {
+        artifacts?: LibraryArtifactRow[];
+        nextCursor?: string | null;
+        error?: string;
+      };
       if (!res.ok) throw new Error(json.error || `Failed to load (${res.status})`);
-      setLibraryArtifacts(json.artifacts ?? []);
+      const rows = json.artifacts ?? [];
+      setLibraryArtifacts((prev) => (append ? [...prev, ...rows] : rows));
+      setLibraryCursor(json.nextCursor ?? null);
       setLibraryLoaded(true);
     } catch (e) {
       setLibraryError(e instanceof Error ? e.message : 'Failed to load library.');
     } finally {
-      setLibraryLoading(false);
+      if (append) setLibraryLoadingMore(false);
+      else setLibraryLoading(false);
     }
   }, []);
 
@@ -1304,7 +1319,8 @@ const DesignWorkbenchPage = ({
                     </p>
                   </div>
                 ) : (
-                  libraryArtifacts.map((a) => (
+                  <>
+                  {libraryArtifacts.map((a) => (
                     <Link
                       key={a.id}
                       href={`${basePath}/design/library/${a.id}/`}
@@ -1332,7 +1348,20 @@ const DesignWorkbenchPage = ({
                         </div>
                       </div>
                     </Link>
-                  ))
+                  ))}
+                  {libraryCursor ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => void fetchLibrary(libraryCursor)}
+                      disabled={libraryLoadingMore}
+                    >
+                      {libraryLoadingMore ? 'Loading…' : 'Load more'}
+                    </Button>
+                  ) : null}
+                  </>
                 )}
               </div>
             </TabsContent>

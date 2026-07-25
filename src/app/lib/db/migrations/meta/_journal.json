@@ -169,6 +169,13 @@
       "when": 1783100000000,
       "tag": "0023_perf_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1783200000000,
+      "tag": "0024_phase_b_visibility",
+      "breakpoints": true
     }
   ]
 }
