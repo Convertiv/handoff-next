@@ -3,5 +3,8 @@
   "framework": "nextjs",
   "installCommand": "npm install",
   "buildCommand": "npm run build:registry",
-  "outputDirectory": "src/app/.next"
+  "outputDirectory": "src/app/.next",
+  "crons": [
+    { "path": "/api/handoff/ai/design-jobs/run", "schedule": "* * * * *" }
+  ]
 }

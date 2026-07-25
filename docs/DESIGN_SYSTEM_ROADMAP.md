@@ -136,9 +136,46 @@ writes = the new surface.
     e.g. an image given a bare string). Shared shape helpers (editorOf/shapeNote/placeholderValue/
     shapeMismatch) keep scaffold + report + warnings consistent. create_page/create_preview descriptions
     now point at the scaffold. App tsconfig clean. **Deploy-gated.**
-  - ⬜ **Phase 2 — full workbench build loop.** prototype → show samples (1a) → approve → save preview
-    (1b) → extract assets → spec + image gen; mostly composition of the Phase 1 primitives + existing
-    `handoff_create_design_artifact` / `handoff_get_component_spec`.
+  - 🔄 **Phase 2 — full workbench build loop (SCOPED 2026-07-23).** Key finding: **almost the entire loop
+    already exists as server code** — the image-gen/extract/spec engines are real but **HTTP/UI-only** (driven
+    by `/design`), NOT exposed as MCP tools. Phase 2 ≈ *wrapping existing engines as MCP tools + one approval
+    primitive*, not new logic. There are **two distinct loops — don't conflate**:
+    - **Loop A — existing component (variant previews).** prototype (`get_component`/`scaffold_args`) → build
+      N candidates (`create_preview`, distinct keys) → show (`verifyUrl`/`preview_component`) → approve → save
+      (already persisted at create). The component's contract IS the spec. **Fully MCP-native today except
+      ONE tiny tool** (approve/promote preview, e.g. `update_preview{semantic:'canonical'}` or
+      `handoff_promote_preview`). No OpenAI, no embedded apps, no new tables. ← minimal first slice.
+    - **Loop B — new component (design artifact: image→extract→spec→code).** All engines exist server-side
+      (`ai-client.openAiImageEdit`/gpt-image-2, `design-asset-extractor`, `design-spec-generator`,
+      `design-generation-worker`) but only reachable via `/design` HTTP+SSE routes. The durable "session" is
+      the `handoff_design_artifact` table — its columns already model the whole loop
+      (`status: draft|review|approved`, `imageUrl`, `assets`+`assetsStatus`, `componentSpec`+`specStatus`,
+      `conversationHistory`). Needs MCP wrappers: `handoff_generate_design_image` + `handoff_get_design_job`
+      (**async job+poll — gpt-image is 3–4 min, a sync tool would time out**), `handoff_extract_design_assets`,
+      `handoff_set_design_status` (the approval primitive), and wire `scheduleDesignAssetExtraction` into MCP
+      `create_design_artifact` (parity with the HTTP route; verify `after()` fires under the MCP transport).
+    - **New pieces (vs reuse):** approval primitive (the one true structural gap — status enum + UI-pick
+      bridge exist, no tool records it), extract trigger, image-gen job+poll. **Follow-ons:** asset-library
+      *promotion* (workbench extractor writes artifact-local `assets[]`, NOT the shared library/push-image
+      pipeline — a new asset-write path, none today), and a multi-sample embedded gallery (clone
+      `component-gallery`; the tool-return/`verifyUrl` path works without it — build loop tool-return-first).
+    - **Recommended sequence:** Slice 1 = Loop A (1 new approve/promote tool). Slice 2 = Loop B MCP wrappers.
+      Slice 3 = asset-library promotion + gallery app. Loop B code-gen tail (`generate_component_from_design`)
+      is really 6.3/6.4 territory, not Phase 2 body.
+    - ✅ **BUILT 2026-07-23 (Slice 1 + 2, durable-cron-runner variant — Brad's pick).** New MCP tools in
+      `create-server.ts`: `handoff_promote_preview` (Loop A approve → `semantic:'canonical'`),
+      `handoff_set_design_status`, `handoff_extract_design_assets`, `handoff_generate_design_image` (enqueues
+      a job — no inline run), `handoff_get_design_job` (poll). Auto-extract wired into
+      `handoff_create_design_artifact` (gated on `HANDOFF_AI_API_KEY`; `after()` caveat noted in-code).
+      Durable runner: new authed cron route `app/api/handoff/ai/design-jobs/run` (drains ≤3 pending jobs via
+      `runDesignGenerationJob`) + `vercel.json` cron `* * * * *` + `getPendingDesignGenerationJobs` query +
+      tool-catalog "Design Workbench" category. App tsconfig clean; reviewed (cron auth, scopes, AI gates).
+      **DEPLOY REQUIREMENTS / caveats:** (1) set **`CRON_SECRET`** in the registry env or the runner 503s
+      and jobs never process; (2) **`* * * * *` needs a Vercel plan with minute-level crons** (Hobby caps at
+      daily → image-gen latency unusable) — confirm plan or widen interval; (3) verify Next `after()` fires
+      under the MCP transport for the auto-extract path (if not, route extraction through the same cron);
+      (4) minor hardening: `handoff_get_design_job` reads any jobId (per-registry deployment = per-tenant, so
+      low risk, but scope to caller later). All deploy-gated — verify live after redeploy.
 - ⬜ **6.3 Component source-patch tool (goal 3):** expose editable source files
   (`handoff_component_sources`) for Claude Code to patch → build → push. Small; rides the existing loop.
 - ⛔ **6.4 Claude Design native (goal 1):** design inside Claude Design pulling Handoff foundations

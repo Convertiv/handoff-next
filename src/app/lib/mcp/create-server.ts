@@ -37,6 +37,7 @@ import {
   getDesignWorkspace,
 } from '@/lib/server/design-workspace';
 import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
+import type { DesignGenerationRequestParams } from '@/lib/server/design-generation-worker';
 import {
   getAsset,
   getAssetWithUsages,
@@ -705,14 +706,26 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       const raw = mimeMatch ? imageBase64.slice(mimeMatch[0].length) : imageBase64;
       const mime = mimeMatch?.[1] ?? 'image/png';
       const imageUrl = `data:${mime};base64,${raw.replace(/\s/g, '')}`;
+      // Mirror the design-artifact route: asset extraction runs locally only when
+      // the server holds the OpenAI key (extractor requires HANDOFF_AI_API_KEY).
+      const canExtractLocally = Boolean(process.env.HANDOFF_AI_API_KEY?.trim());
       const id = await insertDesignArtifact({
         title: title?.trim() || 'Untitled',
         description: description?.trim() || '',
         status: status?.trim() || 'draft',
         userId: auth.userId,
         imageUrl,
+        assetsStatus: canExtractLocally ? 'pending' : 'none',
       });
-      return textResult({ id });
+      if (canExtractLocally && id) {
+        // NOTE: scheduleDesignAssetExtraction uses next/server after(). Under the
+        // MCP transport this fires after the tool response the same way it does on
+        // the HTTP route; verify live that extraction actually runs in-cloud. If
+        // after() proves unreliable here, promote this to the design-jobs cron.
+        const { scheduleDesignAssetExtraction } = await import('@/lib/server/design-asset-schedule');
+        scheduleDesignAssetExtraction(id);
+      }
+      return textResult({ id, ...(canExtractLocally ? { assetsStatus: 'pending' } : {}) });
     }
   );
 
@@ -800,6 +813,142 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         imageUrl: artifact.imageUrl,
         assets: assets.map((a) => ({ key: a.key, label: a.label, imageUrl: a.imageUrl })),
         hint: 'Use componentSpecMd as your implementation brief. Implement the component locally using the props, variants, behavior, and accessibility requirements from componentSpec. The imageUrl is the reference design.',
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_set_design_status',
+    {
+      description:
+        'Set a design artifact\'s lifecycle status (draft → review → approved). Moving to review or approved ' +
+        'kicks off server-side asset extraction + spec generation (when server AI is configured), so the ' +
+        'artifact\'s spec/assets are ready for handoff_generate_component_from_design.',
+      inputSchema: {
+        artifactId: z.string(),
+        status: z.enum(['draft', 'review', 'approved']),
+      },
+    },
+    async ({ artifactId, status }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const { updateDesignArtifactById } = await import('@/lib/db/queries');
+      const ok = await updateDesignArtifactById(artifactId.trim(), { status });
+      if (!ok) return textResult({ ok: false, error: 'Design not found' });
+      // Mirror the design-artifact route (:108-110): schedule extraction on
+      // review/approved, but only when the server can extract locally.
+      if ((status === 'review' || status === 'approved') && process.env.HANDOFF_AI_API_KEY?.trim()) {
+        const { scheduleDesignAssetExtraction } = await import('@/lib/server/design-asset-schedule');
+        scheduleDesignAssetExtraction(artifactId.trim());
+      }
+      return textResult({ ok: true, artifactId: artifactId.trim(), status });
+    }
+  );
+
+  server.registerTool(
+    'handoff_extract_design_assets',
+    {
+      description:
+        'Re-run server-side asset extraction + spec generation for a design artifact. Sets assetsStatus to ' +
+        'pending and queues the extractor; poll handoff_get_component_spec (or the design artifact) for the ' +
+        'extracted assets and generated spec.',
+      inputSchema: { artifactId: z.string() },
+    },
+    async ({ artifactId }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+        return textResult({ ok: false, error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' });
+      }
+      const { updateDesignArtifactById } = await import('@/lib/db/queries');
+      const ok = await updateDesignArtifactById(artifactId.trim(), { assets: [], assetsStatus: 'pending' });
+      if (!ok) return textResult({ ok: false, error: 'Design not found' });
+      const { scheduleDesignAssetExtraction } = await import('@/lib/server/design-asset-schedule');
+      scheduleDesignAssetExtraction(artifactId.trim());
+      return textResult({
+        ok: true,
+        artifactId: artifactId.trim(),
+        assetsStatus: 'pending',
+        note: 'poll handoff_get_component_spec / get design artifact for assets + spec',
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_generate_design_image',
+    {
+      description:
+        'Queue an AI design image generation (async). A durable background runner processes the job within ' +
+        '~1 min; poll handoff_get_design_job for the result. Requires server AI to be configured.',
+      inputSchema: {
+        prompt: z.string(),
+        quality: z.enum(['low', 'medium', 'high', 'auto']).optional(),
+        componentGuides: z.array(z.any()).optional(),
+        foundationContext: z.any().optional(),
+        artifactId: z.string().optional().describe('Attach the job/result to an existing design artifact.'),
+      },
+    },
+    async ({ prompt, quality, componentGuides, foundationContext, artifactId }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const { shouldProxyAi } = await import('@/lib/server/ai-client');
+      if (!shouldProxyAi() && !process.env.HANDOFF_AI_API_KEY?.trim()) {
+        return textResult({ ok: false, error: 'Server AI is not configured' });
+      }
+      // FK: design_generation_job.user_id → users.id, so a real user is required.
+      // patternActor().userId is null for service/workspace callers; guard + use
+      // the concrete auth.userId (mirrors handoff_create_design_artifact).
+      const actorUserId = patternActor().userId;
+      if (!actorUserId) {
+        return textResult({ ok: false, error: 'Use device login JWT for design generation, not sync secret alone.' });
+      }
+      const { insertDesignGenerationJob } = await import('@/lib/db/queries');
+      const requestParams: DesignGenerationRequestParams = {
+        prompt,
+        quality: quality ?? 'auto',
+        iterationBaseUrl: null,
+        conversationHistory: [],
+        componentGuides: (componentGuides ?? []) as DesignGenerationRequestParams['componentGuides'],
+        foundationContext: (foundationContext ?? { colors: [], typography: [], effects: [], spacing: [] }) as DesignGenerationRequestParams['foundationContext'],
+        designGuidelines: '',
+        brandVoiceGuidelines: '',
+        promptImageCount: 0,
+        attachedImages: [],
+        customFoundationImage: null,
+      };
+      const jobId = await insertDesignGenerationJob({
+        artifactId: artifactId?.trim() ?? null,
+        userId: actorUserId,
+        requestParams: requestParams as unknown as Record<string, unknown>,
+      });
+      return textResult({
+        ok: true,
+        jobId,
+        status: 'pending',
+        note: 'A background runner processes this within ~1 min — poll handoff_get_design_job.',
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_design_job',
+    {
+      description: 'Poll a design image generation job (from handoff_generate_design_image). Read-only.',
+      inputSchema: { jobId: z.number().int() },
+    },
+    async ({ jobId }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const { getDesignGenerationJob } = await import('@/lib/db/queries');
+      const job = await getDesignGenerationJob(jobId);
+      if (!job) return textResult({ error: 'Job not found' });
+      return textResult({
+        status: job.status,
+        ...(job.imageUrl ? { imageUrl: job.imageUrl } : {}),
+        ...(job.artifactId ? { artifactId: job.artifactId } : {}),
+        ...(job.error ? { error: job.error } : {}),
       });
     }
   );
@@ -1396,7 +1545,8 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         'against the component contract; invalid values are rejected, not saved. This is how Claude publishes ' +
         'a configured, meaningful example to the workbench. Richtext ' +
         'fields take HTML strings. Returns `verifyUrl` (renders this value-set in the workbench immediately — ' +
-        'no rebuild) and a `report` (empty visual slots + each field\'s editorType) to self-check the values.',
+        'no rebuild) and a `report` (empty visual slots + each field\'s editorType) to self-check the values. ' +
+        'Once a value-set is approved, mark it canonical with handoff_promote_preview.',
       inputSchema: {
         componentId: z.string(),
         title: z.string().describe('Human label, e.g. "Primary — main page CTA".'),
@@ -1445,7 +1595,8 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     {
       description:
         'Update an existing registry preview (by its id). Provide any of title / values / semantic / ' +
-        'rationale. Changed values are re-validated against the component contract.',
+        'rationale. Changed values are re-validated against the component contract. To approve/canonicalize ' +
+        'a value-set instead, use handoff_promote_preview.',
       inputSchema: {
         id: z.string().describe('Preview id (from handoff_get_component previews or handoff_create_preview).'),
         title: z.string().optional(),
@@ -1479,6 +1630,44 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       } catch (e) {
         if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
         return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to update preview' });
+      }
+    }
+  );
+
+  // ─── Loop A: approve / promote a preview (workbench build loop) ───────────────
+
+  server.registerTool(
+    'handoff_promote_preview',
+    {
+      description:
+        'Approve a registry preview: mark its value-set canonical (semantic="canonical") so it reads as the ' +
+        'blessed, reference example for its component. Use after review to promote a value-set authored via ' +
+        'handoff_create_preview / handoff_update_preview. Zero contract change — no rebuild, no migration.',
+      inputSchema: {
+        id: z.string().describe('Preview id (from handoff_get_component previews or handoff_create_preview).'),
+        note: z.string().optional().describe('Optional rationale recorded on the preview.'),
+      },
+    },
+    async ({ id, note }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      try {
+        const rec = await updateComponentPreview(id.trim(), {
+          semantic: 'canonical',
+          ...(note ? { rationale: note } : {}),
+        });
+        if (!rec) return textResult({ ok: false, error: 'Not found' });
+        const base = issuerForCliSync(request);
+        return textResult({
+          ok: true,
+          id: rec.id,
+          previewKey: rec.previewKey,
+          verifyUrl: `${base}/system/component/${encodeURIComponent(rec.componentId)}?preview=${encodeURIComponent(rec.previewKey)}`,
+        });
+      } catch (e) {
+        if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
+        return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to promote preview' });
       }
     }
   );

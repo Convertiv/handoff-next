@@ -40,6 +40,11 @@ const CATEGORY_BY_TOOL: Record<string, string> = {
   handoff_create_design_artifact: 'Design Artifacts',
   handoff_get_component_spec: 'Design Artifacts',
   handoff_generate_component_from_design: 'Design Artifacts',
+  // Design Workbench (build loop: status, extraction, image generation)
+  handoff_set_design_status: 'Design Workbench',
+  handoff_extract_design_assets: 'Design Workbench',
+  handoff_generate_design_image: 'Design Workbench',
+  handoff_get_design_job: 'Design Workbench',
   // Change inquiry
   handoff_recent_changes: 'Change Inquiry',
   handoff_component_history: 'Change Inquiry',
@@ -53,6 +58,7 @@ const CATEGORY_BY_TOOL: Record<string, string> = {
   // Previews
   handoff_create_preview: 'Previews',
   handoff_update_preview: 'Previews',
+  handoff_promote_preview: 'Previews',
   handoff_preview_component: 'Previews',
   // Documentation
   handoff_list_doc_pages: 'Documentation',
@@ -75,6 +81,7 @@ export const CATEGORY_ORDER = [
   'Icons & Logos',
   'Assets',
   'Design Artifacts',
+  'Design Workbench',
   'Pages & Compositions',
   'Previews',
   'Documentation',

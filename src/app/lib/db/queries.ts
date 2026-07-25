@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, ilike, like, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, like, lte, ne, or, sql } from 'drizzle-orm';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
@@ -895,6 +895,21 @@ export async function getActiveDesignGenerationJobsForUser(userId: string): Prom
     )
     .orderBy(desc(handoffDesignGenerationJobs.createdAt))
     .limit(20);
+}
+
+/**
+ * Fetch the oldest pending design generation jobs across all users, FIFO.
+ * Drives the durable cron runner (`/api/handoff/ai/design-jobs/run`), which
+ * processes detached MCP-queued jobs the way the SSE route processes inline ones.
+ */
+export async function getPendingDesignGenerationJobs(limit = 3): Promise<DesignGenerationJobRow[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(handoffDesignGenerationJobs)
+    .where(eq(handoffDesignGenerationJobs.status, 'pending'))
+    .orderBy(asc(handoffDesignGenerationJobs.createdAt))
+    .limit(limit);
 }
 
 /** Delete a generation job row (e.g. dismissing a failed/stuck job). Owner-scoped. */
