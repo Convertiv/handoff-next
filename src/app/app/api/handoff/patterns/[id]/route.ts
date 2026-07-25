@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDbPatternById } from '@/lib/db/queries';
+import { getDbPatternById, getUserDisplays } from '@/lib/db/queries';
 import { getActorGrant } from '@/lib/db/grant-queries';
 import { computePermissions, toVisibility, type MutateActor } from '@/lib/authz/policy';
 import { patternRowToDetailResponse } from '@/lib/server/pattern-api-map';
@@ -32,5 +32,10 @@ export async function GET(_request: Request, context: RouteContext) {
     grant
   );
 
-  return NextResponse.json({ pattern: patternRowToDetailResponse(row, basePath), permissions });
+  const displays = row.userId ? await getUserDisplays([row.userId]) : null;
+  const d = row.userId ? displays?.get(row.userId) : undefined;
+  const owner = d ? { id: d.id, name: d.name, image: d.image } : null;
+  const isMe = userId != null && row.userId === userId;
+
+  return NextResponse.json({ pattern: patternRowToDetailResponse(row, basePath), permissions, owner, isMe });
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDbPatternsFiltered } from '@/lib/db/queries';
+import { getDbPatternsFiltered, getUserDisplays } from '@/lib/db/queries';
 import { getActorGrantsForResources, listPatternsByLane, type Lane, type PatternLaneRow } from '@/lib/db/grant-queries';
 import { attachPermissions, type MutateActor } from '@/lib/authz/policy';
 import { patternRowToListEntry } from '@/lib/server/pattern-api-map';
@@ -38,10 +38,18 @@ export async function GET(request: Request) {
     });
     const grants = await getActorGrantsForResources('pattern', page.rows.map((r) => r.id), userId);
     const withPerms = attachPermissions(page.rows, actor, grants);
-    const patterns = withPerms.map((row) => ({
-      ...patternRowToListEntry(row, basePath),
-      permissions: row.permissions,
-    }));
+    const displays = await getUserDisplays(
+      [...new Set(withPerms.map((r) => r.userId).filter((v): v is string => !!v))]
+    );
+    const patterns = withPerms.map((row) => {
+      const d = row.userId ? displays.get(row.userId) : undefined;
+      return {
+        ...patternRowToListEntry(row, basePath),
+        permissions: row.permissions,
+        owner: d ? { id: d.id, name: d.name, image: d.image } : null,
+        isMe: userId != null && row.userId === userId,
+      };
+    });
     return NextResponse.json({ patterns, nextCursor: page.nextCursor });
   }
 
@@ -49,9 +57,17 @@ export async function GET(request: Request) {
   const rows = (await getDbPatternsFiltered({ source, q, group })) as PatternLaneRow[];
   const grants = await getActorGrantsForResources('pattern', rows.map((r) => r.id), userId);
   const withPerms = attachPermissions(rows, actor, grants);
-  const patterns = withPerms.map((row) => ({
-    ...patternRowToListEntry(row, basePath),
-    permissions: row.permissions,
-  }));
+  const displays = await getUserDisplays(
+    [...new Set(withPerms.map((r) => r.userId).filter((v): v is string => !!v))]
+  );
+  const patterns = withPerms.map((row) => {
+    const d = row.userId ? displays.get(row.userId) : undefined;
+    return {
+      ...patternRowToListEntry(row, basePath),
+      permissions: row.permissions,
+      owner: d ? { id: d.id, name: d.name, image: d.image } : null,
+      isMe: userId != null && row.userId === userId,
+    };
+  });
   return NextResponse.json({ patterns });
 }

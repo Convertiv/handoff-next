@@ -1,4 +1,6 @@
 import 'server-only';
+import type { GrantLevel, Visibility, ResourcePermissions } from './vocab';
+import { VISIBILITY } from './vocab';
 
 /**
  * Authorization policy layer (Phase A of the Workbench/Playground multiuser roadmap).
@@ -61,16 +63,11 @@ export function assertCanMutatePattern(actor: MutateActor, ownerUserId: string |
 /* Phase B — visibility & lifecycle (foundation only; not yet wired to reads)  */
 /* -------------------------------------------------------------------------- */
 
-/** Sharing visibility of a resource. */
-export type Visibility = 'private' | 'shared' | 'team' | 'public';
-export const VISIBILITY: readonly Visibility[] = ['private', 'shared', 'team', 'public'] as const;
-
-/** Lifecycle status of a resource. */
-export type Lifecycle = 'prototype' | 'draft' | 'review' | 'approved' | 'archived';
-export const LIFECYCLE: readonly Lifecycle[] = ['prototype', 'draft', 'review', 'approved', 'archived'] as const;
-
-/** Access level of an explicit per-user grant on a resource. */
-export type GrantLevel = 'view' | 'edit';
+// Vocabulary (types + value lists) lives in the client-safe `./vocab` module; re-exported
+// here so existing server-side imports from '@/lib/authz/policy' are unchanged. Client
+// components import from './vocab' directly (this file is server-only).
+export type { Visibility, Lifecycle, GrantLevel, ResourcePermissions } from './vocab';
+export { VISIBILITY, LIFECYCLE } from './vocab';
 
 /** A per-user grant the current actor holds on a resource (looked up by the caller in Stage 2). */
 export interface ResourceGrant {
@@ -82,15 +79,6 @@ export interface OwnedResource {
   /** Owner id; null = legacy/unowned (team-editable, consistent with `canMutatePattern`). */
   ownerUserId: string | null;
   visibility: Visibility;
-}
-
-/** Effective permissions of an actor over a single resource. */
-export interface ResourcePermissions {
-  canView: boolean;
-  canEdit: boolean;
-  canDelete: boolean;
-  canChangeVisibility: boolean;
-  canApprove: boolean;
 }
 
 /**

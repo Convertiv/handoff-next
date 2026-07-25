@@ -11,6 +11,10 @@ export type PatternListApiEntry = PatternListObject & {
   _createdAt: string | null;
   _updatedAt: string | null;
   _componentCount: number;
+  /** Sharing visibility (Phase B): private | shared | team | public. */
+  visibility: string;
+  /** Lifecycle status (Phase B): prototype | draft | review | approved | archived. */
+  status: string;
 };
 
 /** Full row payload for playground load (includes `data` previews block). */
@@ -49,6 +53,8 @@ export function patternRowToListEntry(row: PatternRow, basePath: string): Patter
     _createdAt: row.createdAt?.toISOString?.() ?? null,
     _updatedAt: row.updatedAt?.toISOString?.() ?? null,
     _componentCount: Array.isArray(components) ? components.length : 0,
+    visibility: row.visibility,
+    status: row.status,
   };
 }
 

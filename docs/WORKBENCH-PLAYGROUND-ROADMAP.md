@@ -189,7 +189,7 @@ owner is set; every new pattern gets an owner. Existing playground data is dispo
 **Exit ✅:** no server action or MCP tool can mutate a pattern the actor doesn't own (unless admin). Full
 `tsc` clean. Working tree, uncommitted.
 
-## Phase B — Sharing & visibility — 🔄 IN PROGRESS 2026-07-24
+## Phase B — Sharing & visibility — ✅ SHIPPED (backend + UI) 2026-07-24 · polish follow-ups noted in Stage 3
 
 **Approved via interactive mockup** (`docs`/artifact, 2026-07-24). Spec locked to the mockup: three
 *independent* axes — ownership (derived; shown via lanes + attribution), lifecycle (semantic color chip),
@@ -210,9 +210,17 @@ not-mine assets. Public link = client-facing, read-only, safe-subset, revocable.
    ⚠️ Hard view-enforcement deliberately deferred to the Stage 3 cutover; the `setPatternMetaFields` approve
    gate lives in the server action (no MCP visibility/status setter exists yet — add the gate to the core if
    one is introduced).
-3. ⬜ **UI cutover** — build the library (lanes, cards, inspector, controls, duplicate, share) into the real
-   Playground + Workbench, driven by the `permissions` object + `?lane=` endpoints. This is where view
-   filtering goes live. Best built against the running app for visual verification.
+3. ✅ **UI cutover** (2026-07-24) — shared primitives in `components/library/*` (`LifecycleBadge`,
+   `VisibilityBadge`, `OwnerAttribution`, `LaneTabs`, `LifecyclePicker`, `VisibilityPicker`,
+   `AssetInspector` — Tailwind v4 + shadcn/ui, driven purely by props/`permissions`). Client-safe vocab
+   extracted to `lib/authz/vocab.ts` (policy re-exports). API rows enriched with `owner{id,name,image}` +
+   `isMe` (`getUserDisplays`, no N+1) + `visibility`/`status`. Both surfaces cut over to `?lane=` (default
+   "Yours"): Workbench Library tab (`DesignClient`) and the Playground `PatternPicker` (flat modal →
+   lane/card/inspector browser). View filtering is now LIVE in the UI. tsc clean; verify visually on 8x8.
+   **Polish follow-ups (not blocking):** friendly public viewer page for share tokens (currently the JSON
+   endpoint); a true artifact clone endpoint (duplicate maps to open-in-workbench today); one-pass PATCH
+   for `visibility`+`publicAccess` (sent as 2 calls); a "get existing share link for resource" endpoint
+   (share URL only shows for links minted in-session).
 
 - **B.1 Unified visibility enum** across patterns, design artifacts, and (where relevant) doc pages:
   `private` → `team` (all authenticated users in the deployment) → `public`. Replaces the one-off

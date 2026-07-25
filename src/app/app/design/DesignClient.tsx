@@ -17,6 +17,7 @@ import {
   RefreshCwIcon,
   RotateCcwIcon,
   SettingsIcon,
+  Share2Icon,
   Trash2Icon,
   WandSparklesIcon,
   XIcon,
@@ -65,6 +66,14 @@ import {
 } from './workbench-session';
 import SessionHistoryPanel from './SessionHistoryPanel';
 import { COMPONENT_REFERENCE_SETTINGS, CUSTOM_FOUNDATION_IMAGE_FILENAME } from './settings/settings-constants';
+import {
+  AssetInspector,
+  LaneTabs,
+  LifecycleBadge,
+  OwnerAttribution,
+  VisibilityBadge,
+} from '@/components/library';
+import type { Lane, Lifecycle, ResourcePermissions, Visibility } from '@/lib/authz/vocab';
 
 type LayoutWizardStatus = 'idle' | 'analyzing' | 'generating' | 'done';
 type SidebarTab = 'session' | 'layout' | 'library';
@@ -77,6 +86,11 @@ type LibraryArtifactRow = {
   status: string;
   imageUrl: string;
   updatedAt: string;
+  /** Phase B lane fields (stamped by the lane list endpoint). */
+  visibility: Visibility;
+  permissions: ResourcePermissions;
+  owner: { id: string; name?: string | null; image?: string | null } | null;
+  isMe: boolean;
 };
 
 type LayoutAnalysisResult = {
@@ -226,7 +240,14 @@ const DesignWorkbenchPage = ({
   const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
   const [libraryCursor, setLibraryCursor] = useState<string | null>(null);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const [libraryLane, setLibraryLane] = useState<Lane>('yours');
+  // Inspector (asset detail sheet) state.
+  const [inspectorId, setInspectorId] = useState<string | null>(null);
+  const [inspectorBusy, setInspectorBusy] = useState(false);
+  // Share links created this session, keyed by artifact id (no list-on-load endpoint).
+  const [shareUrls, setShareUrls] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
     selectedGeneratedImageIdRef.current = selectedGeneratedImageId;
@@ -297,9 +318,8 @@ const DesignWorkbenchPage = ({
     else setLibraryLoading(true);
     setLibraryError(null);
     try {
-      const url = cursor
-        ? `/api/handoff/ai/design-artifact?limit=100&cursor=${encodeURIComponent(cursor)}`
-        : '/api/handoff/ai/design-artifact?limit=100';
+      const base = `/api/handoff/ai/design-artifact?limit=100&lane=${libraryLane}`;
+      const url = cursor ? `${base}&cursor=${encodeURIComponent(cursor)}` : base;
       const res = await fetch(handoffApiUrl(url), { credentials: 'include' });
       const json = (await res.json().catch(() => ({}))) as {
         artifacts?: LibraryArtifactRow[];
@@ -317,12 +337,147 @@ const DesignWorkbenchPage = ({
       if (append) setLibraryLoadingMore(false);
       else setLibraryLoading(false);
     }
-  }, []);
+  }, [libraryLane]);
 
-  // Lazily load the library the first time its tab is opened.
+  // Lazily load the library the first time its tab is opened, and whenever the
+  // active lane changes (the lane switch resets `libraryLoaded` below).
   useEffect(() => {
     if (activeSidebarTab === 'library' && !libraryLoaded && isLoggedIn) void fetchLibrary();
   }, [activeSidebarTab, libraryLoaded, isLoggedIn, fetchLibrary]);
+
+  // Switch lanes: clear the current page and force a fresh first-page load.
+  const handleLibraryLaneChange = useCallback((lane: Lane) => {
+    setLibraryLane(lane);
+    setLibraryArtifacts([]);
+    setLibraryCursor(null);
+    setLibraryError(null);
+    setLibraryLoaded(false);
+  }, []);
+
+  // The artifact currently shown in the inspector sheet.
+  const inspectorArtifact = useMemo(
+    () => libraryArtifacts.find((a) => a.id === inspectorId) ?? null,
+    [libraryArtifacts, inspectorId],
+  );
+
+  const patchArtifactFields = useCallback(
+    async (id: string, patch: { visibility?: Visibility; status?: Lifecycle; publicAccess?: boolean }) => {
+      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact'), {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...patch }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || `Update failed (${res.status})`);
+    },
+    [],
+  );
+
+  const handleSetLifecycle = useCallback(
+    async (status: Lifecycle) => {
+      if (!inspectorId) return;
+      setInspectorBusy(true);
+      setLibraryError(null);
+      setLibraryNotice(null);
+      try {
+        await patchArtifactFields(inspectorId, { status });
+        setLibraryArtifacts((prev) => prev.map((a) => (a.id === inspectorId ? { ...a, status } : a)));
+        setLibraryNotice('Lifecycle updated.');
+      } catch (e) {
+        setLibraryError(e instanceof Error ? e.message : 'Could not update lifecycle.');
+      } finally {
+        setInspectorBusy(false);
+      }
+    },
+    [inspectorId, patchArtifactFields],
+  );
+
+  const handleSetVisibility = useCallback(
+    async (visibility: Visibility) => {
+      if (!inspectorId) return;
+      setInspectorBusy(true);
+      setLibraryError(null);
+      setLibraryNotice(null);
+      try {
+        // The PATCH route processes `publicAccess` and `visibility` in separate,
+        // early-returning branches, so send two requests to keep the legacy public
+        // route in sync with the new visibility model.
+        await patchArtifactFields(inspectorId, { visibility });
+        await patchArtifactFields(inspectorId, { publicAccess: visibility === 'public' });
+        setLibraryArtifacts((prev) => prev.map((a) => (a.id === inspectorId ? { ...a, visibility } : a)));
+        setLibraryNotice('Visibility updated.');
+      } catch (e) {
+        setLibraryError(e instanceof Error ? e.message : 'Could not update visibility.');
+      } finally {
+        setInspectorBusy(false);
+      }
+    },
+    [inspectorId, patchArtifactFields],
+  );
+
+  const handleCreateShare = useCallback(async () => {
+    if (!inspectorId) return;
+    setInspectorBusy(true);
+    setLibraryError(null);
+    setLibraryNotice(null);
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/share'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resourceType: 'design_artifact', resourceId: inspectorId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
+      if (!res.ok || !json.token) throw new Error(json.error || `Could not create link (${res.status})`);
+      const url = `${window.location.origin}/api/handoff/share/${json.token}`;
+      setShareUrls((prev) => ({ ...prev, [inspectorId]: url }));
+      setLibraryNotice('Public link created.');
+    } catch (e) {
+      setLibraryError(e instanceof Error ? e.message : 'Could not create public link.');
+    } finally {
+      setInspectorBusy(false);
+    }
+  }, [inspectorId]);
+
+  const handleRevokeShare = useCallback(async () => {
+    if (!inspectorId) return;
+    const url = shareUrls[inspectorId];
+    const token = url ? url.split('/').pop() : null;
+    if (!token) {
+      setShareUrls((prev) => ({ ...prev, [inspectorId]: null }));
+      return;
+    }
+    setInspectorBusy(true);
+    setLibraryError(null);
+    setLibraryNotice(null);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/share?token=${encodeURIComponent(token)}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || `Could not revoke link (${res.status})`);
+      setShareUrls((prev) => ({ ...prev, [inspectorId]: null }));
+      setLibraryNotice('Public link revoked.');
+    } catch (e) {
+      setLibraryError(e instanceof Error ? e.message : 'Could not revoke public link.');
+    } finally {
+      setInspectorBusy(false);
+    }
+  }, [inspectorId, shareUrls]);
+
+  // Open the selected artifact in the workbench viewer (existing library route).
+  const handleInspectorOpen = useCallback(() => {
+    if (!inspectorId) return;
+    router.push(`${basePath}/design/library/${inspectorId}/`);
+  }, [inspectorId, router, basePath]);
+
+  // No clone endpoint yet — derive-your-own via the "open in workbench" load path.
+  const handleInspectorDuplicate = useCallback(() => {
+    if (!inspectorId) return;
+    router.push(`${basePath}/design/?loadArtifact=${encodeURIComponent(inspectorId)}`);
+  }, [inspectorId, router, basePath]);
 
   useEffect(() => {
     const recentImages = generatedImages
@@ -1306,10 +1461,13 @@ const DesignWorkbenchPage = ({
                   <RefreshCwIcon className={`h-4 w-4 ${libraryLoading ? 'animate-spin' : ''}`} />
                 </Button>
               </div>
+              <div className="border-b px-3 py-2">
+                <LaneTabs value={libraryLane} onChange={handleLibraryLaneChange} />
+              </div>
               <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
-                {libraryError ? (
-                  <p className="text-xs text-destructive">{libraryError}</p>
-                ) : libraryLoading && libraryArtifacts.length === 0 ? (
+                {libraryError ? <p className="text-xs text-destructive">{libraryError}</p> : null}
+                {libraryNotice ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{libraryNotice}</p> : null}
+                {libraryLoading && libraryArtifacts.length === 0 ? (
                   <p className="text-xs text-muted-foreground">Loading saved designs…</p>
                 ) : libraryArtifacts.length === 0 ? (
                   <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center">
@@ -1321,33 +1479,80 @@ const DesignWorkbenchPage = ({
                 ) : (
                   <>
                   {libraryArtifacts.map((a) => (
-                    <Link
+                    <div
                       key={a.id}
-                      href={`${basePath}/design/library/${a.id}/`}
-                      className="group block rounded-lg border bg-muted/20 p-1 transition hover:border-primary"
+                      className="group rounded-lg border bg-muted/20 p-1 transition hover:border-primary"
                     >
-                      {a.imageUrl ? (
-                        <Image
-                          src={a.imageUrl}
-                          alt={a.title}
-                          width={192}
-                          height={108}
-                          unoptimized
-                          className="h-20 w-full rounded-md object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-20 w-full items-center justify-center rounded-md bg-muted text-xs text-muted-foreground">
-                          No preview
+                      <button
+                        type="button"
+                        className="block w-full text-left"
+                        onClick={() => setInspectorId(a.id)}
+                        title="Open details"
+                      >
+                        {a.imageUrl ? (
+                          <Image
+                            src={a.imageUrl}
+                            alt={a.title}
+                            width={192}
+                            height={108}
+                            unoptimized
+                            className="h-20 w-full rounded-md object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-20 w-full items-center justify-center rounded-md bg-muted text-xs text-muted-foreground">
+                            No preview
+                          </div>
+                        )}
+                        <div className="px-1 py-1.5">
+                          <p className="truncate text-xs font-medium" title={a.title}>{a.title}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <LifecycleBadge status={a.status as Lifecycle} />
+                            <VisibilityBadge visibility={a.visibility} />
+                          </div>
+                          <div className="mt-1.5">
+                            <OwnerAttribution
+                              owner={a.owner}
+                              isMe={a.isMe}
+                              editedLabel={formatGenerationTimestamp(a.updatedAt)}
+                            />
+                          </div>
                         </div>
-                      )}
-                      <div className="px-1 py-1.5">
-                        <p className="truncate text-xs font-medium" title={a.title}>{a.title}</p>
-                        <div className="mt-0.5 flex items-center justify-between gap-2">
-                          <span className="text-[11px] capitalize text-muted-foreground">{a.status}</span>
-                          <span className="text-[11px] text-muted-foreground">{formatGenerationTimestamp(a.updatedAt)}</span>
-                        </div>
+                      </button>
+                      <div className="flex items-center gap-1 px-1 pb-1">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 flex-1 text-xs"
+                          onClick={() => router.push(`${basePath}/design/library/${a.id}/`)}
+                        >
+                          Open
+                        </Button>
+                        {a.permissions.canEdit ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 flex-1 text-xs"
+                            onClick={() => setInspectorId(a.id)}
+                          >
+                            <Share2Icon className="mr-1 h-3.5 w-3.5" />
+                            Share
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 flex-1 text-xs"
+                            onClick={() => router.push(`${basePath}/design/?loadArtifact=${encodeURIComponent(a.id)}`)}
+                          >
+                            <CopyIcon className="mr-1 h-3.5 w-3.5" />
+                            Duplicate
+                          </Button>
+                        )}
                       </div>
-                    </Link>
+                    </div>
                   ))}
                   {libraryCursor ? (
                     <Button
@@ -1785,6 +1990,36 @@ const DesignWorkbenchPage = ({
         }}
         onDownload={(src) => handleDownloadGeneratedImage({ src, prompt: panelImage?.prompt ?? '' } as GeneratedImage)}
         basePath={basePath}
+      />
+      <AssetInspector
+        open={Boolean(inspectorId)}
+        onOpenChange={(o) => {
+          if (!o) setInspectorId(null);
+        }}
+        asset={
+          inspectorArtifact
+            ? {
+                id: inspectorArtifact.id,
+                title: inspectorArtifact.title,
+                thumbnailUrl: inspectorArtifact.imageUrl,
+                owner: inspectorArtifact.owner,
+                isMe: inspectorArtifact.isMe,
+                visibility: inspectorArtifact.visibility,
+                status: inspectorArtifact.status as Lifecycle,
+                surface: 'design',
+                editedLabel: formatGenerationTimestamp(inspectorArtifact.updatedAt),
+              }
+            : null
+        }
+        permissions={inspectorArtifact?.permissions ?? null}
+        onSetLifecycle={(s) => void handleSetLifecycle(s)}
+        onSetVisibility={(v) => void handleSetVisibility(v)}
+        onOpen={handleInspectorOpen}
+        onDuplicate={handleInspectorDuplicate}
+        shareUrl={inspectorId ? shareUrls[inspectorId] ?? null : null}
+        onCreateShare={() => void handleCreateShare()}
+        onRevokeShare={() => void handleRevokeShare()}
+        busy={inspectorBusy}
       />
       </>
     </Layout>

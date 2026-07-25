@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDesignArtifactById } from '@/lib/db/queries';
+import { getDesignArtifactById, getUserDisplays } from '@/lib/db/queries';
 import { getActorGrant } from '@/lib/db/grant-queries';
 import { computePermissions, toVisibility, type MutateActor } from '@/lib/authz/policy';
 
@@ -36,7 +36,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       { ownerUserId: row.userId, visibility: toVisibility(row.visibility) },
       grant
     );
-    return NextResponse.json({ artifact: row, permissions });
+    const displays = await getUserDisplays([row.userId]);
+    const d = displays.get(row.userId);
+    const owner = d ? { id: d.id, name: d.name, image: d.image } : null;
+    const isMe = row.userId === session.user.id;
+    return NextResponse.json({ artifact: row, permissions, owner, isMe });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Load failed';
     return NextResponse.json({ error: msg }, { status: 500 });

@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import {
   getDesignArtifactById,
   getDesignArtifactSummariesPage,
+  getUserDisplays,
   insertDesignArtifact,
   updateDesignArtifact,
   updateDesignArtifactById,
@@ -347,7 +348,8 @@ export async function GET(request: NextRequest) {
         page.rows.map((r) => r.id),
         userId
       );
-      return NextResponse.json({ artifacts: attachPermissions(page.rows, actor, grants), nextCursor: page.nextCursor });
+      const artifacts = await attachOwners(attachPermissions(page.rows, actor, grants), userId);
+      return NextResponse.json({ artifacts, nextCursor: page.nextCursor });
     }
 
     // Default (no lane): unchanged scoping/behaviour. Admins may scope to any user
@@ -360,9 +362,31 @@ export async function GET(request: NextRequest) {
       cursor,
     });
     const grants = await getActorGrantsForResources('design_artifact', page.rows.map((r) => r.id), userId);
-    return NextResponse.json({ artifacts: attachPermissions(page.rows, actor, grants), nextCursor: page.nextCursor });
+    const artifacts = await attachOwners(attachPermissions(page.rows, actor, grants), userId);
+    return NextResponse.json({ artifacts, nextCursor: page.nextCursor });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'List failed';
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+/**
+ * Additive owner attribution: attach `owner` (display id/name/image) + `isMe` to
+ * each list item. One batched `getUserDisplays` call (no N+1). Never mutates or
+ * drops existing fields.
+ */
+async function attachOwners<T extends { userId: string | null }>(
+  rows: T[],
+  currentUserId: string | null
+): Promise<(T & { owner: { id: string; name: string | null; image: string | null } | null; isMe: boolean })[]> {
+  const ownerIds = [...new Set(rows.map((r) => r.userId).filter((v): v is string => !!v))];
+  const displays = await getUserDisplays(ownerIds);
+  return rows.map((row) => {
+    const d = row.userId ? displays.get(row.userId) : undefined;
+    return {
+      ...row,
+      owner: d ? { id: d.id, name: d.name, image: d.image } : null,
+      isMe: currentUserId != null && row.userId === currentUserId,
+    };
+  });
 }

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, ilike, like, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, like, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
@@ -47,6 +47,28 @@ export async function getUserCount(): Promise<number> {
     }
     throw err;
   }
+}
+
+export type UserDisplay = { id: string; name: string | null; email: string | null; image: string | null };
+
+/**
+ * Batched display lookup for a set of user ids — ONE query, keyed by id. Used to
+ * attach owner attribution (name/image) to list/detail responses without an N+1.
+ * Returns an empty map for empty input or non-postgres mode (defensive, like the
+ * other queries here).
+ */
+export async function getUserDisplays(ids: string[]): Promise<Map<string, UserDisplay>> {
+  const map = new Map<string, UserDisplay>();
+  if (!usePostgres() || ids.length === 0) return map;
+  const db = getDb();
+  const rows = await db
+    .select({ id: users.id, name: users.name, email: users.email, image: users.image })
+    .from(users)
+    .where(inArray(users.id, ids));
+  for (const row of rows) {
+    map.set(row.id, { id: row.id, name: row.name ?? null, email: row.email ?? null, image: row.image ?? null });
+  }
+  return map;
 }
 
 export type DesignWorkspaceRow = typeof handoffDesignWorkspace.$inferSelect;
