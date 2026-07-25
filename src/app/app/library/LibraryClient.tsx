@@ -6,11 +6,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { setPatternMeta } from '@/app/actions/patterns';
-import { AssetCard, AssetInspector, LaneTabs, type LibraryAsset } from '@/components/library';
+import { AssetCard, AssetInspector, type LibraryAsset } from '@/components/library';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import type { Lane, Lifecycle, ResourcePermissions, Visibility } from '@/lib/authz/vocab';
+import { LANES, LANE_META, type Lane, type Lifecycle, type ResourcePermissions, type Visibility } from '@/lib/authz/vocab';
 import { handoffApiUrl, handoffBasePath } from '@/lib/api-path';
 
 type Owner = { id: string; name?: string | null; image?: string | null } | null;
@@ -378,6 +378,24 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
     </>
   );
 
+  // Full-width stacked variant for the sidebar (same targets, vertical layout).
+  const launchButtonsStacked = (
+    <>
+      <Button asChild size="sm" className="w-full justify-start gap-2">
+        <Link href={`${basePath}/design`}>
+          <Sparkles className="h-4 w-4" aria-hidden />
+          New design
+        </Link>
+      </Button>
+      <Button asChild size="sm" variant="secondary" className="w-full justify-start gap-2">
+        <Link href={`${basePath}/playground`}>
+          <PlusIcon className="h-4 w-4" aria-hidden />
+          New pattern
+        </Link>
+      </Button>
+    </>
+  );
+
   const typeFacets: { value: TypeFacet; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'design', label: 'Designs' },
@@ -385,26 +403,19 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
   ];
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Everything you and your team have made — designs from the Workbench and patterns from the Playground, in
-            one place.
-          </p>
+    <div className="flex h-full min-h-0 overflow-hidden bg-background">
+      {/* Left sidebar — facets, lanes, search, launch (mirrors the builder shells). */}
+      <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-background">
+        {/* Create */}
+        <div className="flex flex-col gap-2 border-b p-3">
+          <p className="text-xs font-medium text-muted-foreground">Create</p>
+          {launchButtonsStacked}
         </div>
-        <div className="flex shrink-0 items-center gap-2">{launchButtons}</div>
-      </div>
 
-      {/* Toolbar */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <LaneTabs value={lane} onChange={handleLaneChange} />
-
-          {/* Type facet segmented control */}
-          <div className="inline-flex items-center gap-1 rounded-lg bg-muted p-1 text-muted-foreground">
+        {/* Type facet */}
+        <div className="flex flex-col gap-2 border-b p-3">
+          <p className="text-xs font-medium text-muted-foreground">Type</p>
+          <nav className="flex flex-col gap-1">
             {typeFacets.map((f) => {
               const active = f.value === typeFacet;
               return (
@@ -414,17 +425,46 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
                   aria-pressed={active}
                   onClick={() => setTypeFacet(f.value)}
                   className={cn(
-                    'rounded-md px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
-                    active ? 'bg-background text-foreground shadow-sm' : 'hover:text-foreground',
+                    'rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
+                    active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
                   )}
                 >
                   {f.label}
                 </button>
               );
             })}
-          </div>
+          </nav>
+        </div>
 
-          <div className="relative min-w-48 flex-1">
+        {/* Lane selector — vertical list from the authz vocab. */}
+        <div className="flex flex-col gap-2 border-b p-3">
+          <p className="text-xs font-medium text-muted-foreground">Lane</p>
+          <nav role="tablist" aria-label="Library lanes" className="flex flex-col gap-1">
+            {LANES.map((l) => {
+              const active = l === lane;
+              return (
+                <button
+                  key={l}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => handleLaneChange(l)}
+                  className={cn(
+                    'rounded-md px-2.5 py-1.5 text-left text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
+                    active ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                  )}
+                >
+                  {LANE_META[l].label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Search */}
+        <div className="flex flex-col gap-2 p-3">
+          <p className="text-xs font-medium text-muted-foreground">Search</p>
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="pl-9"
@@ -436,62 +476,72 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
               }}
             />
           </div>
-          <Button type="button" variant="secondary" size="sm" onClick={submitSearch}>
+          <Button type="button" variant="secondary" size="sm" className="w-full" onClick={submitSearch}>
             Search
           </Button>
         </div>
+      </aside>
+
+      {/* Main area — slim top bar + scrolling card grid. */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Slim top bar */}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
+          <h1 className="text-lg font-semibold tracking-tight">Library</h1>
+          {isLoggedIn && !loading && visibleAssets.length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {visibleAssets.length} item{visibleAssets.length === 1 ? '' : 's'} · first {PAGE_SIZE} of each type
+            </p>
+          ) : null}
+        </div>
+
+        {/* Scroll region */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {/* Notices */}
+          {error ? (
+            <div className="mb-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              <Info className="h-4 w-4 shrink-0" aria-hidden />
+              <span>{error}</span>
+            </div>
+          ) : null}
+          {notice ? (
+            <div className="mb-3 flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              <Info className="h-4 w-4 shrink-0" aria-hidden />
+              <span>{notice}</span>
+            </div>
+          ) : null}
+
+          {/* Body */}
+          {!isLoggedIn ? (
+            <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed py-16 text-center">
+              <p className="text-sm text-muted-foreground">Sign in to browse and manage your library.</p>
+              <div className="flex items-center gap-2">{launchButtons}</div>
+            </div>
+          ) : loading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : visibleAssets.length === 0 ? (
+            <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed py-16 text-center">
+              <p className="text-sm text-muted-foreground">
+                Nothing here yet — start in the Workbench or Playground.
+              </p>
+              <div className="flex items-center gap-2">{launchButtons}</div>
+            </div>
+          ) : (
+            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {visibleAssets.map((asset) => (
+                <AssetCard
+                  key={keyOf(asset)}
+                  asset={asset}
+                  onOpen={() => openAsset(asset)}
+                  onDetails={() => openDetails(asset)}
+                  onDuplicate={() => openDetails(asset)}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
-
-      {/* Notices */}
-      {error ? (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          <Info className="h-4 w-4 shrink-0" aria-hidden />
-          <span>{error}</span>
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          <Info className="h-4 w-4 shrink-0" aria-hidden />
-          <span>{notice}</span>
-        </div>
-      ) : null}
-
-      {/* Body */}
-      {!isLoggedIn ? (
-        <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed py-16 text-center">
-          <p className="text-sm text-muted-foreground">Sign in to browse and manage your library.</p>
-          <div className="flex items-center gap-2">{launchButtons}</div>
-        </div>
-      ) : loading ? (
-        <div className="flex justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : visibleAssets.length === 0 ? (
-        <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed py-16 text-center">
-          <p className="text-sm text-muted-foreground">
-            Nothing here yet — start in the Workbench or Playground.
-          </p>
-          <div className="flex items-center gap-2">{launchButtons}</div>
-        </div>
-      ) : (
-        <>
-          <p className="text-xs text-muted-foreground">
-            Showing {visibleAssets.length} item{visibleAssets.length === 1 ? '' : 's'} · first {PAGE_SIZE} of each type
-            (design + pattern). Refine with search or lanes to find more.
-          </p>
-          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {visibleAssets.map((asset) => (
-              <AssetCard
-                key={keyOf(asset)}
-                asset={asset}
-                onOpen={() => openAsset(asset)}
-                onDetails={() => openDetails(asset)}
-                onDuplicate={() => openDetails(asset)}
-              />
-            ))}
-          </ul>
-        </>
-      )}
 
       {/* Inspector */}
       <AssetInspector

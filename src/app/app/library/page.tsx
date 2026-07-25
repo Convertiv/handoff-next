@@ -29,7 +29,7 @@ export default async function LibraryPage() {
           metaDescription: 'Browse and manage every design and pattern in one place.',
         } as never
       }
-      fullBleed={false}
+      fullBleed={true}
     >
       <LibraryClient isLoggedIn={isLoggedIn} />
     </Layout>
