@@ -9,7 +9,7 @@ import { ConfigContextProvider } from '../context/ConfigContext';
 import { SidebarInset, SidebarProvider } from '../ui/sidebar';
 import { SectionLink } from '../util';
 
-const TOOLS_PATHS = ['/design', '/patterns', '/playground'];
+const TOOLS_PATHS = ['/library', '/design', '/patterns', '/playground'];
 
 interface LayoutComponentProps {
   metadata: {

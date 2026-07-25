@@ -240,10 +240,21 @@ not-mine assets. Public link = client-facing, read-only, safe-subset, revocable.
 
 The usability layer that makes producing assets intuitive.
 
+**🟩 `/library` full-page lander SHIPPED 2026-07-24 (pulled forward — the core of C.2).** New route
+`app/library/` (`page.tsx` + `LibraryClient.tsx`) is now the **home of the Tools nav** (`MainNav` "Tools"
+→ `/library`; Library added as the first tools sub-nav entry; `/library` added to all three `TOOLS_PATHS`).
+Unifies BOTH asset types in one grid: reusable `AssetCard` (`components/library`), a type facet
+(All · Designs · Patterns), lane tabs (default "Yours"), search, and two prominent builder launches
+("New design" → `/design`, "New pattern" → `/playground`). Fetches both `?lane=` endpoints in parallel,
+normalizes → merges by `updatedAt`, and wires the `AssetInspector` (setters/share/duplicate) branched by
+type. tsc clean; verify on 8x8. **Follow-up:** v1 shows only the first 50 of each type — cross-type
+pagination / "load more" is marked `// TODO` in `LibraryClient.tsx` (surfaced with a visible count, not
+silent). Remaining C.2 (folders/collections, tags, bulk actions) still ahead.
+
 - **C.1 First-class object lifecycle:** create / save / duplicate / rename / delete, with **draft vs
   published** state, consistent across both surfaces.
-- **C.2 Library organization:** folders/collections, tags, search, sort, owner/shared/public filters,
-  pagination (built on Phase 2.1). Applies to both patterns and design artifacts.
+- **C.2 Library organization:** ✅ lanes + search + sort + type facet + unified lander SHIPPED (above);
+  remaining: folders/collections, tags, bulk actions, and cross-type pagination.
 - **C.3 Concurrency safety:** at minimum optimistic-lock (version/`updated_at` check) with a clear
   conflict UI; evaluate soft-lock ("X is editing") before any real-time CRDT investment. The write
   cores already emit `edit_history` + `sync_event` per write — lean on that for conflict detection.

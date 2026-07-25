@@ -5,3 +5,4 @@ export { LaneTabs } from './LaneTabs';
 export { LifecyclePicker } from './LifecyclePicker';
 export { VisibilityPicker } from './VisibilityPicker';
 export { AssetInspector } from './AssetInspector';
+export { AssetCard, type LibraryAsset } from './AssetCard';

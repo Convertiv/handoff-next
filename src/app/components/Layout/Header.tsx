@@ -15,7 +15,7 @@ import { cn, normalizePathForMatch } from '../../lib/utils';
 import { useAuthUi } from '../context/AuthUiContext';
 import { useConfigContext } from '../context/ConfigContext';
 
-const TOOLS_PATHS = ['/design', '/patterns', '/playground'];
+const TOOLS_PATHS = ['/library', '/design', '/patterns', '/playground'];
 
 function CliIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -37,6 +37,7 @@ function ToolsSubNav() {
   if (!isToolsSection) return null;
 
   const tools = [
+    { href: `${basePath}/library`, label: 'Library' },
     { href: `${basePath}/design`, label: 'Workbench' },
     { href: `${basePath}/playground`, label: 'Playground' },
   ];

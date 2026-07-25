@@ -9,21 +9,19 @@ import {
   navigationMenuTriggerStyle,
 } from '../../components/ui/navigation-menu';
 import { cn } from '../../lib/utils';
-import { useHandoffCapabilities } from '../context/HandoffCapabilitiesContext';
 
-const TOOLS_PATHS = ['/design', '/patterns', '/playground'];
+const TOOLS_PATHS = ['/library', '/design', '/patterns', '/playground'];
 
 export function MainNav() {
-  const caps = useHandoffCapabilities();
   const pathname = usePathname();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
 
   const isToolsActive = TOOLS_PATHS.some((p) => pathname.startsWith(p));
   const isSystemActive = !isToolsActive;
 
-  const toolsHref = caps.designWorkbench
-    ? `${basePath}/design`
-    : `${basePath}/patterns`;
+  // The Library lander is the home of the Tools section — it spans both builders'
+  // output (designs + patterns) and launches into either builder.
+  const toolsHref = `${basePath}/library`;
 
   return (
     <NavigationMenu>
