@@ -11,6 +11,14 @@ import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { LifecycleBadge, OwnerAttribution, VisibilityBadge } from '@/components/library';
+import type { Lifecycle, Visibility } from '@/lib/authz/vocab';
+
+/** Owner shape returned alongside the artifact by the detail route. */
+type ArtifactOwner = { id: string; name?: string | null; image?: string | null } | null;
+
+const LIFECYCLE_SET = new Set<Lifecycle>(['prototype', 'draft', 'review', 'approved', 'archived']);
+const VISIBILITY_SET = new Set<Visibility>(['private', 'shared', 'team', 'public']);
 
 export type SavedDesignArtifactDetail = {
   id: string;
@@ -27,6 +35,7 @@ export type SavedDesignArtifactDetail = {
   assets?: { key?: string; label: string; imageUrl: string; prompt?: string }[];
   assetsStatus?: string;
   publicAccess?: boolean;
+  visibility?: string;
   componentSpec?: unknown;
   componentSpecMd?: string;
   specStatus?: string;
@@ -159,6 +168,8 @@ const MATCH_LEVEL_LABELS: Record<string, string> = {
 export default function SavedDesignDetailClient({ config, menu, metadata, artifactId, message }: Props) {
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const [artifact, setArtifact] = useState<SavedDesignArtifactDetail | null>(null);
+  const [owner, setOwner] = useState<ArtifactOwner>(null);
+  const [isMe, setIsMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -180,9 +191,16 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
     const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}`), {
       credentials: 'include',
     });
-    const json = (await res.json().catch(() => ({}))) as { artifact?: SavedDesignArtifactDetail; error?: string };
+    const json = (await res.json().catch(() => ({}))) as {
+      artifact?: SavedDesignArtifactDetail;
+      owner?: ArtifactOwner;
+      isMe?: boolean;
+      error?: string;
+    };
     if (!res.ok) throw new Error(json.error || `Failed to load (${res.status})`);
     if (!json.artifact) throw new Error('Design not found.');
+    setOwner(json.owner ?? null);
+    setIsMe(Boolean(json.isMe));
     return normalizeArtifactDetail(json.artifact as Record<string, unknown>);
   }, [artifactId, message]);
 
@@ -447,91 +465,114 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
   const assets = Array.isArray(artifact?.assets) ? artifact!.assets! : [];
   const extractErr = artifact ? extractionErrorFromMetadata(artifact.metadata) : null;
   const match = artifact ? bestComponentMatch(artifact.componentSpec) : null;
+  const statusLc: Lifecycle | null =
+    artifact && LIFECYCLE_SET.has(artifact.status as Lifecycle) ? (artifact.status as Lifecycle) : null;
+  const visibilityV: Visibility | null =
+    artifact && artifact.visibility && VISIBILITY_SET.has(artifact.visibility as Visibility)
+      ? (artifact.visibility as Visibility)
+      : null;
 
   return (
     <TooltipProvider delayDuration={300}>
-      <Layout config={config} menu={menu} current={null} metadata={{ metaTitle: metadata.metaTitle, metaDescription: metadata.metaDescription }}>
-        <div className="mx-auto max-w-4xl space-y-6 pb-12">
-          <div className="flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`${basePath}/design/library/`}>
-                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                All saved designs
-              </Link>
-            </Button>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href={`${basePath}/design/`}>Workbench</Link>
-            </Button>
-          </div>
-
-          {message ? <p className="text-sm text-amber-700 dark:text-amber-400">{message}</p> : null}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-          {notice ? <p className="text-sm text-emerald-700 dark:text-emerald-400">{notice}</p> : null}
-
-          {!message && !loaded ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2Icon className="h-4 w-4 animate-spin" />
-              Loading…
+      <Layout
+        config={config}
+        menu={menu}
+        current={null}
+        metadata={{ metaTitle: metadata.metaTitle, metaDescription: metadata.metaDescription }}
+        fullBleed
+      >
+        <div className="flex h-full min-h-0 overflow-hidden bg-background">
+          {/* Left sidebar — metadata + actions (mirrors the builder shells). */}
+          <aside className="flex w-56 shrink-0 flex-col overflow-y-auto border-r bg-background">
+            <div className="border-b p-3">
+              <Button variant="ghost" size="sm" className="mb-2 h-8 w-full justify-start gap-1.5 px-2" asChild>
+                <Link href={`${basePath}/library`}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Back to library
+                </Link>
+              </Button>
+              {artifact ? (
+                <>
+                  <h1 className="text-sm font-semibold leading-tight tracking-tight">{artifact.title || 'Untitled'}</h1>
+                  <p className="mt-1 text-xs text-muted-foreground">Updated {formatDate(artifact.updatedAt)}</p>
+                </>
+              ) : null}
             </div>
-          ) : null}
 
-          {loaded && !message && !error && !artifact ? (
-            <p className="text-sm text-muted-foreground">This design could not be loaded.</p>
-          ) : null}
-
-          {artifact ? (
-            <>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="space-y-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-2xl font-semibold tracking-tight">{artifact.title || 'Untitled'}</h1>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase text-muted-foreground">{artifact.status}</span>
+            {artifact ? (
+              <>
+                {/* Status */}
+                <div className="flex flex-col gap-2 border-b p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Status</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {statusLc ? (
+                      <LifecycleBadge status={statusLc} />
+                    ) : (
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium uppercase text-muted-foreground">{artifact.status}</span>
+                    )}
+                    {visibilityV ? <VisibilityBadge visibility={visibilityV} /> : null}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Updated {formatDate(artifact.updatedAt)} · Created {formatDate(artifact.createdAt)}
-                  </p>
+                  <OwnerAttribution owner={owner} isMe={isMe} />
+                  <p className="text-xs text-muted-foreground">Created {formatDate(artifact.createdAt)}</p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" disabled={shareBusy} onClick={() => void handleShare()}>
-                    {shareBusy ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <Link2Icon className="mr-1 h-4 w-4" />}
+
+                {/* Sharing */}
+                <div className="flex flex-col gap-2 border-b p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Sharing</p>
+                  <Button type="button" variant="outline" size="sm" className="w-full justify-start gap-1.5" disabled={shareBusy} onClick={() => void handleShare()}>
+                    {shareBusy ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <Link2Icon className="h-4 w-4" />}
                     Share link
                   </Button>
                   {artifact.publicAccess ? (
-                    <Button type="button" variant="ghost" size="sm" disabled={shareBusy} onClick={() => void handleRevokeShare()}>
+                    <Button type="button" variant="ghost" size="sm" className="w-full justify-start" disabled={shareBusy} onClick={() => void handleRevokeShare()}>
                       Stop sharing
                     </Button>
                   ) : null}
-                  <Button variant="outline" size="sm" asChild>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col gap-2 p-3">
+                  <p className="text-xs font-medium text-muted-foreground">Actions</p>
+                  <Button variant="outline" size="sm" className="w-full justify-start gap-1.5" asChild>
                     <Link href={`${basePath}/design?loadArtifact=${encodeURIComponent(artifact.id)}`}>
-                      <ExternalLink className="mr-1 h-4 w-4" />
+                      <ExternalLink className="h-4 w-4" />
                       Open in workbench
                     </Link>
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full justify-start" asChild>
+                    <Link href={`${basePath}/design/`}>Workbench</Link>
                   </Button>
                   <Button
                     type="button"
                     variant="secondary"
                     size="sm"
+                    className="w-full justify-start gap-1.5"
                     disabled={specBusy || specStatus === 'pending' || specStatus === 'generating'}
                     onClick={() => void handleRegenerateSpec()}
                   >
                     {specBusy || specStatus === 'pending' || specStatus === 'generating' ? (
-                      <Loader2Icon className="mr-1 h-4 w-4 animate-spin" />
+                      <Loader2Icon className="h-4 w-4 animate-spin" />
                     ) : (
-                      <SparklesIcon className="mr-1 h-4 w-4" />
+                      <SparklesIcon className="h-4 w-4" />
                     )}
                     {specStatus === 'done' ? 'Regenerate spec' : 'Generate spec'}
                   </Button>
                 </div>
-              </div>
+              </>
+            ) : null}
+          </aside>
 
-              {/* Tabs */}
-              <div className="flex gap-0 border-b">
-                {(['overview', 'spec'] as Tab[]).map((tab) => (
+          {/* Main — slim top bar + scrolling content. */}
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {/* Slim top bar with the tab strip */}
+            <div className="flex shrink-0 items-center gap-0 border-b px-2">
+              {artifact ? (
+                (['overview', 'spec'] as Tab[]).map((tab) => (
                   <button
                     key={tab}
                     type="button"
                     onClick={() => setActiveTab(tab)}
-                    className={`px-4 py-2 text-sm font-medium capitalize transition-colors ${
+                    className={`px-4 py-3 text-sm font-medium capitalize transition-colors ${
                       activeTab === tab
                         ? 'border-b-2 border-primary text-foreground'
                         : 'text-muted-foreground hover:text-foreground'
@@ -542,10 +583,32 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                       <Loader2Icon className="ml-1.5 inline h-3 w-3 animate-spin" />
                     ) : null}
                   </button>
-                ))}
-              </div>
+                ))
+              ) : (
+                <span className="px-4 py-3 text-sm font-semibold tracking-tight">Saved design</span>
+              )}
+            </div>
 
-              {/* Overview tab */}
+            {/* Scroll region */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {message ? <p className="mb-3 text-sm text-amber-700 dark:text-amber-400">{message}</p> : null}
+              {error ? <p className="mb-3 text-sm text-destructive">{error}</p> : null}
+              {notice ? <p className="mb-3 text-sm text-emerald-700 dark:text-emerald-400">{notice}</p> : null}
+
+              {!message && !loaded ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2Icon className="h-4 w-4 animate-spin" />
+                  Loading…
+                </div>
+              ) : null}
+
+              {loaded && !message && !error && !artifact ? (
+                <p className="text-sm text-muted-foreground">This design could not be loaded.</p>
+              ) : null}
+
+              {artifact ? (
+                <div className="mx-auto max-w-4xl space-y-6 pb-12">
+                  {/* Overview tab */}
               {activeTab === 'overview' ? (
                 <div className="space-y-6">
                   {artifact.description ? (
@@ -728,8 +791,10 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                   ) : null}
                 </div>
               ) : null}
-            </>
-          ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       </Layout>
     </TooltipProvider>
