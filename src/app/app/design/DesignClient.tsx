@@ -368,8 +368,15 @@ const DesignWorkbenchPage = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, ...patch }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        visibility?: Visibility;
+        status?: Lifecycle;
+        publicAccess?: boolean;
+        error?: string;
+      };
       if (!res.ok) throw new Error(json.error || `Update failed (${res.status})`);
+      return json;
     },
     [],
   );
@@ -381,8 +388,9 @@ const DesignWorkbenchPage = ({
       setLibraryError(null);
       setLibraryNotice(null);
       try {
-        await patchArtifactFields(inspectorId, { status });
-        setLibraryArtifacts((prev) => prev.map((a) => (a.id === inspectorId ? { ...a, status } : a)));
+        const updated = await patchArtifactFields(inspectorId, { status });
+        const nextStatus = (updated.status as string | undefined) ?? status;
+        setLibraryArtifacts((prev) => prev.map((a) => (a.id === inspectorId ? { ...a, status: nextStatus } : a)));
         setLibraryNotice('Lifecycle updated.');
       } catch (e) {
         setLibraryError(e instanceof Error ? e.message : 'Could not update lifecycle.');
@@ -400,12 +408,16 @@ const DesignWorkbenchPage = ({
       setLibraryError(null);
       setLibraryNotice(null);
       try {
-        // The PATCH route processes `publicAccess` and `visibility` in separate,
-        // early-returning branches, so send two requests to keep the legacy public
-        // route in sync with the new visibility model.
-        await patchArtifactFields(inspectorId, { visibility });
-        await patchArtifactFields(inspectorId, { publicAccess: visibility === 'public' });
-        setLibraryArtifacts((prev) => prev.map((a) => (a.id === inspectorId ? { ...a, visibility } : a)));
+        // One PATCH applies visibility + legacy publicAccess together; sync local
+        // state from the returned row so the badge reflects the server's decision.
+        const updated = await patchArtifactFields(inspectorId, {
+          visibility,
+          publicAccess: visibility === 'public',
+        });
+        const nextVisibility = (updated.visibility as Visibility | undefined) ?? visibility;
+        setLibraryArtifacts((prev) =>
+          prev.map((a) => (a.id === inspectorId ? { ...a, visibility: nextVisibility } : a)),
+        );
         setLibraryNotice('Visibility updated.');
       } catch (e) {
         setLibraryError(e instanceof Error ? e.message : 'Could not update visibility.');
@@ -430,7 +442,8 @@ const DesignWorkbenchPage = ({
       });
       const json = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
       if (!res.ok || !json.token) throw new Error(json.error || `Could not create link (${res.status})`);
-      const url = `${window.location.origin}/api/handoff/share/${json.token}`;
+      // Human-friendly public viewer page (base-path aware), not the JSON endpoint.
+      const url = `${window.location.origin}${basePath}/s/${json.token}`;
       setShareUrls((prev) => ({ ...prev, [inspectorId]: url }));
       setLibraryNotice('Public link created.');
     } catch (e) {
@@ -438,7 +451,7 @@ const DesignWorkbenchPage = ({
     } finally {
       setInspectorBusy(false);
     }
-  }, [inspectorId]);
+  }, [inspectorId, basePath]);
 
   const handleRevokeShare = useCallback(async () => {
     if (!inspectorId) return;
@@ -467,17 +480,73 @@ const DesignWorkbenchPage = ({
     }
   }, [inspectorId, shareUrls]);
 
+  // When the inspector opens for an artifact, surface any EXISTING public link (not
+  // just links minted this session). `undefined` = not yet checked; `null` = known to
+  // have none. Non-owners get a quiet 403 and simply see no link.
+  useEffect(() => {
+    if (!inspectorId) return;
+    const id = inspectorId;
+    if (shareUrls[id] !== undefined) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          handoffApiUrl(`/api/handoff/share?resourceType=design_artifact&resourceId=${encodeURIComponent(id)}`),
+          { credentials: 'include' },
+        );
+        if (cancelled) return;
+        if (!res.ok) {
+          setShareUrls((prev) => (prev[id] === undefined ? { ...prev, [id]: null } : prev));
+          return;
+        }
+        const json = (await res.json().catch(() => ({}))) as { token?: string | null };
+        if (cancelled) return;
+        const url = json.token ? `${window.location.origin}${basePath}/s/${json.token}` : null;
+        setShareUrls((prev) => (prev[id] === undefined ? { ...prev, [id]: url } : prev));
+      } catch {
+        /* quiet — no existing link surfaced */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inspectorId, shareUrls, basePath]);
+
   // Open the selected artifact in the workbench viewer (existing library route).
   const handleInspectorOpen = useCallback(() => {
     if (!inspectorId) return;
     router.push(`${basePath}/design/library/${inspectorId}/`);
   }, [inspectorId, router, basePath]);
 
-  // No clone endpoint yet — derive-your-own via the "open in workbench" load path.
+  // Clone the artifact server-side, refresh the list, then select the new copy.
+  const cloneArtifact = useCallback(
+    async (id: string) => {
+      setInspectorBusy(true);
+      setLibraryError(null);
+      setLibraryNotice(null);
+      try {
+        const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${id}/clone`), {
+          method: 'POST',
+          credentials: 'include',
+        });
+        const json = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+        if (!res.ok) throw new Error(json.error || `Could not duplicate design (${res.status})`);
+        await fetchLibrary();
+        if (json.id) setInspectorId(json.id);
+        setLibraryNotice('Design duplicated.');
+      } catch (e) {
+        setLibraryError(e instanceof Error ? e.message : 'Could not duplicate design.');
+      } finally {
+        setInspectorBusy(false);
+      }
+    },
+    [fetchLibrary],
+  );
+
   const handleInspectorDuplicate = useCallback(() => {
     if (!inspectorId) return;
-    router.push(`${basePath}/design/?loadArtifact=${encodeURIComponent(inspectorId)}`);
-  }, [inspectorId, router, basePath]);
+    void cloneArtifact(inspectorId);
+  }, [inspectorId, cloneArtifact]);
 
   useEffect(() => {
     const recentImages = generatedImages
@@ -1545,7 +1614,8 @@ const DesignWorkbenchPage = ({
                             variant="ghost"
                             size="sm"
                             className="h-7 flex-1 text-xs"
-                            onClick={() => router.push(`${basePath}/design/?loadArtifact=${encodeURIComponent(a.id)}`)}
+                            onClick={() => void cloneArtifact(a.id)}
+                            disabled={inspectorBusy}
                           >
                             <CopyIcon className="mr-1 h-3.5 w-3.5" />
                             Duplicate

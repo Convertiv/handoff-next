@@ -3,7 +3,7 @@
 import type { PatternListObject } from '@handoff/transformers/preview/types';
 import { Info, Loader2, Search } from 'lucide-react';
 import Image from 'next/image';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { setPatternMeta } from '@/app/actions/patterns';
 import {
   AssetInspector,
@@ -98,8 +98,37 @@ export default function PatternPicker({
     const token = shareTokens[selectedId];
     if (!token) return null;
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return `${origin}${handoffBasePath()}/api/handoff/share/${token}`;
+    // Human-friendly public viewer page (base-path aware), not the JSON endpoint.
+    return `${origin}${handoffBasePath()}/s/${token}`;
   }, [selectedId, shareTokens]);
+
+  // Fetch any EXISTING share link when the inspector opens so a link minted in a
+  // previous session still shows. Deduped per id; 403 (non-owner) fails quietly.
+  const checkedShareRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!inspectorOpen || !selectedId) return;
+    const id = selectedId;
+    if (shareTokens[id] || checkedShareRef.current.has(id)) return;
+    checkedShareRef.current.add(id);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          handoffApiUrl(`/api/handoff/share?resourceType=pattern&resourceId=${encodeURIComponent(id)}`),
+          { credentials: 'include' },
+        );
+        if (!res.ok || cancelled) return;
+        const json = (await res.json().catch(() => ({}))) as { token?: string | null };
+        if (cancelled || !json.token) return;
+        setShareTokens((prev) => (prev[id] ? prev : { ...prev, [id]: json.token as string }));
+      } catch {
+        /* quiet — no existing link surfaced */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inspectorOpen, selectedId, shareTokens]);
 
   const handlePick = useCallback(
     (id: string) => {

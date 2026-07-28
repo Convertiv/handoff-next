@@ -245,16 +245,6 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ id, extractionQueued: true });
     }
 
-    if (body.publicAccess !== undefined) {
-      const ok = await updateDesignArtifactById(id, {
-        publicAccess: Boolean(body.publicAccess),
-      });
-      if (!ok) {
-        return NextResponse.json({ error: 'Not found or not owned by you' }, { status: 404 });
-      }
-      return NextResponse.json({ id, publicAccess: Boolean(body.publicAccess) });
-    }
-
     if (body.regenerateSpec === true) {
       if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
         return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
@@ -270,8 +260,10 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ id, specSaved: true });
     }
 
-    // Phase B: visibility + lifecycle setters, gated by computePermissions.
-    if (body.visibility !== undefined || body.status !== undefined) {
+    // Phase B: visibility + publicAccess + lifecycle setters, gated by computePermissions.
+    // One PATCH body may carry any combination of { visibility, status, publicAccess };
+    // all applicable changes are validated, gated, and written in a SINGLE update.
+    if (body.visibility !== undefined || body.status !== undefined || body.publicAccess !== undefined) {
       const actor: MutateActor = { userId, role: session.user.role ?? null };
       const grant = await getActorGrant('design_artifact', id, userId);
       const perms = computePermissions(
@@ -279,7 +271,7 @@ export async function PATCH(request: NextRequest) {
         { ownerUserId: row.userId, visibility: toVisibility(row.visibility) },
         grant
       );
-      const patch: { visibility?: string; status?: string } = {};
+      const patch: { visibility?: string; status?: string; publicAccess?: boolean } = {};
 
       if (body.visibility !== undefined && body.visibility !== row.visibility) {
         if (!ALLOWED_VISIBILITY.has(body.visibility)) {
@@ -289,6 +281,13 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: 'Not permitted to change visibility' }, { status: 403 });
         }
         patch.visibility = body.visibility;
+      }
+
+      if (body.publicAccess !== undefined && Boolean(body.publicAccess) !== row.publicAccess) {
+        if (!perms.canChangeVisibility) {
+          return NextResponse.json({ error: 'Not permitted to change public access' }, { status: 403 });
+        }
+        patch.publicAccess = Boolean(body.publicAccess);
       }
 
       if (body.status !== undefined && body.status !== row.status) {
@@ -303,11 +302,16 @@ export async function PATCH(request: NextRequest) {
         patch.status = body.status;
       }
 
-      if (patch.visibility !== undefined || patch.status !== undefined) {
+      if (patch.visibility !== undefined || patch.status !== undefined || patch.publicAccess !== undefined) {
         const ok = await updateDesignArtifactById(id, patch);
         if (!ok) return NextResponse.json({ error: 'Not found or not owned by you' }, { status: 404 });
       }
-      return NextResponse.json({ id, visibility: patch.visibility ?? row.visibility, status: patch.status ?? row.status });
+      return NextResponse.json({
+        id,
+        visibility: patch.visibility ?? row.visibility,
+        status: patch.status ?? row.status,
+        publicAccess: patch.publicAccess ?? row.publicAccess,
+      });
     }
 
     return NextResponse.json({ error: 'No supported patch fields (use publicAccess, extractAssets, regenerateSpec, componentSpecMd, visibility, or status).' }, { status: 400 });

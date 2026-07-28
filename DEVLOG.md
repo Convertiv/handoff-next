@@ -5,6 +5,67 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-28 — Workbench/Playground: perf hardening + multiuser (Phase A/B) + unified Library lander
+
+Big arc across the workbench (`/design` → design artifacts) and playground (`/playground` → patterns).
+Full spec + per-phase status: **`docs/WORKBENCH-PLAYGROUND-ROADMAP.md`**. Phase B UX approved via an
+interactive mockup (artifact: `claude.ai/code/artifact/9db33798-b2b7-4546-b5dc-baecb64ffd5b`).
+**Frontend UX refinement now owned by Natko.**
+
+**Part 1 — performance (root cause: base64 images stored inline in Postgres JSONB, then `SELECT *`).**
+- Phase 0: perf indexes (`0023_perf_indexes.sql`), light list/status projections for design artifacts,
+  single-row `getPattern` (was full-scan+`.find()`), pooler-safe `getDb()` (`prepare:false`+timeouts),
+  playground `bulkAddComponents` parallelized. Verified on 8x8 — resolved the slowness.
+- Phase 1: images → **Vercel Blob** (`lib/storage/artifact-images.ts`, `offloadArtifactImages` wired into
+  all 4 artifact write fns; graceful passthrough when `BLOB_READ_WRITE_TOKEN` unset). Serving =
+  **public unguessable URLs** (not private/proxy). Admin resumable backfill route
+  `POST /api/handoff/admin/backfill-artifact-blobs`. Blob store must be created + `vercel env pull` per
+  deployment (done on 8x8).
+- Phase 2: cursor pagination on Library list; bounded sync feed (`fetchSyncChangesSince` `hasMore`/
+  `nextCursor`, `version=hasMore?nextCursor:latest` so clients never skip the tail); driver decision
+  **ADR-003** (stay on postgres-js; Fluid Compute keeps the pool warm). 2.5 light component variant +
+  2.6 retention/rollup for `sync_event`/`event_log` still open.
+
+**Part 2 — multiuser (tenancy = team within one deployment; per-user ownership + team sharing, NO org).**
+- Phase A (authz): `lib/authz/policy.ts` — enforce ownership INSIDE the shared write core
+  (`patchPattern`/`removePattern` — owner or admin; null-owner=team-editable) so both UI + MCP paths are
+  covered. NOTE: CLI/registry sync-replication writes patterns directly (not via the core), so it's
+  unaffected. `role` threaded onto `PatternWriteActor`.
+- Phase B (sharing & visibility): migration `0024_phase_b_visibility.sql` (visibility+status cols;
+  `handoff_resource_grant` + `handoff_share_link` tables). `computePermissions()` +
+  `attachPermissions()`; client-safe vocab in `lib/authz/vocab.ts` (policy re-exports — client imports
+  vocab, NOT server-only policy). `lib/db/grant-queries.ts`: lane-filtered SQL lists (`?lane=yours|shared|
+  team|public`), bulk grant resolution. Routes stamp per-row `permissions`+`owner`+`isMe`+`visibility`+
+  `status`. Setters: `setPatternMeta` + artifact PATCH (`approved` = maintainer-gated). Share links +
+  public `share/[token]` route (safe subset — no base64/PII). UI primitives in `components/library/*`
+  (Tailwind v4 + shadcn/ui, driven by `permissions`). Both surfaces cut over to lane endpoints (default
+  "Yours"). Existing rows defaulted `private`/`draft` (data disposable), so "Team" lane looks sparse until
+  visibility is set — expected, not a bug.
+
+**Unified Library lander (`/library`) + full-bleed consistency pass.**
+- New route `app/library/` = the **home of the Tools nav** (`MainNav` "Tools" → `/library`; Library first
+  in the sub-nav; `/library` in all 3 `TOOLS_PATHS`). Unified grid over designs+patterns
+  (`components/library/AssetCard.tsx`): type facet, lane tabs, search, launches into both builders.
+- Full-bleed builder shell (sidebar facets + scrolling grid) applied to `/library` AND the saved-design
+  detail page (`design/library/[id]/SavedDesignDetailClient.tsx`) so the whole Tools section is consistent.
+
+**Tail CLOSED this session (backend + the two contained UI bits):** ✅ true artifact clone
+(`POST /api/handoff/ai/design-artifact/[id]/clone` — design "Duplicate" now makes an owned copy, not
+open-in-workbench); ✅ cross-type "Load more" pagination on `/library` (per-type cursors, `// TODO`
+removed); ✅ public share-viewer page `app/s/[token]` (safe subset, `noindex`; share URLs now point here,
+not the JSON endpoint); ✅ one-pass visibility+publicAccess PATCH (was 2 calls); ✅ "fetch existing share
+link" `GET /api/handoff/share?resourceType&resourceId` (inspector shows a prior link on open). Also fixed a
+latent bug: `insertDesignArtifact` was dropping `visibility`/`componentSpec`/`specStatus` in its insert.
+
+**Left for Natko / next (deliberately not done):** folders/collections + tags + bulk actions (net-new
+feature — new taxonomy data model + bulk-select UI, wants its own design pass); rest of Phase C — C.1
+create/rename/draft-vs-published lifecycle, C.3 concurrency safety (optimistic-lock + conflict UI), C.4
+attribution/activity feed; Phase D outbound export (Jira/Asana/CMS/Figma); Part 3 CLI installer (deferred,
+low on backlog). ⚠️ If an MCP visibility/status setter is added, put the `approved` gate in the shared write
+core (today it lives in the `setPatternMeta` server action).
+
+---
+
 ## 2026-07-23 — Idempotent fonts mkdir + diagnosis of `public/api` EEXIST build race
 
 **Reported bug (from ssc-handoff).** `handoff-app build:app` exits 1 during doc

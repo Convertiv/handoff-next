@@ -217,10 +217,11 @@ not-mine assets. Public link = client-facing, read-only, safe-subset, revocable.
    `isMe` (`getUserDisplays`, no N+1) + `visibility`/`status`. Both surfaces cut over to `?lane=` (default
    "Yours"): Workbench Library tab (`DesignClient`) and the Playground `PatternPicker` (flat modal →
    lane/card/inspector browser). View filtering is now LIVE in the UI. tsc clean; verify visually on 8x8.
-   **Polish follow-ups (not blocking):** friendly public viewer page for share tokens (currently the JSON
-   endpoint); a true artifact clone endpoint (duplicate maps to open-in-workbench today); one-pass PATCH
-   for `visibility`+`publicAccess` (sent as 2 calls); a "get existing share link for resource" endpoint
-   (share URL only shows for links minted in-session).
+   **Polish follow-ups — ✅ ALL SHIPPED 2026-07-28:** public share-viewer page `app/s/[token]` (safe
+   subset, `noindex`; share URLs point here now); true artifact clone `POST .../design-artifact/[id]/clone`
+   (design Duplicate makes an owned copy); one-pass visibility+publicAccess PATCH (was 2 calls); "get
+   existing share link" `GET /api/handoff/share?resourceType&resourceId` (inspector shows a prior link on
+   open). Also fixed `insertDesignArtifact` dropping `visibility`/`componentSpec`/`specStatus`.
 
 - **B.1 Unified visibility enum** across patterns, design artifacts, and (where relevant) doc pages:
   `private` → `team` (all authenticated users in the deployment) → `public`. Replaces the one-off
@@ -247,14 +248,13 @@ Unifies BOTH asset types in one grid: reusable `AssetCard` (`components/library`
 (All · Designs · Patterns), lane tabs (default "Yours"), search, and two prominent builder launches
 ("New design" → `/design`, "New pattern" → `/playground`). Fetches both `?lane=` endpoints in parallel,
 normalizes → merges by `updatedAt`, and wires the `AssetInspector` (setters/share/duplicate) branched by
-type. tsc clean; verify on 8x8. **Follow-up:** v1 shows only the first 50 of each type — cross-type
-pagination / "load more" is marked `// TODO` in `LibraryClient.tsx` (surfaced with a visible count, not
-silent). Remaining C.2 (folders/collections, tags, bulk actions) still ahead.
+type. tsc clean; verify on 8x8. ✅ **Cross-type "Load more" SHIPPED 2026-07-28** (per-type cursors; the
+first-50 `// TODO` removed). Remaining C.2: folders/collections, tags, bulk actions (left for Natko).
 
 - **C.1 First-class object lifecycle:** create / save / duplicate / rename / delete, with **draft vs
   published** state, consistent across both surfaces.
-- **C.2 Library organization:** ✅ lanes + search + sort + type facet + unified lander SHIPPED (above);
-  remaining: folders/collections, tags, bulk actions, and cross-type pagination.
+- **C.2 Library organization:** ✅ lanes + search + sort + type facet + unified lander + cross-type
+  pagination SHIPPED; remaining: folders/collections, tags, bulk actions (for Natko).
 - **C.3 Concurrency safety:** at minimum optimistic-lock (version/`updated_at` check) with a clear
   conflict UI; evaluate soft-lock ("X is editing") before any real-time CRDT investment. The write
   cores already emit `edit_history` + `sync_event` per write — lean on that for conflict detection.

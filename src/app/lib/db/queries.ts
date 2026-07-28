@@ -517,25 +517,29 @@ export async function insertDesignArtifact(input: DesignArtifactInsert) {
     },
     id
   );
-  const [row] = await db
-    .insert(handoffDesignArtifacts)
-    .values({
-      id,
-      title: input.title,
-      description: input.description,
-      status: input.status ?? 'review',
-      userId: input.userId,
-      imageUrl: imaged.imageUrl ?? '',
-      sourceImages: (imaged.sourceImages ?? []) as Record<string, unknown>,
-      componentGuides: (input.componentGuides ?? []) as Record<string, unknown>,
-      foundationContext: (input.foundationContext ?? {}) as Record<string, unknown>,
-      conversationHistory: (imaged.conversationHistory ?? []) as Record<string, unknown>,
-      metadata: (input.metadata ?? {}) as Record<string, unknown>,
-      assets: (imaged.assets ?? []) as typeof handoffDesignArtifacts.$inferInsert.assets,
-      assetsStatus: input.assetsStatus ?? 'none',
-      publicAccess: input.publicAccess ?? false,
-    })
-    .returning({ id: handoffDesignArtifacts.id });
+  const values: typeof handoffDesignArtifacts.$inferInsert = {
+    id,
+    title: input.title,
+    description: input.description,
+    status: input.status ?? 'review',
+    userId: input.userId,
+    imageUrl: imaged.imageUrl ?? '',
+    sourceImages: (imaged.sourceImages ?? []) as Record<string, unknown>,
+    componentGuides: (input.componentGuides ?? []) as Record<string, unknown>,
+    foundationContext: (input.foundationContext ?? {}) as Record<string, unknown>,
+    conversationHistory: (imaged.conversationHistory ?? []) as Record<string, unknown>,
+    metadata: (input.metadata ?? {}) as Record<string, unknown>,
+    assets: (imaged.assets ?? []) as typeof handoffDesignArtifacts.$inferInsert.assets,
+    assetsStatus: input.assetsStatus ?? 'none',
+    publicAccess: input.publicAccess ?? false,
+  };
+  // Optional fields: only set when provided so column defaults still apply otherwise.
+  if (input.componentSpec !== undefined)
+    values.componentSpec = input.componentSpec as typeof handoffDesignArtifacts.$inferInsert.componentSpec;
+  if (input.componentSpecMd !== undefined) values.componentSpecMd = input.componentSpecMd;
+  if (input.specStatus !== undefined) values.specStatus = input.specStatus;
+  if (input.visibility !== undefined) values.visibility = input.visibility;
+  const [row] = await db.insert(handoffDesignArtifacts).values(values).returning({ id: handoffDesignArtifacts.id });
   return row?.id ?? null;
 }
 

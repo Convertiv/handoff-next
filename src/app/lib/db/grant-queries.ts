@@ -396,6 +396,34 @@ export async function revokeShareLink(token: string, actor: MutateActor): Promis
   return updated.length > 0;
 }
 
+/**
+ * Return the most-recent ACTIVE (not revoked, not expired) share link for a
+ * resource, or null. Used by the share GET endpoint so the UI can surface an
+ * existing link instead of minting a new one on every open.
+ */
+export async function getActiveShareLink(
+  resourceType: ResourceType,
+  resourceId: string
+): Promise<ShareLinkRow | null> {
+  if (!resourceId.trim() || !usePostgres()) return null;
+  const db = getDb();
+  const now = new Date();
+  const [link] = await db
+    .select()
+    .from(handoffShareLinks)
+    .where(
+      and(
+        eq(handoffShareLinks.resourceType, resourceType),
+        eq(handoffShareLinks.resourceId, resourceId),
+        isNull(handoffShareLinks.revokedAt),
+        or(isNull(handoffShareLinks.expiresAt), gt(handoffShareLinks.expiresAt, now))
+      )
+    )
+    .orderBy(desc(handoffShareLinks.createdAt))
+    .limit(1);
+  return link ?? null;
+}
+
 /** Resolve an active (not revoked, not expired) share link by token, or null. */
 export async function resolveShareLink(token: string): Promise<ShareLinkRow | null> {
   if (!token.trim()) return null;

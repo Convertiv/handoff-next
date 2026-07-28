@@ -42,9 +42,9 @@ type PatternRow = PatternListObject & {
 
 type TypeFacet = 'all' | 'design' | 'pattern';
 
-// v1 fetches a single first page of each type; there is no cross-type "load more".
-// The count line surfaces the cap so it is never silent.
-// TODO: cross-type pagination (unify design cursor + pattern paging behind one control).
+// Each type paginates independently via its own `nextCursor`; the shared "Load more"
+// control advances whichever streams still have a next page, then re-merges the two
+// accumulated lists into one newest-first view (approximate frontier ordering is fine).
 const PAGE_SIZE = 50;
 
 function normalizeDesign(row: DesignRow): LibraryAsset {
@@ -99,7 +99,11 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
 
   const [designAssets, setDesignAssets] = useState<LibraryAsset[]>([]);
   const [patternAssets, setPatternAssets] = useState<LibraryAsset[]>([]);
+  // Per-type next-page cursors (null once that stream is exhausted).
+  const [designCursor, setDesignCursor] = useState<string | null>(null);
+  const [patternCursor, setPatternCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -114,6 +118,8 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
     if (!isLoggedIn) {
       setDesignAssets([]);
       setPatternAssets([]);
+      setDesignCursor(null);
+      setPatternCursor(null);
       return;
     }
     setLoading(true);
@@ -121,6 +127,7 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
     try {
       const patternParams = new URLSearchParams();
       patternParams.set('lane', lane);
+      patternParams.set('limit', String(PAGE_SIZE));
       if (committedQ.trim()) patternParams.set('q', committedQ.trim());
 
       const [designRes, patternRes] = await Promise.all([
@@ -134,10 +141,12 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       const designJson = (await designRes.json().catch(() => ({}))) as {
         artifacts?: DesignRow[];
+        nextCursor?: string | null;
         error?: string;
       };
       const patternJson = (await patternRes.json().catch(() => ({}))) as {
         patterns?: PatternRow[];
+        nextCursor?: string | null;
         error?: string;
       };
 
@@ -146,14 +155,77 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       setDesignAssets((designJson.artifacts ?? []).map(normalizeDesign));
       setPatternAssets((patternJson.patterns ?? []).map(normalizePattern));
+      setDesignCursor(designJson.nextCursor ?? null);
+      setPatternCursor(patternJson.nextCursor ?? null);
     } catch (e) {
       setDesignAssets([]);
       setPatternAssets([]);
+      setDesignCursor(null);
+      setPatternCursor(null);
       setError(e instanceof Error ? e.message : 'Could not load the library.');
     } finally {
       setLoading(false);
     }
   }, [isLoggedIn, lane, committedQ]);
+
+  // Advance whichever streams still have a next page, appending to the accumulated
+  // per-type lists. The merged/sorted view is re-derived downstream in `mergedAssets`.
+  const loadMore = useCallback(async () => {
+    if (!isLoggedIn || loadingMore) return;
+    if (!designCursor && !patternCursor) return;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const tasks: Promise<void>[] = [];
+      if (designCursor) {
+        tasks.push(
+          (async () => {
+            const res = await fetch(
+              handoffApiUrl(
+                `/api/handoff/ai/design-artifact?limit=${PAGE_SIZE}&lane=${lane}&cursor=${encodeURIComponent(designCursor)}`,
+              ),
+              { credentials: 'include' },
+            );
+            const json = (await res.json().catch(() => ({}))) as {
+              artifacts?: DesignRow[];
+              nextCursor?: string | null;
+              error?: string;
+            };
+            if (!res.ok) throw new Error(json.error || `Failed to load designs (${res.status})`);
+            setDesignAssets((prev) => [...prev, ...(json.artifacts ?? []).map(normalizeDesign)]);
+            setDesignCursor(json.nextCursor ?? null);
+          })(),
+        );
+      }
+      if (patternCursor) {
+        tasks.push(
+          (async () => {
+            const patternParams = new URLSearchParams();
+            patternParams.set('lane', lane);
+            patternParams.set('limit', String(PAGE_SIZE));
+            if (committedQ.trim()) patternParams.set('q', committedQ.trim());
+            patternParams.set('cursor', patternCursor);
+            const res = await fetch(handoffApiUrl(`/api/handoff/patterns?${patternParams.toString()}`), {
+              credentials: 'include',
+            });
+            const json = (await res.json().catch(() => ({}))) as {
+              patterns?: PatternRow[];
+              nextCursor?: string | null;
+              error?: string;
+            };
+            if (!res.ok) throw new Error(json.error || `Failed to load patterns (${res.status})`);
+            setPatternAssets((prev) => [...prev, ...(json.patterns ?? []).map(normalizePattern)]);
+            setPatternCursor(json.nextCursor ?? null);
+          })(),
+        );
+      }
+      await Promise.all(tasks);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load more items.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [isLoggedIn, loadingMore, lane, committedQ, designCursor, patternCursor]);
 
   // Re-fetch both surfaces whenever the lane or the committed search changes.
   useEffect(() => {
@@ -175,10 +247,52 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
     return mergedAssets.filter((a) => a.type === typeFacet);
   }, [mergedAssets, typeFacet]);
 
+  // Whether the current facet still has a next page to fetch.
+  const hasMore =
+    typeFacet === 'design'
+      ? Boolean(designCursor)
+      : typeFacet === 'pattern'
+        ? Boolean(patternCursor)
+        : Boolean(designCursor || patternCursor);
+
   const selected = useMemo(
     () => visibleAssets.find((a) => keyOf(a) === inspectorKey) ?? mergedAssets.find((a) => keyOf(a) === inspectorKey) ?? null,
     [visibleAssets, mergedAssets, inspectorKey],
   );
+
+  // When the inspector opens for an asset, surface any EXISTING public link (not
+  // just links minted this session). `undefined` = not yet checked; `null` = known
+  // to have none. Non-owners get a quiet 403 and simply see no link.
+  useEffect(() => {
+    if (!inspectorOpen || !selected) return;
+    const key = keyOf(selected);
+    if (shareUrls[key] !== undefined) return;
+    const resourceType = selected.type === 'design' ? 'design_artifact' : 'pattern';
+    const resourceId = selected.id;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          handoffApiUrl(`/api/handoff/share?resourceType=${resourceType}&resourceId=${encodeURIComponent(resourceId)}`),
+          { credentials: 'include' },
+        );
+        if (cancelled) return;
+        if (!res.ok) {
+          setShareUrls((prev) => (prev[key] === undefined ? { ...prev, [key]: null } : prev));
+          return;
+        }
+        const json = (await res.json().catch(() => ({}))) as { token?: string | null };
+        if (cancelled) return;
+        const url = json.token ? `${window.location.origin}${basePath}/s/${json.token}` : null;
+        setShareUrls((prev) => (prev[key] === undefined ? { ...prev, [key]: url } : prev));
+      } catch {
+        /* quiet — no existing link surfaced */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [inspectorOpen, selected, shareUrls, basePath]);
 
   const submitSearch = useCallback(() => setCommittedQ(q), [q]);
 
@@ -219,8 +333,15 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, ...patch }),
       });
-      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      const json = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        visibility?: Visibility;
+        status?: Lifecycle;
+        publicAccess?: boolean;
+        error?: string;
+      };
       if (!res.ok) throw new Error(json.error || `Update failed (${res.status})`);
+      return json;
     },
     [],
   );
@@ -233,11 +354,12 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
       setNotice(null);
       try {
         if (selected.type === 'design') {
-          await patchArtifactFields(selected.id, { status });
+          const updated = await patchArtifactFields(selected.id, { status });
+          patchLocal(selected, { status: (updated.status as Lifecycle | undefined) ?? status });
         } else {
           await setPatternMeta(selected.id, { status });
+          patchLocal(selected, { status });
         }
-        patchLocal(selected, { status });
         setNotice('Lifecycle updated.');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not update lifecycle.');
@@ -256,14 +378,17 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
       setNotice(null);
       try {
         if (selected.type === 'design') {
-          // The PATCH route processes `publicAccess` and `visibility` in separate,
-          // early-returning branches — send both to keep legacy public access synced.
-          await patchArtifactFields(selected.id, { visibility });
-          await patchArtifactFields(selected.id, { publicAccess: visibility === 'public' });
+          // One PATCH applies visibility + legacy publicAccess together; sync local
+          // state from the returned row so the badge reflects the server's decision.
+          const updated = await patchArtifactFields(selected.id, {
+            visibility,
+            publicAccess: visibility === 'public',
+          });
+          patchLocal(selected, { visibility: (updated.visibility as Visibility | undefined) ?? visibility });
         } else {
           await setPatternMeta(selected.id, { visibility });
+          patchLocal(selected, { visibility });
         }
-        patchLocal(selected, { visibility });
         setNotice('Visibility updated.');
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not update visibility.');
@@ -276,30 +401,37 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
 
   const handleDuplicate = useCallback(async () => {
     if (!selected) return;
-    if (selected.type === 'design') {
-      // No clone endpoint for designs — derive a new one via the workbench load path.
-      router.push(`${basePath}/design/?loadArtifact=${encodeURIComponent(selected.id)}`);
-      return;
-    }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${selected.id}/clone`), {
-        method: 'POST',
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const json = (await res.json().catch(() => ({}))) as { id?: string };
-      await load();
-      if (json.id) setInspectorKey(`pattern:${json.id}`);
-      setNotice('Pattern duplicated.');
+      if (selected.type === 'design') {
+        const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${selected.id}/clone`), {
+          method: 'POST',
+          credentials: 'include',
+        });
+        const json = (await res.json().catch(() => ({}))) as { id?: string; error?: string };
+        if (!res.ok) throw new Error(json.error || `Could not duplicate design (${res.status})`);
+        await load();
+        if (json.id) setInspectorKey(`design:${json.id}`);
+        setNotice('Design duplicated.');
+      } else {
+        const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${selected.id}/clone`), {
+          method: 'POST',
+          credentials: 'include',
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const json = (await res.json().catch(() => ({}))) as { id?: string };
+        await load();
+        if (json.id) setInspectorKey(`pattern:${json.id}`);
+        setNotice('Pattern duplicated.');
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not duplicate pattern.');
+      setError(e instanceof Error ? e.message : 'Could not duplicate.');
     } finally {
       setBusy(false);
     }
-  }, [selected, router, basePath, load]);
+  }, [selected, load]);
 
   const handleCreateShare = useCallback(async () => {
     if (!selected) return;
@@ -319,11 +451,8 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
       });
       const json = (await res.json().catch(() => ({}))) as { token?: string; error?: string };
       if (!res.ok || !json.token) throw new Error(json.error || `Could not create link (${res.status})`);
-      // Design share links resolve at the app root; pattern links include the base path.
-      const url =
-        selected.type === 'design'
-          ? `${window.location.origin}/api/handoff/share/${json.token}`
-          : `${window.location.origin}${basePath}/api/handoff/share/${json.token}`;
+      // Human-friendly public viewer page (base-path aware), not the JSON endpoint.
+      const url = `${window.location.origin}${basePath}/s/${json.token}`;
       setShareUrls((prev) => ({ ...prev, [key]: url }));
       setNotice('Public link created.');
     } catch (e) {
@@ -489,7 +618,8 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
           <h1 className="text-lg font-semibold tracking-tight">Library</h1>
           {isLoggedIn && !loading && visibleAssets.length > 0 ? (
             <p className="text-xs text-muted-foreground">
-              {visibleAssets.length} item{visibleAssets.length === 1 ? '' : 's'} · first {PAGE_SIZE} of each type
+              {visibleAssets.length} item{visibleAssets.length === 1 ? '' : 's'}
+              {hasMore ? ' · more available' : ''}
             </p>
           ) : null}
         </div>
@@ -528,17 +658,39 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
               <div className="flex items-center gap-2">{launchButtons}</div>
             </div>
           ) : (
-            <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {visibleAssets.map((asset) => (
-                <AssetCard
-                  key={keyOf(asset)}
-                  asset={asset}
-                  onOpen={() => openAsset(asset)}
-                  onDetails={() => openDetails(asset)}
-                  onDuplicate={() => openDetails(asset)}
-                />
-              ))}
-            </ul>
+            <>
+              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {visibleAssets.map((asset) => (
+                  <AssetCard
+                    key={keyOf(asset)}
+                    asset={asset}
+                    onOpen={() => openAsset(asset)}
+                    onDetails={() => openDetails(asset)}
+                    onDuplicate={() => openDetails(asset)}
+                  />
+                ))}
+              </ul>
+              {hasMore ? (
+                <div className="mt-4 flex justify-center">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void loadMore()}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                        Loading…
+                      </>
+                    ) : (
+                      'Load more'
+                    )}
+                  </Button>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </div>

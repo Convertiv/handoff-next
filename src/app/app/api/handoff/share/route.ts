@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { createShareLink, revokeShareLink, type ResourceType } from '@/lib/db/grant-queries';
-import { isAuthorizationError, type MutateActor } from '@/lib/authz/policy';
+import {
+  createShareLink,
+  getActiveShareLink,
+  getResourceOwner,
+  revokeShareLink,
+  type ResourceType,
+} from '@/lib/db/grant-queries';
+import { computePermissions, isAuthorizationError, toVisibility, type MutateActor } from '@/lib/authz/policy';
 
 const RESOURCE_TYPES = new Set<ResourceType>(['pattern', 'design_artifact']);
 
@@ -10,6 +16,47 @@ type CreateBody = {
   resourceId?: string;
   expiresAt?: string | null;
 };
+
+/**
+ * Fetch the most-recent ACTIVE share link for a resource, or null. Requires
+ * `canChangeVisibility` on the resource (owner/admin) — it returns a capability
+ * token, so only those who could mint one may read it.
+ */
+export async function GET(request: NextRequest) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const resourceType = String(request.nextUrl.searchParams.get('resourceType') ?? '').trim() as ResourceType;
+  const resourceId = String(request.nextUrl.searchParams.get('resourceId') ?? '').trim();
+  if (!RESOURCE_TYPES.has(resourceType) || !resourceId) {
+    return NextResponse.json({ error: 'resourceType (pattern|design_artifact) and resourceId are required' }, { status: 400 });
+  }
+
+  const owner = await getResourceOwner(resourceType, resourceId);
+  if (!owner) {
+    return NextResponse.json({ error: 'Resource not found' }, { status: 404 });
+  }
+
+  const actor: MutateActor = { userId: session.user.id, role: session.user.role ?? null };
+  const perms = computePermissions(
+    actor,
+    { ownerUserId: owner.ownerUserId, visibility: toVisibility(owner.visibility) },
+    null
+  );
+  if (!perms.canChangeVisibility) {
+    return NextResponse.json({ error: 'You do not have permission to view share links for this resource.' }, { status: 403 });
+  }
+
+  try {
+    const link = await getActiveShareLink(resourceType, resourceId);
+    return NextResponse.json({ token: link?.token ?? null });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Fetch failed';
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
 
 /** Create an unguessable share link. Requires `canChangeVisibility` on the resource. */
 export async function POST(request: NextRequest) {
