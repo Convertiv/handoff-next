@@ -174,8 +174,36 @@ writes = the new surface.
       and jobs never process; (2) **`* * * * *` needs a Vercel plan with minute-level crons** (Hobby caps at
       daily → image-gen latency unusable) — confirm plan or widen interval; (3) verify Next `after()` fires
       under the MCP transport for the auto-extract path (if not, route extraction through the same cron);
-      (4) minor hardening: `handoff_get_design_job` reads any jobId (per-registry deployment = per-tenant, so
-      low risk, but scope to caller later). All deploy-gated — verify live after redeploy.
+      (4) ~~minor hardening: `handoff_get_design_job` reads any jobId~~ — **wrong call, fixed in 6.8 below**:
+      once artifacts became per-user this was a real cross-user leak, not a "later" nicety.
+      All deploy-gated — verify live after redeploy.
+  - ✅ **6.8 MCP authz parity for workbench artifacts (2026-07-25).** Audited the whole MCP surface against
+    the Phase A/B authz layer (`lib/authz/policy.ts`, `grant-queries.ts`, `0024_phase_b_visibility.sql`).
+    **Patterns were already safe** — `assertCanMutatePattern` lives inside the shared write core
+    (`pattern-write.ts`) precisely so a different caller can't bypass it, and the authz commit wired
+    `role` + `Forbidden` surfacing through MCP. **Design artifacts were not**: six tools reached them with
+    no ownership check, inconsistent with the HTTP routes' own rules for the same resource —
+    `get_design_artifact` / `get_component_spec` / `generate_component_from_design` / `get_design_job`
+    (unscoped reads of another user's artifact incl. imageUrl, conversationHistory, spec), plus
+    `set_design_status` (**no `canApprove` gate — any `sync:write` caller could approve anyone's artifact**,
+    which HTTP 403s as "Only a maintainer can approve") and `extract_design_assets` (unscoped write that
+    **wiped another user's extracted `assets`** and spent AI credits on their artifact).
+    **Fix:** one shared `designArtifactAccess` + `denyArtifactAccess(id, 'view'|'edit'|'approve')` helper in
+    `create-server.ts` mirroring `design-artifact/route.ts` exactly — baseline **owner-or-admin** (grants /
+    visibility deliberately NOT access-widening for artifacts yet; HTTP defers that to the Stage 3 cutover,
+    so MCP must not be more permissive than the UI), plus `computePermissions` for the lifecycle checks.
+    Denials report "not found" so artifact/job ids can't be probed. `get_design_job` is now scoped to the
+    caller's own jobs. `get_design_artifact` additionally stamps `permissions` so Claude can reason about
+    lifecycle instead of guessing. `patternActor` now spreads the same `authzActor()` so pattern and artifact
+    enforcement can't drift. Verified: all 8 artifact/job access sites gated, app tsconfig clean, 108/108
+    unit tests pass. **Not covered by automated tests** (gates need a DB) — confirm live post-deploy.
+    Artifact statuses match HTTP's `ALLOWED_STATUS` (`draft|review|approved`), so no vocab drift there.
+    **Deferred (agreed):** preview lifecycle — `handoff_promote_preview` writes `'canonical'` into the open
+    `semantic` tag, which (a) clobbers real variant meaning, (b) has **zero consumers**, and (c) is
+    unenforceable since `update_preview` can set `semantic` freely under the same scope. Previews have no
+    lifecycle/visibility column at all. Direction agreed = give previews a real lifecycle column + gate
+    transitions on `canApprove` + stop `update_preview` writing it (option B). Not a security hole; a
+    governance signal that isn't one yet.
 - ⬜ **6.3 Component source-patch tool (goal 3):** expose editable source files
   (`handoff_component_sources`) for Claude Code to patch → build → push. Small; rides the existing loop.
 - ⛔ **6.4 Claude Design native (goal 1):** design inside Claude Design pulling Handoff foundations

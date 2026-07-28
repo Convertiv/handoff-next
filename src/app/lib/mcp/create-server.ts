@@ -17,7 +17,7 @@ import { getUnifiedChangelog, type UnifiedChangelogEntry } from '@/lib/db/change
 import { getComponentVersionHistory } from '@/lib/db/component-version-queries';
 import { resolveChangeWhy } from '@/lib/server/change-why';
 import { writePattern, patchPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
-import { isAuthorizationError } from '@/lib/authz/policy';
+import { computePermissions, isAuthorizationError, toVisibility, type MutateActor } from '@/lib/authz/policy';
 import { validatePreviewValues } from '@handoff/transformers/preview/component/preview-validation';
 import {
   createComponentPreview,
@@ -659,6 +659,71 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     }
   );
 
+  // ─── Design-artifact authorization ───────────────────────────────────────────
+  // Design artifacts are per-user resources. The MCP path must enforce the SAME
+  // gates as the browser path, or the authz layer is bypassable simply by asking
+  // Claude instead of clicking (the exact bypass `pattern-write.ts` guards against
+  // for patterns). Reference: app/api/handoff/ai/design-artifact/route.ts +
+  // .../[id]/route.ts.
+
+  /**
+   * MCP caller → authz actor. Synthetic ids ('service'/'workspace') are not real
+   * users, so they carry a null userId and rely on their 'admin' role for access
+   * (workspace/CLI sync keeps working). Shared with `patternActor` so the two
+   * can't drift.
+   */
+  const authzActor = (): MutateActor => ({
+    userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
+    role: auth.role ?? null,
+  });
+
+  /**
+   * Effective access to one design artifact, mirroring the HTTP routes:
+   *  - baseline gate is **owner-or-admin** (`isOwnerOrAdmin`). Grants/visibility
+   *    are deliberately NOT an access-widening path for artifacts yet — the HTTP
+   *    routes defer that to the "Stage 3 cutover", so MCP must not be more
+   *    permissive than the UI.
+   *  - `perms` (from `computePermissions`) carries the finer lifecycle checks —
+   *    notably `canApprove`, which is maintainer-only.
+   * Returns null when the artifact does not exist.
+   */
+  async function designArtifactAccess(artifactId: string) {
+    const { getResourceOwner, getActorGrant } = await import('@/lib/db/grant-queries');
+    const owner = await getResourceOwner('design_artifact', artifactId);
+    if (!owner) return null;
+    const actor = authzActor();
+    const grant = actor.userId ? await getActorGrant('design_artifact', artifactId, actor.userId) : null;
+    const perms = computePermissions(
+      actor,
+      { ownerUserId: owner.ownerUserId, visibility: toVisibility(owner.visibility) },
+      grant
+    );
+    const isOwnerOrAdmin =
+      actor.role === 'admin' || (owner.ownerUserId != null && actor.userId != null && owner.ownerUserId === actor.userId);
+    return { ownerUserId: owner.ownerUserId, visibility: owner.visibility, perms, isOwnerOrAdmin };
+  }
+
+  /**
+   * Guard for reads/writes of a design artifact. Returns a ready-to-return error
+   * result when denied, or null when allowed. Denials mirror the HTTP routes and
+   * report "not found" rather than "forbidden" so a non-owner can't probe which
+   * artifact ids exist.
+   */
+  async function denyArtifactAccess(
+    artifactId: string,
+    need: 'view' | 'edit' | 'approve'
+  ): Promise<{ content: { type: 'text'; text: string }[] } | null> {
+    const access = await designArtifactAccess(artifactId);
+    if (!access || !access.isOwnerOrAdmin) return textResult({ error: 'Design not found' });
+    if (need === 'edit' && !access.perms.canEdit) {
+      return textResult({ error: 'Forbidden — you do not have permission to modify this design.' });
+    }
+    if (need === 'approve' && !access.perms.canApprove) {
+      return textResult({ error: 'Forbidden — only a maintainer can approve a design.' });
+    }
+    return null;
+  }
+
   server.registerTool(
     'handoff_list_design_artifacts',
     {
@@ -685,10 +750,16 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: { id: z.string() },
     },
     async ({ id }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = await denyArtifactAccess(id.trim(), 'view');
+      if (denied) return denied;
       const { getDesignArtifactById } = await import('@/lib/db/queries');
       const row = await getDesignArtifactById(id.trim());
       if (!row) return textResult({ error: 'Not found' });
-      return textResult(row);
+      // Stamp effective permissions so the caller can reason about lifecycle
+      // (e.g. whether it may approve) instead of guessing — mirrors the HTTP route.
+      const access = await designArtifactAccess(id.trim());
+      return textResult({ ...row, permissions: access?.perms ?? null });
     }
   );
 
@@ -744,6 +815,9 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ artifactId }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = await denyArtifactAccess(artifactId.trim(), 'view');
+      if (denied) return denied;
       const { getDesignArtifactById } = await import('@/lib/db/queries');
       const artifact = await getDesignArtifactById(artifactId.trim());
       if (!artifact) return textResult({ error: 'Design not found' });
@@ -781,6 +855,9 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ artifactId, queueSpecIfMissing = true }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = await denyArtifactAccess(artifactId.trim(), 'view');
+      if (denied) return denied;
       const { getDesignArtifactById, updateDesignArtifactById } = await import('@/lib/db/queries');
       const artifact = await getDesignArtifactById(artifactId.trim());
       if (!artifact) return textResult({ error: 'Design not found' });
@@ -788,6 +865,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       const specStatus = typeof artifact.specStatus === 'string' ? artifact.specStatus : 'none';
 
       if ((specStatus === 'none' || specStatus === 'failed') && queueSpecIfMissing) {
+        // Queuing mutates the artifact (specStatus) and spends AI credits on it,
+        // so it needs edit rights — not just view.
+        const deniedEdit = await denyArtifactAccess(artifactId.trim(), 'edit');
+        if (deniedEdit) return deniedEdit;
         try {
           const { scheduleSpecGeneration } = await import('@/lib/server/design-asset-schedule');
           await updateDesignArtifactById(artifact.id, { specStatus: 'pending' } as Parameters<typeof updateDesignArtifactById>[1]);
@@ -839,6 +920,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
+      // Lifecycle gate, mirroring design-artifact/route.ts: 'approved' is
+      // maintainer-only (`canApprove`); other transitions need edit rights.
+      const deniedAccess = await denyArtifactAccess(artifactId.trim(), status === 'approved' ? 'approve' : 'edit');
+      if (deniedAccess) return deniedAccess;
       const { updateDesignArtifactById } = await import('@/lib/db/queries');
       const ok = await updateDesignArtifactById(artifactId.trim(), { status });
       if (!ok) return textResult({ ok: false, error: 'Design not found' });
@@ -868,6 +953,9 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
         return textResult({ ok: false, error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' });
       }
+      // Clears the artifact's extracted assets and spends AI credits on it — edit rights required.
+      const deniedAccess = await denyArtifactAccess(artifactId.trim(), 'edit');
+      if (deniedAccess) return deniedAccess;
       const { updateDesignArtifactById } = await import('@/lib/db/queries');
       const ok = await updateDesignArtifactById(artifactId.trim(), { assets: [], assetsStatus: 'pending' });
       if (!ok) return textResult({ ok: false, error: 'Design not found' });
@@ -950,6 +1038,12 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       const { getDesignGenerationJob } = await import('@/lib/db/queries');
       const job = await getDesignGenerationJob(jobId);
       if (!job) return textResult({ error: 'Job not found' });
+      // Jobs are per-user and carry a generated imageUrl, so a caller may only
+      // poll its OWN jobs (admins/service actors excepted). Reports "not found"
+      // rather than "forbidden" so job ids can't be probed.
+      const actor = authzActor();
+      const ownsJob = actor.role === 'admin' || (actor.userId != null && job.userId === actor.userId);
+      if (!ownsJob) return textResult({ error: 'Job not found' });
       return textResult({
         status: job.status,
         ...(job.imageUrl ? { imageUrl: job.imageUrl } : {}),
@@ -1207,8 +1301,9 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
 
   /** MCP caller → pattern-write actor (drop synthetic ids from sync attribution). */
   const patternActor = (message?: string): PatternWriteActor => ({
-    userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
-    role: auth.role ?? null,
+    // Same actor identity the artifact gates use (`authzActor`) so pattern and
+    // design-artifact enforcement can never drift apart.
+    ...authzActor(),
     historyLabel: `mcp:${auth.userId}`,
     message: message ?? null,
     trigger: 'mcp',
