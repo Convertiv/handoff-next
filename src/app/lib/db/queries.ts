@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, ilike, inArray, like, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, like, lt, lte, ne, or, sql } from 'drizzle-orm';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
@@ -1295,9 +1295,85 @@ export async function killDesignAssetExtractionJob(artifactId: string): Promise<
   const meta = (row.metadata as Record<string, unknown> | null) ?? {};
   await updateDesignArtifactById(artifactId, {
     assetsStatus: 'failed',
-    metadata: { ...meta, assetsError: 'Killed by admin' },
+    // `assetsExtractionError` is the key the detail page and the Builds board read
+    // (see assetsExtractionErrorFromMetadata) — writing anything else shows a failed
+    // job with no reason.
+    metadata: { ...meta, assetsExtractionError: 'Killed by admin' },
   });
   return true;
+}
+
+/** Non-terminal states for the two design-artifact background jobs. */
+const STUCK_ASSET_STATUSES = ['pending', 'extracting'];
+const STUCK_SPEC_STATUSES = ['pending', 'generating'];
+
+/**
+ * Sweep design-artifact jobs stranded in a non-terminal state into `failed`.
+ *
+ * Extraction and spec generation both run inside `after()` callbacks, which are bounded by
+ * the serverless invocation. If the function dies between the claim (which sets `extracting`
+ * / `generating`) and the finalize write — timeout, instance recycle, deploy — nothing else
+ * ever moves the row, so the detail page and the Builds board poll it forever. Process death
+ * is not catchable in-process, so an out-of-band sweep is the only durable guarantee. Driven
+ * by the design-jobs cron.
+ *
+ * Age is measured from `updated_at`. An unrelated write to the artifact bumps that column and
+ * restarts the clock, which can delay a reap but never strands a row permanently.
+ */
+export async function reapStuckDesignArtifactJobs(
+  maxAgeMs: number = 15 * 60 * 1000
+): Promise<{ extractions: number; specs: number }> {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - maxAgeMs);
+  const reason = `Timed out — no progress for over ${Math.round(maxAgeMs / 60000)} minutes.`;
+
+  const stale = or(lt(handoffDesignArtifacts.updatedAt, cutoff), isNull(handoffDesignArtifacts.updatedAt));
+
+  const rows = await db
+    .select({
+      id: handoffDesignArtifacts.id,
+      assetsStatus: handoffDesignArtifacts.assetsStatus,
+      specStatus: handoffDesignArtifacts.specStatus,
+      metadata: handoffDesignArtifacts.metadata,
+    })
+    .from(handoffDesignArtifacts)
+    .where(
+      and(
+        stale,
+        or(
+          inArray(handoffDesignArtifacts.assetsStatus, STUCK_ASSET_STATUSES),
+          inArray(handoffDesignArtifacts.specStatus, STUCK_SPEC_STATUSES)
+        )
+      )
+    )
+    .limit(200);
+
+  let extractions = 0;
+  let specs = 0;
+
+  for (const row of rows) {
+    const patch: Record<string, unknown> = {};
+    const meta = (row.metadata as Record<string, unknown> | null) ?? {};
+    const nextMeta = { ...meta };
+
+    // Flip only the status that is actually stuck — a row can have a healthy
+    // extraction and a stranded spec, or vice versa.
+    if (STUCK_ASSET_STATUSES.includes(row.assetsStatus)) {
+      patch.assetsStatus = 'failed';
+      nextMeta.assetsExtractionError = reason;
+      extractions += 1;
+    }
+    if (STUCK_SPEC_STATUSES.includes(row.specStatus)) {
+      patch.specStatus = 'failed';
+      specs += 1;
+    }
+    if (Object.keys(patch).length === 0) continue;
+
+    patch.metadata = nextMeta;
+    await updateDesignArtifactById(row.id, patch as Parameters<typeof updateDesignArtifactById>[1]);
+  }
+
+  return { extractions, specs };
 }
 
 // ── Asset Inventory ───────────────────────────────────────────────────────────

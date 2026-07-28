@@ -5,6 +5,10 @@ import { requirePostgresForMcp, verifyHandoffApiAuth, type McpAuthContext } from
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Several tools schedule background work via `after()` (asset extraction, spec generation),
+// which is bounded by this invocation. Match the HTTP routes' ceiling so an MCP-initiated job
+// gets the same budget a UI-initiated one does.
+export const maxDuration = 300;
 
 async function handleMcp(request: Request): Promise<Response> {
   const pgErr = requirePostgresForMcp();

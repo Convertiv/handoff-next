@@ -23,6 +23,11 @@ import {
 } from '@/lib/db/grant-queries';
 import { attachPermissions, computePermissions, toVisibility, type MutateActor } from '@/lib/authz/policy';
 
+// POST/PATCH schedule asset extraction + spec generation via `after()`, which is bounded by
+// this invocation's lifetime. Extraction alone is allowed 240s, so declare the ceiling
+// explicitly rather than inheriting a default that could strand the job mid-flight.
+export const maxDuration = 300;
+
 const ALLOWED_STATUS = new Set(['draft', 'review', 'approved']);
 const ALLOWED_VISIBILITY = new Set(['private', 'shared', 'team', 'public']);
 const LANES = new Set<Lane>(['yours', 'shared', 'team', 'public']);

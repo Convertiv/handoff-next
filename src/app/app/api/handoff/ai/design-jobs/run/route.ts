@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { getPendingDesignGenerationJobs } from '@/lib/db/queries';
+import { getPendingDesignGenerationJobs, reapStuckDesignArtifactJobs } from '@/lib/db/queries';
 import { runDesignGenerationJob } from '@/lib/server/design-generation-worker';
 
 // Long enough to process a small batch of image generations serially.
@@ -27,6 +27,20 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Reap first, and independently of the drain below: asset extraction and spec generation run
+  // in `after()` callbacks that die with their invocation, so a killed function leaves the row
+  // in `extracting`/`generating` with nothing left to finalize it. This sweep is the only thing
+  // that guarantees those rows reach a terminal state. Never let a reap failure block the drain.
+  let reaped: { extractions: number; specs: number } = { extractions: 0, specs: 0 };
+  try {
+    reaped = await reapStuckDesignArtifactJobs();
+    if (reaped.extractions || reaped.specs) {
+      console.warn('[design-jobs/run] reaped stuck design jobs', reaped);
+    }
+  } catch (err) {
+    console.error('[design-jobs/run] reaper failed', err);
+  }
+
   const jobs = await getPendingDesignGenerationJobs(3);
   let processed = 0;
   for (const job of jobs) {
@@ -37,5 +51,5 @@ export async function GET(request: NextRequest) {
       console.error('[design-jobs/run] job failed', job.id, err);
     }
   }
-  return NextResponse.json({ processed });
+  return NextResponse.json({ processed, reaped });
 }

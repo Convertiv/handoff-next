@@ -284,7 +284,22 @@ export function specToMarkdown(spec: ComponentSpec): string {
 // ── Orchestration entry point ─────────────────────────────────────────────────
 
 export async function generateSpecForArtifact(artifactId: string): Promise<void> {
-  if (!process.env.HANDOFF_AI_API_KEY?.trim()) return;
+  // Callers (the design-artifact route and the MCP tool) set `specStatus: 'pending'` *before*
+  // scheduling this. Returning silently here would leave the row on `pending` forever with no
+  // reason surfaced — write a terminal status instead so the UI can explain itself.
+  if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+    const existing = await getDesignArtifactById(artifactId);
+    const meta =
+      existing?.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+        ? { ...(existing.metadata as Record<string, unknown>) }
+        : {};
+    meta.specError = 'HANDOFF_AI_API_KEY is not configured on the server.';
+    await updateDesignArtifactById(artifactId, {
+      specStatus: 'failed',
+      metadata: meta,
+    } as Parameters<typeof updateDesignArtifactById>[1]);
+    return;
+  }
 
   // Mark as generating
   await updateDesignArtifactById(artifactId, { specStatus: 'generating' } as Parameters<typeof updateDesignArtifactById>[1]);

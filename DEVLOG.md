@@ -5,6 +5,70 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-28 (later) — Terminal-state guarantee for design-artifact background jobs (8x8 demo hardening)
+
+Pre-demo hardening pass on the MCP→workbench path (8x8 demo Thu 2026-07-30). Closes the long-open
+"hanging build jobs" item (`_control/tasks/2026-07-21-handoff-build-jobs-image-extraction.md`).
+tsc clean (root + `src/app`); 108/108 unit tests.
+
+**Root cause (confirmed, not theorized).** `claimDesignArtifactForExtraction` flips the row to
+`extracting`, and *only* `finalizeDesignArtifactExtraction` moves it to a terminal state. Both
+extraction and spec generation run inside `next/server` `after()` callbacks, which are bounded by
+the serverless invocation. If the function dies between claim and finalize — timeout, instance
+recycle, deploy — nothing else ever touches the row. Process death is not catchable in-process, so
+no amount of `try/catch` inside the extractor can fix it. There was also **no reaper**:
+`queries.ts` only ever *read* pending/extracting rows.
+
+This is exactly the risk the `create-server.ts` NOTE flagged and left unverified: *"verify live that
+extraction actually runs in-cloud. If after() proves unreliable here, promote this to the design-jobs
+cron."* Rather than moving extraction wholesale to the cron (which would add up-to-60s latency to the
+demo's happy path), the fix keeps `after()` as the fast path and puts a safety net under it.
+
+**Changes:**
+- **Watchdog** (`design-asset-extractor.ts`) — `runDesignAssetExtractionForArtifact` now races
+  extraction against a 240s ceiling (mirrors the existing Figma-fetch bound) and finalizes `failed`
+  on timeout, so the row goes terminal *before* the invocation is torn down. The race loser can't be
+  cancelled; if it later resolves it overwrites `failed` with real results — better data, not
+  corruption. Noted inline.
+- **Reaper** (`queries.ts` `reapStuckDesignArtifactJobs`) — sweeps rows whose `updated_at` is older
+  than 15 min and whose `assets_status ∈ {pending,extracting}` or `spec_status ∈ {pending,generating}`
+  into `failed`, flipping *only* the status that's actually stuck. Wired into the existing
+  every-minute `/api/handoff/ai/design-jobs/run` cron (`maxDuration=300`, already `CRON_SECRET`-gated),
+  before the drain and inside its own try/catch so a reap failure can't block job processing. No new
+  infrastructure. Also cleans up pre-existing stranded rows, not just new ones.
+- **Second stranding path found + fixed** (`design-spec-generator.ts`) — `generateSpecForArtifact`
+  returned *silently* when `HANDOFF_AI_API_KEY` was unset, but callers set `specStatus:'pending'`
+  **before** scheduling it (`design-artifact/route.ts:252`, `create-server.ts:874`). Result: row spins
+  on `pending` forever with no reason surfaced. Now writes `failed` + `metadata.specError`.
+- **Latent bug** — `killDesignAssetExtractionJob` wrote its reason to `metadata.assetsError`, but the
+  detail page and Builds board read `metadata.assetsExtractionError` (`assetsExtractionErrorFromMetadata`).
+  Admin-killed jobs showed as failed with no explanation. Now writes the key the UI actually reads.
+- **`maxDuration = 300`** declared on `api/handoff/ai/design-artifact` and `api/mcp` — both schedule
+  `after()` work and were inheriting a default that could strand a job mid-flight. MCP-initiated jobs
+  now get the same budget UI-initiated ones do.
+
+**Live DB observations** (read-only scan, the Neon DB in local `.env` — 18 artifacts, 2 patterns):
+- **0 currently-stranded rows.** The hang is intermittent, not chronic — lower standing risk than the
+  backlog item implied, but unbounded when it does happen, which is what the above fixes.
+- 4 failed extractions, all from **June** (06-03, 06-23); 3 recorded no error at all. Extraction has
+  been healthy since. The one recorded reason: *"All extracted assets failed vision validation."*
+- ⚠️ **`spec_status = 'none'` on all 18 rows** — spec generation has never completed on this DB. Means
+  `handoff_get_component_spec` returns nothing for every existing artifact. Needs a live check before
+  the demo if the spec path is on the script.
+
+**Demo-visibility data pass** — new `scripts/set-demo-visibility.ts` (dry-run by default,
+`--apply` to write, `--visibility=team|public`, `--owner=`, `--include-patterns`). Deliberately **not**
+a migration: migrations auto-run on boot for *every* registry deployment, and flipping visibility is a
+per-tenant data decision — baking it into 0025 would silently expose private rows on SSC and every
+other tenant. Dry run against the local-`.env` DB reports 17 artifacts + 2 patterns would move
+`private → team`. **Not applied — awaiting confirmation of which DB that is.**
+
+**Worth knowing:** admins bypass the whole problem — `designArtifactLaneClause` returns every row for
+`isAdmin` (`grant-queries.ts:142`). The empty Team/Public lanes only bite on a non-admin account, so
+the data pass matters only if the demo runs as a normal user.
+
+---
+
 ## 2026-07-28 — Workbench/Playground: perf hardening + multiuser (Phase A/B) + unified Library lander
 
 Big arc across the workbench (`/design` → design artifacts) and playground (`/playground` → patterns).

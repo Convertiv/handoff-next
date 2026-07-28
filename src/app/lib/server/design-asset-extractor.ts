@@ -335,6 +335,13 @@ export async function extractDesignAssetsFromCompositeImage(params: {
   }
 }
 
+/**
+ * Wall-clock ceiling for a single extraction, mirroring the 240s bound already used by the
+ * Figma fetch runner. Must stay comfortably under the hosting function's max duration so the
+ * row reaches a terminal state *before* the invocation is torn down.
+ */
+const EXTRACTION_TIMEOUT_MS = 240_000;
+
 /** Background worker entry: claim pending row, run extraction, persist assets + classification. */
 export async function runDesignAssetExtractionForArtifact(artifactId: string): Promise<void> {
   const claimed = await claimDesignArtifactForExtraction(artifactId);
@@ -353,7 +360,36 @@ export async function runDesignAssetExtractionForArtifact(artifactId: string): P
     return;
   }
 
-  const result = await extractDesignAssetsFromCompositeImage({ imageUrl: row.imageUrl, actorUserId: row.userId });
+  // The claim above already moved the row to `extracting`. From here every exit path — success,
+  // throw, or timeout — must write a terminal status, or the row is stranded and the detail page
+  // polls it forever. `extractDesignAssetsFromCompositeImage` catches its own errors, but it
+  // cannot bound its own runtime, so race it against a watchdog.
+  let watchdog: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<ExtractDesignAssetsResult>((resolve) => {
+    watchdog = setTimeout(
+      () =>
+        resolve({
+          assets: [],
+          classification: null,
+          assetsStatus: 'failed',
+          extractionError: `Extraction exceeded ${Math.round(EXTRACTION_TIMEOUT_MS / 1000)}s and was abandoned.`,
+        }),
+      EXTRACTION_TIMEOUT_MS
+    );
+  });
+
+  let result: ExtractDesignAssetsResult;
+  try {
+    // The loser of this race keeps running — it cannot be cancelled. If a slow extraction
+    // resolves later in the same invocation it will simply overwrite `failed` with real
+    // results, which is strictly better data, not corruption.
+    result = await Promise.race([extractDesignAssetsFromCompositeImage({ imageUrl: row.imageUrl, actorUserId: row.userId }), timeout]);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    result = { assets: [], classification: null, assetsStatus: 'failed', extractionError: msg.slice(0, 2000) };
+  } finally {
+    if (watchdog) clearTimeout(watchdog);
+  }
 
   await finalizeDesignArtifactExtraction(artifactId, {
     assets: result.assets as unknown[],
