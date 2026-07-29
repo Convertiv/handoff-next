@@ -107,7 +107,9 @@ async function loadReuseCatalog(): Promise<{ components: string[]; patterns: str
 
 // ── Prompts ───────────────────────────────────────────────────────────────────
 //
-// The specification is assembled from FOUR independent model calls rather than one.
+// The specification is assembled from four independent model calls rather than one, in two rounds:
+// round 1 = base spec + tokens (both need the image), round 2 = reuse + voice (both text-only, and
+// both need what the base spec learned from the image).
 //
 // Why: a single call carrying the component catalog, the token list, the brand voice and the design
 // guidelines — and required to emit all four sections at once — exceeded a 270s budget on live 8x8
@@ -216,18 +218,26 @@ Rules:
 - Return ONLY valid JSON — no markdown, no commentary.`;
 }
 
-/** Reuse: text-only. Needs the catalog and a description of the design, not its pixels. */
+/**
+ * Reuse: text-only, and run AFTER the base spec.
+ *
+ * It needs a real description of the design, not its pixels — but the only rich description comes
+ * from the base spec, which is the call that actually looked at the image. An earlier revision ran
+ * reuse concurrently with the base spec and fed it the pre-spec `classificationGuess`, whose
+ * `componentType` is literally `'other'` and whose name is the artifact title ("Draft — 7/29/2026").
+ * Asked what could build *that*, the model correctly answered "nothing" and returned
+ * `compositionScore: 0` for a design that 8x8's `hero-form` matches almost exactly. Starving this
+ * call of context is what broke it, not the catalog or the prompt.
+ */
 function buildReusePrompt(params: {
-  classificationJson: string;
-  designHint: string;
+  specSummary: string;
   reuseCatalog: { components: string[]; patterns: string[] };
 }): string {
-  const { classificationJson, designHint, reuseCatalog } = params;
+  const { specSummary, reuseCatalog } = params;
   return `You decide whether a new UI design should be COMPOSED from a design system's existing parts, or genuinely built new.
 
 ## The design
-${classificationJson}
-${designHint ? `\n${designHint}` : ''}
+${specSummary}
 
 ## What the team ALREADY has
 ${reuseCatalog.components.length ? `### Existing components\n${reuseCatalog.components.map((c) => `- ${c}`).join('\n')}` : ''}
@@ -513,6 +523,32 @@ async function failSpec(artifactId: string, reason: string): Promise<void> {
   } as Parameters<typeof updateDesignArtifactById>[1]).catch(() => undefined);
 }
 
+/**
+ * A description of the design good enough to reason about reuse, built from the base spec.
+ *
+ * This is what the reuse call gets instead of the pre-spec classification guess — the spec is the
+ * only artefact that has actually seen the image.
+ */
+function specSummaryForReuse(spec: ComponentSpec): string {
+  const ov = spec.overview ?? ({} as ComponentSpec['overview']);
+  const lines = [
+    `Name: ${ov.name ?? 'Component'}`,
+    `Type: ${ov.type ?? 'other'}${ov.designSystemGroup ? ` (group: ${ov.designSystemGroup})` : ''}`,
+    ov.summary ? `Summary: ${ov.summary}` : '',
+    ov.description ? `Description: ${ov.description}` : '',
+  ].filter(Boolean);
+
+  const parts = (spec.content?.textInventory ?? [])
+    .slice(0, 24)
+    .map((t) => `  - [${t.role}] "${t.text}"${t.location ? ` (${t.location})` : ''}`);
+  if (parts.length) lines.push('', 'Visible content:', ...parts);
+
+  const props = (spec.props ?? []).slice(0, 20).map((p) => `  - ${p.name}: ${p.type}`);
+  if (props.length) lines.push('', 'Props identified:', ...props);
+
+  return lines.join('\n');
+}
+
 /** Copy strings for the voice check: prefer the spec's transcribed text, fall back to the prompt. */
 function copyStringsForVoice(spec: ComponentSpec, copyFromPrompt: string[]): { text: string; role: string }[] {
   const inventory = (spec.content?.textInventory ?? [])
@@ -588,9 +624,9 @@ export async function generateSpecForArtifact(artifactId: string): Promise<void>
       });
     };
 
-    // ── Round 1: base spec, tokens and reuse, concurrently ──────────────────
-    // Only the base spec is required. `tokens` needs the image; `reuse` does not.
-    const [baseRaw, tokensRes, reuseRes] = await Promise.all([
+    // ── Round 1: base spec + tokens, concurrently (both need the image) ─────
+    // Only the base spec is required.
+    const [baseRaw, tokensRes] = await Promise.all([
       call(
         buildSpecPrompt({
           classificationJson,
@@ -618,13 +654,25 @@ export async function generateSpecForArtifact(artifactId: string): Promise<void>
               return null;
             })
         : Promise.resolve(null),
+    ]);
+
+    const spec = parseSpec(baseRaw, row.title || 'Component');
+    if (!spec) {
+      await failSpec(artifactId, 'The model returned a specification that could not be parsed. Re-run the dev handoff.');
+      return;
+    }
+
+    if (tokensRes) spec.tokens = tokensRes;
+
+    // ── Round 2: reuse + voice, concurrently ────────────────────────────────
+    // Both are text-only and cheap, and both need what the base spec learned from the image —
+    // reuse needs a real description of the design, voice needs the copy actually transcribed.
+    // Running them after the base spec costs little and is the difference between reuse working
+    // and reuse being asked about a component called "Draft — 7/29/2026".
+    const [reuseRes, voiceRes] = await Promise.all([
       hasCatalog
         ? call(
-            buildReusePrompt({
-              classificationJson,
-              designHint: row.description?.trim() ? `Description: ${row.description.trim()}` : '',
-              reuseCatalog,
-            }),
+            buildReusePrompt({ specSummary: specSummaryForReuse(spec), reuseCatalog }),
             'Decide what this design should be composed from:',
             false,
             'ai.design_spec_reuse',
@@ -636,38 +684,27 @@ export async function generateSpecForArtifact(artifactId: string): Promise<void>
               return null;
             })
         : Promise.resolve(null),
+      (() => {
+        if (!brandVoiceText) return Promise.resolve(null);
+        const copyStrings = copyStringsForVoice(spec, copyFromPrompt);
+        if (!copyStrings.length) return Promise.resolve(null);
+        return call(
+          buildVoicePrompt({ copyStrings, brandVoice: brandVoiceText }),
+          'Check this copy against the brand voice:',
+          false,
+          'ai.design_spec_voice',
+          2000
+        )
+          .then((raw) => parseSection<NonNullable<ComponentSpec['voice']>>(raw))
+          .catch((err) => {
+            console.warn('[design-spec-generator] voice section failed', artifactId, err);
+            return null;
+          });
+      })(),
     ]);
 
-    const spec = parseSpec(baseRaw, row.title || 'Component');
-    if (!spec) {
-      await failSpec(artifactId, 'The model returned a specification that could not be parsed. Re-run the dev handoff.');
-      return;
-    }
-
-    if (tokensRes) spec.tokens = tokensRes;
     if (reuseRes) spec.reuse = reuseRes;
-
-    // ── Round 2: voice, against the copy the base spec actually transcribed ──
-    // Text-only and cheap, so the serialization costs little — and checking the real on-screen
-    // copy beats checking prompt-derived strings.
-    if (brandVoiceText) {
-      const copyStrings = copyStringsForVoice(spec, copyFromPrompt);
-      if (copyStrings.length) {
-        try {
-          const voiceRaw = await call(
-            buildVoicePrompt({ copyStrings, brandVoice: brandVoiceText }),
-            'Check this copy against the brand voice:',
-            false,
-            'ai.design_spec_voice',
-            2000
-          );
-          const voice = parseSection<NonNullable<ComponentSpec['voice']>>(voiceRaw);
-          if (voice) spec.voice = voice;
-        } catch (err) {
-          console.warn('[design-spec-generator] voice section failed', artifactId, err);
-        }
-      }
-    }
+    if (voiceRes) spec.voice = voiceRes;
 
     spec.generatedAt = new Date().toISOString();
 
