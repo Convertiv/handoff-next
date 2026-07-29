@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, notInArray, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { handoffPipelineJobs } from '@/lib/db/schema-pg';
 
@@ -247,6 +247,26 @@ export async function getLatestPipelineIdForArtifact(artifactId: string): Promis
     .orderBy(sql`${handoffPipelineJobs.createdAt} DESC`, sql`${handoffPipelineJobs.id} DESC`)
     .limit(1);
   return row?.pipelineId ?? null;
+}
+
+/**
+ * Artifacts with an unfinished `spec` stage in the pipeline queue.
+ *
+ * Two things drain specification work: this queue, and the `spec_status = 'pending'` sentinel the cron
+ * scans. They must not both claim the same artifact. Concurrent cron ticks overlap (the schedule is
+ * every minute, `maxDuration` is 300s), so without this the sentinel drain can steal the artifact in
+ * the window between the pipeline's spec stage setting `pending` and claiming it — and the stage then
+ * fails with "another worker holds it" even though the specification generated fine.
+ *
+ * The pipeline row is the authoritative claim, so the sentinel drain yields to it.
+ */
+export async function artifactIdsWithPendingSpecStage(): Promise<Set<string>> {
+  const db = getDb();
+  const rows = await db
+    .select({ artifactId: handoffPipelineJobs.artifactId })
+    .from(handoffPipelineJobs)
+    .where(and(eq(handoffPipelineJobs.stage, 'spec'), notInArray(handoffPipelineJobs.status, [...FINISHED])));
+  return new Set(rows.map((r) => r.artifactId));
 }
 
 /** All stages of one pipeline, in order — for progress reporting. */

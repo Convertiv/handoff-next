@@ -166,20 +166,29 @@ const runCompositeStage: StageHandler = async ({ job, upstream }) => {
  * Delegates to the existing queued path, which keeps `spec_status` as the UI-facing mirror and applies
  * its own watchdog. The pipeline row is the real claim; `spec_status` is set to `pending` first so that
  * path can take it.
+ *
+ * A lost `spec_status` claim is not treated as a failure. The cron's sentinel drain skips artifacts this
+ * queue owns, but the two can still interleave (`spec_status` was already `pending` from a "Transition
+ * to dev" before the pipeline was enqueued), and in that case another worker generated the very
+ * specification this stage wanted. What matters is the outcome on the row, so the outcome is what's
+ * checked — failing here would report a spurious error for work that actually succeeded.
  */
 const runSpecStage: StageHandler = async ({ job, budgetMs }) => {
   const { runQueuedSpecGeneration } = await import('@/lib/server/dev-handoff');
   await updateDesignArtifactById(job.artifactId, { specStatus: 'pending' } as Parameters<typeof updateDesignArtifactById>[1]);
   const ran = await runQueuedSpecGeneration(job.artifactId, { budgetMs: Math.max(60_000, budgetMs - 15_000) });
-  if (!ran) throw new Error('Specification stage could not claim the artifact — another worker holds it.');
 
   const row = await getDesignArtifactById(job.artifactId);
   const status = row?.specStatus ?? 'unknown';
   if (status !== 'done') {
     const meta = (row?.metadata ?? {}) as Record<string, unknown>;
-    throw new Error(typeof meta.specError === 'string' ? meta.specError : `Specification ended as "${status}".`);
+    if (typeof meta.specError === 'string') throw new Error(meta.specError);
+    // Still in flight under another worker: hand the stage back rather than fail it, so the next tick
+    // re-checks instead of burning the retry budget on a race.
+    if (!ran) throw new Error(`Another worker is generating this specification (status "${status}") — retrying.`);
+    throw new Error(`Specification ended as "${status}".`);
   }
-  return { specStatus: status };
+  return { specStatus: status, claimedHere: ran };
 };
 
 // ── registry ──────────────────────────────────────────────────────────────────

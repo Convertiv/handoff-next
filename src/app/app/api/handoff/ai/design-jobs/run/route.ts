@@ -3,6 +3,7 @@ import { getPendingDesignGenerationJobs, getPendingSpecArtifactIds, reapStuckDes
 import { runDesignGenerationJob } from '@/lib/server/design-generation-worker';
 import { runQueuedSpecGeneration } from '@/lib/server/dev-handoff';
 import { drainPipeline } from '@/lib/server/pipeline-runner';
+import { artifactIdsWithPendingSpecStage } from '@/lib/server/pipeline-queue';
 
 // Long enough to process a small batch of image generations serially.
 export const maxDuration = 300;
@@ -62,9 +63,17 @@ export async function GET(request: NextRequest) {
   // extraction, where they shared one invocation with a request of unknowable duration and were
   // twice killed before their own watchdog could fire. Here each gets a real slice of a dedicated
   // invocation, and the atomic claim inside runQueuedSpecGeneration makes overlapping ticks safe.
+  //
+  // This is the older of the two spec queues: `spec_status = 'pending'` as a sentinel, still how
+  // "Transition to dev" and `handoff_transition_to_dev` request a spec. The pipeline below is the
+  // newer one. Both end up calling runQueuedSpecGeneration, so exactly one may own an artifact —
+  // whenever the pipeline holds an unfinished spec stage, that row is the authoritative claim and
+  // this drain skips the artifact entirely.
   let specs = 0;
   try {
+    const ownedByPipeline = await artifactIdsWithPendingSpecStage();
     for (const artifact of await getPendingSpecArtifactIds(2)) {
+      if (ownedByPipeline.has(artifact.id)) continue;
       // A specification needs a meaningful budget; starting one with seconds left just strands it.
       if (remainingMs() < 90_000) {
         console.log('[design-jobs/run] stopping spec drain — insufficient budget this tick');

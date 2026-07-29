@@ -7,6 +7,7 @@ import { buildProjectContext, resolveStackProfile } from '@/lib/mcp/project-prof
 import { buildDesignMd } from '@handoff/utils/design-md';
 import { loadStackGuideMarkdown } from '@/lib/mcp/stack-guides';
 import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queries';
+import { capPayload } from '@/lib/mcp/payload';
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
 import { getDataProvider } from '@/lib/data';
 import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
@@ -52,10 +53,21 @@ const WORKSPACE_MODE_RESPONSE = {
   message: 'Registry features unavailable in workspace mode. Set DATABASE_URL and HANDOFF_CLOUD_URL to connect a registry.',
 } as const;
 
+/**
+ * The single exit for every tool result — and therefore the only place size discipline needs to live.
+ *
+ * Measured on 8x8, `list_design_artifacts` returned 34 MB and `get_design_artifact` 6.7 MB, almost
+ * entirely base64 `data:` URIs. Enforcing the cap here rather than per tool means no tool can regress
+ * into shipping image bytes, and adding a tool doesn't require remembering to bound it.
+ */
 function textResult(data: unknown) {
-  return {
-    content: [{ type: 'text' as const, text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) }],
-  };
+  const { text, stripped, bytesSaved, truncated } = capPayload(data);
+  if (stripped || truncated) {
+    console.log(
+      `[mcp] response shaped — stripped ${stripped} inline image(s), saved ${Math.round(bytesSaved / 1024)}KB${truncated ? ', truncated' : ''}`
+    );
+  }
+  return { content: [{ type: 'text' as const, text }] };
 }
 
 /** Compact a unified changelog entry for MCP — what changed, who, when, and the "why". */
@@ -1047,6 +1059,35 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         ...result,
         note: 'Each stage runs in its own invocation (~1-2 min each). Poll handoff_get_design_pipeline with pipelineId.',
       });
+    }
+  );
+
+  server.registerTool(
+    'handoff_revise_spec',
+    {
+      description:
+        'Apply a plain-language change to a design\'s SPECIFICATION — "shorten the headline", "add a ' +
+        'phone field", "make the CTA say Book a demo". Edits the spec itself rather than re-rolling the ' +
+        'image, returns a reviewable diff of exactly what changed, and records a new spec version with ' +
+        'the request as its reason. Requests about composition or feel ("make it more premium") come ' +
+        'back as art-direction rather than being forced into the spec; genuinely ambiguous requests ' +
+        'come back as unsure so you can clarify. Does NOT regenerate the image.',
+      inputSchema: {
+        artifactId: z.string(),
+        request: z.string().describe('The change, in plain language.'),
+      },
+    },
+    async ({ artifactId, request }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      const id = artifactId.trim();
+      const deniedAccess = await denyArtifactAccess(id, 'edit');
+      if (deniedAccess) return deniedAccess;
+
+      const { patchSpecFromRequest } = await import('@/lib/server/spec-patcher');
+      const result = await patchSpecFromRequest({ artifactId: id, request, actorUserId: patternActor().userId });
+      return textResult(result);
     }
   );
 

@@ -2,6 +2,7 @@
 
 import { AlertTriangleIcon, CheckCircle2Icon, Loader2Icon, PaletteIcon, PuzzleIcon, TypeIcon, XCircleIcon } from 'lucide-react';
 import Link from 'next/link';
+import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -488,17 +489,164 @@ export function AssetsSection({ assets, basePath }: { assets: AssetView[]; baseP
   );
 }
 
+// ── Revise ────────────────────────────────────────────────────────────────────
+
+interface PatchResultView {
+  ok: boolean;
+  target?: 'spec' | 'art-direction' | 'unsure';
+  reasoning?: string;
+  applied?: { sections: string[]; changeSummary: string; version: number | null; diff?: { summary?: string[] } };
+  cannotApply?: string;
+  rejectedSections?: string[];
+  error?: string;
+}
+
+const TARGET_LABEL: Record<string, string> = {
+  spec: 'Specification change',
+  'art-direction': 'Art direction',
+  unsure: 'Needs clarification',
+};
+
+/**
+ * Revise the specification in words.
+ *
+ * The point of the whole spec-driven loop lives here: a tweak edits the *contract*, not the picture, so
+ * "what changed and why" has a durable answer. Three outcomes are all first-class — applied, art
+ * direction (the spec can't hold it), and ambiguous (say which you meant) — because a patcher that
+ * guesses on the third case silently produces edits nobody asked for.
+ *
+ * Applying does NOT re-render the image. That's a separate, explicit step, so a copy fix doesn't cost a
+ * fresh generation and a fresh set of differences to review.
+ */
+function ReviseSection({ artifactId, onApplied }: { artifactId: string; onApplied?: () => void }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<PatchResultView | null>(null);
+
+  const submit = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}/revise-spec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ request: text }),
+      });
+      const json = (await res.json().catch(() => ({}))) as PatchResultView;
+      setResult(json);
+      // Only clear the box on a change that landed — otherwise the user needs their words back to reword.
+      if (json.applied) {
+        setText('');
+        onApplied?.();
+      }
+    } catch (e) {
+      setResult({ ok: false, error: e instanceof Error ? e.message : 'The revision failed.' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applied = result?.applied;
+  const changes = applied?.diff?.summary ?? [];
+
+  return (
+    <section className="rounded-lg border p-4">
+      <h3 className="text-sm font-semibold">Revise the specification</h3>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Describe the change in plain language — &ldquo;shorten the headline&rdquo;, &ldquo;add a phone
+        field&rdquo;, &ldquo;the CTA should say Book a demo&rdquo;. It edits the spec and records a new
+        version, and does not regenerate the image.
+      </p>
+
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) void submit();
+          }}
+          placeholder="What should change?"
+          disabled={busy}
+          className="flex-1 rounded-md border bg-background px-3 py-2 text-sm"
+        />
+        <Button size="sm" onClick={() => void submit()} disabled={busy || !text.trim()}>
+          {busy ? <Loader2Icon className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+          {busy ? 'Revising' : 'Revise'}
+        </Button>
+      </div>
+
+      {result ? (
+        <div className="mt-3 space-y-2 rounded-md border bg-muted/40 p-3 text-xs">
+          {result.error ? (
+            <p className="flex items-start gap-1.5 text-destructive">
+              <XCircleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              {result.error}
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                {applied ? (
+                  <CheckCircle2Icon className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                ) : (
+                  <AlertTriangleIcon className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                )}
+                <span className="font-medium">{TARGET_LABEL[result.target ?? ''] ?? 'Result'}</span>
+                {applied?.version ? <Badge variant="secondary">version {applied.version}</Badge> : null}
+              </div>
+
+              {applied ? (
+                <>
+                  <p className="text-muted-foreground">{applied.changeSummary}</p>
+                  {changes.length ? (
+                    <ul className="list-disc space-y-0.5 pl-4 text-muted-foreground">
+                      {changes.slice(0, 12).map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                      {changes.length > 12 ? <li>and {changes.length - 12} more</li> : null}
+                    </ul>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  {result.reasoning ? <p className="text-muted-foreground">{result.reasoning}</p> : null}
+                  {result.cannotApply ? <p>{result.cannotApply}</p> : null}
+                </>
+              )}
+
+              {/* Surfaced rather than dropped: a change the user thinks they made otherwise just doesn't happen. */}
+              {result.rejectedSections?.length ? (
+                <p className="text-muted-foreground">
+                  Not applied: {result.rejectedSections.join(', ')}
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
 export function DevHandoffPanel({
   spec,
   assets,
   basePath,
+  artifactId,
+  canRevise,
+  onRevised,
   rawMarkdownSlot,
 }: {
   spec: DevHandoffSpecView | null;
   assets: AssetView[];
   basePath: string;
+  /** Enables the revise box; omit on read-only surfaces such as the share page. */
+  artifactId?: string;
+  canRevise?: boolean;
+  onRevised?: () => void;
   /** The existing editable markdown editor, tucked behind a disclosure. */
   rawMarkdownSlot?: React.ReactNode;
 }) {
@@ -521,6 +669,7 @@ export function DevHandoffPanel({
       <AssetsSection assets={assets} basePath={basePath} />
       {spec?.tokens ? <TokensSection tokens={spec.tokens} /> : null}
       {spec?.voice ? <VoiceSection voice={spec.voice} /> : null}
+      {artifactId && canRevise ? <ReviseSection artifactId={artifactId} onApplied={onRevised} /> : null}
 
       {rawMarkdownSlot ? (
         hasStructured ? (

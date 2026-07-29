@@ -447,7 +447,14 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
     }
   };
 
-  const handleRetryExtraction = async () => {
+  /**
+   * Start "Transition to dev".
+   *
+   * Named for extraction historically, but the PATCH it sends queues the whole handoff — assets, then
+   * the specification — which is why both statuses are advanced below. The old name made the button and
+   * the handler look like they did different things.
+   */
+  const handleTransitionToDev = async () => {
     if (!artifactId) return;
     setReextractBusy(true);
     setNotice(null);
@@ -483,7 +490,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
         if (activeTab !== 'spec') setActiveTab('spec');
       }
     } catch (e) {
-      setNotice(e instanceof Error ? e.message : 'Retry failed.');
+      setNotice(e instanceof Error ? e.message : 'Could not start the transition to dev.');
     } finally {
       setReextractBusy(false);
     }
@@ -694,7 +701,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     size="sm"
                     className="w-full justify-start gap-1.5"
                     disabled={reextractBusy || Boolean(devHandoff?.running)}
-                    onClick={() => void handleRetryExtraction()}
+                    onClick={() => void handleTransitionToDev()}
                   >
                     {reextractBusy || devHandoff?.running ? (
                       <Loader2Icon className="h-4 w-4 animate-spin" />
@@ -893,6 +900,11 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                       spec={(artifact.componentSpec as DevHandoffSpecView | null) ?? null}
                       assets={(artifact.assets ?? []) as AssetView[]}
                       basePath={basePath}
+                      artifactId={artifactId}
+                      // Enforced server-side (the route 404s without canEdit), matching the other edit
+                      // affordances on this page — the UI has no permission signal threaded in yet.
+                      canRevise
+                      onRevised={() => void fetchArtifact()}
                       rawMarkdownSlot={
                         <div className="space-y-2">
                           <div className="flex items-center justify-between gap-2">

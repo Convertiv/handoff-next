@@ -5,6 +5,81 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-29 (later) — The spec patcher · one owner per spec queue · MCP response cap
+
+Branch `feature/spec-driven`. Three debt items, in the order they were asked for.
+
+### 1. Spec patcher — a tweak edits the specification, not the picture
+
+This was the hole in the middle of the spec-driven loop. Until now a revision either re-rolled the whole
+image or hand-edited markdown; nothing edited the *spec*, which meant the spec was an output rather than
+a source of truth and "what changed and why" had no durable answer.
+
+- `lib/spec/patch.ts` — pure layer (prompt, validation, merge), 22 tests.
+- `lib/server/spec-patcher.ts` — the model call, then `diffSpecs` -> `recordSpecVersion` with the user's
+  own words as the change reason.
+- `handoff_revise_spec` (MCP) + `POST /api/handoff/ai/design-artifact/[id]/revise-spec` + a revise box in
+  `DevHandoffPanel`. Exposed on all three surfaces deliberately — the last several rounds each ended with
+  a capability that existed server-side and was unreachable in practice.
+
+Three design decisions worth keeping:
+
+- **Routing is the hard problem, not editing.** "Shorten the headline" is a spec change; "make it feel
+  more premium" is art direction the spec cannot hold; "give the CTA more room" is genuinely ambiguous.
+  `target` is first-class and `unsure` is a legitimate answer — the prompt says so explicitly, because a
+  wrong silent edit is worse than a question.
+- **Derived sections are stripped on the way out and rejected on the way back.** `tokens`, `reuse`,
+  `voice` are measurements against the real design system. Letting a tweak rewrite them would let a user
+  edit their own report card — "fix" a coverage score without touching the design.
+- **Section-level replacement, not deep merge.** A deep merge makes removal impossible (dropping a form
+  field would silently keep it), and "the complete new value for this section" is a rule a model can
+  actually follow. Rejected sections are surfaced in the response, never dropped silently.
+
+Applying does **not** regenerate the image. That stays a separate, explicit step.
+
+### 2. Two queues were draining the same spec work
+
+`spec_status = 'pending'` (the sentinel the cron scans, still how "Transition to dev" requests a spec)
+and the `pipeline_job` spec stage both call `runQueuedSpecGeneration`. The cron schedule is every minute
+and `maxDuration` is 300s, so **up to five invocations overlap** — a concurrent tick's sentinel drain
+could steal the artifact in the window between the pipeline's spec stage setting `pending` and claiming
+it. The stage then failed with "another worker holds it" *for a specification that had generated fine*.
+
+- `artifactIdsWithPendingSpecStage()` — the sentinel drain now yields to the pipeline, which holds the
+  authoritative claim.
+- `runSpecStage` no longer treats a lost claim as failure. It checks the **outcome on the row**, because
+  that's what actually matters; a lost claim with the spec still in flight hands the stage back for the
+  next tick instead of burning retry budget on a race.
+- `handleRetryExtraction` -> `handleTransitionToDev`. The PATCH it sends queues the whole handoff; the old
+  name made the button and the handler look like different features.
+
+### 3. MCP responses were up to 34 MB
+
+Measured on 8x8: `list_design_artifacts` **34 MB**, `get_design_artifact` 6.7 MB, `get_design_job`
+2.9 MB, `get_component_spec` 2.2 MB. Almost all of it base64 `data:` URIs — bytes a model can do nothing
+with except pay for, and which evict the context the tool was called to provide.
+
+`lib/mcp/payload.ts`, enforced in `textResult` — the single exit every tool returns through, so no tool
+can regress and a new tool doesn't have to remember to bound itself. Two rules:
+
+1. **No inline image bytes.** A `data:` URI becomes a descriptor (mime + size), so "there is a 1.2 MB
+   PNG here" survives while the payload doesn't. Real references (`/api/handoff/artifact-asset?...`) are
+   left untouched — that's how the model gets the actual bytes.
+2. **A ceiling, honestly reported.** 256 KB default (`HANDOFF_MCP_MAX_RESPONSE_KB`). If stripping isn't
+   enough it halves the longest array and **states the trim inside the payload**. Silent truncation is
+   worse than a big response: a model that doesn't know a list was cut off answers confidently from the
+   visible part. Records stay intact — trimming a list beats corrupting its entries.
+
+Measured effect: a 20-artifact list carrying 300 KB images each (~6 MB) comes under the cap **by
+stripping alone**, with all 20 artifacts still present. 16 tests.
+
+**Verification state:** 207 unit tests pass; `tsc` clean; `next build` compiles and typechecks (the
+prerender failure on `/foundations/_placeholder` is the missing local `DATABASE_URL`, not the change).
+None of this is verified against 8x8 yet — the queue-race fix in particular only shows up under
+concurrent cron ticks, which local runs don't reproduce.
+
+---
+
 ## 2026-07-29 — Asset-first generation VALIDATED · the raster font chain · spec versioning
 
 Branch `feature/spec-driven`. Three connected arcs; the third is the significant one.
