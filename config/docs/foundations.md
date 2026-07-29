@@ -8,6 +8,9 @@ metaTitle: 'Design Foundations | Handoff Design System'
 metaDescription: 'Set of design principles and visual guidelines that define the brand across every experience'
 enabled: true
 menu:
+  - path: foundations/logo
+    title: Logo
+    icon: hexagon
   - path: foundations/colors
     title: Colors
     icon: palette
@@ -32,9 +35,6 @@ menu:
   - path: foundations/motion
     title: Motion
     icon: zap
-  - path: foundations/focus
-    title: Focus States
-    icon: focus
   - path: foundations/elevation
     title: Elevation
     icon: layers

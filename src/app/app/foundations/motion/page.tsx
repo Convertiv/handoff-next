@@ -212,7 +212,7 @@ export default async function MotionPage() {
 
           <PrevNextNav
             previous={{ title: 'Border Radius', href: '/foundations/border-radius' }}
-            next={{ title: 'Focus States', href: '/foundations/focus' }}
+            next={{ title: 'Elevation', href: '/foundations/elevation' }}
           />
         </div>
 

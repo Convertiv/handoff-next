@@ -3,7 +3,7 @@ interface HeaderProps extends React.HTMLAttributes<HTMLHeadingElement> {
 }
 
 const H1: React.FC<HeaderProps> = ({ children, ...props }) => (
-  <h1 className="text-3xl font-medium" {...props}>
+  <h1 className="text-[28px] font-medium" {...props}>
     {children}
   </h1>
 );

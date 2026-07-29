@@ -46,7 +46,7 @@ export function InlineEditHeader({
   const editorHref = `/admin/pages/edit?slug=${encodeURIComponent(slug)}`;
 
   return (
-    <div className="flex flex-col gap-2 pb-7">
+    <div className="flex max-w-3xl flex-col gap-3 pb-10">
       <div className="flex items-start justify-between gap-4">
         <InlineEditField
           value={title}
@@ -55,7 +55,7 @@ export function InlineEditHeader({
           allFrontmatter={frontmatter}
           markdown={markdown}
           as="h1"
-          className="scroll-m-20 text-4xl font-bold tracking-tight"
+          className="scroll-m-20 text-[28px] font-bold tracking-tight"
           canEdit={canEdit}
           onSaved={(v) => {
             setTitle(v);
@@ -83,7 +83,7 @@ export function InlineEditHeader({
           allFrontmatter={frontmatter}
           markdown={markdown}
           as="p"
-          className="text-lg leading-relaxed text-gray-600 dark:text-gray-300"
+          className="text-lg font-light leading-relaxed"
           canEdit={canEdit}
           onSaved={(v) => {
             setDescription(v);

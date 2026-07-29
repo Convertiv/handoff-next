@@ -72,6 +72,24 @@ function isLinkedPackage(modulePath: string): boolean {
 const INCREMENTAL_SYNC_EXCLUDES = new Set(['next.config.mjs', 'node_modules']);
 
 /**
+ * Root entries the stale-file prune must never touch: everything in
+ * INCREMENTAL_SYNC_EXCLUDES plus entries that exist only in the materialized
+ * app, never in `src/app` — Next.js runtime output (`.next`, `out`; removing a
+ * live `.next` also crashes dev startup with ENOTEMPTY) and files Handoff
+ * itself writes into the materialized tree after the copy (bundled docs under
+ * `config/`, `client.config.json`, the bundle-version marker, `.gitignore`).
+ */
+const PRUNE_EXCLUDES = new Set([
+  ...INCREMENTAL_SYNC_EXCLUDES,
+  '.next',
+  'out',
+  '.gitignore',
+  'config',
+  'client.config.json',
+  BUNDLE_VERSION_FILENAME,
+]);
+
+/**
  * Incrementally sync changed files from `srcPath` to `destPath` using mtime comparison.
  * Only copies files where the source mtime is newer than the destination.
  * Returns the count of files updated.
@@ -124,7 +142,7 @@ async function pruneStaleAppSourceFiles(srcPath: string, destPath: string): Prom
   const walk = async (src: string, dest: string, isRoot: boolean): Promise<void> => {
     const destEntries = await fs.readdir(dest, { withFileTypes: true });
     for (const entry of destEntries) {
-      if (isRoot && INCREMENTAL_SYNC_EXCLUDES.has(entry.name)) continue;
+      if (isRoot && PRUNE_EXCLUDES.has(entry.name)) continue;
       const srcFile = path.join(src, entry.name);
       const destFile = path.join(dest, entry.name);
       if (!(await fs.pathExists(srcFile))) {

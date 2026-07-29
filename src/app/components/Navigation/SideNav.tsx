@@ -1,25 +1,42 @@
 'use client';
 
 import {
-  ChevronRight,
-  Focus,
-  Grid,
+  BookOpen,
+  BracketsCurly,
+  Books,
+  CaretRight,
+  ChartBarHorizontal,
+  Code,
+  Columns,
+  Cpu,
+  Crosshair,
+  FileCode,
+  FileJs,
+  FileText,
+  GitMerge,
+  GridFour,
+  Hammer,
   Hexagon,
   Image,
-  Layers,
-  LayoutPanelLeft,
-  Library,
+  Laptop,
+  Lightning,
+  Package,
+  PaintBrush,
   Palette,
-  Pickaxe,
+  Plug,
+  Robot,
   Ruler,
   Shapes,
-  Sparkles,
+  Shovel,
+  Sparkle,
   Square,
-  SquareChartGantt,
+  SquaresFour,
+  Stack,
   Sun,
-  TypeOutline,
-  Zap,
-} from 'lucide-react';
+  TextT,
+  UserCircle,
+  Users,
+} from '@phosphor-icons/react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../../components/ui/collapsible';
 
 import { usePathname } from 'next/navigation';
@@ -36,19 +53,17 @@ import {
   SidebarMenuSub,
   SidebarSeparator,
 } from '../../components/ui/sidebar';
-import { cn, normalizePathForMatch, toAbsolutePath } from '../../lib/utils';
+import { cn, normalizePathForMatch, toAbsolutePath, TOOLS_PATHS } from '../../lib/utils';
 import { SectionLink } from '../util';
 import { useHandoffCapabilities } from '../context/HandoffCapabilitiesContext';
-
-const TOOLS_PATHS = ['/design', '/patterns', '/playground'];
 
 const NormalMenuItem = ({ title, icon, path }) => {
   const pathname = usePathname();
   const isActive = normalizePathForMatch(path) === normalizePathForMatch(pathname);
   return (
     <SidebarMenuItem>
-      <SidebarMenuButton asChild isActive={isActive}>
-        <a href={toAbsolutePath(path)} className="gap-3">
+      <SidebarMenuButton asChild isActive={isActive} className="h-9 px-4 [&>svg]:size-[15px]">
+        <a href={toAbsolutePath(path)} className="group/nav-item gap-3">
           <MenuIcon icon={icon} isActive={isActive} />
           <span>{title}</span>
         </a>
@@ -73,10 +88,10 @@ const CollapsibleMenuItem = ({ title, icon, path, menu }) => {
     <Collapsible defaultOpen={isActive || isDeepActive} className="group/collapsible">
       <SidebarMenuItem>
         <CollapsibleTrigger asChild>
-          <SidebarMenuButton className="h-9 gap-3">
+          <SidebarMenuButton className="group/nav-item h-9 gap-3 px-4 [&>svg]:size-[15px]">
             <MenuIcon icon={icon} isActive={isActive} />
             <span className={isActive ? 'font-medium text-sidebar-accent-foreground [&_svg]:opacity-100' : undefined}>{title}</span>
-            <ChevronRight className="ml-auto size-[14px]! stroke-[1.5] text-slate-700 opacity-50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+            <CaretRight className="ml-auto size-[14px]! text-slate-700 opacity-50 transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
           </SidebarMenuButton>
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -102,47 +117,83 @@ const MenuItem = ({ item }) => {
 };
 
 const MenuIcon = ({ icon, isActive = false }) => {
-  const iconClass = isActive ? 'text-slate-800 opacity-100' : 'text-slate-700 opacity-50';
+  const iconClass = isActive
+    ? 'text-slate-800 opacity-100'
+    : 'text-slate-700 opacity-50 group-hover/nav-item:text-slate-800 group-hover/nav-item:opacity-100';
 
   switch (icon) {
     case 'layers':
-      return <Layers className={iconClass} strokeWidth={1.5} />;
+      return <Stack className={iconClass} />;
     case 'square-chart-gantt':
-      return <SquareChartGantt className={iconClass} strokeWidth={1.5} />;
+      return <ChartBarHorizontal className={iconClass} />;
     case 'pickaxe':
-      return <Pickaxe className={iconClass} strokeWidth={1.5} />;
+      return <Shovel className={iconClass} />;
     case 'hexagon':
-      return <Hexagon className={iconClass} strokeWidth={1.5} />;
+      return <Hexagon className={iconClass} />;
     case 'palette':
-      return <Palette className={iconClass} strokeWidth={1.5} />;
+      return <Palette className={iconClass} />;
     case 'type':
-      return <TypeOutline className={iconClass} strokeWidth={1.5} />;
+      return <TextT className={iconClass} />;
     case 'grid':
-      return <Grid className={iconClass} strokeWidth={1.5} />;
+      return <GridFour className={iconClass} />;
     case 'layout-panel-left':
-      return <LayoutPanelLeft className={iconClass} strokeWidth={1.5} />;
+      return <Columns className={iconClass} />;
     case 'rulers':
-      return <Ruler className={iconClass} strokeWidth={1.5} />;
+      return <Ruler className={iconClass} />;
     case 'sun':
-      return <Sun className={iconClass} strokeWidth={1.5} />;
+      return <Sun className={iconClass} />;
     case 'effect':
     case 'effects':
     case 'sparkles':
-      return <Sparkles className={iconClass} strokeWidth={1.5} />;
+      return <Sparkle className={iconClass} />;
     case 'blend':
-      return <Sun className={iconClass} strokeWidth={1.5} />;
+      return <Sun className={iconClass} />;
     case 'image':
-      return <Image className={iconClass} strokeWidth={1.5} />;
+      return <Image className={iconClass} />;
     case 'shapes':
-      return <Shapes className={iconClass} strokeWidth={1.5} />;
+      return <Shapes className={iconClass} />;
     case 'square':
-      return <Square className={iconClass} strokeWidth={1.5} />;
+      return <Square className={iconClass} />;
     case 'zap':
-      return <Zap className={iconClass} strokeWidth={1.5} />;
+      return <Lightning className={iconClass} />;
     case 'focus':
-      return <Focus className={iconClass} strokeWidth={1.5} />;
+      return <Crosshair className={iconClass} />;
     case 'library':
-      return <Library className={iconClass} strokeWidth={1.5} />;
+      return <Books className={iconClass} />;
+    case 'layout-dashboard':
+      return <SquaresFour className={iconClass} />;
+    case 'code':
+      return <Code className={iconClass} />;
+    case 'book-open':
+      return <BookOpen className={iconClass} />;
+    case 'cpu':
+      return <Cpu className={iconClass} />;
+    case 'git-merge':
+      return <GitMerge className={iconClass} />;
+    case 'laptop':
+      return <Laptop className={iconClass} />;
+    case 'braces':
+      return <BracketsCurly className={iconClass} />;
+    case 'file-json':
+      return <FileJs className={iconClass} />;
+    case 'file-code':
+      return <FileCode className={iconClass} />;
+    case 'package':
+      return <Package className={iconClass} />;
+    case 'user-circle':
+      return <UserCircle className={iconClass} />;
+    case 'plug':
+      return <Plug className={iconClass} />;
+    case 'users':
+      return <Users className={iconClass} />;
+    case 'paintbrush':
+      return <PaintBrush className={iconClass} />;
+    case 'bot':
+      return <Robot className={iconClass} />;
+    case 'file-text':
+      return <FileText className={iconClass} />;
+    case 'hammer':
+      return <Hammer className={iconClass} />;
     default:
       return null;
   }
@@ -218,52 +269,56 @@ const SideNav = ({ menu, topNav }: SideNavProps) => {
 
   // Tools sidebar suppressed — navigation handled by ToolsSubNav in Header.
 
-  // ── Knowledge section: flat always-visible sections ─────────────────────
+  // ── Knowledge section: show only the section the current page lives in ──
+  // (e.g. Foundations pages get the Foundations menu, System pages get the
+  // Design System menu). Pages that match no section fall through to the
+  // current-section fallback below.
   if (!isToolsSection && topNav && topNav.length > 0) {
-    return (
-      <Sidebar className="sticky left-auto">
-        <SidebarContent className="px-4 pt-5">
-          {topNav.map((section, idx) => {
-            const subSections = (section.subSections ?? []) as Array<
-              SectionLink['subSections'][number] & { menu?: unknown[] }
-            >;
+    const normalizedPathname = normalizePathForMatch(pathname);
+    const activeSection = topNav.find((section) => {
+      const sectionPath = normalizePathForMatch(section.path);
+      return (
+        sectionPath.length > 0 &&
+        (normalizedPathname === sectionPath || normalizedPathname.startsWith(`${sectionPath}/`))
+      );
+    });
 
-            // Skip sections that have no path and no sub-items (nothing to render).
-            if (subSections.length === 0 && !section.path) return null;
+    if (activeSection) {
+      const subSections = (activeSection.subSections ?? []) as Array<
+        SectionLink['subSections'][number] & { menu?: unknown[] }
+      >;
 
-            return (
-              <React.Fragment key={section.path ?? section.title}>
-                <SidebarGroup>
-                  <SidebarGroupLabel className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                    {section.title}
-                  </SidebarGroupLabel>
-                  {subSections.length > 0 && (
-                    <SidebarGroupContent>
-                      <SidebarMenu>
-                        {subSections.map((sub, subIdx) => (
-                          <MenuItem
-                            key={`${idx}-${subIdx}`}
-                            item={sub as Parameters<typeof MenuItem>[0]['item']}
-                          />
-                        ))}
-                      </SidebarMenu>
-                    </SidebarGroupContent>
-                  )}
-                </SidebarGroup>
-                {idx < topNav.length - 1 && <SidebarSeparator className="mx-4" />}
-              </React.Fragment>
-            );
-          })}
-        </SidebarContent>
-      </Sidebar>
-    );
+      return (
+        <Sidebar className="sticky left-auto">
+          <SidebarContent className="px-1 pt-5">
+            <SidebarGroup>
+              <SidebarGroupLabel className="mb-0.5 px-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                {activeSection.title}
+              </SidebarGroupLabel>
+              {subSections.length > 0 && (
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {subSections.map((sub, subIdx) => (
+                      <MenuItem
+                        key={`section-${subIdx}`}
+                        item={sub as Parameters<typeof MenuItem>[0]['item']}
+                      />
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              )}
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
+      );
+    }
   }
 
   // ── Fallback: current section's own sub-sections only ────────────────────
   const subSections = (menu?.subSections ?? []) as Array<SectionLink['subSections'][number]>;
   return (
     <Sidebar className="sticky left-auto">
-      <SidebarContent className="px-4 pt-5">
+      <SidebarContent className="px-1 pt-5">
         {subSections
           .map((section, idx) => renderSubSection(section, idx, subSections.length))
           .filter(Boolean)}

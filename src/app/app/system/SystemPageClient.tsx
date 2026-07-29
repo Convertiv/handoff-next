@@ -64,10 +64,10 @@ export default function SystemPageClient({ content, menu, metadata, current, con
   const apiUrl = (typeof window !== 'undefined' ? window.location.origin : '') + `${process.env.HANDOFF_APP_BASE_PATH ?? ''}/api/components.json`;
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata}>
-      <div className="flex flex-col gap-2 pb-7">
+      <div className="flex max-w-3xl flex-col gap-3 pb-10">
         <HeadersType.H1>{metadata.title}</HeadersType.H1>
         <div className="mt-3 flex flex-row flex-wrap items-start justify-between gap-3">
-          <p className="text-lg leading-relaxed text-gray-600 dark:text-gray-300">{metadata.description}</p>
+          <p className="text-lg font-light leading-relaxed">{metadata.description}</p>
           <div className="flex shrink-0 flex-row flex-wrap items-center justify-end gap-2">
           <TooltipProvider>
             <Tooltip>

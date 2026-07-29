@@ -48,6 +48,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <link rel="shortcut icon" href={`${basePath}/favicon.ico`} />
         <link rel="icon" sizes="16x16 32x32 64x64" href={`${basePath}/favicon.ico`} />
         {/*
+          Inter is loaded here rather than via `@import` in css/index.css —
+          Turbopack drops remote CSS imports during compilation, which left the
+          app rendering in the system fallback font.
+        */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
+        />
+        {/*
           Registry mode: layer the DB-pushed theme CSS over the bundled defaults.
           Workspace mode: this 404s harmlessly (no DB) and the browser ignores it.
           ADR-001 §2 — theme is compiled in the workspace and pushed as bytes.
