@@ -33,7 +33,10 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     if (!status) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    return NextResponse.json(status);
+    // Collapse the two underlying statuses into the single dev-handoff answer the detail page
+    // renders, so the poll and the MCP surface can never disagree about what stage it's at.
+    const { devHandoffStatusForRow } = await import('@/lib/server/dev-handoff');
+    return NextResponse.json({ ...status, devHandoff: devHandoffStatusForRow(status) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Load failed';
     return NextResponse.json({ error: msg }, { status: 500 });

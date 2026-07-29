@@ -759,7 +759,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       // Stamp effective permissions so the caller can reason about lifecycle
       // (e.g. whether it may approve) instead of guessing — mirrors the HTTP route.
       const access = await designArtifactAccess(id.trim());
-      return textResult({ ...row, permissions: access?.perms ?? null });
+      // One derived answer to "is this ready for dev?", so a caller polling the handoff does
+      // not have to interpret assetsStatus and specStatus separately.
+      const { devHandoffStatusForRow } = await import('@/lib/server/dev-handoff');
+      return textResult({ ...row, permissions: access?.perms ?? null, devHandoff: devHandoffStatusForRow(row) });
     }
   );
 
@@ -927,47 +930,81 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       const { updateDesignArtifactById } = await import('@/lib/db/queries');
       const ok = await updateDesignArtifactById(artifactId.trim(), { status });
       if (!ok) return textResult({ ok: false, error: 'Design not found' });
-      // Mirror the design-artifact route (:108-110): schedule extraction on
-      // review/approved, but only when the server can extract locally.
+      // Mirror the design-artifact route (:108-110): run the dev handoff on review/approved,
+      // but only when the server can extract locally. Mark it queued first so both statuses
+      // read as in-flight immediately — otherwise extraction is skipped (it only claims rows
+      // already in `pending`) and a poller sees a stale status from the previous run.
       if ((status === 'review' || status === 'approved') && process.env.HANDOFF_AI_API_KEY?.trim()) {
-        const { scheduleDesignAssetExtraction } = await import('@/lib/server/design-asset-schedule');
-        scheduleDesignAssetExtraction(artifactId.trim());
+        const { markDevHandoffQueued } = await import('@/lib/server/dev-handoff');
+        const { scheduleDevHandoff } = await import('@/lib/server/design-asset-schedule');
+        await markDevHandoffQueued(artifactId.trim(), { clearAssets: false });
+        scheduleDevHandoff(artifactId.trim());
       }
       return textResult({ ok: true, artifactId: artifactId.trim(), status });
     }
+  );
+
+  /**
+   * Shared body for the dev handoff. `handoff_transition_to_dev` is the real tool;
+   * `handoff_extract_design_assets` is kept as a deprecated alias so existing agent
+   * transcripts and saved prompts keep working.
+   */
+  async function startDevHandoff(artifactId: string, reextractAssets: boolean) {
+    if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+    const denied = requireScope(auth, 'sync:write');
+    if (denied) return denied;
+    if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+      return textResult({ ok: false, error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' });
+    }
+    const id = artifactId.trim();
+    // Re-runs extraction and spends AI credits on the artifact — edit rights required.
+    const deniedAccess = await denyArtifactAccess(id, 'edit');
+    if (deniedAccess) return deniedAccess;
+
+    const { markDevHandoffQueued, getDevHandoffStatus } = await import('@/lib/server/dev-handoff');
+    const ok = await markDevHandoffQueued(id, { clearAssets: reextractAssets });
+    if (!ok) return textResult({ ok: false, error: 'Design not found' });
+
+    const { scheduleDevHandoff } = await import('@/lib/server/design-asset-schedule');
+    scheduleDevHandoff(id);
+
+    return textResult({
+      ok: true,
+      artifactId: id,
+      devHandoff: await getDevHandoffStatus(id),
+      note: 'Runs asset extraction then specification. Poll handoff_get_design_artifact and read `devHandoff` for stage-level progress.',
+    });
+  }
+
+  server.registerTool(
+    'handoff_transition_to_dev',
+    {
+      description:
+        'Transition a design artifact to developer-ready: extracts its assets (backgrounds, states, icons) ' +
+        'and generates the full specification — props, behavior, accessibility, text inventory, design-token ' +
+        'mapping against the registry\'s real tokens, and a brand-voice check of the copy. One operation; poll ' +
+        'handoff_get_design_artifact and read `devHandoff` for stage-level progress (extracting_assets → ' +
+        'generating_spec → ready). Read the result with handoff_get_component_spec.',
+      inputSchema: {
+        artifactId: z.string(),
+        reextractAssets: z
+          .boolean()
+          .optional()
+          .describe('Discard existing extracted assets and extract again. Default true; set false to keep assets and only re-specify.'),
+      },
+    },
+    async ({ artifactId, reextractAssets }) => startDevHandoff(artifactId, reextractAssets !== false)
   );
 
   server.registerTool(
     'handoff_extract_design_assets',
     {
       description:
-        'Re-run server-side asset extraction + spec generation for a design artifact. Sets assetsStatus to ' +
-        'pending and queues the extractor; poll handoff_get_component_spec (or the design artifact) for the ' +
-        'extracted assets and generated spec.',
+        'DEPRECATED — use handoff_transition_to_dev, which this now forwards to. Re-runs asset extraction ' +
+        'and specification for a design artifact.',
       inputSchema: { artifactId: z.string() },
     },
-    async ({ artifactId }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
-      const denied = requireScope(auth, 'sync:write');
-      if (denied) return denied;
-      if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
-        return textResult({ ok: false, error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' });
-      }
-      // Clears the artifact's extracted assets and spends AI credits on it — edit rights required.
-      const deniedAccess = await denyArtifactAccess(artifactId.trim(), 'edit');
-      if (deniedAccess) return deniedAccess;
-      const { updateDesignArtifactById } = await import('@/lib/db/queries');
-      const ok = await updateDesignArtifactById(artifactId.trim(), { assets: [], assetsStatus: 'pending' });
-      if (!ok) return textResult({ ok: false, error: 'Design not found' });
-      const { scheduleDesignAssetExtraction } = await import('@/lib/server/design-asset-schedule');
-      scheduleDesignAssetExtraction(artifactId.trim());
-      return textResult({
-        ok: true,
-        artifactId: artifactId.trim(),
-        assetsStatus: 'pending',
-        note: 'poll handoff_get_component_spec / get design artifact for assets + spec',
-      });
-    }
+    async ({ artifactId }) => startDevHandoff(artifactId, true)
   );
 
   server.registerTool(

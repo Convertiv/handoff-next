@@ -115,6 +115,10 @@ export async function POST(request: NextRequest) {
       metadata: body.metadata,
       assets: [],
       assetsStatus: canExtractLocally ? 'pending' : 'none',
+      // Queue the specification alongside extraction so the derived dev-handoff status reads as
+      // continuously in-flight. Left at 'none' it briefly reports "assets extracted, no spec yet"
+      // between the two steps, which a poller sees as the work having stopped.
+      specStatus: canExtractLocally ? 'pending' : 'none',
       publicAccess: false,
     });
     if (!id) {
@@ -239,15 +243,15 @@ export async function PATCH(request: NextRequest) {
       if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
         return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
       }
-      const ok = await updateDesignArtifactById(id, {
-        assets: [],
-        assetsStatus: 'pending',
-      });
+      // Route through the shared dev-handoff queueing so this path behaves identically to the
+      // MCP tool: both statuses reset, stale errors cleared.
+      const { markDevHandoffQueued, getDevHandoffStatus } = await import('@/lib/server/dev-handoff');
+      const ok = await markDevHandoffQueued(id, { clearAssets: true });
       if (!ok) {
         return NextResponse.json({ error: 'Not found or not owned by you' }, { status: 404 });
       }
       scheduleDesignAssetExtraction(id);
-      return NextResponse.json({ id, extractionQueued: true });
+      return NextResponse.json({ id, extractionQueued: true, devHandoff: await getDevHandoffStatus(id) });
     }
 
     if (body.regenerateSpec === true) {

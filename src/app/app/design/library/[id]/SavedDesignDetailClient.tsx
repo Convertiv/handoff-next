@@ -12,6 +12,13 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { LifecycleBadge, OwnerAttribution, VisibilityBadge } from '@/components/library';
+import {
+  DevHandoffPanel,
+  DevHandoffProgress,
+  type AssetView,
+  type DevHandoffSpecView,
+  type DevHandoffStatusView,
+} from '@/components/Design/DevHandoffPanel';
 import type { Lifecycle, Visibility } from '@/lib/authz/vocab';
 
 /** Owner shape returned alongside the artifact by the detail route. */
@@ -283,6 +290,60 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
 
   // Spec generation polling
   const specStatus = specStatusOf(artifact);
+
+  /**
+   * The unified dev-handoff view of the two statuses. Mirrors `deriveDevHandoffStatus` on the
+   * server — duplicated rather than imported because that module is `server-only`. Kept in sync
+   * by the shared stage vocabulary; the server value is authoritative wherever both are present.
+   */
+  const devHandoff = useMemo<DevHandoffStatusView | null>(() => {
+    if (!artifact) return null;
+    const meta = (artifact.metadata ?? {}) as Record<string, unknown>;
+    const assetsErr = typeof meta.assetsExtractionError === 'string' ? meta.assetsExtractionError : null;
+    const specErr = typeof meta.specError === 'string' ? meta.specError : null;
+
+    if (assetsStatus === 'pending' || assetsStatus === 'extracting') {
+      return {
+        stage: 'extracting_assets',
+        running: true,
+        progress: assetsStatus === 'pending' ? 0.1 : 0.35,
+        label: 'Extracting assets',
+        error: null,
+        warning: null,
+      };
+    }
+    if (specStatus === 'pending' || specStatus === 'generating') {
+      return {
+        stage: 'generating_spec',
+        running: true,
+        progress: specStatus === 'pending' ? 0.55 : 0.75,
+        label: 'Generating specification',
+        error: null,
+        warning: assetsStatus === 'failed' ? assetsErr ?? 'Asset extraction failed; specifying from the original image.' : null,
+      };
+    }
+    if (specStatus === 'done') {
+      return {
+        stage: 'ready',
+        running: false,
+        progress: 1,
+        label: 'Ready for dev',
+        error: null,
+        warning: assetsStatus === 'failed' ? assetsErr ?? 'Asset extraction failed — spec generated from the original image.' : null,
+      };
+    }
+    if (specStatus === 'failed' || assetsStatus === 'failed') {
+      return {
+        stage: 'failed',
+        running: false,
+        progress: 0,
+        label: 'Failed',
+        error: specErr ?? assetsErr ?? 'The dev handoff failed without recording a reason.',
+        warning: null,
+      };
+    }
+    return { stage: 'not_started', running: false, progress: 0, label: 'Not started', error: null, warning: null };
+  }, [artifact, assetsStatus, specStatus]);
   const shouldPollSpec = Boolean(
     artifact && (specStatus === 'pending' || specStatus === 'generating') && !specTimedOut
   );
@@ -403,8 +464,14 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
         );
         setNotice('Asset extraction finished.');
       } else {
-        setArtifact((prev) => (prev ? { ...prev, assetsStatus: 'pending', assets: [] } : prev));
-        setNotice('Asset extraction queued. This page will update when ready.');
+        // Both statuses move together — the server queues the full handoff (assets, then
+        // specification), so reflecting only assetsStatus here would make the progress
+        // indicator stall at the first stage until the next poll.
+        setArtifact((prev) => (prev ? { ...prev, assetsStatus: 'pending', specStatus: 'pending', assets: [] } : prev));
+        setSpecTimedOut(false);
+        specPollTicksRef.current = 0;
+        setNotice('Transitioning to dev — extracting assets, then writing the specification.');
+        if (activeTab !== 'spec') setActiveTab('spec');
       }
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'Retry failed.');
@@ -547,15 +614,15 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     variant="secondary"
                     size="sm"
                     className="w-full justify-start gap-1.5"
-                    disabled={specBusy || specStatus === 'pending' || specStatus === 'generating'}
-                    onClick={() => void handleRegenerateSpec()}
+                    disabled={reextractBusy || Boolean(devHandoff?.running)}
+                    onClick={() => void handleRetryExtraction()}
                   >
-                    {specBusy || specStatus === 'pending' || specStatus === 'generating' ? (
+                    {reextractBusy || devHandoff?.running ? (
                       <Loader2Icon className="h-4 w-4 animate-spin" />
                     ) : (
                       <SparklesIcon className="h-4 w-4" />
                     )}
-                    {specStatus === 'done' ? 'Regenerate spec' : 'Generate spec'}
+                    {devHandoff?.stage === 'ready' ? 'Re-run dev handoff' : 'Transition to dev'}
                   </Button>
                 </div>
               </>
@@ -714,23 +781,17 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
               {/* Spec tab */}
               {activeTab === 'spec' ? (
                 <div className="space-y-4">
-                  {specStatus === 'pending' || specStatus === 'generating' ? (
-                    <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-                      <Loader2Icon className="h-4 w-4 animate-spin" />
-                      {specStatus === 'generating' ? 'Generating component spec…' : 'Spec generation queued…'}
-                    </div>
-                  ) : null}
+                  {/* One unified stage indicator across extraction + specification, rather than
+                      two independent banners that could disagree. */}
+                  {devHandoff && devHandoff.stage !== 'not_started' ? <DevHandoffProgress status={devHandoff} /> : null}
 
-                  {specStatus === 'failed' ? (
-                    <p className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                      Spec generation failed. Click <strong>Regenerate spec</strong> to try again.
-                    </p>
-                  ) : null}
-
-                  {specStatus === 'none' && !specMd ? (
+                  {devHandoff?.stage === 'not_started' && !specMd ? (
                     <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
                       <SparklesIcon className="mx-auto mb-2 h-8 w-8 opacity-40" />
-                      <p>No spec yet. Click <strong>Generate spec</strong> to create one from the design image.</p>
+                      <p>
+                        Not yet handed off. Click <strong>Transition to dev</strong> to extract the assets and generate the
+                        specification.
+                      </p>
                     </div>
                   ) : null}
 
@@ -768,26 +829,33 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                   ) : null}
 
                   {specMd || specStatus === 'done' ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs font-medium text-muted-foreground">Component spec (editable)</p>
-                        {specDirty ? (
-                          <Button size="sm" variant="default" disabled={specSaving} onClick={() => void handleSaveSpec()}>
-                            {specSaving ? <Loader2Icon className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                            Save
-                          </Button>
-                        ) : null}
-                      </div>
-                      <Textarea
-                        value={specMd}
-                        onChange={(e) => {
-                          setSpecMd(e.target.value);
-                          setSpecDirty(e.target.value !== (artifact.componentSpecMd ?? ''));
-                        }}
-                        className="min-h-[60vh] font-mono text-xs leading-relaxed"
-                        spellCheck={false}
-                      />
-                    </div>
+                    <DevHandoffPanel
+                      spec={(artifact.componentSpec as DevHandoffSpecView | null) ?? null}
+                      assets={(artifact.assets ?? []) as AssetView[]}
+                      basePath={basePath}
+                      rawMarkdownSlot={
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-muted-foreground">Component spec (editable)</p>
+                            {specDirty ? (
+                              <Button size="sm" variant="default" disabled={specSaving} onClick={() => void handleSaveSpec()}>
+                                {specSaving ? <Loader2Icon className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                                Save
+                              </Button>
+                            ) : null}
+                          </div>
+                          <Textarea
+                            value={specMd}
+                            onChange={(e) => {
+                              setSpecMd(e.target.value);
+                              setSpecDirty(e.target.value !== (artifact.componentSpecMd ?? ''));
+                            }}
+                            className="min-h-[50vh] font-mono text-xs leading-relaxed"
+                            spellCheck={false}
+                          />
+                        </div>
+                      }
+                    />
                   ) : null}
                 </div>
               ) : null}

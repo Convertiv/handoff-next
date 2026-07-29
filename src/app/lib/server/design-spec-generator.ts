@@ -4,7 +4,9 @@ import { getDesignArtifactById, updateDesignArtifactById } from '@/lib/db/querie
 import { openAiChatJson } from '@/lib/server/ai-client';
 import { imageUrlToVisionPart } from '@/lib/server/component-generation-images';
 import { getDataProvider } from '@/lib/data';
-import type { ComponentSpec, ExtractedAssetV2 } from '@/lib/server/design-spec-types';
+import { getDesignWorkspace, formatBrandVoiceForPrompt } from '@/lib/server/design-workspace';
+import { getTokenSummary, isTokenSummaryEmpty, formatTokenSummaryForPrompt } from '@/lib/server/design-token-summary';
+import type { ComponentSpec, ExtractedAssetV2, TokenMatch } from '@/lib/server/design-spec-types';
 
 const SPEC_MODEL = () => process.env.HANDOFF_SPEC_MODEL?.trim() || process.env.HANDOFF_AI_MODEL?.trim() || 'gpt-4.1';
 
@@ -61,6 +63,48 @@ async function loadComponentSchemasForGuides(componentGuides: unknown): Promise<
   }
 }
 
+// ── Reuse catalog ─────────────────────────────────────────────────────────────
+
+/**
+ * A light catalog of everything the team already has, for the spec's `reuse` section.
+ *
+ * Deliberately id + title + group only. Full prop schemas are reserved for
+ * `loadComponentSchemasForGuides`, which runs on the handful of components the user explicitly
+ * attached; pulling props for an entire library would blow the prompt budget and isn't needed to
+ * answer "could this be built from existing parts?".
+ */
+async function loadReuseCatalog(): Promise<{ components: string[]; patterns: string[] }> {
+  const provider = getDataProvider();
+  const MAX = 120;
+
+  const components = await provider
+    .getComponentSummaries()
+    .then((rows) =>
+      (rows ?? []).slice(0, MAX).map((c) => {
+        const r = c as unknown as Record<string, unknown>;
+        const id = typeof r.id === 'string' ? r.id : '';
+        const title = typeof r.title === 'string' ? r.title : id;
+        const group = typeof r.group === 'string' && r.group ? ` [${r.group}]` : '';
+        return `${id} — ${title}${group}`;
+      })
+    )
+    .catch(() => [] as string[]);
+
+  const patterns = await provider
+    .getPatterns()
+    .then((rows) =>
+      (rows ?? []).slice(0, MAX).map((p) => {
+        const r = p as unknown as Record<string, unknown>;
+        const id = typeof r.id === 'string' ? r.id : '';
+        const title = typeof r.title === 'string' ? r.title : id;
+        return `${id} — ${title}`;
+      })
+    )
+    .catch(() => [] as string[]);
+
+  return { components: components.filter(Boolean), patterns: patterns.filter(Boolean) };
+}
+
 // ── Main spec generation ──────────────────────────────────────────────────────
 
 function buildSpecPrompt(params: {
@@ -69,8 +113,20 @@ function buildSpecPrompt(params: {
   copyFromPrompt: string[];
   existingComponents: { id: string; title: string; propsJson: string }[];
   designMd: string;
+  tokenSummary: string;
+  brandVoice: string;
+  reuseCatalog: { components: string[]; patterns: string[] };
 }): string {
-  const { classificationJson, extractedAssetKeys, copyFromPrompt, existingComponents, designMd } = params;
+  const {
+    classificationJson,
+    extractedAssetKeys,
+    copyFromPrompt,
+    existingComponents,
+    designMd,
+    tokenSummary,
+    brandVoice,
+    reuseCatalog,
+  } = params;
 
   let existingSection = '';
   if (existingComponents.length > 0) {
@@ -84,6 +140,59 @@ function buildSpecPrompt(params: {
 
   const guidelinesSection = designMd ? `\n\n## Team design guidelines\n${designMd.slice(0, 2000)}` : '';
 
+  // Only ask for the token/voice sections when we actually have something to match against.
+  // Asking a vision model to map onto an empty token list invites invention, which is worse
+  // than omitting the section.
+  const tokenSection = tokenSummary
+    ? `\n\n## The design system's REAL tokens — match observed values against THESE ONLY\n${tokenSummary}`
+    : '';
+  const voiceSection = brandVoice ? `\n\n## Brand voice guidelines to check the copy against\n${brandVoice.slice(0, 4000)}` : '';
+
+  const tokensContract = tokenSummary
+    ? `,
+  "tokens": {
+    "colors": [
+      { "observed": "<value read off the design, e.g. #EBEAE1>", "usage": "<where, e.g. section background>", "token": "<exact token name from the list above, or null>", "reference": "<the → reference for that token, or null>", "matchLevel": "<exact|close|none>", "note": "<required unless exact: why, and what to do>" }
+    ],
+    "typography": [ { "observed": "<family weight size/lineheight>", "usage": "<e.g. headline>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
+    "spacing": [ { "observed": "<e.g. 32px>", "usage": "<e.g. gap between CTAs>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
+    "radii": [ { "observed": "<e.g. 8px>", "usage": "<e.g. button corners>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
+    "coverage": <0.0-1.0 — share of observed values with matchLevel "exact">,
+    "notes": "<one or two sentences on overall design-system adherence>"
+  }`
+    : '';
+
+  const hasCatalog = reuseCatalog.components.length > 0 || reuseCatalog.patterns.length > 0;
+  const reuseSection = hasCatalog
+    ? `\n\n## What the team ALREADY has — prefer composing from these over inventing new parts` +
+      (reuseCatalog.components.length ? `\n\n### Existing components\n${reuseCatalog.components.map((c) => `- ${c}`).join('\n')}` : '') +
+      (reuseCatalog.patterns.length ? `\n\n### Existing patterns (already-composed layouts)\n${reuseCatalog.patterns.map((p) => `- ${p}`).join('\n')}` : '')
+    : '';
+
+  const reuseContract = hasCatalog
+    ? `,
+  "reuse": {
+    "candidates": [
+      { "componentId": "<id from the existing components list>", "title": "<its title>", "role": "<which part of THIS design it would cover>", "confidence": <0.0-1.0>, "note": "<how it would be used, or what would need to change>" }
+    ],
+    "patterns": [ { "patternId": "<id from the existing patterns list>", "title": "<its title>", "note": "<why it fits>" } ],
+    "compositionScore": <0.0-1.0 — share of this design buildable from the lists above>,
+    "recommendation": "<one or two sentences: compose from what exists, or genuinely build new — and why>"
+  }`
+    : '';
+
+  const voiceContract = brandVoice
+    ? `,
+  "voice": {
+    "findings": [
+      { "text": "<the copy string>", "role": "<heading|subhead|cta|body|label>", "verdict": "<pass|warn|fail>", "rule": "<banned-phrase|length|tone|preferred-phrase>", "detail": "<what the guideline says and how this copy measures up>", "suggestion": "<concrete rewrite — required when verdict is warn or fail>" }
+    ],
+    "bannedPhrasesFound": ["<only phrases from the guidelines' avoid list that literally appear>"],
+    "score": <0.0-1.0 — share of findings with verdict "pass">,
+    "summary": "<one sentence>"
+  }`
+    : '';
+
   return `You are generating a detailed component specification from a UI design screenshot and extracted assets.
 
 ## Classification
@@ -91,7 +200,7 @@ ${classificationJson}
 
 ## Extracted asset keys (use these as variant keys where applicable)
 ${extractedAssetKeys.join(', ')}
-${copySection}${existingSection}${guidelinesSection}
+${copySection}${existingSection}${guidelinesSection}${reuseSection}${tokenSection}${voiceSection}
 
 ## Instructions
 Generate a complete ComponentSpec JSON object. Follow this EXACT schema — every field is required:
@@ -149,14 +258,43 @@ Generate a complete ComponentSpec JSON object. Follow this EXACT schema — ever
     "dependencies": ["<other component ids this depends on>"],
     "cssNotes": "<CSS/styling notes for the developer>",
     "developerHints": ["<hint>"]
-  }
+  }${reuseContract}${tokensContract}${voiceContract}
 }
 
 Rules:
 - Include at least 1 variant (default). Add more for each extracted state key.
 - textInventory: transcribe ALL visible text in the design image.
 - copyFromPrompt: use the provided array verbatim.
-- If existing components were provided, evaluate each for matchLevel and fill existingComponentMatches accordingly.
+- If existing components were provided, evaluate each for matchLevel and fill existingComponentMatches accordingly.${
+    hasCatalog
+      ? `
+- reuse: this is the most important section. Default to composition — assume the design SHOULD be
+  built from existing components and patterns, and only conclude otherwise when nothing in the
+  catalog fits. Break the design into its parts and name a candidate for each part you can.
+- reuse: use ONLY ids that appear in the lists above; never invent one. If a candidate is an
+  imperfect fit, still list it and say what would need to change in note — a near-miss the team
+  can adapt is more valuable than silence.
+- reuse: if an existing pattern already covers the whole layout, say so plainly in recommendation.
+  Rebuilding something that already exists is the outcome this section exists to prevent.`
+      : ''
+  }${
+    tokenSummary
+      ? `
+- tokens: NEVER invent a token name. Use only names from the token list above; when an observed
+  value has no counterpart there, set token and reference to null with matchLevel "none" and say
+  so in note. Reporting an off-system value honestly is far more useful than a false match.
+- tokens: use "close" when the observed value is within a couple of units/shades of a real token —
+  that is the actionable case ("snap this to X"), so always name the token you'd snap to.`
+      : ''
+  }${
+    brandVoice
+      ? `
+- voice: check every heading, subhead and CTA. Apply the guidelines' length rules literally
+  (count the words) and flag any phrase on the avoid list as verdict "fail".
+- voice: bannedPhrasesFound must contain only phrases that literally appear in the copy — do not
+  list a phrase merely because the copy is similar in spirit.`
+      : ''
+  }
 - Return ONLY valid JSON — no markdown, no commentary.`;
 }
 
@@ -278,6 +416,63 @@ export function specToMarkdown(spec: ComponentSpec): string {
     for (const h of spec.implementation.developerHints) lines.push(`- ${h}`);
   }
 
+  if (spec.reuse && (spec.reuse.candidates?.length || spec.reuse.patterns?.length || spec.reuse.recommendation)) {
+    const r = spec.reuse;
+    lines.push('', '## Build from what exists', '', `Composition score: **${Math.round((r.compositionScore ?? 0) * 100)}%**`);
+    if (r.recommendation) lines.push('', `**${r.recommendation}**`);
+    if (r.patterns?.length) {
+      lines.push('', '### Existing patterns that already fit', '');
+      for (const p of r.patterns) lines.push(`- **${p.title}** (\`${p.patternId}\`) — ${p.note}`);
+    }
+    if (r.candidates?.length) {
+      lines.push('', '### Existing components to compose from', '', '| Component | Covers | Confidence | Notes |', '|---|---|---|---|');
+      for (const c of r.candidates) {
+        lines.push(`| **${c.title}** \`${c.componentId}\` | ${c.role} | ${Math.round((c.confidence ?? 0) * 100)}% | ${c.note} |`);
+      }
+    }
+  }
+
+  if (spec.tokens) {
+    const t = spec.tokens;
+    const groups: [string, TokenMatch[]][] = [
+      ['Color', t.colors ?? []],
+      ['Typography', t.typography ?? []],
+      ['Spacing', t.spacing ?? []],
+      ['Radius', t.radii ?? []],
+    ];
+    const any = groups.some(([, rows]) => rows.length > 0);
+    if (any) {
+      lines.push('', '## Design tokens', '', `Token coverage: **${Math.round((t.coverage ?? 0) * 100)}%**`);
+      if (t.notes) lines.push('', t.notes);
+      for (const [label, rows] of groups) {
+        if (!rows.length) continue;
+        lines.push('', `### ${label}`, '', '| Observed | Used for | Token | Reference | Match |', '|---|---|---|---|---|');
+        for (const r of rows) {
+          const mark = r.matchLevel === 'exact' ? '✅ exact' : r.matchLevel === 'close' ? '⚠️ close' : '❌ off-system';
+          lines.push(`| \`${r.observed}\` | ${r.usage} | ${r.token ?? '—'} | ${r.reference ? `\`${r.reference}\`` : '—'} | ${mark} |`);
+          if (r.note && r.matchLevel !== 'exact') lines.push(`| | | | | ${r.note} |`);
+        }
+      }
+    }
+  }
+
+  if (spec.voice) {
+    const v = spec.voice;
+    lines.push('', '## Brand voice', '', `Voice compliance: **${Math.round((v.score ?? 0) * 100)}%**`);
+    if (v.summary) lines.push('', v.summary);
+    if (v.bannedPhrasesFound?.length) {
+      lines.push('', `> ⚠️ Contains phrases on the avoid list: ${v.bannedPhrasesFound.map((p) => `"${p}"`).join(', ')}`);
+    }
+    if (v.findings?.length) {
+      lines.push('', '| Copy | Role | Verdict | Notes |', '|---|---|---|---|');
+      for (const f of v.findings) {
+        const mark = f.verdict === 'pass' ? '✅' : f.verdict === 'warn' ? '⚠️' : '❌';
+        const detail = f.suggestion ? `${f.detail} — *suggested:* "${f.suggestion}"` : f.detail;
+        lines.push(`| "${f.text}" | ${f.role} | ${mark} ${f.verdict} | ${detail} |`);
+      }
+    }
+  }
+
   return lines.join('\n');
 }
 
@@ -333,12 +528,27 @@ export async function generateSpecForArtifact(artifactId: string): Promise<void>
     };
     if (!classificationGuess.visibleStates.length) classificationGuess.visibleStates = ['default'];
 
+    // Workspace context: the team's design guidelines, the registry's real tokens, and the
+    // brand voice. `designMd` was previously hardcoded to '' here, so the spec never saw the
+    // team guidelines at all. All three degrade to '' independently — a registry with no DTCG
+    // dimension tokens or no brand voice still gets a spec, just without those sections.
+    const [workspace, tokenSummary, reuseCatalog] = await Promise.all([
+      getDesignWorkspace().catch(() => null),
+      getTokenSummary().catch(() => null),
+      loadReuseCatalog().catch(() => ({ components: [], patterns: [] })),
+    ]);
+    const tokenSummaryText = tokenSummary && !isTokenSummaryEmpty(tokenSummary) ? formatTokenSummaryForPrompt(tokenSummary) : '';
+    const brandVoiceText = workspace ? formatBrandVoiceForPrompt(workspace.brandVoice).trim() : '';
+
     const systemPrompt = buildSpecPrompt({
       classificationJson: JSON.stringify(classificationGuess, null, 2),
       extractedAssetKeys: ['default', ...extractedKeys],
       copyFromPrompt,
       existingComponents,
-      designMd: '',
+      designMd: workspace?.designMd ?? '',
+      tokenSummary: tokenSummaryText,
+      brandVoice: brandVoiceText,
+      reuseCatalog,
     });
 
     const messages: Parameters<typeof openAiChatJson>[0] = [

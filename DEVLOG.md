@@ -5,6 +5,97 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-28 (later still) — "Transition to Dev": unified handoff + reuse/token/voice spec sections
+
+Rationalized asset extraction and spec generation into **one** operation, exposed as
+`handoff_transition_to_dev`, and grew the spec to answer the three questions a developer actually
+has. tsc clean (root + `src/app`); 108/108 tests; `build:registry` compiles clean. Uncommitted.
+
+**Why the split was the bug, not just untidy.** Extraction and spec were two pipelines, two
+statuses, two pollers, two failure surfaces — and nothing ever asked *"is this design ready for
+dev?"*. Symptom, observed on the **local dev DB** (`HANDOFF_APP_URL=http://localhost:3000`, the
+`DATABASE_URL` in the repo `.env` — ⚠️ **not** the 8x8 registry; see the correction note below):
+`spec_status` is `none` on all 18 artifacts there, i.e. it has never once succeeded *in that
+environment*. Diagnosis: the wiring landed 2026-06-10 (`1471a909`) and three artifacts postdate it
+with assets `done` and spec `none`, so it never reached its first status write; the only exit before
+that point was the `HANDOFF_AI_API_KEY` guard, which used to `return` **silently** — no log, no
+status, no error. Which cause fired is now unknowable from the data, and *that* is the real defect.
+(Ruled out by inspection: `updateDesignArtifactById` does handle `specStatus` — `queries.ts:621` —
+the `as Parameters<…>` casts at the call sites are just noise.)
+
+> ⚠️ **Correction (same day).** Every DB-derived observation in this entry and the one below came
+> from the **local dev** Neon DB in the repo `.env`, not from the 8x8 registry
+> (`https://8x8-handoff.vercel.app`). The local DB's design workspace happens to hold 8x8-flavoured
+> brand content, which is what made the mistake easy to miss. The 8x8 registry — read properly via
+> its MCP endpoint — is a **different and much richer** environment: **79 components** in coherent
+> groups (11 heroes, incl. a `hero-form` with an embedded public form slot), stack profile
+> `bootstrap-handlebars` (Handlebars + Bootstrap 5 + SCSS `var(--color-*)`, **not** React), and a
+> brand voice whose rules differ from the local copy (headlines **3–8** words, CTAs **2–5**, and a
+> different avoid-list). The local DB has 9 junk components and two *Intralinks* demo patterns —
+> none of that is 8x8. **Rule: read a registry through its MCP/REST endpoint. The repo `.env`
+> describes localhost only.** Code-level findings in these entries are unaffected — they came from
+> reading source, not the DB.
+
+**Unification.**
+- `lib/server/dev-handoff.ts` — `runDevHandoff()` sequences extraction → spec with one error
+  surface (never throws; forces a terminal `specStatus` if spec generation throws past its own
+  catch). `deriveDevHandoffStatus()` collapses the two columns into one
+  `{stage, running, progress, label, error, warning}`. **Derived, not a third column** — no
+  migration, nothing new to drift. Stages: `not_started → extracting_assets → generating_spec →
+  ready | failed`. A `done` spec is `ready` even if extraction failed (spec falls back to the
+  original image) — that degradation surfaces as `warning`, not failure.
+- `design-asset-schedule.ts` now just schedules `runDevHandoff`, so **every** entry point (HTTP
+  route, MCP tools, lifecycle review/approved) is identical by construction.
+- `markDevHandoffQueued()` resets both statuses and clears stale errors *synchronously*, so a
+  poller can't catch a stale `ready` from the previous run. Wired into the PATCH route and
+  `set_design_status` — the latter previously skipped extraction entirely, since extraction only
+  claims rows already in `pending`.
+- MCP: `handoff_transition_to_dev` (new); `handoff_extract_design_assets` kept as a deprecated
+  alias forwarding to it. `handoff_get_design_artifact` and the status poll route both now return
+  `devHandoff`, so UI and MCP can't disagree about the stage.
+- `maxDuration = 300` on the MCP route (it schedules `after()` work and was inheriting a default).
+
+**Spec grew three sections** (all optional — older specs render fewer sections, nothing breaks):
+- **`reuse`** ⭐ — *"what could I build this FROM"*, matched against the full component + pattern
+  catalog via a new light `loadReuseCatalog()`. This is the workbench/playground counterweight made
+  machine-readable: composition score, per-part component candidates, patterns that already cover
+  the layout, and a compose-vs-build-new recommendation. Distinct from
+  `implementation.existingComponentMatches`, which answers "which component IS this" with full prop
+  mappings but **only fires when component guides were attached up front** — so in practice it was
+  usually empty. The prompt is explicitly biased toward composition and forbidden from inventing ids.
+- **`tokens`** — every observed colour/type/spacing/radius value matched against the registry's real
+  tokens (`design-token-summary.ts`, capped at 60/group), with `exact|close|none` and a coverage
+  score. Prompt hard-rule: never invent a token name; an honest "off-system" beats a false match.
+  Spacing/radius come from DTCG (`getDtcgTokenStrings(...).dtcg`, parsed — it returns serialized
+  formats, not a map) and legitimately come back empty on registries without them.
+- **`voice`** — per-string pass/warn/fail against the workspace brand voice, with the banned-phrase
+  list checked literally. Closes the loop with the demo's opening beat.
+- Also fixed: `designMd` was **hardcoded to `''`** at the spec call site, so the team's design
+  guidelines never reached the spec at all.
+
+**View** — `components/Design/DevHandoffPanel.tsx`, demo-grade. Order is the opinion: reuse first
+(with links straight into the playground / component pages), then assets on a transparency
+checkerboard, then token swatches with off-system values in red, then voice findings. Raw editable
+markdown moves behind a disclosure. One `DevHandoffProgress` stage bar replaces the two independent
+status banners. Sidebar action is now **"Transition to dev"** and routes through the unified path.
+Client-side status derivation mirrors the server (duplicated, not imported — `dev-handoff.ts` is
+`server-only`).
+
+**Still open:** none of this is verified against a live run. Spec generation has never succeeded on
+the **local dev** DB; its state on the 8x8 registry is **unknown and still to be checked** — that's
+pre-flight #1 in `docs/DEMO-8X8-WORKBENCH.md`. `handoff_resource_grant` remains read-only everywhere
+(no insert path anywhere in the codebase).
+
+**MCP payload hazard found while reading the real registry:** `handoff_get_component('hero-form')`
+returns **513KB** even on the "slimmed" path (the slimming drops `sharedStyles`/validation/Figma
+metadata but keeps `css`, `code`, `html`, `sass`, `previews`, `entries`). `rate-card-app` returns
+53KB. A demo where Claude calls `get_component` on a real 8x8 block risks blowing the context
+window mid-conversation. Needs a hard size cap or a `fields`-style projection before the surface is
+safe to lean on. Also noted: `rate-card-app` ships with **0 properties**, so contract coverage
+across the 8x8 library is uneven — reuse-match quality will vary by component.
+
+---
+
 ## 2026-07-28 (later) — Terminal-state guarantee for design-artifact background jobs (8x8 demo hardening)
 
 Pre-demo hardening pass on the MCP→workbench path (8x8 demo Thu 2026-07-30). Closes the long-open
