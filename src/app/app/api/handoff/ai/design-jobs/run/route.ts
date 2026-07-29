@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { getPendingDesignGenerationJobs, reapStuckDesignArtifactJobs } from '@/lib/db/queries';
+import { getPendingDesignGenerationJobs, getPendingSpecArtifactIds, reapStuckDesignArtifactJobs } from '@/lib/db/queries';
 import { runDesignGenerationJob } from '@/lib/server/design-generation-worker';
+import { runQueuedSpecGeneration } from '@/lib/server/dev-handoff';
 
 // Long enough to process a small batch of image generations serially.
 export const maxDuration = 300;
@@ -41,6 +42,10 @@ export async function GET(request: NextRequest) {
     console.error('[design-jobs/run] reaper failed', err);
   }
 
+  const startedAt = Date.now();
+  /** Leave headroom under maxDuration so whatever runs last can still write its terminal status. */
+  const remainingMs = () => 285_000 - (Date.now() - startedAt);
+
   const jobs = await getPendingDesignGenerationJobs(3);
   let processed = 0;
   for (const job of jobs) {
@@ -51,5 +56,25 @@ export async function GET(request: NextRequest) {
       console.error('[design-jobs/run] job failed', job.id, err);
     }
   }
-  return NextResponse.json({ processed, reaped });
+
+  // Drain queued specifications. These used to run in an `after()` callback alongside asset
+  // extraction, where they shared one invocation with a request of unknowable duration and were
+  // twice killed before their own watchdog could fire. Here each gets a real slice of a dedicated
+  // invocation, and the atomic claim inside runQueuedSpecGeneration makes overlapping ticks safe.
+  let specs = 0;
+  try {
+    for (const artifact of await getPendingSpecArtifactIds(2)) {
+      // A specification needs a meaningful budget; starting one with seconds left just strands it.
+      if (remainingMs() < 90_000) {
+        console.log('[design-jobs/run] stopping spec drain — insufficient budget this tick');
+        break;
+      }
+      const ran = await runQueuedSpecGeneration(artifact.id, { budgetMs: remainingMs() - 20_000 });
+      if (ran) specs += 1;
+    }
+  } catch (err) {
+    console.error('[design-jobs/run] spec drain failed', err);
+  }
+
+  return NextResponse.json({ processed, specs, reaped });
 }

@@ -225,33 +225,30 @@ export async function markDevHandoffQueued(
 }
 
 /**
- * Total wall-clock budget for the whole handoff, sized to sit under the hosting route's
- * `maxDuration = 300` with headroom for the surrounding request.
+ * Wall-clock budget for the extraction stage inside an `after()` callback.
  *
- * Both steps run in ONE `after()` callback, so they share a single invocation lifetime — the two
- * timeouts cannot be chosen independently. Observed live on 8x8 (2026-07-28): a 240s extraction
- * bound against a 300s budget left spec generation ~60s, the invocation was torn down mid-spec, and
- * the row stranded at `generating` until the reaper swept it. The budget below is split explicitly
- * so that can't recur.
+ * ⚠️ `maxDuration` is counted from **request start**, not from when `after()` begins running — so
+ * the callback never gets the route's full budget. It gets whatever is left after the request has
+ * done its own work, which on a multi-megabyte artifact row is a large and *unobservable* amount.
+ * Two timeout bugs on 8x8 came from budgeting as if `after()` owned the whole 300s (2026-07-28/29:
+ * a 240s extraction bound starved spec to 56s, then a 270s spec bound never fired at all because
+ * the platform killed the function first).
+ *
+ * The durable answer is that **specification generation no longer runs here at all** — it is queued
+ * (`spec_status = 'pending'`) and drained by the design-jobs cron, one artifact per invocation with
+ * a full budget and no shared clock. Only extraction remains in `after()`, and it gets a
+ * deliberately conservative ceiling.
  */
-const DEV_HANDOFF_BUDGET_MS = 270_000;
-
-/** Hold this much back from extraction so specification always gets a usable slice. */
-const SPEC_RESERVE_MS = 150_000;
-
-/** Below this, don't start spec generation at all — it would only be killed mid-flight. */
-const SPEC_MIN_MS = 45_000;
+const EXTRACTION_STAGE_BUDGET_MS = 120_000;
 
 /**
- * Run the full handoff: extract assets, then generate the specification.
+ * Run the requested handoff stages.
  *
- * Each step already writes its own terminal status and catches its own errors, so this never
- * throws — it is safe to call from an `after()` callback or a cron drain. Spec generation runs
- * even when extraction fails, because it can still work from the original composite image; that
- * degradation surfaces as `warning` on the derived status rather than an outright failure.
+ * Extraction (when selected) runs inline in `after()`. Specification does **not** — it is left
+ * `pending` for the cron to claim, so it gets its own invocation. That removes the entire class of
+ * "two stages starving each other inside one function" bug rather than re-tuning it.
  *
- * Both steps draw from one shared deadline (see `DEV_HANDOFF_BUDGET_MS`) so neither can starve the
- * other into being killed by the platform.
+ * Never throws: safe to call from `after()` or a cron drain.
  */
 export async function runDevHandoff(
   artifactId: string,
@@ -259,56 +256,56 @@ export async function runDevHandoff(
 ): Promise<void> {
   const id = artifactId.trim();
   const stages = opts.stages ?? DEFAULT_STAGES;
-  const deadline = Date.now() + (opts.budgetMs ?? DEV_HANDOFF_BUDGET_MS);
-  const remaining = () => deadline - Date.now();
 
   if (stages.includes('assets')) {
     try {
-      // Cap extraction so at least SPEC_RESERVE_MS survives for the specification.
-      const reserve = stages.includes('spec') ? SPEC_RESERVE_MS : 0;
-      const extractionMs = Math.min(remaining() - reserve, 120_000);
-      if (extractionMs > 15_000) {
-        await runDesignAssetExtractionForArtifact(id, { timeoutMs: extractionMs });
-      } else {
-        console.warn('[dev-handoff] skipping extraction — insufficient budget', id, remaining());
-      }
+      await runDesignAssetExtractionForArtifact(id, { timeoutMs: opts.budgetMs ?? EXTRACTION_STAGE_BUDGET_MS });
     } catch (err) {
       console.error('[dev-handoff] asset extraction threw', id, err);
     }
   }
 
-  if (!stages.includes('spec')) return;
-
-  // Spec generation cannot bound its own runtime, so race it against what's left of the budget and
-  // write a terminal status on timeout. As with extraction, the orphaned call may still land later
-  // and overwrite `failed` with a real spec — better data, not corruption.
-  const specMs = remaining();
-  if (specMs < SPEC_MIN_MS) {
-    console.warn('[dev-handoff] insufficient budget for spec generation', id, specMs);
-    await markSpecFailed(id, `Ran out of time before the specification could be generated (${Math.round(specMs / 1000)}s left). Re-run the dev handoff.`);
-    return;
+  // Specification is intentionally NOT run here. `markDevHandoffQueued` has already set
+  // `specStatus: 'pending'`, which is the queue the cron drains via runQueuedSpecGeneration().
+  if (stages.includes('spec')) {
+    console.log('[dev-handoff] specification queued for cron pickup', id);
   }
+}
 
-  let specWatchdog: ReturnType<typeof setTimeout> | undefined;
+/**
+ * Drain one queued specification. Called by the design-jobs cron, which gives it a whole
+ * invocation — so unlike the old `after()` path it can use most of the route's `maxDuration`.
+ *
+ * The claim (`pending` → `generating`) is atomic, so overlapping cron ticks cannot double-run the
+ * same artifact. Returns false when another worker claimed it first.
+ */
+export async function runQueuedSpecGeneration(artifactId: string, opts: { budgetMs?: number } = {}): Promise<boolean> {
+  const { claimDesignArtifactForSpec } = await import('@/lib/db/queries');
+  const claimed = await claimDesignArtifactForSpec(artifactId);
+  if (!claimed) return false;
+
+  const budgetMs = opts.budgetMs ?? 240_000;
+  let watchdog: ReturnType<typeof setTimeout> | undefined;
   try {
     const timedOut = await Promise.race([
-      generateSpecForArtifact(id).then(() => false),
+      generateSpecForArtifact(artifactId).then(() => false),
       new Promise<boolean>((resolve) => {
-        specWatchdog = setTimeout(() => resolve(true), specMs);
+        watchdog = setTimeout(() => resolve(true), budgetMs);
       }),
     ]);
     if (timedOut) {
-      await markSpecFailed(id, `Specification generation exceeded ${Math.round(specMs / 1000)}s and was abandoned. Re-run the dev handoff.`);
+      await markSpecFailed(
+        artifactId,
+        `Specification generation exceeded ${Math.round(budgetMs / 1000)}s and was abandoned. Re-run the dev handoff.`
+      );
     }
   } catch (err) {
-    console.error('[dev-handoff] spec generation threw', id, err);
-    // generateSpecForArtifact writes its own `failed` on catchable errors, but a throw that
-    // escapes it would leave `generating` behind. Force a terminal state so the reaper does
-    // not have to wait 15 minutes to do it.
-    await markSpecFailed(id, err instanceof Error ? err.message.slice(0, 2000) : 'Specification generation failed.');
+    console.error('[dev-handoff] queued spec generation threw', artifactId, err);
+    await markSpecFailed(artifactId, err instanceof Error ? err.message.slice(0, 2000) : 'Specification generation failed.');
   } finally {
-    if (specWatchdog) clearTimeout(specWatchdog);
+    if (watchdog) clearTimeout(watchdog);
   }
+  return true;
 }
 
 /** Force `specStatus: failed` with a reason the UI can display. Never throws. */

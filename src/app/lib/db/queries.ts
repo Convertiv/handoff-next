@@ -663,6 +663,38 @@ export async function claimDesignArtifactForExtraction(id: string): Promise<bool
   return updated.length > 0;
 }
 
+/**
+ * Atomically move `spec_status` from `pending` to `generating`. Returns false if another worker
+ * claimed it first. Mirrors `claimDesignArtifactForExtraction` — the claim IS the concurrency
+ * control, so two cron ticks overlapping cannot double-run the same artifact.
+ */
+export async function claimDesignArtifactForSpec(id: string): Promise<boolean> {
+  const db = getDb();
+  const updated = await db
+    .update(handoffDesignArtifacts)
+    .set({ specStatus: 'generating', updatedAt: new Date() })
+    .where(and(eq(handoffDesignArtifacts.id, id), eq(handoffDesignArtifacts.specStatus, 'pending')))
+    .returning({ id: handoffDesignArtifacts.id });
+  return updated.length > 0;
+}
+
+/**
+ * Artifacts waiting for specification generation, oldest first.
+ *
+ * `spec_status = 'pending'` is the queue — no separate job table is needed, and nothing can drift
+ * out of sync with the artifact's own state. Deliberately a light projection: the caller only needs
+ * ids, and these rows carry multi-megabyte image payloads.
+ */
+export async function getPendingSpecArtifactIds(limit = 2): Promise<{ id: string; userId: string }[]> {
+  const db = getDb();
+  return db
+    .select({ id: handoffDesignArtifacts.id, userId: handoffDesignArtifacts.userId })
+    .from(handoffDesignArtifacts)
+    .where(eq(handoffDesignArtifacts.specStatus, 'pending'))
+    .orderBy(asc(handoffDesignArtifacts.updatedAt))
+    .limit(limit);
+}
+
 /** Worker-only: finalize extraction without owner check. */
 export async function finalizeDesignArtifactExtraction(
   id: string,
@@ -1335,6 +1367,15 @@ const STUCK_ASSET_STATUSES = ['pending', 'extracting'];
 const STUCK_SPEC_STATUSES = ['pending', 'generating'];
 
 /**
+ * `spec_status = 'pending'` is now a **queue** state, not an in-flight one — the design-jobs cron
+ * drains it a couple of artifacts per tick. A backlog can therefore sit in `pending` legitimately
+ * for a while, so it gets a much longer window than `generating` (which means a worker claimed the
+ * row and then died). Reaping a queued row at the in-flight threshold would cancel work that was
+ * merely waiting its turn.
+ */
+const QUEUE_STARVATION_MS = 45 * 60 * 1000;
+
+/**
  * Sweep design-artifact jobs stranded in a non-terminal state into `failed`.
  *
  * Extraction and spec generation both run inside `after()` callbacks, which are bounded by
@@ -1354,6 +1395,7 @@ export async function reapStuckDesignArtifactJobs(
   const cutoff = new Date(Date.now() - maxAgeMs);
   const reason = `Timed out — no progress for over ${Math.round(maxAgeMs / 60000)} minutes.`;
 
+  const starvationCutoff = new Date(Date.now() - Math.max(maxAgeMs, QUEUE_STARVATION_MS));
   const stale = or(lt(handoffDesignArtifacts.updatedAt, cutoff), isNull(handoffDesignArtifacts.updatedAt));
 
   const rows = await db
@@ -1362,6 +1404,7 @@ export async function reapStuckDesignArtifactJobs(
       assetsStatus: handoffDesignArtifacts.assetsStatus,
       specStatus: handoffDesignArtifacts.specStatus,
       metadata: handoffDesignArtifacts.metadata,
+      updatedAt: handoffDesignArtifacts.updatedAt,
     })
     .from(handoffDesignArtifacts)
     .where(
@@ -1382,6 +1425,9 @@ export async function reapStuckDesignArtifactJobs(
     const patch: Record<string, unknown> = {};
     const meta = (row.metadata as Record<string, unknown> | null) ?? {};
     const nextMeta = { ...meta };
+    // A null updatedAt is treated as ancient — such a row predates the column default and is
+    // certainly not mid-flight.
+    const starved = !row.updatedAt || row.updatedAt < starvationCutoff;
 
     // Flip only the status that is actually stuck — a row can have a healthy
     // extraction and a stranded spec, or vice versa.
@@ -1390,8 +1436,14 @@ export async function reapStuckDesignArtifactJobs(
       nextMeta.assetsExtractionError = reason;
       extractions += 1;
     }
-    if (STUCK_SPEC_STATUSES.includes(row.specStatus)) {
+    // `generating` = a worker claimed it and died, so the in-flight window applies. `pending` is a
+    // queued row and only counts as stuck once it has starved.
+    if (row.specStatus === 'generating' || (row.specStatus === 'pending' && starved)) {
       patch.specStatus = 'failed';
+      nextMeta.specError =
+        row.specStatus === 'pending'
+          ? `Queued for specification but never picked up for over ${Math.round(Math.max(maxAgeMs, QUEUE_STARVATION_MS) / 60000)} minutes.`
+          : reason;
       specs += 1;
     }
     if (Object.keys(patch).length === 0) continue;

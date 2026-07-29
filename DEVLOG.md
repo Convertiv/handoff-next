@@ -172,10 +172,22 @@ interactive mockup (artifact: `claude.ai/code/artifact/9db33798-b2b7-4546-b5dc-b
   single-row `getPattern` (was full-scan+`.find()`), pooler-safe `getDb()` (`prepare:false`+timeouts),
   playground `bulkAddComponents` parallelized. Verified on 8x8 — resolved the slowness.
 - Phase 1: images → **Vercel Blob** (`lib/storage/artifact-images.ts`, `offloadArtifactImages` wired into
-  all 4 artifact write fns; graceful passthrough when `BLOB_READ_WRITE_TOKEN` unset). Serving =
-  **public unguessable URLs** (not private/proxy). Admin resumable backfill route
-  `POST /api/handoff/admin/backfill-artifact-blobs`. Blob store must be created + `vercel env pull` per
-  deployment (done on 8x8).
+  all 4 artifact write fns; graceful passthrough when `BLOB_READ_WRITE_TOKEN` unset). Admin resumable
+  backfill route `POST /api/handoff/admin/backfill-artifact-blobs`. Blob store must be created +
+  `vercel env pull` per deployment (done on 8x8).
+
+  > ⚠️ **CORRECTION (2026-07-29).** This entry originally read "Serving = **public unguessable URLs**
+  > (not private/proxy)". **That is wrong.** The decision was **private stores**, and 8x8's store is
+  > configured private. `offloadDataUrl` hardcodes `put(..., { access: 'public' })`, so every offload
+  > on 8x8 fails with *"Cannot use public access on a private store"* — and because the catch
+  > swallows it and returns the inline data URL, **no artifact image has ever reached Blob there.**
+  > That is the source of the 3.2MB-per-field rows (imageUrl + a duplicate inside
+  > conversationHistory = ~6.4MB), the ~90s of row I/O inside the handoff invocation, and the
+  > oversized MCP payloads. Fixing it is not a one-liner: private blobs need
+  > `get(pathname, { access: 'private' })` server-side, so the stored reference is no longer a
+  > browser-usable URL and every consumer changes —
+  > the workbench, the detail page, share pages, `imageUrlToVisionPart`, `imageUrlToEditInput`.
+  > Scoped but not yet sequenced.
 - Phase 2: cursor pagination on Library list; bounded sync feed (`fetchSyncChangesSince` `hasMore`/
   `nextCursor`, `version=hasMore?nextCursor:latest` so clients never skip the tail); driver decision
   **ADR-003** (stay on postgres-js; Fluid Compute keeps the pool warm). 2.5 light component variant +
