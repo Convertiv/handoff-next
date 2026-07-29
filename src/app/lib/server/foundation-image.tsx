@@ -12,6 +12,50 @@ import { getMaterializedAppRoot } from './handoff-app-paths';
 const WIDTH = 1024;
 const PAD = 40;
 
+/**
+ * Letterform specimen.
+ *
+ * The image model learns the typeface from this sheet, and prose samples only expose an arbitrary
+ * subset of glyphs — the existing sample line contains no `j`, `q`, `x`, `z`, no numerals and one
+ * capital, so the model was inferring most of the alphabet. A full character set lets it see every
+ * shape instead of guessing.
+ *
+ * It is also the cheapest diagnostic available for a subset font: any glyph the font lacks shows up
+ * as a visible gap in a row you can scan at a glance, where a carefully-chosen sentence can dodge
+ * every missing character.
+ *
+ * Rendered once per weight rather than once per type token — letterform *shape* doesn't vary with
+ * size, only optical sizing does, so 3 blocks give full coverage where 14 would triple the sheet.
+ */
+const ALPHABET_LINES = [
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  'abcdefghijklmnopqrstuvwxyz',
+  '0123456789 &@#$% .,;:!?“”‘’()[]{}/\\—–-',
+] as const;
+
+const LETTERFORM_SIZE = 30;
+const LETTERFORM_LINE_H = LETTERFORM_SIZE * 1.2;
+
+/**
+ * One letterform block per (family, weight) actually present in the typography tokens, capped so a
+ * system with many weights can't run the sheet off the page.
+ */
+function letterformRowsFor(typoEntries: { fontFamily: string; fontWeight: string }[]): { family: string; weight: number }[] {
+  const seen = new Set<string>();
+  const rows: { family: string; weight: number }[] = [];
+  for (const t of typoEntries) {
+    const family = t.fontFamily;
+    if (!family || family === 'Sans-serif') continue;
+    const weight = styleToWeight(t.fontWeight);
+    const key = `${family}::${weight}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({ family, weight });
+    if (rows.length >= 4) break;
+  }
+  return rows.sort((a, b) => a.weight - b.weight);
+}
+
 type SatoriWeight = 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
 type FontEntry = { name: string; data: ArrayBuffer; weight: SatoriWeight; style: 'normal' };
 
@@ -271,14 +315,27 @@ async function resolveFontBuffer(family: string, weight: SatoriWeight): Promise<
                 `so the foundations sheet will NOT show this typeface.`
             );
           } else {
+            // Structural check: a buffer can look plausible and still be unusable, in which case
+            // satori silently substitutes another family and the sheet teaches the model the wrong
+            // letterforms. Name the problem here rather than shipping a wrong raster.
+            const { inspectSfnt } = await import('@/lib/server/woff-to-sfnt');
+            const info = inspectSfnt(result.data);
             const subsetWarning =
               result.data.byteLength < 50_000
                 ? ' ⚠ looks like a SUBSET — specimen glyphs may be missing; push a full TTF/OTF for full fidelity'
                 : '';
             console.log(
               `[foundation-image] loaded "${family}" w${weight} from registry ` +
-                `(${pick.filename}, format=${pick.format}${result.converted ? '→sfnt' : ''}, ${result.data.byteLength} bytes)${subsetWarning}`
+                `(${pick.filename}, format=${pick.format}${result.converted ? '→sfnt' : ''}, ${result.data.byteLength} bytes, ` +
+                `${info.numTables} tables, outlines=${info.outlines})${subsetWarning}`
             );
+            if (!info.ok) {
+              console.warn(
+                `[foundation-image] ⚠ "${family}" w${weight} sfnt looks UNUSABLE — ` +
+                  `missing=[${info.missing.join(', ')}] outlines=${info.outlines} tags=[${info.tags.join(',')}]. ` +
+                  `satori will silently fall back to another family, so the specimens will NOT be ${family}.`
+              );
+            }
             return result.data.buffer.slice(result.data.byteOffset, result.data.byteOffset + result.data.byteLength) as ArrayBuffer;
           }
         }
@@ -456,6 +513,12 @@ const SWATCHES_PER_ROW = 9;
 function estimateHeight(ctx: DesignWorkbenchFoundationContext): number {
   let h = PAD + 36 + 24;
   const typoEntries = ctx.typography.slice(0, 14).map((t) => parseTypoLine(t.name, t.line));
+  const letterformRows = letterformRowsFor(typoEntries);
+  if (letterformRows.length > 0) {
+    // Section label, then per-weight label plus three alphabet lines, then section margin.
+    h += 8 + 11 + 8 + 36;
+    h += letterformRows.length * (12 + ALPHABET_LINES.length * LETTERFORM_LINE_H + 14);
+  }
   if (typoEntries.length > 0) {
     h += 36;
     for (const t of typoEntries) {
@@ -485,6 +548,7 @@ function estimateHeight(ctx: DesignWorkbenchFoundationContext): number {
 
 function FoundationsDoc({ ctx }: { ctx: DesignWorkbenchFoundationContext }) {
   const typoEntries = ctx.typography.slice(0, 14).map((t) => parseTypoLine(t.name, t.line));
+  const letterformRows = letterformRowsFor(typoEntries);
   console.log('[foundation-image] FoundationsDoc typo entries:', typoEntries.map((t) => `"${t.name}" → family="${t.fontFamily}" weight="${t.fontWeight}" size=${t.sizePx}`));
   const colorGroups = groupColors(ctx.colors.slice(0, 100));
   const spacing = (ctx.spacing ?? []).slice(0, 20);
@@ -505,6 +569,34 @@ function FoundationsDoc({ ctx }: { ctx: DesignWorkbenchFoundationContext }) {
         paddingBottom: PAD,
       }}
     >
+      {letterformRows.length > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 36 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#333333', marginBottom: 8 }}>
+            Letterforms — {letterformRows[0].family}
+          </div>
+          {letterformRows.map((row, i) => (
+            <div key={`lf-${i}`} style={{ display: 'flex', flexDirection: 'column', marginBottom: 14 }}>
+              <div style={{ fontSize: 10, color: '#777777', marginBottom: 2 }}>{`${row.family} ${row.weight}`}</div>
+              {ALPHABET_LINES.map((line, li) => (
+                <div
+                  key={`lf-${i}-${li}`}
+                  style={{
+                    display: 'flex',
+                    fontFamily: row.family,
+                    fontWeight: row.weight,
+                    fontSize: LETTERFORM_SIZE,
+                    lineHeight: 1.2,
+                    color: '#0C1116',
+                  }}
+                >
+                  {line}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       {typoEntries.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 36 }}>
           {typoEntries.map((t, i) => (

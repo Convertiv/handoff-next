@@ -137,6 +137,37 @@ export function woffToSfnt(buf: Buffer): Buffer | null {
   }
 }
 
+/** Tables a TrueType/OpenType font must have for a rasterizer to use it. */
+const REQUIRED_TABLES = ['head', 'hhea', 'maxp', 'hmtx', 'cmap'] as const;
+
+/**
+ * Structural check on sfnt bytes: are the tables a rasterizer needs actually present?
+ *
+ * Exists because a conversion can produce a buffer that *looks* fine — right signature, plausible
+ * size — while satori silently declines to use it and falls back to another family. That failure is
+ * invisible in the rendered sheet, so it has to be caught and named at load time. Returns the table
+ * tags found plus anything required that's missing.
+ */
+export function inspectSfnt(buf: Buffer): { ok: boolean; tags: string[]; missing: string[]; numTables: number; outlines: 'glyf' | 'CFF' | 'none' } {
+  const empty = { ok: false, tags: [], missing: [...REQUIRED_TABLES], numTables: 0, outlines: 'none' as const };
+  try {
+    if (!isSfnt(buf) || buf.byteLength < SFNT_HEADER_SIZE) return empty;
+    const numTables = buf.readUInt16BE(4);
+    if (numTables === 0 || buf.byteLength < SFNT_HEADER_SIZE + numTables * SFNT_ENTRY_SIZE) return empty;
+
+    const tags: string[] = [];
+    for (let i = 0; i < numTables; i += 1) {
+      const p = SFNT_HEADER_SIZE + i * SFNT_ENTRY_SIZE;
+      tags.push(buf.subarray(p, p + 4).toString('latin1'));
+    }
+    const missing = REQUIRED_TABLES.filter((t) => !tags.includes(t));
+    const outlines: 'glyf' | 'CFF' | 'none' = tags.includes('glyf') ? 'glyf' : tags.includes('CFF ') ? 'CFF' : 'none';
+    return { ok: missing.length === 0 && outlines !== 'none', tags, missing, numTables, outlines };
+  } catch {
+    return empty;
+  }
+}
+
 /**
  * Normalize any registry font buffer to something satori can rasterize.
  *
