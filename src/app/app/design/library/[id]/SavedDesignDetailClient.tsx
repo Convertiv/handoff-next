@@ -13,6 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { LifecycleBadge, OwnerAttribution, VisibilityBadge } from '@/components/library';
 import {
+  AssetsSection,
   DevHandoffPanel,
   DevHandoffProgress,
   type AssetView,
@@ -83,12 +84,6 @@ function lastUserPrompt(history: unknown): string | null {
     if (o.role === 'user' && typeof o.prompt === 'string' && o.prompt.trim()) last = o.prompt.trim();
   }
   return last;
-}
-
-function extractionErrorFromMetadata(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== 'object') return null;
-  const e = (metadata as Record<string, unknown>).assetsExtractionError;
-  return typeof e === 'string' && e.trim() ? e.trim() : null;
 }
 
 function normalizeArtifactDetail(raw: SavedDesignArtifactDetail | Record<string, unknown>): SavedDesignArtifactDetail {
@@ -615,7 +610,6 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
 
   const lastPrompt = artifact ? lastUserPrompt(artifact.conversationHistory) : null;
   const assets = Array.isArray(artifact?.assets) ? artifact!.assets! : [];
-  const extractErr = artifact ? extractionErrorFromMetadata(artifact.metadata) : null;
   const match = artifact ? bestComponentMatch(artifact.componentSpec) : null;
   const statusLc: Lifecycle | null =
     artifact && LIFECYCLE_SET.has(artifact.status as Lifecycle) ? (artifact.status as Lifecycle) : null;
@@ -803,57 +797,20 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     )}
                   </div>
 
-                  <section className="space-y-3 rounded-lg border p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h2 className="text-sm font-semibold">Extracted assets</h2>
-                      {assetsStatus === 'failed' || assetsStatus === 'none' || assetsStatus === 'done' || extractionTimedOut ? (
-                        <Button type="button" variant="outline" size="sm" disabled={reextractBusy} onClick={() => void handleRetryExtraction()}>
-                          {reextractBusy ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <RefreshCwIcon className="mr-1 h-4 w-4" />}
-                          {assetsStatus === 'none' ? 'Extract assets' : 'Retry extraction'}
-                        </Button>
-                      ) : null}
-                    </div>
-                    {assetsStatus === 'pending' || assetsStatus === 'extracting' ? (
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Loader2Icon className="h-4 w-4 animate-spin" />
-                        Extracting assets… This can take a minute.
-                      </div>
-                    ) : null}
-                    {assetsStatus === 'failed' ? (
-                      <p className="text-sm text-destructive">{extractErr || 'Extraction failed.'}</p>
-                    ) : null}
-                    {assetsStatus === 'none' ? (
-                      <p className="text-sm text-muted-foreground">No extraction has run yet. Click Extract assets to start.</p>
-                    ) : null}
-                    {assetsStatus === 'done' && assets.length > 0 ? (
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        {assets.map((a, i) => (
-                          <div key={`${a.label}-${i}`} className="overflow-hidden rounded-md border bg-card">
-                            <p className="border-b px-3 py-2 text-xs font-medium">{a.label}</p>
-                            <div className="bg-muted/20 p-2">
-                              {a.imageUrl ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={assetSrc(a.imageUrl)} alt={a.label} className="mx-auto max-h-72 w-full object-contain" />
-                              ) : null}
-                            </div>
-                            {a.prompt ? (
-                              <Collapsible className="border-t">
-                                <CollapsibleTrigger className="w-full px-3 py-2 text-left text-xs text-muted-foreground hover:bg-muted/50">
-                                  Extraction prompt
-                                </CollapsibleTrigger>
-                                <CollapsibleContent className="px-3 pb-2">
-                                  <pre className="max-h-32 overflow-auto rounded bg-muted/50 p-2 text-[10px] leading-snug">{a.prompt}</pre>
-                                </CollapsibleContent>
-                              </Collapsible>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                    {assetsStatus === 'done' && assets.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No separate assets were returned.</p>
-                    ) : null}
-                  </section>
+                  {/* Assets. The old "Extracted assets" section lived here with a re-extract button —
+                      removed because extraction is retired: it re-generated crops via an image model at a
+                      forced 1024x1024 rather than extracting anything. Assets now come from the spec's
+                      declared requirements, so this shows them with the provenance that makes them
+                      web-ready, using the same component as the Spec tab. */}
+                  {assets.length > 0 ? (
+                    <AssetsSection assets={assets as AssetView[]} basePath={basePath} />
+                  ) : declaresImagery ? (
+                    <section className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      This design needs{' '}
+                      {(artifact.componentSpec as { assetRequirements?: unknown[] } | undefined)?.assetRequirements?.length ?? 0}{' '}
+                      image asset(s). Use <strong>Generate assets</strong> to produce them at the right size.
+                    </section>
+                  ) : null}
 
                   <Collapsible className="rounded-lg border">
                     <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium hover:bg-muted/50">

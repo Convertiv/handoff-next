@@ -421,7 +421,7 @@ export interface AssetView {
  * (slot, aspect, generated size, focal point) IS the claim: these are web-ready files, not extracts.
  * A download link makes that concrete.
  */
-function AssetsSection({ assets, basePath }: { assets: AssetView[]; basePath: string }) {
+export function AssetsSection({ assets, basePath }: { assets: AssetView[]; basePath: string }) {
   const shown = assets.filter((a) => a.imageUrl && a.key !== 'annotated_overview');
   if (!shown.length) return null;
 
