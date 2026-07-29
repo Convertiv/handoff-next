@@ -25,6 +25,18 @@ function withBase(url: string): string {
   return url;
 }
 
+/**
+ * Artifact images stream from a PRIVATE Blob store through `/api/handoff/artifact-asset`, which
+ * authorizes every read. Viewers of a share link have no session, so the share token has to travel
+ * with the image request — it is the thing that grants access. Non-proxy URLs (data URLs, or rows
+ * predating the private store) are returned untouched.
+ */
+function withShareToken(url: string, token: string): string {
+  const based = withBase(url);
+  if (!based.includes('/api/handoff/artifact-asset')) return based;
+  return `${based}${based.includes('?') ? '&' : '?'}t=${encodeURIComponent(token)}`;
+}
+
 // ---- Safe subsets (mirror app/api/handoff/share/[token]/route.ts exactly) ----
 
 type SafeArtifact = {
@@ -103,7 +115,7 @@ export default async function PublicSharePage({ params }: PageProps) {
     };
     return (
       <Shell>
-        <ArtifactView artifact={artifact} />
+        <ArtifactView artifact={artifact} token={token} />
       </Shell>
     );
   }
@@ -157,7 +169,7 @@ function Footer() {
   );
 }
 
-function ArtifactView({ artifact }: { artifact: SafeArtifact }) {
+function ArtifactView({ artifact, token }: { artifact: SafeArtifact; token: string }) {
   const assets = asAssetItems(artifact.assets);
   return (
     <div className="space-y-8">
@@ -172,7 +184,7 @@ function ArtifactView({ artifact }: { artifact: SafeArtifact }) {
         {artifact.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={withBase(artifact.imageUrl)}
+            src={withShareToken(artifact.imageUrl, token)}
             alt={artifact.title || 'Design'}
             className="mx-auto max-h-[min(85vh,1200px)] w-full object-contain"
           />
@@ -191,7 +203,7 @@ function ArtifactView({ artifact }: { artifact: SafeArtifact }) {
                 <div className="bg-muted/30 p-2">
                   {a.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={withBase(a.imageUrl)} alt={a.label || 'Asset'} className="mx-auto max-h-64 w-full object-contain" />
+                    <img src={withShareToken(a.imageUrl, token)} alt={a.label || 'Asset'} className="mx-auto max-h-64 w-full object-contain" />
                   ) : (
                     <p className="p-6 text-center text-xs text-muted-foreground">No image.</p>
                   )}

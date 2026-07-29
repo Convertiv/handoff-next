@@ -9,9 +9,15 @@ import type { DesignClassification, ExtractedAssetV2 } from '@/lib/server/design
 
 const ASSET_VISION_MODEL = () => process.env.HANDOFF_ASSET_VISION_MODEL?.trim() || 'gpt-4o-mini';
 
-/** Convert a data URL or http URL to an ImageEditInput buffer. */
+/** Convert a data URL, private-Blob proxy URL, or http URL to an ImageEditInput buffer. */
 export async function imageUrlToEditInput(imageUrl: string): Promise<ImageEditInput | null> {
-  const trimmed = imageUrl.trim();
+  let trimmed = imageUrl.trim();
+  // Artifact images are stored as private-Blob proxy URLs; resolve to a data URL first so the
+  // existing parsing below applies unchanged.
+  const { blobPathnameFromProxyUrl, resolveStoredImage } = await import('@/lib/storage/artifact-images');
+  if (blobPathnameFromProxyUrl(trimmed)) {
+    trimmed = (await resolveStoredImage(trimmed)).trim();
+  }
   const dataMatch = /^data:(image\/(?:png|jpeg|webp|jpg));base64,(.+)$/i.exec(trimmed);
   if (dataMatch) {
     let mime = dataMatch[1].toLowerCase();

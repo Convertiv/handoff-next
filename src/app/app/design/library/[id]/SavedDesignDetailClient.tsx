@@ -152,6 +152,20 @@ function assetsStatusOf(a: SavedDesignArtifactDetail | null): string {
   return typeof s === 'string' && s.trim() ? s.trim() : 'none';
 }
 
+/**
+ * Resolve a stored artifact image for use in `<img src>`.
+ *
+ * Artifact images live in a private Blob store and are persisted as the root-relative proxy path
+ * `/api/handoff/artifact-asset?p=…`. The base path is deliberately NOT baked into the stored value
+ * (it can change per deployment), so it has to be applied at render time. Data URLs and absolute
+ * URLs — older rows, and anything not offloaded — pass through untouched.
+ */
+function assetSrc(url: string | undefined | null): string {
+  const u = (url ?? '').trim();
+  if (!u || /^(data:|blob:|https?:|\/\/)/i.test(u)) return u;
+  return u.startsWith('/') ? handoffApiUrl(u) : u;
+}
+
 function specStatusOf(a: SavedDesignArtifactDetail | null): string {
   if (!a) return 'none';
   const r = a as Record<string, unknown>;
@@ -694,7 +708,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                   <div className="overflow-hidden rounded-xl border bg-muted/20">
                     {artifact.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={artifact.imageUrl} alt={artifact.title || 'Design'} className="mx-auto max-h-[min(85vh,1200px)] w-full object-contain" />
+                      <img src={assetSrc(artifact.imageUrl)} alt={artifact.title || 'Design'} className="mx-auto max-h-[min(85vh,1200px)] w-full object-contain" />
                     ) : (
                       <p className="p-8 text-center text-sm text-muted-foreground">No image stored.</p>
                     )}
@@ -730,7 +744,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                             <div className="bg-muted/20 p-2">
                               {a.imageUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
-                                <img src={a.imageUrl} alt={a.label} className="mx-auto max-h-72 w-full object-contain" />
+                                <img src={assetSrc(a.imageUrl)} alt={a.label} className="mx-auto max-h-72 w-full object-contain" />
                               ) : null}
                             </div>
                             {a.prompt ? (

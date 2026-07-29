@@ -1,5 +1,5 @@
 import 'server-only';
-import { put } from '@vercel/blob';
+import { get, put } from '@vercel/blob';
 
 /**
  * Phase 1 (Workbench/Playground roadmap): move design-artifact images OUT of
@@ -7,14 +7,26 @@ import { put } from '@vercel/blob';
  * (`imageUrl`, `sourceImages[].dataUrl`, `conversationHistory[].imageUrl`,
  * `assets[].imageUrl`) were the root cause of multi-MB rows and slow reads.
  *
- * Serving model (chosen 2026-07-24): `access: 'public'` with a random suffix, so
- * the blob URL is unguessable (knowing an artifact's UUID is not enough to reach
- * its images). The URL is stored directly in the same column, so readers render
- * it as-is — no proxy, no read-path rewrite.
+ * **Serving model: PRIVATE store + authorizing proxy** (corrected 2026-07-29).
  *
- * Graceful degradation: when `BLOB_READ_WRITE_TOKEN` is absent (local dev /
- * workspace mode) or an upload fails, values pass through UNCHANGED (inline data
- * URL preserved). Offloading must never block a save.
+ * An earlier revision of this header claimed `access: 'public'` with a random suffix was the chosen
+ * model. That was wrong — private stores were the decision, and 8x8's store is configured private.
+ * The mismatch meant every `put` threw *"Cannot use public access on a private store"*, the catch
+ * below swallowed it, and **no artifact image ever reached Blob**: rows stayed at ~6.4MB of inline
+ * base64, which is what made every downstream timing marginal.
+ *
+ * Private is also the only coherent choice: the Library enforces visibility lanes, per-user grants
+ * and share links, and public blob URLs would bypass all of it permanently.
+ *
+ * What we persist is therefore NOT the blob URL but a proxy URL
+ * (`/api/handoff/artifact-asset?p=<pathname>`), so:
+ *   - anything rendering `<img src={imageUrl}>` keeps working with no change
+ *   - the proxy authorizes each read against the owning artifact's permissions
+ *   - server-side consumers short-circuit to `readBlobAsDataUrl()` and skip HTTP entirely
+ *
+ * Graceful degradation: when `BLOB_READ_WRITE_TOKEN` is absent (local dev / workspace mode) or an
+ * upload fails, values pass through UNCHANGED (inline data URL preserved). Offloading must never
+ * block a save.
  */
 
 export function blobEnabled(): boolean {
@@ -61,9 +73,48 @@ function parseDataUrl(dataUrl: string): { contentType: string; buffer: Buffer; e
 }
 
 /**
- * Upload one data URL to Blob and return its public CDN URL. Passthrough (returns
- * the input unchanged) when it's not a data URL, Blob isn't configured, or the
- * upload fails.
+ * Route that streams a private blob back out. Stored in place of the image itself, so anything
+ * that puts the value straight into `<img src>` keeps working unchanged.
+ */
+export const ARTIFACT_ASSET_ROUTE = '/api/handoff/artifact-asset';
+
+/** Build the proxy URL we persist for a stored blob. */
+export function artifactAssetProxyUrl(pathname: string): string {
+  return `${ARTIFACT_ASSET_ROUTE}?p=${encodeURIComponent(pathname)}`;
+}
+
+/** Recover the blob pathname from a stored proxy URL. Null when this isn't one. */
+export function blobPathnameFromProxyUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.includes(ARTIFACT_ASSET_ROUTE)) return null;
+  const q = value.indexOf('?');
+  if (q === -1) return null;
+  const p = new URLSearchParams(value.slice(q + 1)).get('p');
+  return p?.trim() || null;
+}
+
+/**
+ * The artifact a blob belongs to, from its pathname.
+ *
+ * Paths are written as `design-artifacts/<artifactId>/<slot>-<random>.<ext>`, so the owning
+ * artifact is the second segment. This is what lets the proxy route authorize a read against the
+ * artifact's own permissions instead of trusting possession of the URL.
+ */
+export function artifactIdFromBlobPathname(pathname: string): string | null {
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts.length < 3 || parts[0] !== 'design-artifacts') return null;
+  return parts[1] || null;
+}
+
+/**
+ * Upload one data URL to Blob and return the proxy URL to persist.
+ *
+ * **Private access, deliberately.** Artifact images are client design work, and the Library's
+ * visibility lanes / grants / share links would be meaningless if the underlying images were
+ * publicly readable by URL forever. Writing `access: 'public'` against a private store is also
+ * exactly the bug that silently kept every 8x8 artifact inline as base64 (see DEVLOG 2026-07-29).
+ *
+ * Passthrough (returns the input unchanged) when it's not a data URL, Blob isn't configured, or
+ * the upload fails — but a failure now also throws a visible warning rather than being invisible.
  */
 export async function offloadDataUrl(value: string, keyHint: string): Promise<string> {
   if (!isDataUrl(value) || !blobEnabled()) return value;
@@ -71,11 +122,11 @@ export async function offloadDataUrl(value: string, keyHint: string): Promise<st
   if (!parsed) return value;
   try {
     const res = await put(`design-artifacts/${keyHint}.${parsed.ext}`, parsed.buffer, {
-      access: 'public',
+      access: 'private',
       addRandomSuffix: true,
       contentType: parsed.contentType,
     });
-    return res.url;
+    return artifactAssetProxyUrl(res.pathname);
   } catch (err) {
     console.warn(
       '[handoff] blob offload failed, keeping inline data URL:',
@@ -83,6 +134,42 @@ export async function offloadDataUrl(value: string, keyHint: string): Promise<st
     );
     return value;
   }
+}
+
+/** A private blob's bytes plus the metadata a caller needs to serve or inline it. */
+export type BlobRead = { buffer: Buffer; contentType: string };
+
+/**
+ * Read a private blob by pathname. Returns null when Blob is off, the object is missing, or the
+ * read fails — callers degrade rather than throw, matching the write path.
+ */
+export async function readPrivateBlob(pathname: string): Promise<BlobRead | null> {
+  if (!blobEnabled()) return null;
+  try {
+    const res = await get(pathname, { access: 'private' });
+    if (res.statusCode !== 200) return null;
+    const buffer = Buffer.from(await new Response(res.stream).arrayBuffer());
+    return { buffer, contentType: res.blob.contentType || 'application/octet-stream' };
+  } catch (err) {
+    console.warn('[handoff] private blob read failed:', pathname, err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+/**
+ * Resolve a stored image value to something a server-side AI call can consume.
+ *
+ * Private blobs are not fetchable over plain HTTP, so every server-side consumer
+ * (`imageUrlToVisionPart`, `imageUrlToEditInput`) must come through here rather than fetching the
+ * stored URL. Returns the value untouched when it isn't a proxy URL — data URLs and ordinary http
+ * URLs keep working, which is what lets old rows and new ones coexist.
+ */
+export async function resolveStoredImage(value: string): Promise<string> {
+  const pathname = blobPathnameFromProxyUrl(value);
+  if (!pathname) return value;
+  const read = await readPrivateBlob(pathname);
+  if (!read) return value;
+  return `data:${read.contentType};base64,${read.buffer.toString('base64')}`;
 }
 
 export type ArtifactImageFields = {

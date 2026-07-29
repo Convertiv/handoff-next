@@ -629,7 +629,14 @@ const DesignWorkbenchPage = ({
         const artifact = json.artifact;
         if (!artifact?.imageUrl) throw new Error('Saved design has no image to continue from.');
         if (cancelled) return;
-        setImageSrc(artifact.imageUrl);
+        // Artifact images stream from a private Blob store via a root-relative proxy path, so the
+        // deployment's base path has to be applied before it can be used as an <img src>. Data URLs
+        // and absolute URLs (older rows) pass through unchanged.
+        setImageSrc(
+          /^(data:|blob:|https?:|\/\/)/i.test(artifact.imageUrl) || !artifact.imageUrl.startsWith('/')
+            ? artifact.imageUrl
+            : handoffApiUrl(artifact.imageUrl)
+        );
         selectedGeneratedImageIdRef.current = null;
         setSelectedGeneratedImageId(null);
         if (Array.isArray(artifact.conversationHistory)) setConversationHistory(artifact.conversationHistory);
