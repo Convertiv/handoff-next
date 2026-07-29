@@ -1002,6 +1002,74 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   );
 
   server.registerTool(
+    'handoff_generate_design_assets',
+    {
+      description:
+        'Generate the images a design needs as SEPARATE, web-ready assets — each at its own aspect ratio ' +
+        'and resolution — then optionally recompose the design from them. Driven by the specification\'s ' +
+        'declared imagery (photographs and illustrations only; backgrounds are tokens, icons come from the ' +
+        'icon library). Runs as a durable multi-stage pipeline because each stage takes 1-2 minutes; poll ' +
+        'handoff_get_design_pipeline with the returned pipelineId.',
+      inputSchema: {
+        artifactId: z.string(),
+        recomposeDesign: z
+          .boolean()
+          .optional()
+          .describe(
+            'Also regenerate the composite image from the new assets. Default false — this REPLACES the ' +
+              'artifact\'s current image.'
+          ),
+        regenerateSpec: z.boolean().optional().describe('Also regenerate the specification afterwards. Default false.'),
+      },
+    },
+    async ({ artifactId, recomposeDesign, regenerateSpec }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+        return textResult({ ok: false, error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' });
+      }
+      const id = artifactId.trim();
+      // Spends AI credits and can replace the artifact's image — edit rights required.
+      const deniedAccess = await denyArtifactAccess(id, 'edit');
+      if (deniedAccess) return deniedAccess;
+
+      const { startDevPipeline } = await import('@/lib/server/dev-pipeline');
+      const intent =
+        recomposeDesign === true && regenerateSpec === true
+          ? 'full'
+          : recomposeDesign === true
+            ? 'assets-and-composite'
+            : 'assets-only';
+      const result = await startDevPipeline({ artifactId: id, intent });
+      if (!result.ok) return textResult(result);
+      return textResult({
+        ...result,
+        note: 'Each stage runs in its own invocation (~1-2 min each). Poll handoff_get_design_pipeline with pipelineId.',
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_get_design_pipeline',
+    {
+      description: 'Poll a design pipeline started by handoff_generate_design_assets. Read-only.',
+      inputSchema: { pipelineId: z.string() },
+    },
+    async ({ pipelineId }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const { getDevPipelineProgress } = await import('@/lib/server/dev-pipeline');
+      const progress = await getDevPipelineProgress(pipelineId.trim());
+      if (!progress) return textResult({ error: 'Pipeline not found' });
+      // Authorize against the artifact the pipeline belongs to — a pipeline id must not be a way to
+      // read progress on someone else's design. Reports "not found" to avoid confirming it exists.
+      const deniedAccess = await denyArtifactAccess(progress.artifactId, 'view');
+      if (deniedAccess) return textResult({ error: 'Pipeline not found' });
+      return textResult(progress);
+    }
+  );
+
+  server.registerTool(
     'handoff_extract_design_assets',
     {
       description:

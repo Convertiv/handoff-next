@@ -188,6 +188,28 @@ export async function failPipelineJob(id: number, error: string): Promise<{ will
 }
 
 /**
+ * Hand a claimed stage back untouched.
+ *
+ * Distinct from `failPipelineJob` because nothing went wrong: the drain claimed a stage and then found
+ * it couldn't afford to run it this tick. Claiming increments `attempts`, so releasing must decrement
+ * it — otherwise a long stage that keeps getting claimed late in a tick would burn through its retry
+ * budget and fail terminally without ever having been attempted.
+ */
+export async function releasePipelineJob(id: number, reason: string): Promise<void> {
+  const db = getDb();
+  await db
+    .update(handoffPipelineJobs)
+    .set({
+      status: 'pending',
+      attempts: sql`GREATEST(${handoffPipelineJobs.attempts} - 1, 0)`,
+      error: reason.slice(0, 2000),
+      startedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(handoffPipelineJobs.id, id));
+}
+
+/**
  * Abandon the stages after a terminal failure.
  *
  * Without this, a failed `assets` stage leaves `composite` pending forever — it can never become

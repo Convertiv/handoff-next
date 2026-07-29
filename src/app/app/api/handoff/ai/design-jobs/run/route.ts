@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { getPendingDesignGenerationJobs, getPendingSpecArtifactIds, reapStuckDesignArtifactJobs } from '@/lib/db/queries';
 import { runDesignGenerationJob } from '@/lib/server/design-generation-worker';
 import { runQueuedSpecGeneration } from '@/lib/server/dev-handoff';
+import { drainPipeline } from '@/lib/server/pipeline-runner';
 
 // Long enough to process a small batch of image generations serially.
 export const maxDuration = 300;
@@ -76,5 +77,18 @@ export async function GET(request: NextRequest) {
     console.error('[design-jobs/run] spec drain failed', err);
   }
 
-  return NextResponse.json({ processed, specs, reaped });
+  // Drain the pipeline queue LAST, with whatever budget is left. It runs one stage per pass by design
+  // — a 114s asset generation followed by a 100s composite cannot share an invocation, which is the
+  // whole reason the queue exists. Anything it can't afford is left for the next tick.
+  let pipeline: Awaited<ReturnType<typeof drainPipeline>> = { ran: [], deferred: 0 };
+  try {
+    pipeline = await drainPipeline({ budgetMs: remainingMs() });
+    if (pipeline.ran.length || pipeline.deferred) {
+      console.log('[design-jobs/run] pipeline drain', JSON.stringify(pipeline));
+    }
+  } catch (err) {
+    console.error('[design-jobs/run] pipeline drain failed', err);
+  }
+
+  return NextResponse.json({ processed, specs, reaped, pipeline });
 }
