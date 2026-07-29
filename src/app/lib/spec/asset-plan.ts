@@ -62,7 +62,13 @@ export function sizeForAspect(aspect: AssetRequirement['aspect'], minWidth: numb
  * *mockup of a hero section* — text, buttons and layout included — which is useless as an asset.
  * Everything structural must be excluded explicitly.
  */
-export function buildAssetPrompt(req: AssetRequirement): string {
+export function buildAssetPrompt(req: AssetRequirement, opts: { palette?: string[]; styleNote?: string } = {}): string {
+  // The palette is guidance, not instruction to paint with: a photograph forced to literal hex values
+  // looks tinted and fake. Naming the colours the design system actually uses is enough to keep the
+  // imagery in the same family as the component it will sit inside — which is the whole reason an
+  // asset generated in isolation can still look like it belongs.
+  const palette = (opts.palette ?? []).filter(Boolean).slice(0, 6);
+
   const lines = [
     req.kind === 'photo'
       ? `A single photograph: ${req.subject}`
@@ -71,6 +77,10 @@ export function buildAssetPrompt(req: AssetRequirement): string {
     'Requirements:',
     `- Fill the entire frame at ${req.aspect}. No borders, letterboxing, or padding.`,
     req.focalPoint ? `- Place the main subject ${req.focalPoint}, leaving the rest usable as quiet background.` : '',
+    palette.length
+      ? `- Colour direction: sit naturally alongside ${palette.join(', ')}. Let these inform the ambient palette — do not paint literal swatches or tint the whole image.`
+      : '',
+    opts.styleNote?.trim() ? `- ${opts.styleNote.trim()}` : '',
     '- NO text, letters, numbers, words, watermarks, logos or captions anywhere in the image.',
     '- NO user-interface elements: no buttons, cards, forms, panels, browser chrome, or device frames.',
     '- NO collage, grid, split-screen, or multiple panels — one continuous image.',
@@ -100,7 +110,10 @@ function slugify(slot: string): string {
  * Returns [] when the spec declares no imagery — a component with no photographs needs no asset
  * generation, and that is the common case for atoms and forms.
  */
-export function planAssetsFromSpec(spec: ComponentSpec, opts: { max?: number } = {}): AssetJob[] {
+export function planAssetsFromSpec(
+  spec: ComponentSpec,
+  opts: { max?: number; palette?: string[]; styleNote?: string } = {}
+): AssetJob[] {
   const max = opts.max ?? 4;
   const reqs = (spec.assetRequirements ?? []).filter((r) => r && r.slot && r.subject);
   const seen = new Set<string>();
@@ -116,7 +129,7 @@ export function planAssetsFromSpec(spec: ComponentSpec, opts: { max?: number } =
       slot: req.slot,
       kind: req.kind ?? 'photo',
       size: sizeForAspect(req.aspect ?? '3:2', req.minWidth ?? 0),
-      prompt: buildAssetPrompt(req),
+      prompt: buildAssetPrompt(req, { palette: opts.palette, styleNote: opts.styleNote }),
       filename,
       // Tells the composite generation to PLACE this image rather than reinterpret it — the whole
       // point is that the comp and the downloadable asset are the same bytes.

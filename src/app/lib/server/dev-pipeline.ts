@@ -26,7 +26,7 @@ import type { ComponentSpec } from '@/lib/server/design-spec-types';
  *  - **composite** only when asked, since regenerating the image is destructive to the current one.
  *  - **spec** last, so it describes what was actually produced rather than what preceded it.
  */
-export type DevPipelineIntent = 'assets-and-composite' | 'assets-only' | 'spec-only' | 'full';
+export type DevPipelineIntent = 'assets-and-composite' | 'assets-only' | 'spec-only' | 'full' | 'spec-first';
 
 export interface StartPipelineResult {
   ok: boolean;
@@ -46,6 +46,24 @@ export async function startDevPipeline(args: {
   const declaresImagery = spec ? planAssetsFromSpec(spec).length > 0 : false;
 
   const stages: StageSpec[] = [];
+
+  // Spec-first runs the chain in the direction the product actually claims: brief → specification →
+  // assets → composite. Every other intent is the legacy direction, where the composite already exists
+  // and the specification describes it. The distinction is not cosmetic — in spec-first the image is a
+  // *rendering* of the spec, so revising the spec re-renders; in the others the spec is a report, and
+  // assets generated from it are regenerating imagery the composite already contains from a description
+  // written after the fact, which is why they never match.
+  if (args.intent === 'spec-first') {
+    // Assets and composite are enqueued unconditionally: the spec they depend on does not exist yet, so
+    // whether the design declares imagery is unknowable here. `runAssetsStage` plans at run time and
+    // no-ops cleanly when there is none, which is where that decision belongs.
+    stages.push({ stage: 'spec', payload: { mode: 'brief' }, maxAttempts: 2 });
+    stages.push({ stage: 'assets', maxAttempts: 2 });
+    stages.push({ stage: 'composite', maxAttempts: 2 });
+    const id = await enqueuePipeline({ artifactId: args.artifactId, stages });
+    if (!id) return { ok: false, error: 'Could not enqueue the pipeline.' };
+    return { ok: true, pipelineId: id, stages: stages.map((s) => s.stage) };
+  }
 
   const wantsAssets = args.intent === 'assets-and-composite' || args.intent === 'assets-only' || args.intent === 'full';
   const wantsComposite = args.intent === 'assets-and-composite' || args.intent === 'full';

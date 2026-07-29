@@ -47,9 +47,15 @@ export interface AssetFirstResult {
  */
 export async function generateSpecAssets(
   spec: ComponentSpec,
-  opts: { actorUserId?: string | null; max?: number; quality?: 'low' | 'medium' | 'high' | 'auto' } = {}
+  opts: {
+    actorUserId?: string | null;
+    max?: number;
+    quality?: 'low' | 'medium' | 'high' | 'auto';
+    /** Registry colours, so imagery generated in isolation still reads as part of the system. */
+    palette?: string[];
+  } = {}
 ): Promise<AssetFirstResult> {
-  const jobs = planAssetsFromSpec(spec, { max: opts.max });
+  const jobs = planAssetsFromSpec(spec, { max: opts.max, palette: opts.palette });
   if (!jobs.length) return { assets: [], failed: [] };
 
   const settled = await Promise.allSettled(

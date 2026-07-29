@@ -762,3 +762,187 @@ export async function generateSpecForArtifact(artifactId: string): Promise<void>
     await failSpec(artifactId, e instanceof Error ? e.message.slice(0, 2000) : 'Specification generation failed.');
   }
 }
+
+// ── Brief-driven generation (spec-first) ──────────────────────────────────────
+
+/**
+ * Write a specification from the design brief, before any image exists.
+ *
+ * The counterpart to `generateSpecForArtifact`, which reads a composite screenshot. That direction
+ * makes the image the source and the spec its report, which forces the whole chain backwards: assets
+ * can only be planned from a spec, a spec could only be written from an image, so the image had to come
+ * first — and the assets it then "declares" are regenerated from a one-line description of a photo that
+ * already exists. They cannot match; the asset generator has never seen the design.
+ *
+ * Here the brief produces the spec, the spec declares its imagery, the imagery is generated, and the
+ * composite is assembled from it. The image becomes a rendering of the specification.
+ *
+ * Deliberately does NOT produce `tokens`. That section is a conformance measurement of observed values
+ * against the registry, and nothing has been rendered yet — emitting one would report a coverage score
+ * for a design that does not exist. It is filled in later, when the spec is re-run against the produced
+ * composite. `reuse` and `voice` are text-only and are produced here, since both work from the spec.
+ */
+export async function generateSpecFromBrief(artifactId: string): Promise<void> {
+  if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
+    await failSpec(artifactId, 'HANDOFF_AI_API_KEY is not configured on the server.');
+    return;
+  }
+
+  await updateDesignArtifactById(artifactId, { specStatus: 'generating' } as Parameters<typeof updateDesignArtifactById>[1]);
+
+  try {
+    const row = await getDesignArtifactById(artifactId);
+    if (!row) {
+      await failSpec(artifactId, 'Artifact not found.');
+      return;
+    }
+
+    // The brief is what the user actually asked for. Without it there is nothing to specify — and
+    // falling back to the title would silently produce a spec for a design nobody described.
+    const brief = briefFromArtifact(row);
+    if (!brief) {
+      await failSpec(
+        artifactId,
+        'This design has no brief to write a specification from. Spec-first generation needs the original request.'
+      );
+      return;
+    }
+
+    const copyFromPrompt = extractCopyFromHistory(row.conversationHistory);
+    const existingComponents = await loadComponentSchemasForGuides(row.componentGuides);
+
+    const [workspace, tokenSummary, reuseCatalog] = await Promise.all([
+      getDesignWorkspace().catch(() => null),
+      getTokenSummary().catch(() => null),
+      loadReuseCatalog().catch(() => ({ components: [], patterns: [] })),
+    ]);
+    const tokenSummaryText = tokenSummary && !isTokenSummaryEmpty(tokenSummary) ? formatTokenSummaryForPrompt(tokenSummary) : '';
+    const brandVoiceText = workspace ? formatBrandVoiceForPrompt(workspace.brandVoice).trim() : '';
+    const hasCatalog = reuseCatalog.components.length > 0 || reuseCatalog.patterns.length > 0;
+
+    const call = (systemPrompt: string, userText: string, eventType: string, maxTokens: number) =>
+      openAiChatJson([{ role: 'system', content: systemPrompt }, { role: 'user', content: userText }], {
+        actorUserId: row.userId,
+        route: 'design-spec-brief',
+        eventType,
+        model: SPEC_MODEL(),
+        maxTokens,
+      });
+
+    const { buildBriefSpecPrompt, briefSpecProblems, stripMeasuredSections } = await import('@/lib/spec/brief-spec');
+
+    const baseRaw = await call(
+      buildBriefSpecPrompt({
+        brief,
+        copyFromPrompt,
+        tokenSummary: tokenSummaryText,
+        brandVoice: brandVoiceText,
+        designMd: workspace?.designMd ?? '',
+        existingComponents,
+      }),
+      'Write the ComponentSpec JSON for this brief:',
+      'ai.design_spec_brief',
+      4000
+    );
+
+    const parsed = parseSpec(baseRaw, row.title || 'Component');
+    // A thin spec produces a thin design, and the run looks successful right up until someone opens
+    // the image. Fail here, where the reason is still legible.
+    const problems = briefSpecProblems(parsed);
+    if (!parsed || problems.length) {
+      await failSpec(artifactId, `The brief specification is not usable: ${problems.join(' ')}`);
+      return;
+    }
+    const spec = stripMeasuredSections(parsed);
+
+    // Reuse and voice are text-only and need only the spec — same as round 2 of the image path.
+    const [reuseRes, voiceRes] = await Promise.all([
+      hasCatalog
+        ? call(
+            buildReusePrompt({ specSummary: specSummaryForReuse(spec), reuseCatalog }),
+            'Decide what this design should be composed from:',
+            'ai.design_spec_reuse',
+            2000
+          )
+            .then((raw) => parseSection<NonNullable<ComponentSpec['reuse']>>(raw))
+            .catch((err) => {
+              console.warn('[design-spec-generator] brief reuse section failed', artifactId, err);
+              return null;
+            })
+        : Promise.resolve(null),
+      (() => {
+        if (!brandVoiceText) return Promise.resolve(null);
+        const copyStrings = copyStringsForVoice(spec, copyFromPrompt);
+        if (!copyStrings.length) return Promise.resolve(null);
+        return call(
+          buildVoicePrompt({ copyStrings, brandVoice: brandVoiceText }),
+          'Check this copy against the brand voice:',
+          'ai.design_spec_voice',
+          2000
+        )
+          .then((raw) => parseSection<NonNullable<ComponentSpec['voice']>>(raw))
+          .catch((err) => {
+            console.warn('[design-spec-generator] brief voice section failed', artifactId, err);
+            return null;
+          });
+      })(),
+    ]);
+
+    if (reuseRes) spec.reuse = reuseRes;
+    if (voiceRes) spec.voice = voiceRes;
+
+    spec.generatedAt = new Date().toISOString();
+    const specMd = specToMarkdown(spec);
+
+    await updateDesignArtifactById(artifactId, {
+      componentSpec: spec as unknown as Parameters<typeof updateDesignArtifactById>[1]['componentSpec'],
+      componentSpecMd: specMd,
+      specStatus: 'done',
+    } as Parameters<typeof updateDesignArtifactById>[1]);
+
+    const { recordSpecVersion } = await import('@/lib/spec/versioning');
+    await recordSpecVersion({
+      artifactId,
+      spec,
+      specMd,
+      source: 'generated',
+      changeReason: 'Specification written from the brief, before any image existed.',
+      createdByUserId: row.userId,
+    });
+
+    console.log(
+      '[design-spec-generator] brief spec written for',
+      artifactId,
+      spec.overview.name,
+      `(assets:${(spec.assetRequirements ?? []).length} reuse:${spec.reuse ? 'y' : 'n'} voice:${spec.voice ? 'y' : 'n'})`
+    );
+  } catch (e) {
+    console.error('[design-spec-generator] brief spec failed', artifactId, e);
+    await failSpec(artifactId, e instanceof Error ? e.message.slice(0, 2000) : 'Specification generation failed.');
+  }
+}
+
+/**
+ * The user's original request for this artifact.
+ *
+ * Prefers the conversation history, since that is where the actual wording lives; falls back to the
+ * stored description. Returns null rather than substituting the title — a title like
+ * "Draft — 7/29/2026" is not a brief, and specifying against it would produce confident nonsense.
+ */
+function briefFromArtifact(row: { conversationHistory?: unknown; description?: string | null }): string | null {
+  const history = Array.isArray(row.conversationHistory) ? row.conversationHistory : [];
+  const prompts: string[] = [];
+  for (const entry of history) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const role = typeof e.role === 'string' ? e.role : '';
+    const content = typeof e.content === 'string' ? e.content : typeof e.prompt === 'string' ? e.prompt : '';
+    if (role === 'user' && content.trim()) prompts.push(content.trim());
+  }
+  // Every turn, in order: a refinement ("make it two columns") is meaningless without the request it
+  // refines, so the brief is the conversation rather than only its most recent line.
+  if (prompts.length) return prompts.join('\n\n').slice(0, 8000);
+
+  const description = (row.description ?? '').trim();
+  return description || null;
+}

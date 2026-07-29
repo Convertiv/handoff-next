@@ -1063,6 +1063,41 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   );
 
   server.registerTool(
+    'handoff_design_from_brief',
+    {
+      description:
+        'Create a design SPEC-FIRST from a plain-language brief. Writes the specification first, ' +
+        'generates each declared image on its own at its correct aspect ratio, then composes the design ' +
+        'FROM those images — so the photo in the comp is the same file a developer downloads, and ' +
+        'revising the spec re-renders rather than re-rolls. Use this instead of ' +
+        'handoff_generate_design_image when starting something new from a description. Returns ' +
+        'immediately; poll handoff_get_design_pipeline for progress (a few minutes across all stages).',
+      inputSchema: {
+        brief: z.string().describe('What to design, in plain language. Detail helps — this writes the spec.'),
+        title: z.string().optional(),
+        componentIds: z.array(z.string()).optional().describe('Existing components to compose against.'),
+      },
+    },
+    async ({ brief, title, componentIds }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+
+      const { startDesignFromBrief } = await import('@/lib/server/design-from-brief');
+      // `auth.userId` rather than `authzActor().userId`: the artifact's owner column is not-null, and
+      // authzActor deliberately nulls the synthetic 'service'/'workspace' ids. Matches how
+      // handoff_create_design_artifact assigns ownership, so both create paths agree.
+      const result = await startDesignFromBrief({
+        brief,
+        title,
+        userId: auth.userId,
+        componentGuides: componentIds ?? [],
+      });
+      return textResult(result);
+    }
+  );
+
+  server.registerTool(
     'handoff_revise_spec',
     {
       description:

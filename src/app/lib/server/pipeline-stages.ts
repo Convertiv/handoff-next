@@ -68,13 +68,17 @@ async function toEditInput(filename: string, imageUrl: string): Promise<ImageEdi
  */
 const runAssetsStage: StageHandler = async ({ job }) => {
   const { spec, userId } = await requireSpec(job.artifactId);
-  const planned = planAssetsFromSpec(spec);
+  // The palette keeps an asset generated in isolation in the same colour family as the component it
+  // will sit inside. Without it the generator sees only the requirement's subject line, which is how a
+  // technically-correct photo still reads as belonging to a different design.
+  const palette = await registryPalette();
+  const planned = planAssetsFromSpec(spec, { palette });
   if (!planned.length) {
     // A component with no photographs needs no asset generation — the common case for atoms and forms.
     return { generated: [], skippedReason: 'Specification declares no imagery.' };
   }
 
-  const { assets, failed } = await generateSpecAssets(spec, { actorUserId: userId });
+  const { assets, failed } = await generateSpecAssets(spec, { actorUserId: userId, palette });
   if (!assets.length) {
     throw new Error(`All ${planned.length} asset generation(s) failed: ${failed.map((f) => `${f.slot}: ${f.error}`).join(' | ')}`);
   }
@@ -131,6 +135,17 @@ const runCompositeStage: StageHandler = async ({ job, upstream }) => {
     );
   }
 
+  // The rasterized token sheet. Measured on 8x8: generation without it produced 76% token overlap,
+  // with it the same prompt came back exact. In spec-first this stage IS the design's only image, so
+  // omitting the sheet here would make the new path produce worse output than the one it replaces.
+  const foundationSheet = await foundationSheetInput();
+  if (foundationSheet) {
+    images.unshift(foundationSheet);
+    labels.unshift(
+      'design-system-foundations.png: the design system\'s colours, type and spacing. Use it for styling ONLY — never reproduce the sheet itself as visible content.'
+    );
+  }
+
   // gpt-image-2 requires at least one input image even for text-to-image.
   if (images.length === 0) {
     images.push({ filename: 'canvas.png', contentType: 'image/png', data: BLANK_PNG });
@@ -139,9 +154,7 @@ const runCompositeStage: StageHandler = async ({ job, upstream }) => {
 
   const prompt =
     buildGenerationPromptFromSpec(spec) +
-    (labels.length && images[0].filename !== 'canvas.png'
-      ? `\n\n## Attached assets — place these, do not redraw them\n${labels.map((l) => `- ${l}`).join('\n')}`
-      : '');
+    (labels.length ? `\n\n## Attached images\n${labels.map((l) => `- ${l}`).join('\n')}` : '');
 
   const imageUrl = await openAiImageEdit({
     prompt,
@@ -175,8 +188,12 @@ const runCompositeStage: StageHandler = async ({ job, upstream }) => {
  */
 const runSpecStage: StageHandler = async ({ job, budgetMs }) => {
   const { runQueuedSpecGeneration } = await import('@/lib/server/dev-handoff');
+  // `brief` mode writes the spec from the user's request with no image to read — the first stage of a
+  // spec-first pipeline, where the composite does not exist yet and the spec is what produces it.
+  // Everything else reads the existing composite and describes it.
+  const mode = (job.payload as { mode?: string } | null)?.mode === 'brief' ? 'brief' : 'image';
   await updateDesignArtifactById(job.artifactId, { specStatus: 'pending' } as Parameters<typeof updateDesignArtifactById>[1]);
-  const ran = await runQueuedSpecGeneration(job.artifactId, { budgetMs: Math.max(60_000, budgetMs - 15_000) });
+  const ran = await runQueuedSpecGeneration(job.artifactId, { budgetMs: Math.max(60_000, budgetMs - 15_000), mode });
 
   const row = await getDesignArtifactById(job.artifactId);
   const status = row?.specStatus ?? 'unknown';
@@ -188,8 +205,46 @@ const runSpecStage: StageHandler = async ({ job, budgetMs }) => {
     if (!ran) throw new Error(`Another worker is generating this specification (status "${status}") — retrying.`);
     throw new Error(`Specification ended as "${status}".`);
   }
-  return { specStatus: status, claimedHere: ran };
+  return { specStatus: status, mode, claimedHere: ran };
 };
+
+/**
+ * The registry's core colours, as human-readable names/values for an image prompt.
+ *
+ * Degrades to [] on any failure — imagery generated without colour guidance is worse, not broken, and
+ * a token lookup should never cost you the asset.
+ */
+async function registryPalette(): Promise<string[]> {
+  try {
+    const { getTokenSummary, isTokenSummaryEmpty } = await import('@/lib/server/design-token-summary');
+    const summary = await getTokenSummary();
+    if (!summary || isTokenSummaryEmpty(summary)) return [];
+    const colors = (summary as { colors?: { name?: string; value?: string }[] }).colors ?? [];
+    return colors
+      .map((c) => (c.name && c.value ? `${c.name} (${c.value})` : c.value || c.name || ''))
+      .filter(Boolean)
+      .slice(0, 6);
+  } catch {
+    return [];
+  }
+}
+
+/** The rasterized foundations sheet as an image input, or null when there is nothing to rasterize. */
+async function foundationSheetInput(): Promise<ImageEditInput | null> {
+  try {
+    const [{ buildFoundationContextFromRegistry }, { renderFoundationsImage }] = await Promise.all([
+      import('@/lib/server/foundation-context'),
+      import('@/lib/server/foundation-image'),
+    ]);
+    const context = await buildFoundationContextFromRegistry();
+    const png = await renderFoundationsImage(context);
+    if (!png) return null;
+    return { filename: 'design-system-foundations.png', contentType: 'image/png', data: png };
+  } catch (err) {
+    console.warn('[pipeline] foundation sheet unavailable', err);
+    return null;
+  }
+}
 
 // ── registry ──────────────────────────────────────────────────────────────────
 

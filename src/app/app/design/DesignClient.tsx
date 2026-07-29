@@ -235,6 +235,12 @@ const DesignWorkbenchPage = ({
   const [draftArtifactId, setDraftArtifactId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<WorkbenchSession | null>(null);
   const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
+  // Spec-first: brief -> specification -> assets -> composite. Unlike the composer's prompt->image
+  // path, nothing renders inline; the run is handed to the pipeline and the user follows it on the
+  // artifact page.
+  const [brief, setBrief] = useState('');
+  const [briefBusy, setBriefBusy] = useState(false);
+  const [briefError, setBriefError] = useState<string | null>(null);
   const [libraryArtifacts, setLibraryArtifacts] = useState<LibraryArtifactRow[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
@@ -346,6 +352,35 @@ const DesignWorkbenchPage = ({
   }, [activeSidebarTab, libraryLoaded, isLoggedIn, fetchLibrary]);
 
   // Switch lanes: clear the current page and force a fresh first-page load.
+  /**
+   * Start a spec-first design and hand off to its artifact page.
+   *
+   * Navigates rather than waiting: the three stages run one per cron invocation and take minutes
+   * together, and the artifact page already polls the pipeline and fills in as each finishes. Blocking
+   * the composer on that would misrepresent it as a synchronous generation.
+   */
+  const handleStartFromBrief = async () => {
+    if (!brief.trim() || briefBusy) return;
+    setBriefBusy(true);
+    setBriefError(null);
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-from-brief'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ brief }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; artifactId?: string; error?: string };
+      if (!res.ok || !json.artifactId) throw new Error(json.error || 'Could not start the design.');
+      setBrief('');
+      window.location.href = `${basePath}/design/library/${encodeURIComponent(json.artifactId)}/`;
+    } catch (e) {
+      setBriefError(e instanceof Error ? e.message : 'Could not start the design.');
+    } finally {
+      setBriefBusy(false);
+    }
+  };
+
   const handleLibraryLaneChange = useCallback((lane: Lane) => {
     setLibraryLane(lane);
     setLibraryArtifacts([]);
@@ -1539,6 +1574,37 @@ const DesignWorkbenchPage = ({
               </div>
               <div className="border-b px-3 py-2">
                 <LaneTabs value={libraryLane} onChange={handleLibraryLaneChange} />
+              </div>
+              {/* Spec-first entry. Lives here rather than in the composer because the chain is
+                  spec -> assets -> composite across three cron stages: there is no image to show in the
+                  canvas until the last one finishes, so the artifact page (which already polls the
+                  pipeline) is the surface that can actually represent it. */}
+              <div className="space-y-2 border-b px-3 py-2">
+                <label htmlFor="brief-input" className="text-xs font-medium text-muted-foreground">
+                  Start from a brief
+                </label>
+                <Textarea
+                  id="brief-input"
+                  value={brief}
+                  onChange={(e) => setBrief(e.target.value)}
+                  placeholder="Describe what you want designed. Detail helps — this writes the specification."
+                  className="min-h-[64px] text-xs"
+                  disabled={briefBusy}
+                />
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-muted-foreground">Spec first, then assets, then the image.</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-7"
+                    disabled={!brief.trim() || briefBusy || !isLoggedIn || !serverAiAvailable}
+                    onClick={() => void handleStartFromBrief()}
+                  >
+                    {briefBusy ? <Loader2Icon className="mr-1 h-3 w-3 animate-spin" /> : null}
+                    Specify
+                  </Button>
+                </div>
+                {briefError ? <p className="text-[11px] text-destructive">{briefError}</p> : null}
               </div>
               <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
                 {libraryError ? <p className="text-xs text-destructive">{libraryError}</p> : null}

@@ -279,16 +279,29 @@ export async function runDevHandoff(
  * The claim (`pending` → `generating`) is atomic, so overlapping cron ticks cannot double-run the
  * same artifact. Returns false when another worker claimed it first.
  */
-export async function runQueuedSpecGeneration(artifactId: string, opts: { budgetMs?: number } = {}): Promise<boolean> {
+export async function runQueuedSpecGeneration(
+  artifactId: string,
+  opts: { budgetMs?: number; mode?: 'image' | 'brief' } = {}
+): Promise<boolean> {
   const { claimDesignArtifactForSpec } = await import('@/lib/db/queries');
   const claimed = await claimDesignArtifactForSpec(artifactId);
   if (!claimed) return false;
 
   const budgetMs = opts.budgetMs ?? 240_000;
+  // `brief` writes the spec from the user's request before any image exists; `image` reads the
+  // composite and describes it. Same claim, watchdog and failure handling either way.
+  const generate =
+    opts.mode === 'brief'
+      ? async () => {
+          const { generateSpecFromBrief } = await import('@/lib/server/design-spec-generator');
+          await generateSpecFromBrief(artifactId);
+        }
+      : () => generateSpecForArtifact(artifactId);
+
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   try {
     const timedOut = await Promise.race([
-      generateSpecForArtifact(artifactId).then(() => false),
+      generate().then(() => false),
       new Promise<boolean>((resolve) => {
         watchdog = setTimeout(() => resolve(true), budgetMs);
       }),

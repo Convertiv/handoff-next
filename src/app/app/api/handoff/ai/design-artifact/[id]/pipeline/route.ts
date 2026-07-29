@@ -36,7 +36,7 @@ async function authorize(artifactId: string, need: 'view' | 'edit') {
   return { userId: session.user.id };
 }
 
-const INTENTS: DevPipelineIntent[] = ['assets-only', 'assets-and-composite', 'spec-only', 'full'];
+const INTENTS: DevPipelineIntent[] = ['assets-only', 'assets-and-composite', 'spec-only', 'full', 'spec-first'];
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;

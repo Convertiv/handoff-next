@@ -43,6 +43,7 @@ const CATEGORY_BY_TOOL: Record<string, string> = {
   // Design Workbench (build loop: status, extraction, image generation)
   handoff_set_design_status: 'Design Workbench',
   handoff_transition_to_dev: 'Design Workbench',
+  handoff_design_from_brief: 'Design Workbench',
   handoff_revise_spec: 'Design Workbench',
   handoff_generate_design_assets: 'Design Workbench',
   handoff_get_design_pipeline: 'Design Workbench',

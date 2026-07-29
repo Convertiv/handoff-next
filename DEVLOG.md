@@ -5,6 +5,68 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-29 (later still) — Spec-first: the chain now runs the direction we claim
+
+Branch `feature/spec-driven`. Brad, on a live 8x8 artifact: *"the generate assets button is kinda
+similar to our extract asset button - it happens after. We're not building the component from the
+generated assets, but we're generating the component first and the asset after."* Correct, and the
+second complaint — the generated asset didn't match the component — turned out to be the same bug.
+
+### The inversion, as the code actually had it
+
+- `startDevPipeline` required an existing spec before assets could be planned, and the spec was written
+  by **reading the composite screenshot**. So the only possible order for a new design was
+  image -> spec -> assets.
+- The `full` intent was `assets -> composite -> spec`, with spec **last** and a comment saying so
+  deliberately: "so it describes what was actually produced." Composite as source, spec as report.
+- The UI button sent `intent: 'assets-only'`, so the composite was never rebuilt from the new assets.
+  They landed next to an image they had no part in producing — structurally the old extractor.
+
+**Why that asset didn't match.** `asset-first-generation.ts` hands the model a 1x1 blank canvas on
+purpose, and the only content it gets is `req.subject` — a one-line brief the spec prompt explicitly
+strips of anything structural. No composite, no palette, no foundation sheet. The asset generator had
+never seen the design. That is *correct* for asset-first (the asset defines the look, the composite is
+assembled from it) and guaranteed-wrong for asset-after, where the asset must match an image it was
+never shown. One root cause, two symptoms.
+
+### What was built
+
+- **`lib/spec/brief-spec.ts`** — writes a spec from the brief, no image. The model **authors** copy
+  rather than transcribing it, so brand voice is an input here, not just a later check. Emits no
+  `tokens`/`reuse`/`voice` — those are measurements, and nothing has been rendered to measure.
+  `briefSpecProblems` rejects a thin spec up front, because a thin spec produces a thin design and the
+  run looks successful right up until someone opens the image.
+- **`generateSpecFromBrief`** in the spec generator, and `runQueuedSpecGeneration(..., { mode })` so the
+  queue can pick a direction. Same claim, watchdog and failure handling either way.
+- **`spec-first` intent** — `spec(brief) -> assets -> composite`. Assets/composite enqueue
+  unconditionally: whether the design declares imagery is unknowable before the spec exists, and
+  `runAssetsStage` already plans at run time and no-ops cleanly.
+- **`startDesignFromBrief`** + `POST /api/handoff/ai/design-from-brief` + `handoff_design_from_brief` +
+  a "Start from a brief" box in the workbench Library tab. The artifact is created **with no image** —
+  that is the point, not an omission.
+- **Two fidelity fixes the new order exposed.** The composite stage never attached the rasterized
+  foundations sheet (measured earlier: 76% token overlap without it, exact with it) — in spec-first that
+  stage IS the design's only image, so omitting it would have made the new path produce *worse* output
+  than the one it replaces. And `buildAssetPrompt` now takes the registry palette, so an asset generated
+  in isolation still reads as part of the system. Both are in `pipeline-stages.ts`.
+
+### The most important line in the new prompt
+
+`assetRequirements.subject` **is** the image-generation prompt, verbatim, and it is the only thing the
+image model will ever see. In the image-first flow it described something that already existed and
+nothing depended on its richness. Now it has to carry the whole art direction — subject, setting,
+lighting, mood, colour direction, composition. "A team collaborating" produces generic stock imagery;
+`briefSpecProblems` fails a subject under 40 characters rather than letting it surface later as a bad
+photo.
+
+**Verification state:** 228 unit tests pass (21 new); `tsc` clean; `next build` compiles and typechecks.
+**Not verified end-to-end on 8x8** — no spec-first run has been executed against a real registry yet.
+The open risk remains the one already documented: the composite model is *instructed* to place attached
+assets rather than redraw them, and nothing enforces it. That instruction now carries the entire
+guarantee, so it is the first thing to check on a live run.
+
+---
+
 ## 2026-07-29 (later) — The spec patcher · one owner per spec queue · MCP response cap
 
 Branch `feature/spec-driven`. Three debt items, in the order they were asked for.
