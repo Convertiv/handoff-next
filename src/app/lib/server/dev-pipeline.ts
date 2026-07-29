@@ -2,7 +2,13 @@ import 'server-only';
 
 import { getDesignArtifactById } from '@/lib/db/queries';
 import { planAssetsFromSpec } from '@/lib/spec/asset-plan';
-import { enqueuePipeline, getPipelineJobs, isPipelineFinished, type StageSpec } from '@/lib/server/pipeline-queue';
+import {
+  enqueuePipeline,
+  getLatestPipelineIdForArtifact,
+  getPipelineJobs,
+  isPipelineFinished,
+  type StageSpec,
+} from '@/lib/server/pipeline-queue';
 import type { ComponentSpec } from '@/lib/server/design-spec-types';
 
 /**
@@ -85,6 +91,18 @@ export interface PipelineProgress {
   progress: number;
   /** The stage currently running, or null. */
   current: string | null;
+}
+
+/**
+ * Progress for whatever pipeline is most recent on an artifact.
+ *
+ * The id-less entry point. A caller that has an artifact — the detail page, or an agent that just
+ * asked for asset generation and didn't keep the id — can still see what's running, which the
+ * pipelineId-only API made impossible.
+ */
+export async function getLatestDevPipelineProgress(artifactId: string): Promise<PipelineProgress | null> {
+  const pipelineId = await getLatestPipelineIdForArtifact(artifactId);
+  return pipelineId ? getDevPipelineProgress(pipelineId) : null;
 }
 
 /** Progress for one pipeline run — what a caller polls after `startDevPipeline`. */

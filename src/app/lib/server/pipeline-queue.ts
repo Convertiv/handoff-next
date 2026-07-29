@@ -232,6 +232,23 @@ export async function skipRemainingStages(pipelineId: string, afterSeq: number, 
   return updated.length;
 }
 
+/**
+ * The most recent pipeline for an artifact.
+ *
+ * Without this a caller who starts a pipeline and loses the id is blind — there was no way to ask
+ * "what is running on this design?", which made the queue effectively unobservable from the UI.
+ */
+export async function getLatestPipelineIdForArtifact(artifactId: string): Promise<string | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ pipelineId: handoffPipelineJobs.pipelineId })
+    .from(handoffPipelineJobs)
+    .where(eq(handoffPipelineJobs.artifactId, artifactId))
+    .orderBy(sql`${handoffPipelineJobs.createdAt} DESC`, sql`${handoffPipelineJobs.id} DESC`)
+    .limit(1);
+  return row?.pipelineId ?? null;
+}
+
 /** All stages of one pipeline, in order — for progress reporting. */
 export async function getPipelineJobs(pipelineId: string): Promise<PipelineJobRow[]> {
   const db = getDb();

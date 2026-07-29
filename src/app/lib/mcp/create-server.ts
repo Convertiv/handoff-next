@@ -1053,13 +1053,23 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_get_design_pipeline',
     {
-      description: 'Poll a design pipeline started by handoff_generate_design_assets. Read-only.',
-      inputSchema: { pipelineId: z.string() },
+      description:
+        'Poll a design pipeline started by handoff_generate_design_assets. Pass either the pipelineId or ' +
+        'just the artifactId to get its most recent pipeline. Read-only.',
+      inputSchema: {
+        pipelineId: z.string().optional(),
+        artifactId: z.string().optional().describe('Use instead of pipelineId to get the artifact\'s latest pipeline.'),
+      },
     },
-    async ({ pipelineId }) => {
+    async ({ pipelineId, artifactId }) => {
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
-      const { getDevPipelineProgress } = await import('@/lib/server/dev-pipeline');
-      const progress = await getDevPipelineProgress(pipelineId.trim());
+      const { getDevPipelineProgress, getLatestDevPipelineProgress } = await import('@/lib/server/dev-pipeline');
+      if (!pipelineId?.trim() && !artifactId?.trim()) {
+        return textResult({ error: 'Pass either pipelineId or artifactId.' });
+      }
+      const progress = pipelineId?.trim()
+        ? await getDevPipelineProgress(pipelineId.trim())
+        : await getLatestDevPipelineProgress(artifactId!.trim());
       if (!progress) return textResult({ error: 'Pipeline not found' });
       // Authorize against the artifact the pipeline belongs to — a pipeline id must not be a way to
       // read progress on someone else's design. Reports "not found" to avoid confirming it exists.

@@ -400,30 +400,89 @@ export interface AssetView {
   imageUrl: string;
   role?: string;
   description?: string;
+  /**
+   * Present only on assets generated to a spec requirement (asset-first path). Its absence marks a
+   * legacy extracted asset, which is why the two render differently.
+   */
+  generatedFromRequirement?: {
+    slot?: string;
+    aspect?: string;
+    minWidth?: number;
+    size?: string;
+    focalPoint?: string | null;
+  };
 }
 
-function AssetsSection({ assets }: { assets: AssetView[] }) {
+/**
+ * Generated assets, shown with the requirement each one satisfies.
+ *
+ * Thumbnails alone would undersell what changed. These are no longer crops recovered from a composite
+ * — each was generated to a declared requirement at its own aspect and resolution, so the provenance
+ * (slot, aspect, generated size, focal point) IS the claim: these are web-ready files, not extracts.
+ * A download link makes that concrete.
+ */
+function AssetsSection({ assets, basePath }: { assets: AssetView[]; basePath: string }) {
   const shown = assets.filter((a) => a.imageUrl && a.key !== 'annotated_overview');
   if (!shown.length) return null;
+
+  const generated = shown.filter((a) => a.generatedFromRequirement);
+  const src = (url: string) => (/^(data:|blob:|https?:|\/\/)/i.test(url) || !url.startsWith('/') ? url : `${basePath}${url}`);
+
   return (
     <section className="rounded-lg border p-4">
-      <h3 className="text-sm font-semibold">Extracted assets</h3>
-      <p className="mt-1 text-xs text-muted-foreground">{shown.length} asset{shown.length === 1 ? '' : 's'} ready for development.</p>
-      <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {shown.map((a, i) => (
-          <li key={`${a.key ?? a.label}-${i}`} className="overflow-hidden rounded-md border bg-background">
-            <div className="flex aspect-video items-center justify-center bg-[repeating-conic-gradient(#f3f4f6_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={a.imageUrl} alt={a.label} className="max-h-full max-w-full object-contain" loading="lazy" />
-            </div>
-            <div className="p-2">
-              <p className="truncate text-xs font-medium" title={a.label}>
-                {a.label}
-              </p>
-              {a.role ? <p className="truncate text-[11px] text-muted-foreground">{a.role}</p> : null}
-            </div>
-          </li>
-        ))}
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 className="text-sm font-semibold">Assets</h3>
+        {generated.length > 0 ? (
+          <span className="text-xs text-emerald-700 dark:text-emerald-400">
+            {generated.length} generated to spec
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {shown.length} asset{shown.length === 1 ? '' : 's'} ready for development.
+      </p>
+
+      <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+        {shown.map((a, i) => {
+          const req = a.generatedFromRequirement;
+          return (
+            <li key={`${a.key ?? a.label}-${i}`} className="overflow-hidden rounded-md border bg-background">
+              <div className="flex aspect-video items-center justify-center bg-[repeating-conic-gradient(#f3f4f6_0%_25%,transparent_0%_50%)] bg-[length:16px_16px] p-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={src(a.imageUrl)} alt={a.label} className="max-h-full max-w-full object-contain" loading="lazy" />
+              </div>
+              <div className="space-y-1 p-2.5">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="truncate text-xs font-medium" title={a.label}>
+                    {a.label}
+                  </p>
+                  <a
+                    href={src(a.imageUrl)}
+                    download
+                    className="shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                  >
+                    Download
+                  </a>
+                </div>
+                {req ? (
+                  <>
+                    <p className="text-[11px] text-muted-foreground">
+                      {req.size ? <span className="tabular-nums">{req.size.replace('x', ' × ')}</span> : null}
+                      {req.aspect ? <> · {req.aspect}</> : null}
+                      {req.focalPoint ? <> · focal {req.focalPoint}</> : null}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      fills <code className="rounded bg-muted px-1">{req.slot}</code>
+                      {req.minWidth ? <> · needs ≥{req.minWidth}px</> : null}
+                    </p>
+                  </>
+                ) : a.role ? (
+                  <p className="truncate text-[11px] text-muted-foreground">{a.role}</p>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -459,7 +518,7 @@ export function DevHandoffPanel({
       ) : null}
 
       {spec?.reuse ? <ReuseSection reuse={spec.reuse} basePath={basePath} /> : null}
-      <AssetsSection assets={assets} />
+      <AssetsSection assets={assets} basePath={basePath} />
       {spec?.tokens ? <TokensSection tokens={spec.tokens} /> : null}
       {spec?.voice ? <VoiceSection voice={spec.voice} /> : null}
 
