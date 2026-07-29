@@ -571,8 +571,10 @@ function FoundationsDoc({ ctx }: { ctx: DesignWorkbenchFoundationContext }) {
     >
       {letterformRows.length > 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', marginBottom: 36 }}>
+          {/* Single string child on purpose: satori requires an explicit `display: flex` on any
+              element with more than one child, and `Letterforms — {family}` is two. */}
           <div style={{ fontSize: 11, fontWeight: 700, color: '#333333', marginBottom: 8 }}>
-            Letterforms — {letterformRows[0].family}
+            {`Letterforms — ${letterformRows[0].family}`}
           </div>
           {letterformRows.map((row, i) => (
             <div key={`lf-${i}`} style={{ display: 'flex', flexDirection: 'column', marginBottom: 14 }}>
