@@ -105,7 +105,15 @@ async function loadReuseCatalog(): Promise<{ components: string[]; patterns: str
   return { components: components.filter(Boolean), patterns: patterns.filter(Boolean) };
 }
 
-// ── Main spec generation ──────────────────────────────────────────────────────
+// ── Prompts ───────────────────────────────────────────────────────────────────
+//
+// The specification is assembled from FOUR independent model calls rather than one.
+//
+// Why: a single call carrying the component catalog, the token list, the brand voice and the design
+// guidelines — and required to emit all four sections at once — exceeded a 270s budget on live 8x8
+// and self-failed every time. Split, the calls run concurrently (latency ≈ the slowest, not the
+// sum), each is independently retryable, and two of them need no image at all. A failure in one
+// section degrades that section instead of losing the whole specification.
 
 function buildSpecPrompt(params: {
   classificationJson: string;
@@ -113,85 +121,22 @@ function buildSpecPrompt(params: {
   copyFromPrompt: string[];
   existingComponents: { id: string; title: string; propsJson: string }[];
   designMd: string;
-  tokenSummary: string;
-  brandVoice: string;
-  reuseCatalog: { components: string[]; patterns: string[] };
 }): string {
-  const {
-    classificationJson,
-    extractedAssetKeys,
-    copyFromPrompt,
-    existingComponents,
-    designMd,
-    tokenSummary,
-    brandVoice,
-    reuseCatalog,
-  } = params;
+  const { classificationJson, extractedAssetKeys, copyFromPrompt, existingComponents, designMd } = params;
 
   let existingSection = '';
   if (existingComponents.length > 0) {
-    existingSection = `\n\n## Existing component schemas to match against\n` +
-      existingComponents.map(c => `### ${c.title} (id: ${c.id})\n${c.propsJson}`).join('\n\n');
+    existingSection =
+      `\n\n## Existing component schemas to match against\n` +
+      existingComponents.map((c) => `### ${c.title} (id: ${c.id})\n${c.propsJson}`).join('\n\n');
   }
 
-  const copySection = copyFromPrompt.length > 0
-    ? `\n\n## UI copy strings extracted from the design prompt\n${copyFromPrompt.map(s => `- "${s}"`).join('\n')}`
-    : '';
+  const copySection =
+    copyFromPrompt.length > 0
+      ? `\n\n## UI copy strings extracted from the design prompt\n${copyFromPrompt.map((s) => `- "${s}"`).join('\n')}`
+      : '';
 
   const guidelinesSection = designMd ? `\n\n## Team design guidelines\n${designMd.slice(0, 2000)}` : '';
-
-  // Only ask for the token/voice sections when we actually have something to match against.
-  // Asking a vision model to map onto an empty token list invites invention, which is worse
-  // than omitting the section.
-  const tokenSection = tokenSummary
-    ? `\n\n## The design system's REAL tokens — match observed values against THESE ONLY\n${tokenSummary}`
-    : '';
-  const voiceSection = brandVoice ? `\n\n## Brand voice guidelines to check the copy against\n${brandVoice.slice(0, 4000)}` : '';
-
-  const tokensContract = tokenSummary
-    ? `,
-  "tokens": {
-    "colors": [
-      { "observed": "<value read off the design, e.g. #EBEAE1>", "usage": "<where, e.g. section background>", "token": "<exact token name from the list above, or null>", "reference": "<the → reference for that token, or null>", "matchLevel": "<exact|close|none>", "note": "<required unless exact: why, and what to do>" }
-    ],
-    "typography": [ { "observed": "<family weight size/lineheight>", "usage": "<e.g. headline>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
-    "spacing": [ { "observed": "<e.g. 32px>", "usage": "<e.g. gap between CTAs>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
-    "radii": [ { "observed": "<e.g. 8px>", "usage": "<e.g. button corners>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
-    "coverage": <0.0-1.0 — share of observed values with matchLevel "exact">,
-    "notes": "<one or two sentences on overall design-system adherence>"
-  }`
-    : '';
-
-  const hasCatalog = reuseCatalog.components.length > 0 || reuseCatalog.patterns.length > 0;
-  const reuseSection = hasCatalog
-    ? `\n\n## What the team ALREADY has — prefer composing from these over inventing new parts` +
-      (reuseCatalog.components.length ? `\n\n### Existing components\n${reuseCatalog.components.map((c) => `- ${c}`).join('\n')}` : '') +
-      (reuseCatalog.patterns.length ? `\n\n### Existing patterns (already-composed layouts)\n${reuseCatalog.patterns.map((p) => `- ${p}`).join('\n')}` : '')
-    : '';
-
-  const reuseContract = hasCatalog
-    ? `,
-  "reuse": {
-    "candidates": [
-      { "componentId": "<id from the existing components list>", "title": "<its title>", "role": "<which part of THIS design it would cover>", "confidence": <0.0-1.0>, "note": "<how it would be used, or what would need to change>" }
-    ],
-    "patterns": [ { "patternId": "<id from the existing patterns list>", "title": "<its title>", "note": "<why it fits>" } ],
-    "compositionScore": <0.0-1.0 — share of this design buildable from the lists above>,
-    "recommendation": "<one or two sentences: compose from what exists, or genuinely build new — and why>"
-  }`
-    : '';
-
-  const voiceContract = brandVoice
-    ? `,
-  "voice": {
-    "findings": [
-      { "text": "<the copy string>", "role": "<heading|subhead|cta|body|label>", "verdict": "<pass|warn|fail>", "rule": "<banned-phrase|length|tone|preferred-phrase>", "detail": "<what the guideline says and how this copy measures up>", "suggestion": "<concrete rewrite — required when verdict is warn or fail>" }
-    ],
-    "bannedPhrasesFound": ["<only phrases from the guidelines' avoid list that literally appear>"],
-    "score": <0.0-1.0 — share of findings with verdict "pass">,
-    "summary": "<one sentence>"
-  }`
-    : '';
 
   return `You are generating a detailed component specification from a UI design screenshot and extracted assets.
 
@@ -200,7 +145,7 @@ ${classificationJson}
 
 ## Extracted asset keys (use these as variant keys where applicable)
 ${extractedAssetKeys.join(', ')}
-${copySection}${existingSection}${guidelinesSection}${reuseSection}${tokenSection}${voiceSection}
+${copySection}${existingSection}${guidelinesSection}
 
 ## Instructions
 Generate a complete ComponentSpec JSON object. Follow this EXACT schema — every field is required:
@@ -241,8 +186,9 @@ Generate a complete ComponentSpec JSON object. Follow this EXACT schema — ever
     "rules": [{ "field": "<field name>", "maxLength": <number or omit>, "notes": "<guideline>" }]
   },
   "implementation": {
-    "existingComponentMatches": ${existingComponents.length > 0
-      ? `[
+    "existingComponentMatches": ${
+      existingComponents.length > 0
+        ? `[
       {
         "componentId": "<matched component id or empty string>",
         "componentTitle": "<matched component title>",
@@ -254,47 +200,113 @@ Generate a complete ComponentSpec JSON object. Follow this EXACT schema — ever
         "recommendation": "<one sentence — e.g. Use Button with variant=primary"
       }
     ]`
-      : '[]'},
+        : '[]'
+    },
     "dependencies": ["<other component ids this depends on>"],
     "cssNotes": "<CSS/styling notes for the developer>",
     "developerHints": ["<hint>"]
-  }${reuseContract}${tokensContract}${voiceContract}
+  }
 }
 
 Rules:
 - Include at least 1 variant (default). Add more for each extracted state key.
 - textInventory: transcribe ALL visible text in the design image.
 - copyFromPrompt: use the provided array verbatim.
-- If existing components were provided, evaluate each for matchLevel and fill existingComponentMatches accordingly.${
-    hasCatalog
-      ? `
-- reuse: this is the most important section. Default to composition — assume the design SHOULD be
-  built from existing components and patterns, and only conclude otherwise when nothing in the
-  catalog fits. Break the design into its parts and name a candidate for each part you can.
-- reuse: use ONLY ids that appear in the lists above; never invent one. If a candidate is an
-  imperfect fit, still list it and say what would need to change in note — a near-miss the team
-  can adapt is more valuable than silence.
-- reuse: if an existing pattern already covers the whole layout, say so plainly in recommendation.
-  Rebuilding something that already exists is the outcome this section exists to prevent.`
-      : ''
-  }${
-    tokenSummary
-      ? `
-- tokens: NEVER invent a token name. Use only names from the token list above; when an observed
-  value has no counterpart there, set token and reference to null with matchLevel "none" and say
-  so in note. Reporting an off-system value honestly is far more useful than a false match.
-- tokens: use "close" when the observed value is within a couple of units/shades of a real token —
-  that is the actionable case ("snap this to X"), so always name the token you'd snap to.`
-      : ''
-  }${
-    brandVoice
-      ? `
-- voice: check every heading, subhead and CTA. Apply the guidelines' length rules literally
-  (count the words) and flag any phrase on the avoid list as verdict "fail".
-- voice: bannedPhrasesFound must contain only phrases that literally appear in the copy — do not
-  list a phrase merely because the copy is similar in spirit.`
-      : ''
-  }
+- If existing components were provided, evaluate each for matchLevel and fill existingComponentMatches accordingly.
+- Return ONLY valid JSON — no markdown, no commentary.`;
+}
+
+/** Reuse: text-only. Needs the catalog and a description of the design, not its pixels. */
+function buildReusePrompt(params: {
+  classificationJson: string;
+  designHint: string;
+  reuseCatalog: { components: string[]; patterns: string[] };
+}): string {
+  const { classificationJson, designHint, reuseCatalog } = params;
+  return `You decide whether a new UI design should be COMPOSED from a design system's existing parts, or genuinely built new.
+
+## The design
+${classificationJson}
+${designHint ? `\n${designHint}` : ''}
+
+## What the team ALREADY has
+${reuseCatalog.components.length ? `### Existing components\n${reuseCatalog.components.map((c) => `- ${c}`).join('\n')}` : ''}
+${reuseCatalog.patterns.length ? `\n### Existing patterns (already-composed layouts)\n${reuseCatalog.patterns.map((p) => `- ${p}`).join('\n')}` : ''}
+
+## Instructions
+Return ONLY this JSON:
+{
+  "candidates": [
+    { "componentId": "<id from the list above>", "title": "<its title>", "role": "<which part of THIS design it would cover>", "confidence": <0.0-1.0>, "note": "<how it would be used, or what would need to change>" }
+  ],
+  "patterns": [ { "patternId": "<id from the list above>", "title": "<its title>", "note": "<why it fits>" } ],
+  "compositionScore": <0.0-1.0 — share of this design buildable from the lists above>,
+  "recommendation": "<one or two sentences: compose from what exists, or genuinely build new — and why>"
+}
+
+Rules:
+- Default to composition. Assume the design SHOULD be built from existing parts, and conclude otherwise only when nothing fits.
+- Break the design into its parts and name a candidate for each part you can.
+- Use ONLY ids that appear above. NEVER invent one.
+- List near-misses too, saying in note what would need to change — an adaptable near-miss beats silence.
+- If an existing pattern already covers the whole layout, say so plainly in recommendation.
+- Return ONLY valid JSON — no markdown, no commentary.`;
+}
+
+/** Tokens: needs the image, to read actual values off the design. */
+function buildTokenPrompt(params: { tokenSummary: string }): string {
+  return `You map the visual values in a UI design onto a design system's REAL tokens.
+
+## The design system's tokens — match against THESE ONLY
+${params.tokenSummary}
+
+## Instructions
+Read the colours, type, spacing and corner radii off the design image and return ONLY this JSON:
+{
+  "colors": [
+    { "observed": "<value read off the design, e.g. #EBEAE1>", "usage": "<where, e.g. section background>", "token": "<exact token name from above, or null>", "reference": "<the → reference for that token, or null>", "matchLevel": "<exact|close|none>", "note": "<required unless exact: why, and what to do>" }
+  ],
+  "typography": [ { "observed": "<family weight size/lineheight>", "usage": "<e.g. headline>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
+  "spacing": [ { "observed": "<e.g. 32px>", "usage": "<e.g. gap between CTAs>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
+  "radii": [ { "observed": "<e.g. 8px>", "usage": "<e.g. button corners>", "token": "<name|null>", "reference": "<ref|null>", "matchLevel": "<exact|close|none>", "note": "<...>" } ],
+  "coverage": <0.0-1.0 — share of observed values with matchLevel "exact">,
+  "notes": "<one or two sentences on overall design-system adherence>"
+}
+
+Rules:
+- NEVER invent a token name. Use only names from the list above; when an observed value has no counterpart there, set token and reference to null with matchLevel "none" and say so in note. An honest "off-system" is far more useful than a false match.
+- Use "close" when the value is within a couple of units/shades of a real token — that is the actionable case ("snap this to X"), so always name the token you would snap to.
+- Estimate spacing and radii in pixels; approximate is fine, say so in note.
+- Return ONLY valid JSON — no markdown, no commentary.`;
+}
+
+/** Voice: text-only. Needs the copy strings and the guidance, not the image. */
+function buildVoicePrompt(params: { copyStrings: { text: string; role: string }[]; brandVoice: string }): string {
+  const { copyStrings, brandVoice } = params;
+  return `You check UI copy against a brand's voice guidelines.
+
+## Brand voice guidelines
+${brandVoice.slice(0, 6000)}
+
+## The copy in this design
+${copyStrings.map((c) => `- [${c.role}] "${c.text}"`).join('\n')}
+
+## Instructions
+Return ONLY this JSON:
+{
+  "findings": [
+    { "text": "<the copy string>", "role": "<heading|subhead|cta|body|label>", "verdict": "<pass|warn|fail>", "rule": "<banned-phrase|length|tone|preferred-phrase>", "detail": "<what the guideline says and how this copy measures up>", "suggestion": "<concrete rewrite — required when verdict is warn or fail>" }
+  ],
+  "bannedPhrasesFound": ["<only phrases from the guidelines' avoid list that literally appear>"],
+  "score": <0.0-1.0 — share of findings with verdict "pass">,
+  "summary": "<one sentence>"
+}
+
+Rules:
+- Check every heading, subhead and CTA. Apply length rules literally — count the words.
+- Any phrase on the avoid list is verdict "fail".
+- bannedPhrasesFound must contain only phrases that LITERALLY appear in the copy. Do not list a phrase because the copy is similar in spirit.
+- If the guidelines contradict each other on a phrase, say so in that finding's detail rather than guessing.
 - Return ONLY valid JSON — no markdown, no commentary.`;
 }
 
@@ -478,60 +490,79 @@ export function specToMarkdown(spec: ComponentSpec): string {
 
 // ── Orchestration entry point ─────────────────────────────────────────────────
 
+/** Parse a section response, tolerating a fenced code block. Null on malformed JSON. */
+function parseSection<T>(raw: string): T | null {
+  try {
+    return JSON.parse(raw.replace(/^```(?:json)?\s*/m, '').replace(/```\s*$/m, '').trim()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Write `specStatus: failed` with a reason the UI can display. */
+async function failSpec(artifactId: string, reason: string): Promise<void> {
+  const existing = await getDesignArtifactById(artifactId);
+  const meta =
+    existing?.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
+      ? { ...(existing.metadata as Record<string, unknown>) }
+      : {};
+  meta.specError = reason;
+  await updateDesignArtifactById(artifactId, {
+    specStatus: 'failed',
+    metadata: meta,
+  } as Parameters<typeof updateDesignArtifactById>[1]).catch(() => undefined);
+}
+
+/** Copy strings for the voice check: prefer the spec's transcribed text, fall back to the prompt. */
+function copyStringsForVoice(spec: ComponentSpec, copyFromPrompt: string[]): { text: string; role: string }[] {
+  const inventory = (spec.content?.textInventory ?? [])
+    .filter((t) => typeof t.text === 'string' && t.text.trim().length > 1)
+    .map((t) => ({ text: t.text.trim(), role: t.role || 'body' }));
+  if (inventory.length) return inventory.slice(0, 40);
+  return copyFromPrompt.slice(0, 40).map((text) => ({ text, role: 'body' }));
+}
+
 export async function generateSpecForArtifact(artifactId: string): Promise<void> {
   // Callers (the design-artifact route and the MCP tool) set `specStatus: 'pending'` *before*
   // scheduling this. Returning silently here would leave the row on `pending` forever with no
   // reason surfaced — write a terminal status instead so the UI can explain itself.
   if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
-    const existing = await getDesignArtifactById(artifactId);
-    const meta =
-      existing?.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
-        ? { ...(existing.metadata as Record<string, unknown>) }
-        : {};
-    meta.specError = 'HANDOFF_AI_API_KEY is not configured on the server.';
-    await updateDesignArtifactById(artifactId, {
-      specStatus: 'failed',
-      metadata: meta,
-    } as Parameters<typeof updateDesignArtifactById>[1]);
+    await failSpec(artifactId, 'HANDOFF_AI_API_KEY is not configured on the server.');
     return;
   }
 
-  // Mark as generating
   await updateDesignArtifactById(artifactId, { specStatus: 'generating' } as Parameters<typeof updateDesignArtifactById>[1]);
 
   try {
     const row = await getDesignArtifactById(artifactId);
     if (!row?.imageUrl?.trim()) {
-      await updateDesignArtifactById(artifactId, { specStatus: 'failed' } as Parameters<typeof updateDesignArtifactById>[1]);
+      await failSpec(artifactId, 'No composite image on artifact.');
       return;
     }
 
     const assets = (Array.isArray(row.assets) ? row.assets : []) as ExtractedAssetV2[];
-    const overview = assets.find(a => a.key === 'annotated_overview') ?? assets[0];
+    const overview = assets.find((a) => a.key === 'annotated_overview') ?? assets[0];
     const imageForSpec = overview?.imageUrl ?? row.imageUrl;
-    const extractedKeys = assets.filter(a => a.key !== 'annotated_overview').map(a => a.key);
+    const extractedKeys = assets.filter((a) => a.key !== 'annotated_overview').map((a) => a.key);
 
-    // Gather context
     const copyFromPrompt = extractCopyFromHistory(row.conversationHistory);
     const existingComponents = await loadComponentSchemasForGuides(row.componentGuides);
-
-    // Build vision parts for the spec call
     const visionPart = await imageUrlToVisionPart(imageForSpec, 'high');
+
     const classificationGuess = {
       componentType: 'other' as const,
       suggestedName: row.title || 'Component',
-      visibleStates: extractedKeys.filter(k => k.startsWith('state_')).map(k => k.replace('state_', '')),
+      visibleStates: extractedKeys.filter((k) => k.startsWith('state_')).map((k) => k.replace('state_', '')),
       subComponents: [],
       hasIcons: extractedKeys.includes('icons'),
       hasMedia: extractedKeys.includes('media'),
       complexity: 'medium' as const,
     };
     if (!classificationGuess.visibleStates.length) classificationGuess.visibleStates = ['default'];
+    const classificationJson = JSON.stringify(classificationGuess, null, 2);
 
-    // Workspace context: the team's design guidelines, the registry's real tokens, and the
-    // brand voice. `designMd` was previously hardcoded to '' here, so the spec never saw the
-    // team guidelines at all. All three degrade to '' independently — a registry with no DTCG
-    // dimension tokens or no brand voice still gets a spec, just without those sections.
+    // Workspace context. All three degrade independently — a registry with no DTCG dimension
+    // tokens, or no brand voice, still gets a specification, just without those sections.
     const [workspace, tokenSummary, reuseCatalog] = await Promise.all([
       getDesignWorkspace().catch(() => null),
       getTokenSummary().catch(() => null),
@@ -539,53 +570,121 @@ export async function generateSpecForArtifact(artifactId: string): Promise<void>
     ]);
     const tokenSummaryText = tokenSummary && !isTokenSummaryEmpty(tokenSummary) ? formatTokenSummaryForPrompt(tokenSummary) : '';
     const brandVoiceText = workspace ? formatBrandVoiceForPrompt(workspace.brandVoice).trim() : '';
+    const hasCatalog = reuseCatalog.components.length > 0 || reuseCatalog.patterns.length > 0;
 
-    const systemPrompt = buildSpecPrompt({
-      classificationJson: JSON.stringify(classificationGuess, null, 2),
-      extractedAssetKeys: ['default', ...extractedKeys],
-      copyFromPrompt,
-      existingComponents,
-      designMd: workspace?.designMd ?? '',
-      tokenSummary: tokenSummaryText,
-      brandVoice: brandVoiceText,
-      reuseCatalog,
-    });
+    const call = (systemPrompt: string, userText: string, withImage: boolean, eventType: string, maxTokens: number) => {
+      const messages: Parameters<typeof openAiChatJson>[0] = [{ role: 'system', content: systemPrompt }];
+      if (withImage && visionPart) {
+        messages.push({ role: 'user', content: [{ type: 'text', text: userText }, visionPart] });
+      } else {
+        messages.push({ role: 'user', content: userText });
+      }
+      return openAiChatJson(messages, {
+        actorUserId: row.userId,
+        route: 'design-spec-generate',
+        eventType,
+        model: SPEC_MODEL(),
+        maxTokens,
+      });
+    };
 
-    const messages: Parameters<typeof openAiChatJson>[0] = [
-      { role: 'system', content: systemPrompt },
-    ];
-    if (visionPart) {
-      messages.push({ role: 'user', content: [{ type: 'text', text: 'Generate the ComponentSpec JSON for this design:' }, visionPart] });
-    } else {
-      messages.push({ role: 'user', content: 'Generate the ComponentSpec JSON for this design based on the context provided.' });
-    }
+    // ── Round 1: base spec, tokens and reuse, concurrently ──────────────────
+    // Only the base spec is required. `tokens` needs the image; `reuse` does not.
+    const [baseRaw, tokensRes, reuseRes] = await Promise.all([
+      call(
+        buildSpecPrompt({
+          classificationJson,
+          extractedAssetKeys: ['default', ...extractedKeys],
+          copyFromPrompt,
+          existingComponents,
+          designMd: workspace?.designMd ?? '',
+        }),
+        'Generate the ComponentSpec JSON for this design:',
+        true,
+        'ai.design_spec_generate',
+        4000
+      ),
+      tokenSummaryText
+        ? call(
+            buildTokenPrompt({ tokenSummary: tokenSummaryText }),
+            'Map this design onto the design system tokens:',
+            true,
+            'ai.design_spec_tokens',
+            2500
+          )
+            .then((raw) => parseSection<NonNullable<ComponentSpec['tokens']>>(raw))
+            .catch((err) => {
+              console.warn('[design-spec-generator] tokens section failed', artifactId, err);
+              return null;
+            })
+        : Promise.resolve(null),
+      hasCatalog
+        ? call(
+            buildReusePrompt({
+              classificationJson,
+              designHint: row.description?.trim() ? `Description: ${row.description.trim()}` : '',
+              reuseCatalog,
+            }),
+            'Decide what this design should be composed from:',
+            false,
+            'ai.design_spec_reuse',
+            2000
+          )
+            .then((raw) => parseSection<NonNullable<ComponentSpec['reuse']>>(raw))
+            .catch((err) => {
+              console.warn('[design-spec-generator] reuse section failed', artifactId, err);
+              return null;
+            })
+        : Promise.resolve(null),
+    ]);
 
-    const raw = await openAiChatJson(messages, {
-      actorUserId: row.userId,
-      route: 'design-spec-generate',
-      eventType: 'ai.design_spec_generate',
-      model: SPEC_MODEL(),
-      maxTokens: 4000,
-    });
-
-    const spec = parseSpec(raw, row.title || 'Component');
+    const spec = parseSpec(baseRaw, row.title || 'Component');
     if (!spec) {
-      await updateDesignArtifactById(artifactId, { specStatus: 'failed' } as Parameters<typeof updateDesignArtifactById>[1]);
+      await failSpec(artifactId, 'The model returned a specification that could not be parsed. Re-run the dev handoff.');
       return;
     }
 
+    if (tokensRes) spec.tokens = tokensRes;
+    if (reuseRes) spec.reuse = reuseRes;
+
+    // ── Round 2: voice, against the copy the base spec actually transcribed ──
+    // Text-only and cheap, so the serialization costs little — and checking the real on-screen
+    // copy beats checking prompt-derived strings.
+    if (brandVoiceText) {
+      const copyStrings = copyStringsForVoice(spec, copyFromPrompt);
+      if (copyStrings.length) {
+        try {
+          const voiceRaw = await call(
+            buildVoicePrompt({ copyStrings, brandVoice: brandVoiceText }),
+            'Check this copy against the brand voice:',
+            false,
+            'ai.design_spec_voice',
+            2000
+          );
+          const voice = parseSection<NonNullable<ComponentSpec['voice']>>(voiceRaw);
+          if (voice) spec.voice = voice;
+        } catch (err) {
+          console.warn('[design-spec-generator] voice section failed', artifactId, err);
+        }
+      }
+    }
+
     spec.generatedAt = new Date().toISOString();
-    const specMd = specToMarkdown(spec);
 
     await updateDesignArtifactById(artifactId, {
       componentSpec: spec as unknown as Parameters<typeof updateDesignArtifactById>[1]['componentSpec'],
-      componentSpecMd: specMd,
+      componentSpecMd: specToMarkdown(spec),
       specStatus: 'done',
     } as Parameters<typeof updateDesignArtifactById>[1]);
 
-    console.log('[design-spec-generator] spec generated for', artifactId, spec.overview.name);
+    console.log(
+      '[design-spec-generator] spec generated for',
+      artifactId,
+      spec.overview.name,
+      `(tokens:${spec.tokens ? 'y' : 'n'} reuse:${spec.reuse ? 'y' : 'n'} voice:${spec.voice ? 'y' : 'n'})`
+    );
   } catch (e) {
     console.error('[design-spec-generator] failed', artifactId, e);
-    await updateDesignArtifactById(artifactId, { specStatus: 'failed' } as Parameters<typeof updateDesignArtifactById>[1]);
+    await failSpec(artifactId, e instanceof Error ? e.message.slice(0, 2000) : 'Specification generation failed.');
   }
 }
