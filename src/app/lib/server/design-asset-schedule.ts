@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { after } from 'next/server';
-import { runDevHandoff } from '@/lib/server/dev-handoff';
+import { runDevHandoff, type DevHandoffStageName } from '@/lib/server/dev-handoff';
 import { generateSpecForArtifact } from '@/lib/server/design-spec-generator';
 
 /**
@@ -17,9 +17,9 @@ import { generateSpecForArtifact } from '@/lib/server/design-spec-generator';
  * is left non-terminal, which the design-jobs cron reaper sweeps within 15 minutes. The
  * extraction step additionally self-fails at 240s. See DEVLOG 2026-07-28.
  */
-export function scheduleDesignAssetExtraction(artifactId: string): void {
+export function scheduleDesignAssetExtraction(artifactId: string, opts: { stages?: readonly DevHandoffStageName[] } = {}): void {
   after(() => {
-    void runDevHandoff(artifactId);
+    void runDevHandoff(artifactId, opts);
   });
 }
 

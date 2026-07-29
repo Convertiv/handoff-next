@@ -163,15 +163,53 @@ export interface StartDevHandoffResult {
   status?: DevHandoffStatus;
 }
 
+/** The stages a dev handoff can run. Selection is explicit — see DEFAULT_STAGES. */
+export type DevHandoffStageName = 'assets' | 'spec';
+
 /**
- * Reset both statuses to `pending` so the derived status reads as in-flight the instant the
- * caller returns. Doing this synchronously (rather than inside the background task) is what
- * makes the UI and MCP poll paths honest — otherwise a caller can poll before the work starts
- * and see a stale `ready` from the previous run.
+ * Stages run by default.
+ *
+ * **Asset extraction is deliberately excluded.** It has never once succeeded on a live registry
+ * (8x8: five `none`, one `failed`, zero assets across every artifact), and because both stages share
+ * one invocation it does active harm — it consumed 120s of a 270s budget and left specification 56s,
+ * which then self-failed. Running a stage with no successful history at the cost of the stage that
+ * works is the wrong trade.
+ *
+ * This is a **temporary default tied to the extraction rebuild** (`docs/ASSET-EXTRACTION-REDESIGN.md`):
+ * the current path asks an image model to re-generate assets rather than extracting them, so it
+ * cannot produce faithful, right-sized output at any budget. Flip this back to
+ * `['assets', 'spec']` once extraction is geometry-based — and once stages have their own
+ * invocations (`docs/WORKBENCH-STRATEGY.md` §9), at which point the two can no longer starve
+ * each other and this trade-off disappears.
  */
-export async function markDevHandoffQueued(artifactId: string, opts: { clearAssets: boolean }): Promise<boolean> {
-  const patch: Record<string, unknown> = { assetsStatus: 'pending', specStatus: 'pending' };
-  if (opts.clearAssets) patch.assets = [];
+const DEFAULT_STAGES: readonly DevHandoffStageName[] = ['spec'];
+
+/**
+ * Reset the statuses for the stages about to run, so the derived status reads as in-flight the
+ * instant the caller returns. Doing this synchronously (rather than inside the background task) is
+ * what makes the UI and MCP poll paths honest — otherwise a caller can poll before the work starts
+ * and see a stale `ready` from the previous run.
+ *
+ * Only the selected stages are touched. A spec-only run resets `assetsStatus` to `none` and drops
+ * any stale extraction error: this pass did not attempt extraction, so surfacing a previous run's
+ * failure would misreport what just happened.
+ */
+export async function markDevHandoffQueued(
+  artifactId: string,
+  opts: { clearAssets: boolean; stages?: readonly DevHandoffStageName[] }
+): Promise<boolean> {
+  const stages = opts.stages ?? DEFAULT_STAGES;
+  const runAssets = stages.includes('assets');
+  const runSpec = stages.includes('spec');
+
+  const patch: Record<string, unknown> = {};
+  if (runAssets) {
+    patch.assetsStatus = 'pending';
+    if (opts.clearAssets) patch.assets = [];
+  } else {
+    patch.assetsStatus = 'none';
+  }
+  if (runSpec) patch.specStatus = 'pending';
 
   // Clear stale errors so a retry doesn't display the previous failure's reason.
   const existing = await getDesignArtifactById(artifactId);
@@ -179,7 +217,7 @@ export async function markDevHandoffQueued(artifactId: string, opts: { clearAsse
   if (existing.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)) {
     const meta = { ...(existing.metadata as Record<string, unknown>) };
     delete meta.assetsExtractionError;
-    delete meta.specError;
+    if (runSpec) delete meta.specError;
     patch.metadata = meta;
   }
 
@@ -215,22 +253,31 @@ const SPEC_MIN_MS = 45_000;
  * Both steps draw from one shared deadline (see `DEV_HANDOFF_BUDGET_MS`) so neither can starve the
  * other into being killed by the platform.
  */
-export async function runDevHandoff(artifactId: string, opts: { budgetMs?: number } = {}): Promise<void> {
+export async function runDevHandoff(
+  artifactId: string,
+  opts: { budgetMs?: number; stages?: readonly DevHandoffStageName[] } = {}
+): Promise<void> {
   const id = artifactId.trim();
+  const stages = opts.stages ?? DEFAULT_STAGES;
   const deadline = Date.now() + (opts.budgetMs ?? DEV_HANDOFF_BUDGET_MS);
   const remaining = () => deadline - Date.now();
 
-  try {
-    // Cap extraction so at least SPEC_RESERVE_MS survives for the specification.
-    const extractionMs = Math.min(remaining() - SPEC_RESERVE_MS, 120_000);
-    if (extractionMs > 15_000) {
-      await runDesignAssetExtractionForArtifact(id, { timeoutMs: extractionMs });
-    } else {
-      console.warn('[dev-handoff] skipping extraction — insufficient budget', id, remaining());
+  if (stages.includes('assets')) {
+    try {
+      // Cap extraction so at least SPEC_RESERVE_MS survives for the specification.
+      const reserve = stages.includes('spec') ? SPEC_RESERVE_MS : 0;
+      const extractionMs = Math.min(remaining() - reserve, 120_000);
+      if (extractionMs > 15_000) {
+        await runDesignAssetExtractionForArtifact(id, { timeoutMs: extractionMs });
+      } else {
+        console.warn('[dev-handoff] skipping extraction — insufficient budget', id, remaining());
+      }
+    } catch (err) {
+      console.error('[dev-handoff] asset extraction threw', id, err);
     }
-  } catch (err) {
-    console.error('[dev-handoff] asset extraction threw', id, err);
   }
+
+  if (!stages.includes('spec')) return;
 
   // Spec generation cannot bound its own runtime, so race it against what's left of the budget and
   // write a terminal status on timeout. As with extraction, the orphaned call may still land later

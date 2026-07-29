@@ -18,6 +18,8 @@ import {
   handoffEventLog,
   handoffPatterns,
   handoffDesignWorkspace,
+  handoffResourceGrants,
+  handoffShareLinks,
   handoffReferenceMaterials,
   handoffTokensSnapshots,
   users,
@@ -1301,6 +1303,31 @@ export async function killDesignAssetExtractionJob(artifactId: string): Promise<
     metadata: { ...meta, assetsExtractionError: 'Killed by admin' },
   });
   return true;
+}
+
+/**
+ * Hard-delete one design artifact and the sharing rows that point at it.
+ *
+ * `handoff_resource_grant` and `handoff_share_link` address resources by
+ * (`resource_type`, `resource_id`) text rather than a foreign key, so nothing cascades — without
+ * this they would be left as orphans that a later artifact reusing the id could inherit.
+ *
+ * Authorization is the caller's responsibility (`permissions.canDelete`); this is the worker-level
+ * primitive. Returns false when the artifact does not exist.
+ */
+export async function deleteDesignArtifactById(id: string): Promise<boolean> {
+  const db = getDb();
+  await db
+    .delete(handoffResourceGrants)
+    .where(and(eq(handoffResourceGrants.resourceType, 'design_artifact'), eq(handoffResourceGrants.resourceId, id)));
+  await db
+    .delete(handoffShareLinks)
+    .where(and(eq(handoffShareLinks.resourceType, 'design_artifact'), eq(handoffShareLinks.resourceId, id)));
+  const deleted = await db
+    .delete(handoffDesignArtifacts)
+    .where(eq(handoffDesignArtifacts.id, id))
+    .returning({ id: handoffDesignArtifacts.id });
+  return deleted.length > 0;
 }
 
 /** Non-terminal states for the two design-artifact background jobs. */

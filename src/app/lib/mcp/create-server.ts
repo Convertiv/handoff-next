@@ -949,7 +949,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
    * `handoff_extract_design_assets` is kept as a deprecated alias so existing agent
    * transcripts and saved prompts keep working.
    */
-  async function startDevHandoff(artifactId: string, reextractAssets: boolean) {
+  async function startDevHandoff(artifactId: string, extractAssets: boolean) {
     if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
     const denied = requireScope(auth, 'sync:write');
     if (denied) return denied;
@@ -957,22 +957,25 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       return textResult({ ok: false, error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' });
     }
     const id = artifactId.trim();
-    // Re-runs extraction and spends AI credits on the artifact — edit rights required.
+    // Spends AI credits on the artifact and overwrites its spec — edit rights required.
     const deniedAccess = await denyArtifactAccess(id, 'edit');
     if (deniedAccess) return deniedAccess;
 
+    const stages = extractAssets ? (['assets', 'spec'] as const) : (['spec'] as const);
+
     const { markDevHandoffQueued, getDevHandoffStatus } = await import('@/lib/server/dev-handoff');
-    const ok = await markDevHandoffQueued(id, { clearAssets: reextractAssets });
+    const ok = await markDevHandoffQueued(id, { clearAssets: extractAssets, stages });
     if (!ok) return textResult({ ok: false, error: 'Design not found' });
 
     const { scheduleDevHandoff } = await import('@/lib/server/design-asset-schedule');
-    scheduleDevHandoff(id);
+    scheduleDevHandoff(id, { stages });
 
     return textResult({
       ok: true,
       artifactId: id,
+      stages,
       devHandoff: await getDevHandoffStatus(id),
-      note: 'Runs asset extraction then specification. Poll handoff_get_design_artifact and read `devHandoff` for stage-level progress.',
+      note: 'Poll handoff_get_design_artifact and read `devHandoff` for stage-level progress.',
     });
   }
 
@@ -987,24 +990,28 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         'generating_spec → ready). Read the result with handoff_get_component_spec.',
       inputSchema: {
         artifactId: z.string(),
-        reextractAssets: z
+        extractAssets: z
           .boolean()
           .optional()
-          .describe('Discard existing extracted assets and extract again. Default true; set false to keep assets and only re-specify.'),
+          .describe(
+            'Also run image asset extraction. Default FALSE — the current extraction path is being rebuilt and, because both stages share one invocation, running it starves specification of time. Only pass true if you specifically want to exercise extraction.'
+          ),
       },
     },
-    async ({ artifactId, reextractAssets }) => startDevHandoff(artifactId, reextractAssets !== false)
+    async ({ artifactId, extractAssets }) => startDevHandoff(artifactId, extractAssets === true)
   );
 
   server.registerTool(
     'handoff_extract_design_assets',
     {
       description:
-        'DEPRECATED — use handoff_transition_to_dev, which this now forwards to. Re-runs asset extraction ' +
-        'and specification for a design artifact.',
+        'DEPRECATED — use handoff_transition_to_dev, which this now forwards to. Runs the dev handoff ' +
+        'for a design artifact.',
       inputSchema: { artifactId: z.string() },
     },
-    async ({ artifactId }) => startDevHandoff(artifactId, true)
+    // Forwards with extraction OFF, matching handoff_transition_to_dev's default: the alias exists
+    // for compatibility, not to preserve a behavior we've established is harmful.
+    async ({ artifactId }) => startDevHandoff(artifactId, false)
   );
 
   server.registerTool(
