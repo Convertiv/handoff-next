@@ -205,7 +205,7 @@ Generate a complete ComponentSpec JSON object. Follow this EXACT schema — ever
         : '[]'
     },
     "dependencies": ["<other component ids this depends on>"],
-    "cssNotes": "<CSS/styling notes for the developer>",
+    "cssNotes": "<LAYOUT and STRUCTURE notes only — grid/columns, stacking, alignment, overflow, responsive behaviour. No concrete colour, size, spacing or radius values.>",
     "developerHints": ["<hint>"]
   }
 }
@@ -215,6 +215,12 @@ Rules:
 - textInventory: transcribe ALL visible text in the design image.
 - copyFromPrompt: use the provided array verbatim.
 - If existing components were provided, evaluate each for matchLevel and fill existingComponentMatches accordingly.
+- cssNotes and developerHints: describe LAYOUT and STRUCTURE only. Do NOT state specific hex colours,
+  font sizes, spacing values or border radii. Those are resolved separately against the design
+  system's real tokens, and a guess here contradicts that mapping — on a live run this section
+  claimed "Teal (#00A3BF)" and "8px border-radius" for a design whose actual tokens were #04888a and
+  12px. Describe the intent ("primary action colour", "card corner radius") and let the token
+  mapping supply the value.
 - Return ONLY valid JSON — no markdown, no commentary.`;
 }
 
@@ -436,6 +442,12 @@ export function specToMarkdown(spec: ComponentSpec): string {
     lines.push('', '## Implementation notes');
     if (spec.implementation.cssNotes) lines.push(spec.implementation.cssNotes);
     for (const h of spec.implementation.developerHints) lines.push(`- ${h}`);
+    // These notes come from the call that reads the image, not the one that resolves tokens, so any
+    // concrete value here is an estimate. Point the reader at the authoritative mapping rather than
+    // letting the two sections quietly disagree.
+    if (spec.tokens) {
+      lines.push('', '> Concrete colour, type, spacing and radius values are resolved in **Design tokens** below — use those, not any values named here.');
+    }
   }
 
   if (spec.reuse && (spec.reuse.candidates?.length || spec.reuse.patterns?.length || spec.reuse.recommendation)) {
