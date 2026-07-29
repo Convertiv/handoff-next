@@ -519,6 +519,77 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
     }
   };
 
+  // ── Asset-first pipeline ────────────────────────────────────────────────────
+  // Generating assets separately is a multi-stage pipeline drained by the design-jobs cron (each
+  // stage takes 1-2 minutes), so this starts it and then polls. It is NOT awaited in a request.
+  const [pipelineBusy, setPipelineBusy] = useState(false);
+  const [pipeline, setPipeline] = useState<{
+    finished: boolean;
+    current: string | null;
+    progress: number;
+    stages: { stage: string; status: string; attempts: number; error: string | null }[];
+  } | null>(null);
+
+  const declaresImagery = Array.isArray(
+    (artifact?.componentSpec as { assetRequirements?: unknown[] } | undefined)?.assetRequirements
+  )
+    ? ((artifact!.componentSpec as { assetRequirements: unknown[] }).assetRequirements.length > 0)
+    : false;
+
+  const fetchPipeline = useCallback(async () => {
+    if (!artifactId) return;
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}/pipeline`), {
+        credentials: 'include',
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as { pipeline?: typeof pipeline };
+      setPipeline(json.pipeline ?? null);
+    } catch {
+      /* transient — the next poll retries */
+    }
+  }, [artifactId]);
+
+  useEffect(() => {
+    void fetchPipeline();
+  }, [fetchPipeline]);
+
+  // Poll only while something is actually in flight, so an idle tab isn't hitting the server forever.
+  useEffect(() => {
+    if (!pipeline || pipeline.finished) return;
+    const t = setInterval(() => void fetchPipeline(), 8000);
+    return () => clearInterval(t);
+  }, [pipeline, fetchPipeline]);
+
+  // Refresh the artifact once the pipeline finishes so the new assets appear without a manual reload.
+  const pipelineFinished = pipeline?.finished ?? null;
+  useEffect(() => {
+    if (pipelineFinished === true) void fetchArtifact();
+  }, [pipelineFinished, fetchArtifact]);
+
+  const handleGenerateAssets = async () => {
+    if (!artifactId) return;
+    setPipelineBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}/pipeline`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        // assets-only: non-destructive. Recomposing the image would replace the current one.
+        body: JSON.stringify({ intent: 'assets-only' }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string; stages?: string[] };
+      if (!res.ok) throw new Error(json.error || 'Could not start asset generation.');
+      setNotice(`Generating assets (${(json.stages ?? []).join(' → ')}). Each stage takes a minute or two.`);
+      await fetchPipeline();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not start asset generation.');
+    } finally {
+      setPipelineBusy(false);
+    }
+  };
+
   const handleSaveSpec = async () => {
     if (!artifactId) return;
     setSpecSaving(true);
@@ -638,6 +709,24 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     )}
                     {devHandoff?.stage === 'ready' ? 'Re-run dev handoff' : 'Transition to dev'}
                   </Button>
+                  {declaresImagery ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="w-full justify-start gap-1.5"
+                      disabled={pipelineBusy || Boolean(pipeline && !pipeline.finished)}
+                      onClick={() => void handleGenerateAssets()}
+                      title="Generate each image the spec declares as a separate, web-ready asset"
+                    >
+                      {pipelineBusy || (pipeline && !pipeline.finished) ? (
+                        <Loader2Icon className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <SparklesIcon className="h-4 w-4" />
+                      )}
+                      Generate assets
+                    </Button>
+                  ) : null}
                 </div>
               </>
             ) : null}
