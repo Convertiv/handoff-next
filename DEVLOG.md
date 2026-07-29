@@ -5,6 +5,93 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-29 — Asset-first generation VALIDATED · the raster font chain · spec versioning
+
+Branch `feature/spec-driven`. Three connected arcs; the third is the significant one.
+
+### 1. The token sheet was never reaching MCP generation
+
+`handoff_generate_design_image` hardcoded `foundationContext: { colors: [], typography: [], effects: [],
+spacing: [] }`. `shouldRasterizeFoundations` returns **false** for four empty arrays and
+`formatFoundationsBlock` emits nothing either — so **every MCP-initiated generation lost both the
+rasterized colour/type/spacing sheet and the textual token block**, while UI-initiated generation kept
+them. That reference sheet is what keeps the image model on-token. Fixed via a new
+`buildFoundationContextFromRegistry()`. Measured before/after on an identical prompt: token overlap
+went from 76% to "all correct" on the same design.
+
+**Lesson recorded:** a round-trip experiment comparing spec-driven output against prompt-driven output
+was **confounded** by this — the prompt path had the token sheet, the spec path didn't, and the gap got
+attributed to the specification. Verify the two paths carry the same context before attributing a
+quality difference to either.
+
+### 2. The raster was teaching the model the wrong typeface
+
+Registry fonts are pushed as *web* fonts (`subset-PPTelegraf-Regular.woff`), and raw WOFF was handed
+to satori, which needs sfnt. satori falls back silently → specimens rendered in Inter → the model
+copied Inter's letterforms → every generated design inherited them. Fingerprint: PP Telegraf resolved
+to 26,584 bytes against Inter's 337,936.
+
+- `lib/server/woff-to-sfnt.ts` unwraps WOFF (44-byte header + per-table zlib) with no new dependency.
+  WOFF2 returns an explicit error — Brotli + transformed `glyf`/`loca` can't be unwrapped this way.
+- `inspectSfnt()` verifies the tables a rasterizer needs and logs table count + outline type, warning
+  loudly when unusable. 8x8 now reports `format=woff→sfnt, 53060 bytes, 17 tables, outlines=glyf`.
+- Confirmed on 8x8: **fonts now correct in the raster.** The subsets did contain full Latin, so
+  subsetting was never the issue — the container was. The byte-size subset heuristic is a bad proxy
+  and should be deleted rather than tuned.
+- ⚠️ **Regression I caused and fixed:** satori requires explicit `display: flex` on any element with
+  more than one child. A `Letterforms — {family}` label had two, satori threw,
+  `renderFoundationsImage` returned null, and `/debug-foundation-raster` fell to its JSON branch while
+  `?generate=1` sent the 8×8 white-canvas fallback that OpenAI rejects. **Render the raster locally
+  before pushing** — `renderFoundationsImage` runs fine under tsx; typechecking cannot catch this.
+
+Also added: full letterform specimens (A–Z, a–z, numerals/punctuation) once per *weight* rather than
+per token — the model was inferring most of the alphabet from a sample line containing no `j`, `q`,
+`x`, `z` and one capital.
+
+### 3. ⭐ Asset-first generation works — and placement held
+
+The core bet: stop generating one flat composite and re-extracting crops from it (which was really an
+image model *repainting* regions, forced to 1024², unfaithful). Instead the spec declares its imagery
+and each asset is generated on its own, then the composite is assembled **from** those assets.
+
+- `ComponentSpec.assetRequirements` — slot, kind, subject, aspect, minWidth, focalPoint, formats.
+  Deliberately narrow: **only photographs and illustrations.** Flat backgrounds are tokens, states are
+  CSS, icons resolve to the catalog, panels are components. The spec prompt says so explicitly.
+- `lib/spec/asset-plan.ts` maps requirements to jobs: `3:2 → 1536x1024`, `16:9 → 2048x1152`,
+  `2:3 → 1024x1536`, and a 3:2 slot needing >1536px is bumped wider — over-delivering pixels is
+  recoverable by cropping, under-delivering is not. 16 tests.
+- The asset prompt's constraints are load-bearing: ask for "a hero photo" and a model returns *a
+  mockup of a hero section*. Explicitly forbids text, UI elements, collage.
+- `lib/server/asset-first-generation.ts` generates assets concurrently, converts them to the
+  `attachedImages` + `attachedImageLabels` pair (which puts the worker on its `designerAssembled` path,
+  skipping the iteration base), and writes them into `artifact.assets[]` with provenance.
+
+**Live result (local, real API):** asset returned at **exactly 1536×1024** — clean photograph, no
+text, no UI, subject center-right as declared. The composite then **placed it rather than redrawing
+it**: same subject, pose, garment, watch, notebook, plant and chair, cropped to the column. Copy came
+through verbatim with **zero invention** (the composite-first path had fabricated a webinar date).
+Tokens and typeface both correct.
+
+**Caveats, stated because they are unresolved:** n=1, and image models are stochastic — placement
+holding once is not proof it always will. And "same photograph" was a visual judgement between two
+renders, not a pixel diff; a real check compares the asset against its cropped region in the composite.
+
+**Architectural consequence — now a hard requirement, not a preference.** Asset generation took 114s
+and the composite 100s. ~215s for one design *before* spec generation, so asset-first **cannot** share
+a single 300s invocation. The job-queue-per-stage model in `docs/WORKBENCH-STRATEGY.md` §9 is a
+prerequisite for this path, not an optimization.
+
+### Also on this branch
+
+Spec version history with semantic diffs (`0025_design_spec_version.sql`, `lib/spec/diff.ts`,
+`lib/spec/versioning.ts`) — verified writing on 8x8 (`version 1 | generated | ["Initial
+specification."]`). Round-trip fidelity harness (`lib/spec/generation-prompt.ts`,
+`lib/spec/fidelity.ts`). Round-trip finding that still stands: **props overlap 0%** between a spec and
+the spec re-derived from its own regenerated design — prop inference from a picture is arbitrary, so
+the component API must come from the component being composed against, not from re-reading pixels.
+
+---
+
 ## 2026-07-28 (later still) — "Transition to Dev": unified handoff + reuse/token/voice spec sections
 
 Rationalized asset extraction and spec generation into **one** operation, exposed as

@@ -183,6 +183,13 @@
       "when": 1783300000000,
       "tag": "0025_design_spec_version",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783400000000,
+      "tag": "0026_pipeline_job",
+      "breakpoints": true
     }
   ]
 }

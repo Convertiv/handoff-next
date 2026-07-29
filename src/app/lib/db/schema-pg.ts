@@ -218,6 +218,48 @@ export const handoffDesignSpecVersions = pgTable(
   })
 );
 
+/**
+ * Durable pipeline queue — one stage per serverless invocation.
+ *
+ * Stages of a design run (assets → composite → spec) cannot share a single 300s budget: asset
+ * generation alone measured 114s. `pipeline_id` groups one run's stages, `seq` orders them, and a
+ * stage is runnable only once every lower-seq stage in its pipeline has finished. Retry is a property
+ * of the row, so a stage killed with its function is picked up by the next tick rather than needing an
+ * out-of-band reaper.
+ */
+export const handoffPipelineJobs = pgTable(
+  'handoff_pipeline_job',
+  {
+    id: serial('id').primaryKey(),
+    artifactId: text('artifact_id').notNull(),
+    /** Groups all stages of one pipeline run. */
+    pipelineId: text('pipeline_id').notNull(),
+    /** assets | composite | spec */
+    stage: text('stage').notNull(),
+    /** Order within the pipeline; lower runs first. */
+    seq: integer('seq').notNull(),
+    /** pending | running | done | failed | skipped */
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    maxAttempts: integer('max_attempts').notNull().default(2),
+    /** Stage inputs. */
+    payload: jsonb('payload'),
+    /** Stage outputs, consumed by later stages (the composite needs the generated assets). */
+    result: jsonb('result'),
+    error: text('error'),
+    startedAt: timestamp('started_at', { mode: 'date' }),
+    finishedAt: timestamp('finished_at', { mode: 'date' }),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow(),
+  },
+  (t) => ({
+    stageUnique: uniqueIndex('pipeline_job_stage_unique').on(t.pipelineId, t.stage),
+    claimIdx: index('pipeline_job_claim_idx').on(t.status, t.seq, t.id),
+    byArtifact: index('pipeline_job_artifact_idx').on(t.artifactId, t.createdAt),
+    byPipeline: index('pipeline_job_pipeline_idx').on(t.pipelineId, t.seq),
+  })
+);
+
 export const handoffResourceGrants = pgTable(
   'handoff_resource_grant',
   {

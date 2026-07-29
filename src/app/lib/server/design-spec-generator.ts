@@ -207,12 +207,24 @@ Generate a complete ComponentSpec JSON object. Follow this EXACT schema — ever
     "dependencies": ["<other component ids this depends on>"],
     "cssNotes": "<LAYOUT and STRUCTURE notes only — grid/columns, stacking, alignment, overflow, responsive behaviour. No concrete colour, size, spacing or radius values.>",
     "developerHints": ["<hint>"]
-  }
+  },
+  "assetRequirements": [
+    { "slot": "<the prop this image fills, e.g. backgroundImage>", "kind": "<photo|illustration>", "subject": "<what the image DEPICTS — subject, setting, mood, treatment. Content only.>", "aspect": "<1:1|3:2|2:3|16:9>", "minWidth": <intrinsic width in CSS px the slot needs at 1x>, "focalPoint": "<where the subject sits, e.g. center-right>", "formats": ["<jpeg|webp|png>"] }
+  ]
 }
 
 Rules:
 - Include at least 1 variant (default). Add more for each extracted state key.
 - textInventory: transcribe ALL visible text in the design image.
+- assetRequirements: list ONLY genuine photographic or illustrative content — the images a developer
+  would have to source or commission. Backgrounds that are a flat colour or gradient are TOKENS, not
+  assets. Component states are CSS. Icons come from the icon library. Buttons, cards and panels are
+  components. If the design contains no photographs or illustrations, return an empty array.
+- assetRequirements.subject: describe only what the image DEPICTS. Never describe layout, overlaid
+  text, buttons or surrounding UI — this text becomes the prompt for generating the image on its own,
+  and anything structural in it produces a screenshot of a component instead of a usable asset.
+- assetRequirements.aspect/minWidth: infer from the slot's role in the layout, not from the composite's
+  overall dimensions — a right-hand hero photo and a full-bleed banner need different ratios.
 - copyFromPrompt: use the provided array verbatim.
 - If existing components were provided, evaluate each for matchLevel and fill existingComponentMatches accordingly.
 - cssNotes and developerHints: describe LAYOUT and STRUCTURE only. Do NOT state specific hex colours,

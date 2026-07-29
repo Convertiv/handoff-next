@@ -27,8 +27,42 @@ export interface VoiceFinding {
   suggestion?: string;
 }
 
+/**
+ * One image the design needs, declared as a REQUIREMENT rather than recovered from pixels.
+ *
+ * "Right-sized" is a property of the slot, not of the source — a hero photograph needs an aspect
+ * ratio matching its column, a minimum resolution for retina, and a focal point so art-directed
+ * crops don't decapitate anyone. None of that is knowable from a flat composite, which is why
+ * extracting assets out of one can never produce web-ready output. The spec knows all of it.
+ *
+ * Deliberately narrow: **only photographic and illustrative content belongs here.** Backgrounds are
+ * tokens, states are CSS, sub-components are components, and icons resolve to the icon catalog. Those
+ * are not assets and must not be generated as bitmaps.
+ */
+export interface AssetRequirement {
+  /** The prop or slot this fills, e.g. `backgroundImage`. */
+  slot: string;
+  /** photo | illustration — the only two kinds of genuine asset. */
+  kind: 'photo' | 'illustration';
+  /** Art direction for the CONTENT only: subject, mood, treatment. No layout, no UI, no text. */
+  subject: string;
+  aspect: '1:1' | '3:2' | '2:3' | '16:9';
+  /** Minimum intrinsic width in CSS pixels the slot needs at 1x. */
+  minWidth: number;
+  /** Where the subject sits, so art-directed crops keep it, e.g. "center-right". */
+  focalPoint?: string;
+  /** Delivery formats, most-preferred first. */
+  formats?: string[];
+}
+
 /** Structured component specification generated from a design artifact. */
 export interface ComponentSpec {
+  /**
+   * Imagery the design requires. Populated by spec generation and consumed by asset generation —
+   * the bridge that lets assets be produced at the right size instead of cropped out of a composite.
+   */
+  assetRequirements?: AssetRequirement[];
+
   version: 1;
   generatedAt: string;
 
