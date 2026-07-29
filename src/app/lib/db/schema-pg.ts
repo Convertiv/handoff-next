@@ -186,6 +186,38 @@ export const handoffDesignArtifacts = pgTable('handoff_design_artifact', {
  * Explicit per-user grants on a resource (Phase B sharing).
  * resource_type = pattern | design_artifact. level = view | edit.
  */
+/**
+ * Append-only history of a design artifact's specification.
+ *
+ * `handoff_design_artifact.component_spec` remains the CURRENT version so existing readers are
+ * untouched; this is the versioned record behind it. `diff` is the semantic diff against the
+ * previous version, computed at write time by `lib/spec/diff.ts` and stored rather than recomputed
+ * so a later change to the differ cannot rewrite history.
+ */
+export const handoffDesignSpecVersions = pgTable(
+  'handoff_design_spec_version',
+  {
+    id: serial('id').primaryKey(),
+    artifactId: text('artifact_id').notNull(),
+    /** Monotonic per artifact, from 1. Enforced by a unique (artifact_id, version) index. */
+    version: integer('version').notNull(),
+    spec: jsonb('spec').notNull(),
+    specMd: text('spec_md'),
+    /** generated | edited | imported */
+    source: text('source').notNull().default('generated'),
+    /** The human "why" behind this version. */
+    changeReason: text('change_reason'),
+    /** Semantic diff vs the previous version; null on version 1. */
+    diff: jsonb('diff'),
+    createdByUserId: text('created_by_user_id'),
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow(),
+  },
+  (t) => ({
+    uniqueVersion: uniqueIndex('design_spec_version_unique').on(t.artifactId, t.version),
+    byArtifact: index('design_spec_version_artifact_idx').on(t.artifactId, t.version),
+  })
+);
+
 export const handoffResourceGrants = pgTable(
   'handoff_resource_grant',
   {

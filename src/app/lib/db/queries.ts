@@ -18,6 +18,7 @@ import {
   handoffEventLog,
   handoffPatterns,
   handoffDesignWorkspace,
+  handoffDesignSpecVersions,
   handoffResourceGrants,
   handoffShareLinks,
   handoffReferenceMaterials,
@@ -1360,6 +1361,104 @@ export async function deleteDesignArtifactById(id: string): Promise<boolean> {
     .where(eq(handoffDesignArtifacts.id, id))
     .returning({ id: handoffDesignArtifacts.id });
   return deleted.length > 0;
+}
+
+// ── Spec versions ─────────────────────────────────────────────────────────────
+
+export type SpecVersionSummaryRow = {
+  id: number;
+  version: number;
+  source: string;
+  changeReason: string | null;
+  summary: string[];
+  createdByUserId: string | null;
+  createdAt: Date | null;
+};
+
+/**
+ * Append a specification version.
+ *
+ * The version number is assigned by a subselect inside the INSERT rather than a read-then-write, so
+ * two concurrent writers collide on the `(artifact_id, version)` unique index instead of quietly
+ * forking the history. Returns the version written, or null if the insert lost that race.
+ */
+export async function insertSpecVersion(args: {
+  artifactId: string;
+  spec: unknown;
+  specMd: string | null;
+  source: 'generated' | 'edited' | 'imported';
+  changeReason?: string | null;
+  diff?: unknown;
+  createdByUserId?: string | null;
+}): Promise<number | null> {
+  const db = getDb();
+  try {
+    const rows = await db.execute(sql`
+      INSERT INTO "handoff_design_spec_version"
+        ("artifact_id", "version", "spec", "spec_md", "source", "change_reason", "diff", "created_by_user_id")
+      SELECT
+        ${args.artifactId},
+        COALESCE(MAX("version"), 0) + 1,
+        ${JSON.stringify(args.spec ?? null)}::jsonb,
+        ${args.specMd ?? null},
+        ${args.source},
+        ${args.changeReason ?? null},
+        ${args.diff === undefined ? null : JSON.stringify(args.diff)}::jsonb,
+        ${args.createdByUserId ?? null}
+      FROM "handoff_design_spec_version"
+      WHERE "artifact_id" = ${args.artifactId}
+      RETURNING "version"
+    `);
+    const list = (Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] }).rows ?? [])) as { version?: number }[];
+    return typeof list[0]?.version === 'number' ? list[0].version : null;
+  } catch (err) {
+    console.error('[spec-version] insert failed', args.artifactId, err);
+    return null;
+  }
+}
+
+/**
+ * Version history for one artifact, newest first.
+ *
+ * Deliberately omits `spec` — each is multiple KB and a history list only needs the metadata plus
+ * the diff's one-line summaries, which are projected out of the stored diff.
+ */
+export async function listSpecVersions(artifactId: string, limit = 50): Promise<SpecVersionSummaryRow[]> {
+  const db = getDb();
+  const rows = await db.execute(sql`
+    SELECT "id", "version", "source", "change_reason", "created_by_user_id", "created_at",
+           COALESCE("diff" -> 'summary', '[]'::jsonb) AS "summary"
+    FROM "handoff_design_spec_version"
+    WHERE "artifact_id" = ${artifactId}
+    ORDER BY "version" DESC
+    LIMIT ${limit}
+  `);
+  const list = (Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] }).rows ?? [])) as Record<string, unknown>[];
+  return list.map((r) => ({
+    id: Number(r.id),
+    version: Number(r.version),
+    source: String(r.source ?? 'generated'),
+    changeReason: (r.change_reason as string | null) ?? null,
+    summary: Array.isArray(r.summary) ? (r.summary as string[]) : [],
+    createdByUserId: (r.created_by_user_id as string | null) ?? null,
+    createdAt: r.created_at ? new Date(r.created_at as string) : null,
+  }));
+}
+
+/** One full version, including the spec and its diff. `version` omitted returns the latest. */
+export async function getSpecVersion(artifactId: string, version?: number) {
+  const db = getDb();
+  const where =
+    version === undefined
+      ? and(eq(handoffDesignSpecVersions.artifactId, artifactId))
+      : and(eq(handoffDesignSpecVersions.artifactId, artifactId), eq(handoffDesignSpecVersions.version, version));
+  const [row] = await db
+    .select()
+    .from(handoffDesignSpecVersions)
+    .where(where)
+    .orderBy(desc(handoffDesignSpecVersions.version))
+    .limit(1);
+  return row ?? null;
 }
 
 /** Non-terminal states for the two design-artifact background jobs. */

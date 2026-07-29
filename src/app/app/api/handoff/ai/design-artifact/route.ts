@@ -149,6 +149,8 @@ type PatchBody = {
   extractAssets?: boolean;
   regenerateSpec?: boolean;
   componentSpecMd?: string;
+  /** Optional "why" recorded alongside a spec edit in the version history. */
+  changeReason?: string;
   visibility?: string;
   status?: string;
 };
@@ -264,9 +266,31 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (body.componentSpecMd !== undefined) {
-      const ok = await updateDesignArtifactById(id, { componentSpecMd: String(body.componentSpecMd) });
+      const specMd = String(body.componentSpecMd);
+      const ok = await updateDesignArtifactById(id, { componentSpecMd: specMd });
       if (!ok) return NextResponse.json({ error: 'Not found or not owned by you' }, { status: 404 });
-      return NextResponse.json({ id, specSaved: true });
+
+      // A human edit is a spec change and belongs in the history, with an optional "why".
+      //
+      // Note the asymmetry: the editor writes MARKDOWN, while the structured `componentSpec` is
+      // unchanged by this path. The version therefore records the current structured spec alongside
+      // the new markdown, so the diff shows the prose edit without falsely implying the structure
+      // moved. Making the markdown editor round-trip back into structure is a separate piece of
+      // work — see docs/WORKBENCH-STRATEGY.md.
+      const { recordSpecVersion } = await import('@/lib/spec/versioning');
+      const current = await getDesignArtifactById(id);
+      const version = current?.componentSpec
+        ? await recordSpecVersion({
+            artifactId: id,
+            spec: current.componentSpec as never,
+            specMd,
+            source: 'edited',
+            changeReason: typeof body.changeReason === 'string' ? body.changeReason : null,
+            createdByUserId: session.user.id,
+          })
+        : { version: null, unchanged: false };
+
+      return NextResponse.json({ id, specSaved: true, specVersion: version.version });
     }
 
     // Phase B: visibility + publicAccess + lifecycle setters, gated by computePermissions.

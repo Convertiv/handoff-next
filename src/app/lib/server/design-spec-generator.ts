@@ -719,12 +719,25 @@ export async function generateSpecForArtifact(artifactId: string): Promise<void>
     if (voiceRes) spec.voice = voiceRes;
 
     spec.generatedAt = new Date().toISOString();
+    const specMd = specToMarkdown(spec);
 
     await updateDesignArtifactById(artifactId, {
       componentSpec: spec as unknown as Parameters<typeof updateDesignArtifactById>[1]['componentSpec'],
-      componentSpecMd: specToMarkdown(spec),
+      componentSpecMd: specMd,
       specStatus: 'done',
     } as Parameters<typeof updateDesignArtifactById>[1]);
+
+    // Append to the spec's version history, diffed against the previous version. The artifact row
+    // above remains the current-version cache; this is what makes "what changed and why" durable.
+    // Never throws, and a regenerate producing an identical spec is skipped rather than recorded.
+    const { recordSpecVersion } = await import('@/lib/spec/versioning');
+    await recordSpecVersion({
+      artifactId,
+      spec,
+      specMd,
+      source: 'generated',
+      createdByUserId: row.userId,
+    });
 
     console.log(
       '[design-spec-generator] spec generated for',
