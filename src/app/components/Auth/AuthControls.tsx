@@ -1,5 +1,6 @@
 'use client';
 
+import { User } from '@phosphor-icons/react';
 import { LogOut, UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -23,7 +24,7 @@ export function AuthControls() {
   const isLocal = !authEnabled;
 
   if (status === 'loading' && !isLocal) {
-    return <div className="h-9 w-20 animate-pulse rounded-md bg-muted" aria-hidden />;
+    return <div className="h-9 w-9 animate-pulse rounded-md bg-muted" aria-hidden />;
   }
 
   if (!isLocal && !session?.user) {
@@ -37,14 +38,13 @@ export function AuthControls() {
   const displayName = isLocal ? 'Dev User' : (session?.user?.name || session?.user?.email || 'User');
   const displayEmail = isLocal ? 'local@handoff.local' : (session?.user?.email || '');
   const displayRole = isLocal ? 'admin' : (session?.user?.role || 'member');
-  const initial = displayName.slice(0, 1).toUpperCase();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2">
-          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-xs font-medium">{initial}</span>
-          <span className="max-w-[120px] truncate">{displayName}</span>
+        <Button variant="ghost" size="icon" aria-label="Account" title="Account">
+          <User className="h-[1.1rem] w-[1.1rem]" />
+          <span className="sr-only">Account</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">

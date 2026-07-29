@@ -1,5 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
-
+/* Inter is loaded via <link> tags in app/layout.tsx — Turbopack drops remote
+   `@import url()` rules during CSS compilation, so it must not live here. */
 @import 'tailwindcss';
 
 /*

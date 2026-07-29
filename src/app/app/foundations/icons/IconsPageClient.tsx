@@ -62,7 +62,7 @@ export default function IconsPageClient({ content, menu, metadata, current, conf
 
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata}>
-      <div className="flex flex-col gap-2 pb-7">
+      <div className="flex max-w-3xl flex-col gap-3 pb-10">
         <HeadersType.H1>{metadata.title}</HeadersType.H1>
         <p className="max-w-[800px] text-lg font-light text-gray-500 dark:text-gray-300">{metadata.description}</p>
         <div className="mt-3 flex flex-row gap-3">

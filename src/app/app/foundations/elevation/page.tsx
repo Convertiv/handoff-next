@@ -191,7 +191,7 @@ export default async function ElevationPage() {
           )}
 
           <PrevNextNav
-            previous={{ title: 'Focus States', href: '/foundations/focus' }}
+            previous={{ title: 'Motion', href: '/foundations/motion' }}
             next={null}
           />
         </div>

@@ -8,8 +8,7 @@ import SideNav from '../Navigation/SideNav';
 import { ConfigContextProvider } from '../context/ConfigContext';
 import { SidebarInset, SidebarProvider } from '../ui/sidebar';
 import { SectionLink } from '../util';
-
-const TOOLS_PATHS = ['/library', '/design', '/patterns', '/playground'];
+import { TOOLS_PATHS } from '../../lib/utils';
 
 interface LayoutComponentProps {
   metadata: {
@@ -44,9 +43,6 @@ export default function Layout<LayoutComponentProps>({ children, config, menu, m
             <title>{metadata.metaTitle}</title>
             <meta name="description" content={metadata.metaDescription} />
           </Head>
-          {!fullBleed && (
-            <div className="absolute left-[-200px] top-[-200px] z-[-1] h-[400px] w-[600px] bg-[#111111] opacity-[0.05] blur-[350px]" />
-          )}
           <Header />
 
           {fullBleed ? (
@@ -60,7 +56,7 @@ export default function Layout<LayoutComponentProps>({ children, config, menu, m
                   </div>
                 </div>
               ) : current && !TOOLS_PATHS.some((p) => (current?.path ?? '').startsWith(p)) ? (
-                <SidebarProvider style={{ '--sidebar-width': '20rem' } as React.CSSProperties}>
+                <SidebarProvider style={{ '--sidebar-width': '16rem' } as React.CSSProperties}>
                   <div className="flex w-full">
                     <SideNav menu={current} topNav={kbSections} />
                     <SidebarInset className="relative bg-transparent py-8 pl-8 pr-8 md:pl-8 lg:gap-10 lg:py-16 lg:pl-16">
