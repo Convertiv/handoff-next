@@ -1044,13 +1044,27 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         return textResult({ ok: false, error: 'Use device login JWT for design generation, not sync secret alone.' });
       }
       const { insertDesignGenerationJob } = await import('@/lib/db/queries');
+
+      // Resolve the registry's REAL tokens when the caller doesn't supply them.
+      //
+      // This is not a nicety. `renderFoundationsImage` skips rasterization entirely for an empty
+      // context (`shouldRasterizeFoundations`), and `formatFoundationsBlock` emits nothing either —
+      // so the previous hardcoded empty arrays meant every MCP-initiated generation lost BOTH the
+      // rasterized colour/type/spacing sheet AND the textual token block, while UI-initiated
+      // generation kept them. That reference sheet is what keeps the image model on-token; without
+      // it, output drifts to approximate colours and larger type (measured at 76% token overlap,
+      // 2026-07-29). Never throws — a registry with no tokens degrades to prompt-only.
+      const { buildFoundationContextFromRegistry } = await import('@/lib/server/foundation-context');
+      const resolvedFoundations =
+        foundationContext ?? (await buildFoundationContextFromRegistry().catch(() => ({ colors: [], typography: [], effects: [], spacing: [] })));
+
       const requestParams: DesignGenerationRequestParams = {
         prompt,
         quality: quality ?? 'auto',
         iterationBaseUrl: null,
         conversationHistory: [],
         componentGuides: (componentGuides ?? []) as DesignGenerationRequestParams['componentGuides'],
-        foundationContext: (foundationContext ?? { colors: [], typography: [], effects: [], spacing: [] }) as DesignGenerationRequestParams['foundationContext'],
+        foundationContext: resolvedFoundations as DesignGenerationRequestParams['foundationContext'],
         designGuidelines: '',
         brandVoiceGuidelines: '',
         promptImageCount: 0,
