@@ -452,20 +452,55 @@ export async function getRegistryFontFile(filename: string): Promise<{ data: Buf
  * Resolve a satori-usable font (ttf/otf/woff — NOT woff2, which satori can't
  * parse) for a family + requested weight, picking the closest available weight.
  */
-export async function getRegistryFontForSatori(familyKey: string, weight: number): Promise<Buffer | null> {
+export type RegistryFontPick = { data: Buffer; format: string; filename: string; weight: number };
+
+/**
+ * Best registry font for satori, with the metadata the caller needs to convert and to report.
+ *
+ * Registry fonts are pushed as *web* fonts (the schema's example filename is
+ * `subset-PPTelegraf-Regular.woff2`), so a design system's real typeface usually arrives as a
+ * WOFF/WOFF2 subset. `woff` is accepted here and unwrapped to sfnt by `toSatoriFont`; `woff2`
+ * cannot be unwrapped server-side and is excluded.
+ *
+ * Preference order matters: **bare sfnt (ttf/otf) before woff**, then closest weight, then largest
+ * payload. The size tiebreak favours a full font over a subset, and a subset is the difference
+ * between the correct typeface and a silent fallback on the foundations sheet.
+ */
+export async function getRegistryFontForSatori(familyKey: string, weight: number): Promise<RegistryFontPick | null> {
   const db = getDb();
   const rows = await db
-    .select({ weight: handoffRegistryFonts.weight, format: handoffRegistryFonts.format, data: handoffRegistryFonts.data, style: handoffRegistryFonts.style })
+    .select({
+      weight: handoffRegistryFonts.weight,
+      format: handoffRegistryFonts.format,
+      data: handoffRegistryFonts.data,
+      style: handoffRegistryFonts.style,
+      filename: handoffRegistryFonts.filename,
+    })
     .from(handoffRegistryFonts)
     .where(eq(handoffRegistryFonts.familyKey, familyKey));
+
   const usable = rows.filter(
     (r) => r.style === 'normal' && ['ttf', 'otf', 'woff'].includes((r.format || '').toLowerCase()) && r.data
   );
   if (!usable.length) return null;
-  const pick =
-    usable.find((r) => r.weight === weight) ??
-    [...usable].sort((a, b) => Math.abs(a.weight - weight) - Math.abs(b.weight - weight))[0];
-  return pick?.data ? Buffer.from(pick.data, 'base64') : null;
+
+  const formatRank = (f: string) => (['ttf', 'otf'].includes(f.toLowerCase()) ? 0 : 1);
+  const sorted = [...usable].sort((a, b) => {
+    const weightDelta = Math.abs(a.weight - weight) - Math.abs(b.weight - weight);
+    if (weightDelta !== 0) return weightDelta;
+    const rank = formatRank(a.format || '') - formatRank(b.format || '');
+    if (rank !== 0) return rank;
+    return (b.data?.length ?? 0) - (a.data?.length ?? 0);
+  });
+
+  const pick = sorted[0];
+  if (!pick?.data) return null;
+  return {
+    data: Buffer.from(pick.data, 'base64'),
+    format: (pick.format || '').toLowerCase(),
+    filename: pick.filename,
+    weight: pick.weight,
+  };
 }
 
 /** All distinct family keys present in the registry (for diagnostics). */

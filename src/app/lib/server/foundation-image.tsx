@@ -255,10 +255,32 @@ async function resolveFontBuffer(family: string, weight: SatoriWeight): Promise<
       try {
         const familyKey = family.toLowerCase().replace(/[^a-z0-9]/g, '');
         const { getRegistryFontForSatori } = await import('@/lib/db/registry-queries');
-        const buf = await getRegistryFontForSatori(familyKey, weight);
-        if (buf && buf.byteLength > 0) {
-          console.log(`[foundation-image] loaded "${family}" w${weight} from registry (${buf.byteLength} bytes)`);
-          return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+        const pick = await getRegistryFontForSatori(familyKey, weight);
+        if (pick && pick.data.byteLength > 0) {
+          // Registry fonts are web fonts. satori needs sfnt, so unwrap WOFF here — otherwise satori
+          // silently falls back to Inter, the type specimens on the sheet render in the wrong
+          // typeface, and every design generated from that sheet inherits the wrong letterforms.
+          const { toSatoriFont } = await import('@/lib/server/woff-to-sfnt');
+          const result = toSatoriFont(pick.data);
+          if ('error' in result) {
+            // Loud on purpose: this failure is invisible in the output but corrupts every
+            // generation downstream.
+            console.warn(
+              `[foundation-image] ⚠ cannot use registry font for "${family}" w${weight} ` +
+                `(${pick.filename}, format=${pick.format}): ${result.error} — falling back, ` +
+                `so the foundations sheet will NOT show this typeface.`
+            );
+          } else {
+            const subsetWarning =
+              result.data.byteLength < 50_000
+                ? ' ⚠ looks like a SUBSET — specimen glyphs may be missing; push a full TTF/OTF for full fidelity'
+                : '';
+            console.log(
+              `[foundation-image] loaded "${family}" w${weight} from registry ` +
+                `(${pick.filename}, format=${pick.format}${result.converted ? '→sfnt' : ''}, ${result.data.byteLength} bytes)${subsetWarning}`
+            );
+            return result.data.buffer.slice(result.data.byteOffset, result.data.byteOffset + result.data.byteLength) as ArrayBuffer;
+          }
         }
       } catch (e) {
         console.warn('[foundation-image] registry font lookup failed:', e instanceof Error ? e.message : String(e));
