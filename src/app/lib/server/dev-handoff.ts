@@ -187,39 +187,98 @@ export async function markDevHandoffQueued(artifactId: string, opts: { clearAsse
 }
 
 /**
+ * Total wall-clock budget for the whole handoff, sized to sit under the hosting route's
+ * `maxDuration = 300` with headroom for the surrounding request.
+ *
+ * Both steps run in ONE `after()` callback, so they share a single invocation lifetime — the two
+ * timeouts cannot be chosen independently. Observed live on 8x8 (2026-07-28): a 240s extraction
+ * bound against a 300s budget left spec generation ~60s, the invocation was torn down mid-spec, and
+ * the row stranded at `generating` until the reaper swept it. The budget below is split explicitly
+ * so that can't recur.
+ */
+const DEV_HANDOFF_BUDGET_MS = 270_000;
+
+/** Hold this much back from extraction so specification always gets a usable slice. */
+const SPEC_RESERVE_MS = 150_000;
+
+/** Below this, don't start spec generation at all — it would only be killed mid-flight. */
+const SPEC_MIN_MS = 45_000;
+
+/**
  * Run the full handoff: extract assets, then generate the specification.
  *
  * Each step already writes its own terminal status and catches its own errors, so this never
  * throws — it is safe to call from an `after()` callback or a cron drain. Spec generation runs
  * even when extraction fails, because it can still work from the original composite image; that
  * degradation surfaces as `warning` on the derived status rather than an outright failure.
+ *
+ * Both steps draw from one shared deadline (see `DEV_HANDOFF_BUDGET_MS`) so neither can starve the
+ * other into being killed by the platform.
  */
-export async function runDevHandoff(artifactId: string): Promise<void> {
+export async function runDevHandoff(artifactId: string, opts: { budgetMs?: number } = {}): Promise<void> {
   const id = artifactId.trim();
+  const deadline = Date.now() + (opts.budgetMs ?? DEV_HANDOFF_BUDGET_MS);
+  const remaining = () => deadline - Date.now();
 
   try {
-    await runDesignAssetExtractionForArtifact(id);
+    // Cap extraction so at least SPEC_RESERVE_MS survives for the specification.
+    const extractionMs = Math.min(remaining() - SPEC_RESERVE_MS, 120_000);
+    if (extractionMs > 15_000) {
+      await runDesignAssetExtractionForArtifact(id, { timeoutMs: extractionMs });
+    } else {
+      console.warn('[dev-handoff] skipping extraction — insufficient budget', id, remaining());
+    }
   } catch (err) {
     console.error('[dev-handoff] asset extraction threw', id, err);
   }
 
+  // Spec generation cannot bound its own runtime, so race it against what's left of the budget and
+  // write a terminal status on timeout. As with extraction, the orphaned call may still land later
+  // and overwrite `failed` with a real spec — better data, not corruption.
+  const specMs = remaining();
+  if (specMs < SPEC_MIN_MS) {
+    console.warn('[dev-handoff] insufficient budget for spec generation', id, specMs);
+    await markSpecFailed(id, `Ran out of time before the specification could be generated (${Math.round(specMs / 1000)}s left). Re-run the dev handoff.`);
+    return;
+  }
+
+  let specWatchdog: ReturnType<typeof setTimeout> | undefined;
   try {
-    await generateSpecForArtifact(id);
+    const timedOut = await Promise.race([
+      generateSpecForArtifact(id).then(() => false),
+      new Promise<boolean>((resolve) => {
+        specWatchdog = setTimeout(() => resolve(true), specMs);
+      }),
+    ]);
+    if (timedOut) {
+      await markSpecFailed(id, `Specification generation exceeded ${Math.round(specMs / 1000)}s and was abandoned. Re-run the dev handoff.`);
+    }
   } catch (err) {
     console.error('[dev-handoff] spec generation threw', id, err);
     // generateSpecForArtifact writes its own `failed` on catchable errors, but a throw that
     // escapes it would leave `generating` behind. Force a terminal state so the reaper does
     // not have to wait 15 minutes to do it.
-    const existing = await getDesignArtifactById(id);
+    await markSpecFailed(id, err instanceof Error ? err.message.slice(0, 2000) : 'Specification generation failed.');
+  } finally {
+    if (specWatchdog) clearTimeout(specWatchdog);
+  }
+}
+
+/** Force `specStatus: failed` with a reason the UI can display. Never throws. */
+async function markSpecFailed(artifactId: string, reason: string): Promise<void> {
+  try {
+    const existing = await getDesignArtifactById(artifactId);
     const meta =
       existing?.metadata && typeof existing.metadata === 'object' && !Array.isArray(existing.metadata)
         ? { ...(existing.metadata as Record<string, unknown>) }
         : {};
-    meta.specError = err instanceof Error ? err.message.slice(0, 2000) : 'Specification generation failed.';
-    await updateDesignArtifactById(id, {
+    meta.specError = reason;
+    await updateDesignArtifactById(artifactId, {
       specStatus: 'failed',
       metadata: meta,
-    } as Parameters<typeof updateDesignArtifactById>[1]).catch(() => undefined);
+    } as Parameters<typeof updateDesignArtifactById>[1]);
+  } catch (err) {
+    console.error('[dev-handoff] could not mark spec failed', artifactId, err);
   }
 }
 

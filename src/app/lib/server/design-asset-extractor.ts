@@ -336,14 +336,22 @@ export async function extractDesignAssetsFromCompositeImage(params: {
 }
 
 /**
- * Wall-clock ceiling for a single extraction, mirroring the 240s bound already used by the
- * Figma fetch runner. Must stay comfortably under the hosting function's max duration so the
- * row reaches a terminal state *before* the invocation is torn down.
+ * Default wall-clock ceiling for a single extraction.
+ *
+ * ⚠️ This is NOT simply "as long as the function allows". Extraction and spec generation run in the
+ * same `after()` callback under one `maxDuration`, so a generous extraction bound starves the spec
+ * of time and the invocation dies mid-spec — observed live on 8x8 2026-07-28 with a 240s bound
+ * against a 300s budget, which left spec ~60s and stranded it at `generating`. Callers in the
+ * dev-handoff path pass an explicit `timeoutMs` carved out of a shared deadline; this default only
+ * applies to direct/standalone callers.
  */
-const EXTRACTION_TIMEOUT_MS = 240_000;
+const EXTRACTION_TIMEOUT_MS = 120_000;
 
 /** Background worker entry: claim pending row, run extraction, persist assets + classification. */
-export async function runDesignAssetExtractionForArtifact(artifactId: string): Promise<void> {
+export async function runDesignAssetExtractionForArtifact(
+  artifactId: string,
+  opts: { timeoutMs?: number } = {}
+): Promise<void> {
   const claimed = await claimDesignArtifactForExtraction(artifactId);
   if (!claimed) {
     console.log('[design-asset-extractor] skip (not pending or already claimed)', artifactId);
@@ -364,6 +372,7 @@ export async function runDesignAssetExtractionForArtifact(artifactId: string): P
   // throw, or timeout — must write a terminal status, or the row is stranded and the detail page
   // polls it forever. `extractDesignAssetsFromCompositeImage` catches its own errors, but it
   // cannot bound its own runtime, so race it against a watchdog.
+  const timeoutMs = Math.max(15_000, opts.timeoutMs ?? EXTRACTION_TIMEOUT_MS);
   let watchdog: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<ExtractDesignAssetsResult>((resolve) => {
     watchdog = setTimeout(
@@ -372,9 +381,9 @@ export async function runDesignAssetExtractionForArtifact(artifactId: string): P
           assets: [],
           classification: null,
           assetsStatus: 'failed',
-          extractionError: `Extraction exceeded ${Math.round(EXTRACTION_TIMEOUT_MS / 1000)}s and was abandoned.`,
+          extractionError: `Extraction exceeded ${Math.round(timeoutMs / 1000)}s and was abandoned.`,
         }),
-      EXTRACTION_TIMEOUT_MS
+      timeoutMs
     );
   });
 

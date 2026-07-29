@@ -154,17 +154,23 @@ Back in Claude:
 `handoff_transition_to_dev` — **one** operation. Poll `handoff_get_design_artifact` and read
 `devHandoff` for stage progress: `extracting_assets → generating_spec → ready`.
 
-Then open the artifact's **Spec** tab. Four sections, in this order:
+Then open the artifact's **Spec** tab:
 
-1. **Build from what exists** — a composition score plus the specific components and patterns that
-   could build this, each with what it covers and a link straight into the playground or the
-   component page. *This is the thesis beat closing the loop.*
-2. **Extracted assets** — backgrounds, states, icons, on a checkerboard so transparency reads.
-3. **Design tokens** — every observed colour/type/spacing value matched against 8x8's real tokens,
-   with an on-system coverage score. Off-system values are called out in red with a note on what to
-   snap to.
-4. **Brand voice** — per-string pass/warn/fail against the guidance, banned phrases flagged
-   explicitly. **This ties directly back to Beat 1.**
+1. **Build from what exists** — a composition score plus the specific components that could build
+   this, each with what it covers and a link into the component page. *This is the thesis beat
+   closing the loop.* Verified worth doing: the pre-change spec on 8x8 returned
+   `existingComponentMatches: 0` with 79 components sitting right there.
+2. **Design tokens** — observed colour/type/spacing values matched against 8x8's real tokens with an
+   on-system coverage score; off-system values called out with what to snap to.
+3. **Brand voice** — per-string pass/warn/fail, banned phrases flagged. **Ties back to Beat 1.**
+4. **Extracted assets** — ⚠️ **verify before promising this.** See the risk table: asset extraction
+   has never once succeeded on 8x8 (5 `none`, 1 `failed`, zero assets across all six artifacts). If
+   it's still failing Thursday, cut this from the beat and lead on 1–3, which don't depend on it.
+
+**What IS proven on 8x8:** spec generation works and the output is good. Artifact `e391308f`
+produced `PlansPricingSection` — organism, group Pricing, 6 props including a `selectedBilling`
+enum, **48 text-inventory items**, 6.4KB of clean markdown, capturing their real copy (*"Plans built
+for how you work."*) verbatim from `sampleCopy`.
 
 Say it: *"That's not a picture in a Slack thread. It's a specification — and it tells you what you
 already own, what's off-system, and where the copy drifted."*
@@ -201,7 +207,9 @@ Show `/library` for three seconds. **Don't demo the permission model.**
 
 | Risk | Mitigation |
 |---|---|
-| **Spec generation has never completed on this DB** | Pre-flight #1. If it can't be made to work live, Beat 6 becomes "here's one prepared earlier" on the fallback artifact. |
+| 🔴 **Asset extraction has never succeeded on 8x8** — 5 `none`, 1 `failed`, zero assets across all six artifacts. **This is now the top risk**, not spec generation. | The watchdog + reaper stop it *hanging*; they don't make it *succeed*. Either root-cause it before Thursday or cut the assets section from Beat 6. Note `c7621545` already shows the degraded path in production (`assets: failed` + `spec: done`), which the new `warning` field surfaces honestly. |
+| ~~Spec generation has never completed~~ — **resolved, it works on 8x8** | That finding came from the local dev DB. Two 8x8 artifacts have `specStatus: done` with good output. |
+| 🔴 **Four MCP tools return context-blowing payloads** — `list_design_artifacts` **34MB**, `get_design_artifact` **6.7MB**, `get_component_spec` **2.2MB** (completed specs only; tiny while pending), `get_component` **513KB** | All inline base64 images / full component source. Every one is a tool Claude might reach for mid-demo, and any could kill the conversation. Needs a size cap or field projection. Interim mitigation: steer the demo to `search_components` and the UI. Also: 8x8's six artifacts are all un-backfilled inline data URLs despite Blob being configured — running the backfill route would shrink these a lot. |
 | Reuse/token sections come back thin or wrong | They're AI-generated against a real catalog, so quality varies. Pre-flight #2/#3 tells you what you're working with — if reuse is weak, lead Beat 6 with assets + tokens instead. |
 | ~60s cron latency before generation starts | Scripted narration in Beat 4; fallback artifact. |
 | First design comes back visually weak | Beat 5 reframes it — critique *is* the demo. A mediocre first pass that improves is a better story than a perfect one-shot. |
