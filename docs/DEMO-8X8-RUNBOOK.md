@@ -37,6 +37,19 @@ Fires `handoff_get_project_context`.
 ❌ **If those two tools are missing, stop and reconnect the connector.** Everything from Step 5 depends
 on them.
 
+⚠️ **Also fix Design.MD before generating anything.** It is passed into every generation as
+authoritative prose and currently contradicts the token system in three places:
+
+| Design.MD says | Reality |
+|---|---|
+| primary teal `#00A3BF` | not in the token set — Deep Teal `#04888a`, Teal 500 `#1aa39e` |
+| headings "DM Sans or Inter" | the registry's face is **PP Telegraf** |
+| cards 8px radius | actual 12px |
+
+This is why a design comes back blue with the wrong typeface. It is not a pipeline bug and no amount of
+re-rendering fixes it — the generator is doing what the guidelines told it. Edit them in workspace
+settings first.
+
 ---
 
 ## Step 1 — The contrast opener ⭐

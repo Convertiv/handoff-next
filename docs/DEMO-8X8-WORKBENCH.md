@@ -175,6 +175,7 @@ Show `/library` for three seconds. **Don't demo the permission model.**
 | 4 | Exercise **Revise the specification** once | Beat 5. Try one clear spec change and one art-direction request, so you know both answers look right. |
 | 5 | Pre-build a **fallback artifact** fully rendered | Insurance for Beats 4–6. |
 | 6 | MCP connected with a **device-login JWT**, not the sync secret | Generation hard-fails on a service token. |
+| 6b | ⚠️ **Fix the three conflicting lines in Design.MD** | Design.MD is fed into every generation as authoritative prose, and it has drifted from the token system: primary teal given as `#00A3BF` (**not in the token set** — real values are Deep Teal `#04888a` and Teal 500 `#1aa39e`), headings as *"DM Sans or Inter"* (the registry's face is **PP Telegraf**), cards at 8px radius (actual 12px). A design generated against this comes back the wrong colour and the wrong typeface no matter what the pipeline does. Edit in workspace settings. |
 | 7 | Rehearse Beat 1's "before" prompt | You want the generic version visibly full of banned phrases. |
 
 ---
