@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Loader2, Sparkles, User } from 'lucide-react';
+import { Bot, Link2, Loader2, Sparkles, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { usePlayground } from './PlaygroundContext';
@@ -35,6 +35,8 @@ export default function AiChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [urlOpen, setUrlOpen] = useState(false);
+  const [url, setUrl] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -70,6 +72,62 @@ export default function AiChatPanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'The request failed.');
     } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Pull a page's content into the conversation.
+   *
+   * Extraction happens server-side and the result is sent as an ordinary user turn, so the model
+   * composes from it with the same tools it always uses. It is *reference material*, not a layout to
+   * be reproduced — mapping scraped HTML onto blocks was the old importer's approach, and it invented
+   * structure that was never really there.
+   */
+  const pullUrl = async () => {
+    if (!url.trim() || busy) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const res = await fetch('/api/handoff/ai/extract-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ url }),
+      });
+      const page = (await res.json()) as {
+        url?: string;
+        title?: string;
+        description?: string;
+        headings?: { level: number; text: string }[];
+        paragraphs?: string[];
+        images?: { src: string; alt: string }[];
+        error?: string;
+      };
+      if (!res.ok) throw new Error(page.error || 'Could not read that page.');
+
+      const summary = [
+        `Here is the content of ${page.url}. Use it as reference — the copy and structure to work from, not a layout to copy.`,
+        page.title ? `\nTitle: ${page.title}` : '',
+        page.description ? `Description: ${page.description}` : '',
+        page.headings?.length ? `\nHeadings:\n${page.headings.map((h) => `${'  '.repeat(Math.max(0, h.level - 1))}- ${h.text}`).join('\n')}` : '',
+        page.paragraphs?.length ? `\nCopy:\n${page.paragraphs.map((t) => `- ${t}`).join('\n')}` : '',
+        // Images are listed for context only. They are not in the asset store, so they cannot be used
+        // as block imagery — search_assets is the only source, and saying so here stops the model
+        // reaching for a foreign URL that would render as a hotlink we do not control.
+        page.images?.length
+          ? `\nImages on the page (context only — do NOT use these URLs as block imagery; search the asset store instead):\n${page.images.slice(0, 12).map((i) => `- ${i.alt || '(no alt)'}`).join('\n')}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      setUrl('');
+      setUrlOpen(false);
+      setBusy(false);
+      await send(summary);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not read that page.');
       setBusy(false);
     }
   };
@@ -173,7 +231,36 @@ export default function AiChatPanel() {
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </div>
 
-      <div className="border-t p-3">
+      <div className="space-y-2 border-t p-3">
+        {urlOpen ? (
+          <div className="flex gap-1.5">
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void pullUrl();
+                if (e.key === 'Escape') setUrlOpen(false);
+              }}
+              placeholder="example.com/pricing"
+              disabled={busy}
+              autoFocus
+              className="min-w-0 flex-1 rounded-md border bg-background px-2.5 py-1.5 text-xs"
+            />
+            <Button type="button" size="sm" className="h-8 shrink-0 text-xs" disabled={busy || !url.trim()} onClick={() => void pullUrl()}>
+              Pull
+            </Button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setUrlOpen(true)}
+            disabled={busy}
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            <Link2 className="h-3 w-3" />
+            Pull content from a URL
+          </button>
+        )}
         <ChatInput onSend={(t) => void send(t)} disabled={busy} />
       </div>
     </div>
