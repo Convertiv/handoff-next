@@ -219,6 +219,8 @@ export interface MergeResult {
   args: Record<string, unknown>;
   /** Keys the model invented. Reported, never silently dropped. */
   unknownKeys: string[];
+  /** Enum values outside the allowed set. The template's value is kept. */
+  invalidValues: string[];
   /**
    * Content fields still holding preview sample data because the model never supplied them.
    *
@@ -237,6 +239,7 @@ export function mergeBlockValues(
 ): MergeResult {
   const args: Record<string, unknown> = { ...scaffoldArgs };
   const unknownKeys: string[] = [];
+  const invalidValues: string[] = [];
   const supplied = new Set(Object.keys(values ?? {}));
 
   for (const [key, value] of Object.entries(values ?? {})) {
@@ -244,6 +247,15 @@ export function mergeBlockValues(
       unknownKeys.push(key);
       continue;
     }
+
+    // An invalid enum value renders as the component's default, so the page looks like the model's
+    // choice was ignored rather than rejected. Keep the template's value and report it.
+    const allowed = optionValues((fields ?? {})[key]);
+    if (allowed.length && typeof value === 'string' && !allowed.includes(value)) {
+      invalidValues.push(`${key}="${value}" (expected one of ${allowed.join(', ')})`);
+      continue;
+    }
+
     args[key] = coerceToShape(scaffoldArgs[key], value);
   }
 
@@ -270,7 +282,7 @@ export function mergeBlockValues(
     }
   }
 
-  return { args, unknownKeys, unfilled };
+  return { args, unknownKeys, invalidValues, unfilled };
 }
 
 /**
@@ -290,6 +302,14 @@ export function mergeBlockValues(
  * The preview value is the ground truth: it is what the component actually renders. `buttonSlots` is
  * `{ url, text }` here and `{ label, href }` elsewhere, and only the value knows which.
  */
+/** Allowed values for a select/enum field, from the component contract. */
+export function optionValues(meta: unknown): string[] {
+  if (!isPlainObject(meta) || !Array.isArray(meta.options)) return [];
+  return meta.options
+    .map((o) => (isPlainObject(o) ? o.value : o))
+    .filter((v): v is string => typeof v === 'string' && v.length > 0);
+}
+
 function describeValue(value: unknown, depth = 0): string {
   if (typeof value === 'string') {
     const tag = /<([a-z][a-z0-9]*)\b/i.exec(value);
@@ -330,9 +350,14 @@ export function summarizeFields(
   if (!entries.length) return '';
 
   const parts = entries.slice(0, max).map(([name, meta]) => {
+    // Enums first: a live page set `theme: "off-white"` on every block, which is not in the enum, so
+    // every theme silently fell back to a default and the page came out one flat colour. The model
+    // cannot vary what it cannot see the values for.
+    const opts = optionValues(meta);
+    if (opts.length) return `${name}: one of ${opts.slice(0, 14).join(' | ')}`;
+
     const seeded = values?.[name];
     if (seeded !== undefined) return `${name}: ${describeValue(seeded)}`;
-    // No preview value to learn from — fall back to the declared type.
     const editor = isPlainObject(meta) && typeof meta.editorType === 'string' ? meta.editorType : 'any';
     return `${name}: ${editor}`;
   });

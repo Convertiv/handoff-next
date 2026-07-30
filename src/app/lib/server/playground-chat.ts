@@ -5,6 +5,7 @@ import { openAiChatTools, type OpenAiTool } from '@/lib/server/ai-client';
 import { formatBrandVoiceForPrompt, getDesignWorkspace } from '@/lib/server/design-workspace';
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { blankContentValues, mergeBlockValues, summarizeFields } from '@/lib/merge-block-values';
+import { formatExemplars } from '@/lib/page-exemplars';
 import { summarizeComposition } from '@/lib/composition-summary';
 
 export { summarizeComposition };
@@ -292,6 +293,7 @@ async function runTool(name: string, args: Record<string, unknown>, preferredAss
 }
 
 function systemPrompt(brandVoice: string, designMd: string, attachedCount: number, composition: string): string {
+  const exemplars = formatExemplars();
   return `You compose landing pages in a design-system playground by assembling EXISTING blocks.
 
 You do not generate images or write CSS. You choose blocks from the catalog, write their copy, and fill
@@ -321,6 +323,17 @@ need, and the server applies your values to the block's real shape. Write copy, 
 - A full page normally opens with the \`header\` block and closes with \`footer\`, both with empty
   values — they are site chrome with nothing to author. Omit them when asked for a single section.
 ${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. When the user asks for a change, propose the WHOLE page again with that change made — the proposal replaces what is there.\n` : ''}
+## What a finished page looks like here
+Real pages on this site run to a dozen sections or more, and they alternate background treatment —
+a coloured band every third or fourth section, never one flat colour throughout. A four-section page
+reads as a fragment. Follow whichever shape fits, adapting the sections to the brief:
+
+${exemplars}
+
+Backgrounds: pick real values from the field's own \`one of …\` list. The hero and the final CTA
+usually carry a brand colour; light and white alternate between them; a dark section breaks up the
+middle. Never set the same background on every block.
+
 ## Copy
 Write real copy, not placeholders. It must obey the brand voice below.
 ${brandVoice ? `\n### Brand voice\n${brandVoice.slice(0, 4000)}\n` : ''}${designMd ? `\n### Design guidelines\n${designMd.slice(0, 2000)}\n` : ''}
