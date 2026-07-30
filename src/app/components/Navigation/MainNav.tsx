@@ -75,7 +75,7 @@ export function MainNav() {
             className={cn(navigationMenuTriggerStyle(), isToolsActive && 'bg-accent text-accent-foreground')}
             asChild
           >
-            <Link href={toolsHref}>Tools</Link>
+            <Link href={toolsHref}>Prototyping</Link>
           </NavigationMenuLink>
         </NavigationMenuItem>
       </NavigationMenuList>

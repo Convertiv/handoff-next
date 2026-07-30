@@ -12,13 +12,13 @@ const LIFECYCLE_VARIANT: Record<Lifecycle, BadgeProps['variant']> = {
   archived: 'secondary',
 };
 
-export function LifecycleBadge({ status }: { status: Lifecycle }) {
+export function LifecycleBadge({ status, className }: { status: Lifecycle; className?: string }) {
   const variant = LIFECYCLE_VARIANT[status];
   const isGhost = status === 'prototype';
   return (
     <Badge
       variant={variant}
-      className={cn(isGhost && 'border border-dashed border-muted-foreground/40 text-muted-foreground')}
+      className={cn(isGhost && 'border border-dashed border-muted-foreground/40 text-muted-foreground', className)}
     >
       {LIFECYCLE_META[status].short}
     </Badge>

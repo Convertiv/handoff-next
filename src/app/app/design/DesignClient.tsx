@@ -1,48 +1,54 @@
 'use client';
 
 import {
+  AlertCircleIcon,
   ArrowUpIcon,
   ClipboardIcon,
-  CopyIcon,
   DownloadIcon,
   FileTextIcon,
-  InfoIcon,
   LayoutGridIcon,
   LibraryIcon,
   LightbulbIcon,
   Loader2Icon,
-  MoreHorizontalIcon,
+  PanelsTopLeftIcon,
   PaperclipIcon,
-  PlusIcon,
-  RefreshCwIcon,
   RotateCcwIcon,
-  SettingsIcon,
-  Share2Icon,
-  Trash2Icon,
   WandSparklesIcon,
   XIcon,
   ZoomInIcon,
   ZoomOutIcon,
 } from 'lucide-react';
+import { PenNib } from '@phosphor-icons/react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
 import Layout from '../../components/Layout/Main';
-import { Button } from '../../components/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '../../components/ui/dropdown-menu';
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentGroup,
+  AttachmentMedia,
+  AttachmentTitle,
+} from '../../components/ui/attachment';
+import { Bubble, BubbleContent } from '../../components/ui/bubble';
+import { Button } from '../../components/ui/button';
+import { Marker, MarkerContent, MarkerIcon } from '../../components/ui/marker';
+import { Message, MessageContent, MessageFooter } from '../../components/ui/message';
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from '../../components/ui/message-scroller';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { Textarea } from '../../components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../../components/ui/tooltip';
 import type { DocumentationProps } from '../../components/util';
@@ -64,34 +70,9 @@ import {
   MAX_RECENT,
   type WorkbenchSession,
 } from './workbench-session';
-import SessionHistoryPanel from './SessionHistoryPanel';
 import { COMPONENT_REFERENCE_SETTINGS, CUSTOM_FOUNDATION_IMAGE_FILENAME } from './settings/settings-constants';
-import {
-  AssetInspector,
-  LaneTabs,
-  LifecycleBadge,
-  OwnerAttribution,
-  VisibilityBadge,
-} from '@/components/library';
-import type { Lane, Lifecycle, ResourcePermissions, Visibility } from '@/lib/authz/vocab';
 
 type LayoutWizardStatus = 'idle' | 'analyzing' | 'generating' | 'done';
-type SidebarTab = 'session' | 'layout' | 'library';
-
-/** A saved design listed in the Library sidebar tab. */
-type LibraryArtifactRow = {
-  id: string;
-  title: string;
-  description: string;
-  status: string;
-  imageUrl: string;
-  updatedAt: string;
-  /** Phase B lane fields (stamped by the lane list endpoint). */
-  visibility: Visibility;
-  permissions: ResourcePermissions;
-  owner: { id: string; name?: string | null; image?: string | null } | null;
-  isMe: boolean;
-};
 
 type LayoutAnalysisResult = {
   description: string;
@@ -118,14 +99,8 @@ const CANVAS_WIDTH = 2048;
 const CANVAS_HEIGHT = 1152;
 const CANVAS_INITIAL_SCALE = 0.35;
 const CANVAS_MIN_SCALE = 0.2;
-const CANVAS_PROMPT_SAFE_AREA = 144;
 const TRACKPAD_ZOOM_STEP = 0.01;
 const LAYOUT_WIZARD_PROMPT = 'Make me a design using our design system based on this wireframe.';
-const STAGE_LABELS: Record<string, string> = {
-  preparing: 'Preparing…',
-  building_prompt: 'Building prompt…',
-  generating: 'Generating…',
-};
 const PROMPT_SUGGESTIONS = [
   'Design a modern SaaS landing page hero for a productivity app.',
   'Create a pricing section with three plans and a highlighted recommended tier.',
@@ -136,6 +111,22 @@ const PROMPT_SUGGESTIONS = [
   'Make a feature comparison section for a product marketing page.',
   'Create an empty state for a project dashboard with a clear next action.',
   'Design a calendar scheduling screen for booking customer calls.',
+];
+/** Curated block screenshots (under public/assets/design/blocks/) offered as prompt attachments. */
+const BLOCK_LIBRARY = [
+  { file: 'callout-cta.jpg', label: 'Callout CTA' },
+  { file: 'carousel.png', label: 'Carousel' },
+  { file: 'container.png', label: 'Container' },
+  { file: 'customer-stories.jpg', label: 'Customer stories' },
+  { file: 'faq.jpg', label: 'FAQ' },
+  { file: 'features-comparison.jpg', label: 'Features comparison' },
+  { file: 'table.jpg', label: 'Table' },
+];
+/** Shortcut prompts shown in the chat sidebar before the first message. */
+const CHAT_EMPTY_SUGGESTIONS = [
+  'Design a SaaS landing page hero',
+  'Create a pricing table with three plans, middle one being recommended. Each plan has 4 bullets and button "Start Now" at the bottom.',
+  'Design a dashboard overview with key metrics, recent activity and quick actions. Make it light on text and with decent amount of whitespace.',
 ];
 
 function formatGenerationTimestamp(createdAt: string | undefined): string {
@@ -169,6 +160,15 @@ function safeFoundationContext(raw: unknown): DesignWorkbenchFoundationContext {
   };
 }
 
+/**
+ * Artifact images stream from a private Blob store via a root-relative proxy path, so the
+ * deployment's base path has to be applied before they can be used as an <img src>. Data URLs
+ * and absolute URLs (older rows) pass through unchanged.
+ */
+function resolveHistoryImageSrc(url: string): string {
+  return /^(data:|blob:|https?:|\/\/)/i.test(url) || !url.startsWith('/') ? url : handoffApiUrl(url);
+}
+
 async function dataUrlToFile(dataUrl: string, name: string): Promise<File> {
   const res = await fetch(dataUrl);
   const blob = await res.blob();
@@ -191,6 +191,7 @@ const DesignWorkbenchPage = ({
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const promptImageInputRef = useRef<HTMLInputElement>(null);
   const layoutGuideInputRef = useRef<HTMLInputElement>(null);
+  const chatPromptRef = useRef<HTMLTextAreaElement>(null);
   const selectedGeneratedImageIdRef = useRef<string | null>(null);
   const draftArtifactIdRef = useRef<string | null>(null);
   const layoutWizardRunIdRef = useRef(0);
@@ -207,6 +208,8 @@ const DesignWorkbenchPage = ({
   const [isAnalyzingLayoutGuide, setIsAnalyzingLayoutGuide] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [promptSuggestionsOpen, setPromptSuggestionsOpen] = useState(false);
+  const [chatSuggestionsOpen, setChatSuggestionsOpen] = useState(false);
+  const [blocksOpen, setBlocksOpen] = useState(false);
   const [imageQuality, setImageQuality] = useState<ImageQuality>('low');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [conversationHistory, setConversationHistory] = useState<DesignConversationTurn[]>([]);
@@ -224,6 +227,7 @@ const DesignWorkbenchPage = ({
   const [saveDefaultTitle, setSaveDefaultTitle] = useState('');
   const [saveDescription, setSaveDescription] = useState('');
   const [saveImageSrc, setSaveImageSrc] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [layoutWizardOpen, setLayoutWizardOpen] = useState(false);
   const [layoutWizardTransitioning, setLayoutWizardTransitioning] = useState(false);
@@ -231,7 +235,6 @@ const DesignWorkbenchPage = ({
   const [layoutWizardStatus, setLayoutWizardStatus] = useState<LayoutWizardStatus>('idle');
   const [layoutWizardDisplayWireframeUrl, setLayoutWizardDisplayWireframeUrl] = useState('');
   const [layoutWizardDisplayDescription, setLayoutWizardDisplayDescription] = useState('');
-  const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('session');
   const [draftArtifactId, setDraftArtifactId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<WorkbenchSession | null>(null);
   const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
@@ -663,14 +666,7 @@ const DesignWorkbenchPage = ({
         const artifact = json.artifact;
         if (!artifact?.imageUrl) throw new Error('Saved design has no image to continue from.');
         if (cancelled) return;
-        // Artifact images stream from a private Blob store via a root-relative proxy path, so the
-        // deployment's base path has to be applied before it can be used as an <img src>. Data URLs
-        // and absolute URLs (older rows) pass through unchanged.
-        setImageSrc(
-          /^(data:|blob:|https?:|\/\/)/i.test(artifact.imageUrl) || !artifact.imageUrl.startsWith('/')
-            ? artifact.imageUrl
-            : handoffApiUrl(artifact.imageUrl)
-        );
+        setImageSrc(resolveHistoryImageSrc(artifact.imageUrl));
         selectedGeneratedImageIdRef.current = null;
         setSelectedGeneratedImageId(null);
         if (Array.isArray(artifact.conversationHistory)) setConversationHistory(artifact.conversationHistory);
@@ -711,16 +707,24 @@ const DesignWorkbenchPage = ({
     };
   }, []);
 
+  // Auto-grow fallback for browsers without CSS `field-sizing: content` (Firefox).
+  // Chromium/Safari handle growth natively, so this effect stays inert there.
+  useEffect(() => {
+    const ta = chatPromptRef.current;
+    if (!ta) return;
+    if (typeof CSS !== 'undefined' && CSS.supports('field-sizing', 'content')) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 160)}px`; // cap matches max-h-40
+  }, [prompt]);
+
   const promptedFoundations = includeFoundations ? effectiveFoundations : EMPTY_FOUNDATIONS;
   const customFoundationImage = !includeFoundations ? customFoundationImageDataUrl : '';
   const brandVoiceGuidelines = useMemo(() => formatBrandVoiceForPrompt(brandVoice), [brandVoice]);
   const selectedGuides = useMemo<DesignWorkbenchComponentGuide[]>(() => [], []);
   const activeGeneration = generatedImages.find((image) => image.id === selectedGeneratedImageIdRef.current);
   const isGenerating = activeGeneration?.status === 'pending';
-  const hasActiveCanvasState =
-    Boolean(imageSrc) ||
-    Boolean(selectedGeneratedImageId) ||
-    Boolean(layoutWizardOpen || layoutWizardClosing || layoutWizardDisplayWireframeUrl || layoutWizardDisplayDescription);
+  // Empty chat = no conversation yet, nothing running, nothing to report.
+  const chatEmpty = conversationHistory.length === 0 && !isGenerating && !error;
 
   const hasFoundationsForRaster = useMemo(
     () =>
@@ -820,7 +824,7 @@ const DesignWorkbenchPage = ({
   }, [analyzeLayoutGuideImage, layoutGuideImage]);
 
   const handlePromptPaste = useCallback(
-    (event: React.ClipboardEvent<HTMLInputElement>) => {
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
       const clipboardFiles = Array.from(event.clipboardData.files);
       const itemFiles = Array.from(event.clipboardData.items)
         .filter((item) => item.kind === 'file')
@@ -1252,27 +1256,6 @@ const DesignWorkbenchPage = ({
     }, 190);
   };
 
-  const handleShowEmptyCanvas = () => {
-    if (layoutWizardTransitionTimerRef.current) {
-      window.clearTimeout(layoutWizardTransitionTimerRef.current);
-      layoutWizardTransitionTimerRef.current = null;
-    }
-    layoutWizardRunIdRef.current += 1;
-    selectedGeneratedImageIdRef.current = null;
-    setSelectedGeneratedImageId(null);
-    setImageSrc(null);
-    setPromptSuggestionsOpen(false);
-    setLayoutWizardTransitioning(false);
-    setLayoutWizardClosing(false);
-    setLayoutWizardOpen(false);
-    setLayoutWizardStatus('idle');
-    setLayoutWizardDisplayWireframeUrl('');
-    setLayoutWizardDisplayDescription('');
-    setError(null);
-    setActiveSidebarTab('session');
-    router.replace(`${basePath}/design`);
-  };
-
   const handleGenerateLayoutWizard = async () => {
     if (!layoutGuideImage) {
       setError('Upload or paste a layout image first.');
@@ -1321,27 +1304,6 @@ const DesignWorkbenchPage = ({
     }
   };
 
-  const handleDeleteGeneratedImage = (imageId: string) => {
-    // Capture the job id before removing from state so we can also delete the
-    // backing job row — otherwise stuck/failed jobs reappear from the jobs API
-    // on the next mount.
-    const target = generatedImages.find((image) => image.id === imageId);
-    setGeneratedImages((current) => current.filter((image) => image.id !== imageId));
-    if (selectedGeneratedImageIdRef.current === imageId) {
-      selectedGeneratedImageIdRef.current = null;
-      setSelectedGeneratedImageId(null);
-      setImageSrc(null);
-      setLayoutWizardDisplayWireframeUrl('');
-      setLayoutWizardDisplayDescription('');
-    }
-    if (target?.jobId) {
-      void fetch(handoffApiUrl(`/api/handoff/ai/design-generation-job/${target.jobId}`), {
-        method: 'DELETE',
-        credentials: 'include',
-      }).catch(() => { /* best-effort; item is already removed from the UI */ });
-    }
-  };
-
   const handleStartFresh = () => {
     // Clear both the persisted session AND the in-memory state that feeds the
     // auto-save effect. Without clearing state, the effect would immediately
@@ -1359,35 +1321,57 @@ const DesignWorkbenchPage = ({
     setLayoutWizardDisplayDescription('');
   };
 
-  const handleDownloadGeneratedImage = (img: GeneratedImage) => {
-    if (!img.src) return;
+  // Clicking an assistant thumbnail in the chat puts that generation back on the canvas.
+  const handleSelectHistoryImage = (url: string) => {
+    // Preview only: while a generation is in flight, keep its selection intact —
+    // clearing it would drop the chat's loading indicator and stop the finished
+    // image from landing on the canvas.
+    if (!isGenerating) {
+      selectedGeneratedImageIdRef.current = null;
+      setSelectedGeneratedImageId(null);
+    }
+    setImageSrc(resolveHistoryImageSrc(url));
+  };
+
+  // Attach a curated block screenshot as a prompt image, same as a manual upload.
+  const handleAttachBlock = async (block: { file: string; label: string }) => {
+    try {
+      const res = await fetch(`${basePath}/assets/design/blocks/${block.file}`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      addPromptImageFiles([new File([blob], block.file, { type: blob.type || 'image/jpeg' })]);
+      setBlocksOpen(false);
+    } catch {
+      setError(`Could not load the "${block.label}" block image.`);
+    }
+  };
+
+  const handleDownloadImage = (imageUrl: string, generationNumber: number) => {
     const link = document.createElement('a');
-    link.href = img.src;
-    link.download = `handoff-generation-${img.id}.png`;
+    link.href = resolveHistoryImageSrc(imageUrl);
+    link.download = `handoff-generation-${generationNumber}.png`;
     link.click();
   };
 
-  const handleCopyGeneratedPrompt = async (promptText: string) => {
-    if (!promptText) return;
-    await navigator.clipboard.writeText(promptText);
-  };
-
-  const handleOpenSaveArtifact = (img: GeneratedImage, index: number) => {
-    if (!img.src) return;
-    const defaultTitle = `Generation ${generatedImages.length - index}`;
-    setSaveImageSrc(img.src);
+  const handleOpenSaveFromChat = (imageUrl: string, generationNumber: number) => {
+    const defaultTitle = `Generation ${generationNumber}`;
+    setSaveImageSrc(resolveHistoryImageSrc(imageUrl));
     setSaveDefaultTitle(defaultTitle);
     setSaveTitle(defaultTitle);
     setSaveDescription('');
-    setError(null);
+    setSaveError(null);
     setSaveOpen(true);
   };
 
   const handleSaveArtifact = async () => {
     const title = (saveTitle.trim() || saveDefaultTitle.trim()).trim();
-    if (!title || !saveImageSrc) return;
+    if (!title) {
+      setSaveError('Title is required.');
+      return;
+    }
+    if (!saveImageSrc) return;
     setIsSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact'), {
         method: 'POST',
@@ -1411,10 +1395,8 @@ const DesignWorkbenchPage = ({
       setSaveDefaultTitle('');
       setSaveDescription('');
       setSaveImageSrc(null);
-      // Refresh the Library tab so the newly saved design appears immediately.
-      void fetchLibrary();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Save failed.');
+      setSaveError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
       setIsSaving(false);
     }
@@ -1477,342 +1459,21 @@ const DesignWorkbenchPage = ({
             <code className="rounded bg-amber-100 px-1 dark:bg-amber-900">HANDOFF_CLOUD_TOKEN</code>.
           </p>
         ) : null}
-        <aside className="flex w-56 shrink-0 flex-col border-r bg-background">
-          <input
-            ref={layoutGuideInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp"
-            className="hidden"
-            onChange={(e) => handleLayoutGuideUpload(e.target.files)}
-          />
-          <Tabs
-            value={activeSidebarTab}
-            onValueChange={(value) => setActiveSidebarTab(value as SidebarTab)}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <div className="border-b px-3 py-3">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="session">Session</TabsTrigger>
-                <TabsTrigger value="layout" className="hidden">
-                  Layout
-                </TabsTrigger>
-                <TabsTrigger value="library">Library</TabsTrigger>
-              </TabsList>
-            </div>
-            <TabsContent value="session" className="m-0 flex min-h-0 flex-1 flex-col">
-              <div className="flex items-center justify-between border-b px-3 py-2">
-                <p className="text-xs font-medium text-muted-foreground">Design session</p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  onClick={handleShowEmptyCanvas}
-                  disabled={!hasActiveCanvasState}
-                  aria-label="Show empty canvas"
-                  title={hasActiveCanvasState ? 'Show empty canvas' : 'Canvas is already empty'}
-                >
-                  <PlusIcon className="h-4 w-4" />
-                </Button>
-              </div>
-              <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
-                {generatedImages.length > 0 ? (
-                  generatedImages.map((img, index) => (
-                    <div
-                      key={img.id}
-                      className="group relative"
-                    >
-                      <div className="mb-2 space-y-0.5">
-                        <p className="text-xs font-medium">Generation {generatedImages.length - index}</p>
-                        <p className="text-[11px] text-muted-foreground">{formatGenerationTimestamp(img.createdAt)}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          selectedGeneratedImageIdRef.current = img.id;
-                          setSelectedGeneratedImageId(img.id);
-                          setImageSrc(img.src ?? null);
-                        }}
-                        className="block w-full rounded-lg border bg-muted/20 p-1 text-left transition hover:border-primary data-[selected=true]:border-primary"
-                        data-selected={selectedGeneratedImageId === img.id}
-                        title={img.error || img.prompt}
-                      >
-                        {img.status === 'completed' && img.src ? (
-                          <Image
-                            src={img.src}
-                            alt={img.prompt}
-                            width={192}
-                            height={108}
-                            unoptimized
-                            className="h-20 w-full rounded-md object-cover"
-                          />
-                        ) : (
-                          <div
-                            className={`relative flex h-20 w-full items-center justify-center rounded-md text-xs text-muted-foreground ${
-                              img.status === 'error' ? 'bg-destructive/10 text-destructive' : 'animate-pulse bg-muted'
-                            }`}
-                          >
-                            {img.status === 'error' ? 'Failed' : img.stage ? (STAGE_LABELS[img.stage] ?? img.stage) : 'Generating...'}
-                          </div>
-                        )}
-                      </button>
-                      <div className="absolute right-3 top-3">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              className="h-7 w-7 p-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100"
-                              aria-label="Generation actions"
-                            >
-                              <MoreHorizontalIcon className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => setPanelImage(img)}>
-                              <InfoIcon className="h-3.5 w-3.5" />
-                              View details
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled={!img.src} onClick={() => handleOpenSaveArtifact(img, index)}>
-                              <LibraryIcon className="h-3.5 w-3.5" />
-                              Add to Library
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled={!img.src} onClick={() => handleDownloadGeneratedImage(img)}>
-                              <DownloadIcon className="h-3.5 w-3.5" />
-                              Download PNG
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => void handleCopyGeneratedPrompt(img.prompt)}>
-                              <CopyIcon className="h-3.5 w-3.5" />
-                              Copy prompt
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => handleDeleteGeneratedImage(img.id)}>
-                              <Trash2Icon className="h-3.5 w-3.5" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-muted-foreground">Generations appear here for this session.</p>
-                )}
-              </div>
-            </TabsContent>
-            <TabsContent value="layout" className="hidden">
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">Add a web section screenshot to use its layout structure.</p>
-                {layoutGuidePreviewUrl ? (
-                  <div className="group relative overflow-hidden rounded-md border bg-muted/20">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={layoutGuidePreviewUrl} alt="Layout guide" className="max-h-36 w-full object-cover" />
-                    <button
-                      type="button"
-                      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:text-foreground group-hover:opacity-100"
-                      onClick={() => setLayoutGuideFile(null)}
-                      aria-label="Remove layout guide"
-                    >
-                      <XIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : null}
-                {layoutGuidePreviewUrl ? (
-                  <>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => void handleUseLayoutGuide()}
-                      disabled={isAnalyzingLayoutGuide || !serverAiAvailable || !isLoggedIn}
-                      title={
-                        !isLoggedIn
-                          ? LOGIN_TO_USE_TOOL_MESSAGE
-                          : !serverAiAvailable
-                            ? 'Configure server AI in Integrations or .env'
-                            : undefined
-                      }
-                    >
-                      {isAnalyzingLayoutGuide ? (
-                        <>
-                          <Loader2Icon className="mr-2 h-3.5 w-3.5 animate-spin" />
-                          Analyzing...
-                        </>
-                      ) : (
-                        'Use layout'
-                      )}
-                    </Button>
-                    {layoutGuideDescription ? (
-                      <p className="rounded-md border bg-muted/20 p-2 text-xs leading-relaxed text-muted-foreground">
-                        {layoutGuideDescription}
-                      </p>
-                    ) : null}
-                  </>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Button variant="secondary" size="sm" className="flex-1" onClick={() => layoutGuideInputRef.current?.click()}>
-                      Upload Layout
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => void handlePasteLayoutGuide()}
-                      aria-label="Paste layout image from clipboard"
-                      title="Paste image from clipboard"
-                    >
-                      <ClipboardIcon className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
-              <div className="mt-auto border-t pt-3">
-                <Button type="button" className="w-full" onClick={handleOpenLayoutWizard}>
-                  Make a design
-                </Button>
-              </div>
-            </TabsContent>
-            <TabsContent value="library" className="m-0 flex min-h-0 flex-1 flex-col">
-              <div className="flex items-center justify-between border-b px-3 py-2">
-                <p className="text-xs font-medium text-muted-foreground">Saved designs</p>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
-                  onClick={() => void fetchLibrary()}
-                  disabled={libraryLoading}
-                  aria-label="Refresh library"
-                  title="Refresh library"
-                >
-                  <RefreshCwIcon className={`h-4 w-4 ${libraryLoading ? 'animate-spin' : ''}`} />
-                </Button>
-              </div>
-              <div className="border-b px-3 py-2">
-                <LaneTabs value={libraryLane} onChange={handleLibraryLaneChange} />
-              </div>
-              <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
-                {libraryError ? <p className="text-xs text-destructive">{libraryError}</p> : null}
-                {libraryNotice ? <p className="text-xs text-emerald-600 dark:text-emerald-400">{libraryNotice}</p> : null}
-                {libraryLoading && libraryArtifacts.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">Loading saved designs…</p>
-                ) : libraryArtifacts.length === 0 ? (
-                  <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-8 text-center">
-                    <p className="text-sm font-medium">No saved designs yet</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Use “Add to Library” on a generation to save it here.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                  {libraryArtifacts.map((a) => (
-                    <div
-                      key={a.id}
-                      className="group rounded-lg border bg-muted/20 p-1 transition hover:border-primary"
-                    >
-                      <button
-                        type="button"
-                        className="block w-full text-left"
-                        onClick={() => setInspectorId(a.id)}
-                        title="Open details"
-                      >
-                        {a.imageUrl ? (
-                          <Image
-                            src={a.imageUrl}
-                            alt={a.title}
-                            width={192}
-                            height={108}
-                            unoptimized
-                            className="h-20 w-full rounded-md object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-20 w-full items-center justify-center rounded-md bg-muted text-xs text-muted-foreground">
-                            No preview
-                          </div>
-                        )}
-                        <div className="px-1 py-1.5">
-                          <p className="truncate text-xs font-medium" title={a.title}>{a.title}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            <LifecycleBadge status={a.status as Lifecycle} />
-                            <VisibilityBadge visibility={a.visibility} />
-                          </div>
-                          <div className="mt-1.5">
-                            <OwnerAttribution
-                              owner={a.owner}
-                              isMe={a.isMe}
-                              editedLabel={formatGenerationTimestamp(a.updatedAt)}
-                            />
-                          </div>
-                        </div>
-                      </button>
-                      <div className="flex items-center gap-1 px-1 pb-1">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-7 flex-1 text-xs"
-                          onClick={() => router.push(`${basePath}/design/library/${a.id}/`)}
-                        >
-                          Open
-                        </Button>
-                        {a.permissions.canEdit ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 flex-1 text-xs"
-                            onClick={() => setInspectorId(a.id)}
-                          >
-                            <Share2Icon className="mr-1 h-3.5 w-3.5" />
-                            Share
-                          </Button>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 flex-1 text-xs"
-                            onClick={() => void cloneArtifact(a.id)}
-                            disabled={inspectorBusy}
-                          >
-                            <CopyIcon className="mr-1 h-3.5 w-3.5" />
-                            Duplicate
-                          </Button>
-                        )}
-                        {a.permissions.canDelete ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                            onClick={() => setDeleteTarget({ id: a.id, title: a.title })}
-                            aria-label={`Delete ${a.title}`}
-                            title="Delete"
-                          >
-                            <Trash2Icon className="h-3.5 w-3.5" />
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ))}
-                  {libraryCursor ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                      onClick={() => void fetchLibrary(libraryCursor)}
-                      disabled={libraryLoadingMore}
-                    >
-                      {libraryLoadingMore ? 'Loading…' : 'Load more'}
-                    </Button>
-                  ) : null}
-                  </>
-                )}
-              </div>
-            </TabsContent>
-          </Tabs>
-        </aside>
+        <input
+          ref={layoutGuideInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="hidden"
+          onChange={(e) => handleLayoutGuideUpload(e.target.files)}
+        />
+        <input
+          ref={promptImageInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          multiple
+          className="hidden"
+          onChange={(e) => addPromptImageFiles(e.target.files)}
+        />
 
         <div
           className="relative min-h-0 flex-1 overflow-hidden bg-gray-50"
@@ -1821,7 +1482,7 @@ const DesignWorkbenchPage = ({
             backgroundSize: '18px 18px',
           }}
         >
-          <div className="absolute inset-x-0 top-0" style={{ bottom: CANVAS_PROMPT_SAFE_AREA }}>
+          <div className="absolute inset-0">
             <TransformWrapper
               initialScale={CANVAS_INITIAL_SCALE}
               minScale={CANVAS_MIN_SCALE}
@@ -1910,7 +1571,7 @@ const DesignWorkbenchPage = ({
           </div>
 
           {!imageSrc ? (
-            <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center bg-gray-50 px-6 text-center" style={{ bottom: CANVAS_PROMPT_SAFE_AREA }}>
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-gray-50 px-6 text-center">
               {layoutWizardOpen ? (
                 <div
                   className={`relative w-full max-w-3xl space-y-5 transition-all duration-200 ease-out ${
@@ -2027,75 +1688,261 @@ const DesignWorkbenchPage = ({
                       </Button>
                     </div>
                   ) : null}
+                  {!isGenerating && promptSuggestionsOpen ? (
+                    <div className="mx-auto w-full max-w-md animate-in fade-in-0 slide-in-from-bottom-2 duration-200 rounded-2xl border border-gray-200 bg-white p-2 text-left shadow-lg">
+                      <div className="flex items-center justify-between px-3 py-2">
+                        <p className="text-xs font-medium text-gray-500">Prompt suggestions</p>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
+                          onClick={() => setPromptSuggestionsOpen(false)}
+                        >
+                          Close
+                        </button>
+                      </div>
+                      <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
+                        {PROMPT_SUGGESTIONS.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            className="block w-full rounded-xl px-3 py-2 text-left text-sm text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+                            onClick={() => {
+                              setPrompt(suggestion);
+                              setPromptSuggestionsOpen(false);
+                            }}
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>
           ) : null}
 
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-5 pt-12">
-            <div className="pointer-events-auto relative mx-auto w-full max-w-3xl">
-              {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
-              {!imageSrc && !layoutWizardOpen && promptSuggestionsOpen ? (
-                <div className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] animate-in fade-in-0 slide-in-from-bottom-2 duration-200 rounded-2xl border border-gray-200 bg-white p-2 text-left shadow-lg">
-                  <div className="flex items-center justify-between px-3 py-2">
-                    <p className="text-xs font-medium text-gray-500">Prompt suggestions</p>
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-gray-500 transition hover:text-gray-900"
-                      onClick={() => setPromptSuggestionsOpen(false)}
-                    >
-                      Close
-                    </button>
-                  </div>
-                  <div className="max-h-48 space-y-1 overflow-y-auto pr-1">
-                    {PROMPT_SUGGESTIONS.map((suggestion) => (
+        </div>
+
+        <aside className="flex w-80 shrink-0 flex-col border-l bg-background">
+          {chatEmpty ? (
+            <div className="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-y-auto p-4">
+              <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+                <PenNib className="h-6 w-6 text-muted-foreground" aria-hidden />
+              </div>
+              <p className="text-sm font-semibold">Design, refine, and iterate with your design system</p>
+              <div className="space-y-0.5">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  onClick={handleOpenLayoutWizard}
+                >
+                  <WandSparklesIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Design from existing block...</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  onClick={() => setChatSuggestionsOpen((open) => !open)}
+                  aria-expanded={chatSuggestionsOpen}
+                >
+                  <LightbulbIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Try a prompt...</span>
+                </button>
+                {chatSuggestionsOpen ? (
+                  <div className="space-y-2 pt-1">
+                    {CHAT_EMPTY_SUGGESTIONS.map((text) => (
                       <button
-                        key={suggestion}
+                        key={text}
                         type="button"
-                        className="block w-full rounded-xl px-3 py-2 text-left text-sm text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
-                        onClick={() => {
-                          setPrompt(suggestion);
-                          setPromptSuggestionsOpen(false);
-                        }}
+                        className="block w-full rounded-lg bg-gray-100/60 px-2 py-2 text-left text-xs leading-snug text-muted-foreground transition hover:bg-gray-100 hover:text-foreground"
+                        onClick={() => setPrompt(text)}
                       >
-                        {suggestion}
+                        {text}
                       </button>
                     ))}
                   </div>
-                </div>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <MessageScrollerProvider>
+              <MessageScroller className="min-h-0 flex-1">
+                <MessageScrollerViewport className="px-3">
+                  <MessageScrollerContent className="gap-4 py-4">
+                    {conversationHistory.map((turn, index) => {
+                      if (turn.role === 'user') {
+                        return (
+                          <MessageScrollerItem key={`turn-${index}`} messageId={`turn-${index}`} scrollAnchor>
+                            <Message align="end">
+                              <MessageContent>
+                                <Bubble align="end">
+                                  <BubbleContent>{turn.prompt}</BubbleContent>
+                                </Bubble>
+                              </MessageContent>
+                            </Message>
+                          </MessageScrollerItem>
+                        );
+                      }
+                      const generationNumber = conversationHistory
+                        .slice(0, index + 1)
+                        .filter((t) => t.role === 'assistant').length;
+                      return (
+                        <MessageScrollerItem key={`turn-${index}`} messageId={`turn-${index}`}>
+                          <Message>
+                            <MessageContent>
+                              <Bubble variant="outline">
+                                <BubbleContent asChild className="p-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => turn.imageUrl && handleSelectHistoryImage(turn.imageUrl)}
+                                    title="Show on canvas"
+                                  >
+                                    {turn.imageUrl ? (
+                                      <Image
+                                        src={resolveHistoryImageSrc(turn.imageUrl)}
+                                        alt={turn.prompt || 'Generated design'}
+                                        width={192}
+                                        height={108}
+                                        unoptimized
+                                        className="h-28 w-52 rounded-lg object-cover"
+                                      />
+                                    ) : (
+                                      <span className="px-2 py-1 text-xs text-muted-foreground">{turn.prompt}</span>
+                                    )}
+                                  </button>
+                                </BubbleContent>
+                              </Bubble>
+                              <MessageFooter className="gap-0.5">
+                                {turn.timestamp ? <span className="mr-1">{formatGenerationTimestamp(turn.timestamp)}</span> : null}
+                                {turn.imageUrl ? (
+                                  <>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      className="text-muted-foreground hover:text-foreground"
+                                      onClick={() => handleOpenSaveFromChat(turn.imageUrl!, generationNumber)}
+                                      aria-label="Add to Library"
+                                      title="Add to Library"
+                                    >
+                                      <LibraryIcon className="h-3.5 w-3.5" />
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon-xs"
+                                      className="text-muted-foreground hover:text-foreground"
+                                      onClick={() => handleDownloadImage(turn.imageUrl!, generationNumber)}
+                                      aria-label="Download PNG"
+                                      title="Download PNG"
+                                    >
+                                      <DownloadIcon className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </>
+                                ) : null}
+                              </MessageFooter>
+                            </MessageContent>
+                          </Message>
+                        </MessageScrollerItem>
+                      );
+                    })}
+                    {isGenerating && activeGeneration ? (
+                      <>
+                        <MessageScrollerItem messageId="pending-user" scrollAnchor>
+                          <Message align="end">
+                            <MessageContent>
+                              <Bubble align="end">
+                                <BubbleContent>{activeGeneration.prompt}</BubbleContent>
+                              </Bubble>
+                            </MessageContent>
+                          </Message>
+                        </MessageScrollerItem>
+                        <MessageScrollerItem messageId="pending-status">
+                          <Marker>
+                            <MarkerIcon>
+                              <Loader2Icon className="animate-spin" />
+                            </MarkerIcon>
+                            <MarkerContent>Making the design...</MarkerContent>
+                          </Marker>
+                        </MessageScrollerItem>
+                      </>
+                    ) : null}
+                    {error ? (
+                      <MessageScrollerItem messageId="chat-error">
+                        <Marker>
+                          <MarkerIcon>
+                            <AlertCircleIcon className="text-destructive" />
+                          </MarkerIcon>
+                          <MarkerContent className="text-destructive">{error}</MarkerContent>
+                        </Marker>
+                      </MessageScrollerItem>
+                    ) : null}
+                  </MessageScrollerContent>
+                </MessageScrollerViewport>
+                <MessageScrollerButton />
+              </MessageScroller>
+            </MessageScrollerProvider>
+          )}
+            <div className="border-t p-3">
+              {promptImages.length > 0 ? (
+                <AttachmentGroup className="mb-2">
+                  {promptImages.map((file, i) => (
+                    <Attachment key={`${file.name}-${file.lastModified}-${i}`} size="sm">
+                      <AttachmentMedia variant="image">
+                        {promptImagePreviewUrls[i] ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={promptImagePreviewUrls[i]} alt="" />
+                        ) : null}
+                      </AttachmentMedia>
+                      <AttachmentContent>
+                        <AttachmentTitle>{file.name || 'Pasted image'}</AttachmentTitle>
+                      </AttachmentContent>
+                      <AttachmentActions>
+                        <AttachmentAction
+                          aria-label={`Remove ${file.name || 'attached image'}`}
+                          onClick={() => {
+                            setPromptImages((current) => current.filter((_, idx) => idx !== i));
+                            if (promptImageInputRef.current) promptImageInputRef.current.value = '';
+                          }}
+                        >
+                          <XIcon />
+                        </AttachmentAction>
+                      </AttachmentActions>
+                    </Attachment>
+                  ))}
+                </AttachmentGroup>
               ) : null}
-              <div className="rounded-2xl border border-gray-200 bg-white shadow-lg">
-                <Label htmlFor="design-prompt" className="sr-only">
+              <div>
+                <Label htmlFor="design-chat-prompt" className="sr-only">
                   {imageSrc ? 'Refine' : 'Prompt'}
                 </Label>
-                <input
-                  ref={promptImageInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => addPromptImageFiles(e.target.files)}
-                />
-                <div className="px-5 pt-4">
-                  <input
-                    id="design-prompt"
+                <div className="px-1 pt-1.5">
+                  <textarea
+                    id="design-chat-prompt"
                     data-design-prompt
-                    className="h-8 w-full border-0 bg-transparent p-0 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-0"
+                    ref={chatPromptRef}
+                    rows={1}
+                    className="max-h-40 w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 field-sizing-content placeholder:text-muted-foreground focus:outline-none focus:ring-0"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
                     onPaste={handlePromptPaste}
-                    onKeyDown={(e) => e.key === 'Enter' && !isGenerating && void handleGenerate()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        if (!isGenerating) void handleGenerate();
+                      }
+                    }}
                     placeholder={imageSrc ? 'Describe a change to this design...' : 'Describe the design you want...'}
                   />
                 </div>
-                <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-4">
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center justify-between gap-2 px-1 pb-1 pt-2">
+                  <div className="flex items-center">
                     <Select value={imageQuality} onValueChange={(value) => setImageQuality(value as ImageQuality)}>
                       <SelectTrigger
-                        className="h-9 w-auto gap-2 border-0 px-2 text-sm font-medium text-gray-600 shadow-none hover:bg-gray-100 hover:text-gray-900 focus:ring-0"
+                        className="h-8 w-auto gap-1 border-0 px-2 text-xs font-medium text-muted-foreground shadow-none hover:bg-muted hover:text-foreground focus:ring-0"
                         aria-label="Image quality"
                       >
-                        <span>Quality</span>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent align="start">
@@ -2107,52 +1954,35 @@ const DesignWorkbenchPage = ({
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button variant="ghost" size="sm" className="h-9 w-9 p-0 text-gray-500" asChild>
-                      <Link href={`${basePath}/design/settings/`} aria-label="Design settings">
-                        <SettingsIcon className="h-4 w-4" />
-                      </Link>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-muted-foreground"
+                      onClick={() => setBlocksOpen(true)}
+                      aria-label="Attach a block from the library"
+                      title="Attach a block from the library"
+                    >
+                      <PanelsTopLeftIcon className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="flex min-w-0 items-center gap-2">
-                    {promptImages.length > 0 ? (
-                      <div className="flex min-w-0 max-w-xs gap-2 overflow-x-auto">
-                        {promptImages.map((file, i) =>
-                          promptImagePreviewUrls[i] ? (
-                            <div
-                              key={`${file.name}-${file.lastModified}-${i}`}
-                              className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg border border-gray-200 bg-gray-50"
-                            >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={promptImagePreviewUrls[i]} alt="" className="h-full w-full object-cover" />
-                              <button
-                                type="button"
-                                className="absolute inset-0 flex items-center justify-center bg-white/80 text-gray-700 opacity-0 transition hover:opacity-100"
-                                onClick={() => {
-                                  setPromptImages((current) => current.filter((_, idx) => idx !== i));
-                                  if (promptImageInputRef.current) promptImageInputRef.current.value = '';
-                                }}
-                                aria-label={`Remove ${file.name}`}
-                              >
-                                <Trash2Icon className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ) : null
-                        )}
-                      </div>
-                    ) : null}
-                    <button
+                  <div className="flex items-center gap-1">
+                    <Button
                       type="button"
-                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-900"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-muted-foreground"
                       onClick={() => promptImageInputRef.current?.click()}
                       aria-label="Attach image to this prompt"
                     >
-                      <PaperclipIcon className="h-5 w-5" />
-                    </button>
-                    <button
+                      <PaperclipIcon className="h-4 w-4" />
+                    </Button>
+                    <Button
                       type="button"
+                      size="icon-sm"
+                      className="rounded-full"
                       onClick={() => void handleGenerate()}
                       disabled={!prompt.trim() || !serverAiAvailable || !isLoggedIn || isGenerating}
-                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
                       title={
                         !isLoggedIn
                           ? LOGIN_TO_USE_TOOL_MESSAGE
@@ -2162,41 +1992,42 @@ const DesignWorkbenchPage = ({
                       }
                       aria-label={imageSrc ? 'Refine design' : 'Generate design'}
                     >
-                      {isGenerating ? <Loader2Icon className="h-5 w-5 animate-spin" /> : <ArrowUpIcon className="h-5 w-5" />}
-                    </button>
+                      {isGenerating ? <Loader2Icon className="h-4 w-4 animate-spin" /> : <ArrowUpIcon className="h-4 w-4" />}
+                    </Button>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-
+        </aside>
       </div>
-      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!deleteBusy && !open) setDeleteTarget(null); }}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog open={blocksOpen} onOpenChange={setBlocksOpen}>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Delete this design?</DialogTitle>
+            <DialogTitle>Attach a block</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3 text-sm">
-            <p>
-              <strong className="font-medium">{deleteTarget?.title || 'This design'}</strong> will be
-              permanently deleted, along with its specification, its version history and every generated
-              asset.
-            </p>
-            <p className="text-muted-foreground">This cannot be undone.</p>
+          <p className="text-sm text-muted-foreground">
+            Pick a block from the library to attach it to your prompt as a reference.
+          </p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {BLOCK_LIBRARY.map((block) => (
+              <button
+                key={block.file}
+                type="button"
+                className="group overflow-hidden rounded-lg border bg-muted/20 text-left transition hover:border-primary"
+                onClick={() => void handleAttachBlock(block)}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`${basePath}/assets/design/blocks/${block.file}`}
+                  alt={block.label}
+                  className="aspect-video w-full bg-white object-cover"
+                />
+                <p className="px-2 py-1.5 text-xs font-medium">{block.label}</p>
+              </button>
+            ))}
           </div>
-          <DialogFooter className="gap-2 sm:gap-2">
-            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
-              Cancel
-            </Button>
-            <Button type="button" variant="destructive" onClick={() => void confirmDeleteArtifact()} disabled={deleteBusy}>
-              {deleteBusy ? <Loader2Icon className="mr-1 h-4 w-4 animate-spin" /> : null}
-              Delete permanently
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
-
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
@@ -2213,9 +2044,13 @@ const DesignWorkbenchPage = ({
               <Input
                 id="artifact-title"
                 value={saveTitle}
-                onChange={(e) => setSaveTitle(e.target.value)}
+                onChange={(e) => {
+                  setSaveTitle(e.target.value);
+                  setSaveError(null);
+                }}
                 placeholder="e.g. Hero - pricing page"
               />
+              {saveError ? <p className="text-xs text-destructive">{saveError}</p> : null}
             </div>
             <div className="space-y-1">
               <Label htmlFor="artifact-desc">Description and assets</Label>
@@ -2241,52 +2076,6 @@ const DesignWorkbenchPage = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <SessionHistoryPanel
-        image={panelImage}
-        onClose={() => setPanelImage(null)}
-        onSetAsCanvas={(image) => {
-          if (!image.src) return;
-          selectedGeneratedImageIdRef.current = image.id;
-          setSelectedGeneratedImageId(image.id);
-          setImageSrc(image.src);
-        }}
-        onSaveForReview={(image) => {
-          const index = generatedImages.findIndex((g) => g.id === image.id);
-          handleOpenSaveArtifact(image, index >= 0 ? index : 0);
-        }}
-        onDownload={(src) => handleDownloadGeneratedImage({ src, prompt: panelImage?.prompt ?? '' } as GeneratedImage)}
-        basePath={basePath}
-      />
-      <AssetInspector
-        open={Boolean(inspectorId)}
-        onOpenChange={(o) => {
-          if (!o) setInspectorId(null);
-        }}
-        asset={
-          inspectorArtifact
-            ? {
-                id: inspectorArtifact.id,
-                title: inspectorArtifact.title,
-                thumbnailUrl: inspectorArtifact.imageUrl,
-                owner: inspectorArtifact.owner,
-                isMe: inspectorArtifact.isMe,
-                visibility: inspectorArtifact.visibility,
-                status: inspectorArtifact.status as Lifecycle,
-                surface: 'design',
-                editedLabel: formatGenerationTimestamp(inspectorArtifact.updatedAt),
-              }
-            : null
-        }
-        permissions={inspectorArtifact?.permissions ?? null}
-        onSetLifecycle={(s) => void handleSetLifecycle(s)}
-        onSetVisibility={(v) => void handleSetVisibility(v)}
-        onOpen={handleInspectorOpen}
-        onDuplicate={handleInspectorDuplicate}
-        shareUrl={inspectorId ? shareUrls[inspectorId] ?? null : null}
-        onCreateShare={() => void handleCreateShare()}
-        onRevokeShare={() => void handleRevokeShare()}
-        busy={inspectorBusy}
-      />
       </>
     </Layout>
   );

@@ -1,13 +1,12 @@
 'use client';
 
-import { Copy, Info, LayoutTemplate, Share2, Sparkles } from 'lucide-react';
+import { Layout, PenNib } from '@phosphor-icons/react';
 import Image from 'next/image';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import type { Lifecycle, ResourcePermissions, Visibility } from '@/lib/authz/vocab';
-import { LifecycleBadge } from './LifecycleBadge';
-import { OwnerAttribution } from './OwnerAttribution';
-import { VisibilityBadge } from './VisibilityBadge';
+import { LIFECYCLE_META, VISIBILITY_META, type Lifecycle, type ResourcePermissions, type Visibility } from '@/lib/authz/vocab';
+
+/** Uniform quiet badge for the card's bottom row — text only, outline, no fill. */
+const PLAIN_BADGE = 'inline-flex items-center rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground';
 
 /**
  * A single asset normalized across the two Tools surfaces — a design artifact
@@ -28,9 +27,9 @@ export type LibraryAsset = {
   updatedAt: string | number | Date | null;
 };
 
-const TYPE_META: Record<LibraryAsset['type'], { label: string; Icon: typeof Sparkles }> = {
-  design: { label: 'Design', Icon: Sparkles },
-  pattern: { label: 'Pattern', Icon: LayoutTemplate },
+const TYPE_META: Record<LibraryAsset['type'], { label: string; Icon: typeof PenNib }> = {
+  design: { label: 'Design', Icon: PenNib },
+  pattern: { label: 'Page', Icon: Layout },
 };
 
 function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined {
@@ -43,26 +42,18 @@ function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined 
 export function AssetCard({
   asset,
   onOpen,
-  onDetails,
-  onDuplicate,
 }: {
   asset: LibraryAsset;
   onOpen: () => void;
-  onDetails: () => void;
-  onDuplicate?: () => void;
 }) {
-  const canEdit = Boolean(asset.permissions?.canEdit);
   const { label: typeLabel, Icon: TypeIcon } = TYPE_META[asset.type];
   const editedLabel = formatEdited(asset.updatedAt);
+  const ownerName = asset.owner?.name?.trim() || (asset.isMe ? 'You' : 'Teammate');
 
   return (
-    <li className="group flex flex-col overflow-hidden rounded-lg border bg-card">
-      <button
-        type="button"
-        className="relative block aspect-video w-full overflow-hidden bg-muted/30 text-left"
-        onClick={onOpen}
-        title="Open"
-      >
+    <li className="group flex overflow-hidden rounded-lg border bg-card transition-colors hover:border-gray-400 dark:hover:border-gray-600">
+      <button type="button" className="flex flex-1 flex-col text-left" onClick={onOpen}>
+        <div className="relative aspect-video w-full overflow-hidden bg-muted/30">
         {asset.thumbnailUrl ? (
           <Image
             src={asset.thumbnailUrl}
@@ -70,7 +61,7 @@ export function AssetCard({
             width={512}
             height={288}
             unoptimized
-            className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
+            className="h-full w-full object-cover"
           />
         ) : (
           <span className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
@@ -80,75 +71,30 @@ export function AssetCard({
         {/* Type indicator so the two asset kinds stay distinguishable in a mixed grid. */}
         <span
           className={cn(
-            'absolute left-2 top-2 inline-flex items-center gap-1 rounded-full border bg-background/90 px-2 py-0.5',
-            'text-[10px] font-medium uppercase tracking-wide text-muted-foreground backdrop-blur',
+            'absolute left-2 top-2 inline-flex items-center justify-center rounded-md bg-background/90 p-1.5 shadow-[0_1px_1px_rgba(0,0,0,0.1)]',
+            'text-muted-foreground backdrop-blur',
           )}
+          title={typeLabel}
         >
-          <TypeIcon className="h-3 w-3" aria-hidden />
-          {typeLabel}
+          <TypeIcon className="h-3.5 w-3.5" aria-hidden />
+          <span className="sr-only">{typeLabel}</span>
         </span>
-      </button>
+        </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <button
-          type="button"
-          className="text-left text-sm font-medium leading-tight hover:underline"
-          onClick={onOpen}
-        >
-          {asset.title}
-        </button>
+        <div className="flex flex-1 flex-col gap-2 p-3">
+        <span className="-mb-1 text-sm font-medium leading-tight text-foreground">{asset.title}</span>
+
+        <p className="text-xs text-muted-foreground">
+          {ownerName}
+          {editedLabel ? ` on ${editedLabel}` : ''}
+        </p>
 
         <div className="flex flex-wrap items-center gap-1.5">
-          <LifecycleBadge status={asset.status} />
-          <VisibilityBadge visibility={asset.visibility} />
+          <span className={PLAIN_BADGE}>{LIFECYCLE_META[asset.status].short}</span>
+          <span className={PLAIN_BADGE}>{VISIBILITY_META[asset.visibility].label}</span>
         </div>
-
-        <OwnerAttribution owner={asset.owner} isMe={asset.isMe} editedLabel={editedLabel} />
-
-        <div className="mt-auto flex items-center justify-between gap-2 pt-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1 px-2 text-xs"
-            onClick={onDetails}
-          >
-            <Info className="h-3.5 w-3.5" aria-hidden />
-            Details
-          </Button>
-          <div className="flex items-center gap-1.5">
-            <Button type="button" size="sm" className="h-7 px-2 text-xs" onClick={onOpen}>
-              Open
-            </Button>
-            {canEdit ? (
-              // Sharing lives in the inspector (visibility + public-link controls),
-              // so "Share" opens the detail sheet where those controls are.
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1 px-2 text-xs"
-                onClick={onDetails}
-              >
-                <Share2 className="h-3.5 w-3.5" aria-hidden />
-                Share
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1 px-2 text-xs"
-                onClick={onDuplicate}
-                disabled={!onDuplicate}
-              >
-                <Copy className="h-3.5 w-3.5" aria-hidden />
-                Duplicate
-              </Button>
-            )}
-          </div>
         </div>
-      </div>
+      </button>
     </li>
   );
 }

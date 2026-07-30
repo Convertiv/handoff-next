@@ -55,17 +55,20 @@ import {
 } from '../../components/ui/sidebar';
 import { cn, normalizePathForMatch, toAbsolutePath, TOOLS_PATHS } from '../../lib/utils';
 import { SectionLink } from '../util';
+import { BuildsCountBadge } from '../Layout/BuildBadge';
 import { useHandoffCapabilities } from '../context/HandoffCapabilitiesContext';
 
 const NormalMenuItem = ({ title, icon, path }) => {
   const pathname = usePathname();
   const isActive = normalizePathForMatch(path) === normalizePathForMatch(pathname);
+  const isBuildsItem = normalizePathForMatch(path) === normalizePathForMatch('/admin/builds');
   return (
     <SidebarMenuItem>
       <SidebarMenuButton asChild isActive={isActive} className="h-9 px-4 [&>svg]:size-[15px]">
         <a href={toAbsolutePath(path)} className="group/nav-item gap-3">
           <MenuIcon icon={icon} isActive={isActive} />
           <span>{title}</span>
+          {isBuildsItem ? <BuildsCountBadge /> : null}
         </a>
       </SidebarMenuButton>
     </SidebarMenuItem>

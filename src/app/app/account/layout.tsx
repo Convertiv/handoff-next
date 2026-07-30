@@ -33,6 +33,7 @@ const accountSection = (isAdmin: boolean): SectionLink => {
       items: [
         { title: 'Page Manager', path: '/admin/pages', icon: 'file-text', adminOnly: false },
         { title: 'Builds', path: '/admin/builds', icon: 'hammer', adminOnly: true },
+        { title: 'Developer Documentation', path: '/developer', icon: 'book-open', adminOnly: false },
       ],
     },
   ];

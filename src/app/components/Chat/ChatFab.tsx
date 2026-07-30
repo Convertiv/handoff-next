@@ -1,6 +1,7 @@
 'use client';
 
 import { Sparkles } from 'lucide-react';
+import { usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useAuthUi } from '../context/AuthUiContext';
 import { useHandoffCapabilities } from '../context/HandoffCapabilitiesContext';
@@ -12,8 +13,15 @@ export function ChatFab() {
   const { authEnabled } = useAuthUi();
   const { data: session } = useSession();
   const { toggleChat, isOpen } = useChatContext();
+  const pathname = usePathname();
 
-  if (!aiFeatures || !authEnabled || !session?.user) return null;
+  // The design workbench has its own chat sidebar and the library has its own
+  // tooling — the floating assistant just gets in the way there. The app serves
+  // both slash forms of every route, so normalize before matching.
+  const path = pathname.replace(/\/+$/, '');
+  const hidden = path === '/design' || path.startsWith('/design/') || path === '/library' || path.startsWith('/library/');
+
+  if (hidden || !aiFeatures || !authEnabled || !session?.user) return null;
 
   return (
     <button
