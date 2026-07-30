@@ -4,6 +4,7 @@ import { getDataProvider } from '@/lib/data';
 import { openAiChatTools, type OpenAiTool } from '@/lib/server/ai-client';
 import { formatBrandVoiceForPrompt, getDesignWorkspace } from '@/lib/server/design-workspace';
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
+import { mergeBlockValues, summarizeFields } from '@/lib/merge-block-values';
 import { summarizeComposition } from '@/lib/composition-summary';
 
 export { summarizeComposition };
@@ -64,15 +65,8 @@ export type PlaygroundChatEvent =
 /** Human-readable narration for a tool call. Named for what the user cares about, not the function. */
 function narrate(name: string, args: Record<string, unknown>): string {
   switch (name) {
-    case 'search_components': {
-      const q = typeof args.query === 'string' ? args.query.trim() : '';
-      return q ? `Looking for ${q} blocks…` : 'Looking through your blocks…';
-    }
-    case 'scaffold_args': {
-      const ids = Array.isArray(args.componentIds) ? args.componentIds : [args.componentId].filter(Boolean);
-      if (ids.length > 1) return `Checking how ${ids.length} blocks are configured…`;
-      return `Checking how ${String(ids[0] ?? 'that block')} is configured…`;
-    }
+    case 'list_blocks':
+      return 'Reading your block catalog…';
     case 'search_assets': {
       const q = typeof args.query === 'string' ? args.query.trim() : '';
       return q ? `Searching your assets for ${q}…` : 'Searching your asset library…';
@@ -91,10 +85,11 @@ function narrate(name: string, args: Record<string, unknown>): string {
 /**
  * Ceiling on the tool loop.
  *
- * Raised from 12 after a real run exhausted it: an eight-block page scaffolded one component per round
- * and ran out before proposing anything. Batching `scaffold_args` is the actual fix — this is headroom,
- * not the mechanism. Rounds are superlinear in cost (the whole transcript replays each time), so
- * hitting this remains a signal that something is wrong rather than normal operation.
+ * A real run exhausted 16 rounds on 17 tool calls without ever proposing: it searched section by
+ * section and inspected each block in turn. Serving the whole catalog in one call removed the need for
+ * either, so a page should now take two or three calls and this ceiling should be unreachable.
+ * Rounds are superlinear in cost — the whole transcript replays each time — so hitting it means
+ * something is wrong rather than that the page was complicated.
  */
 const MAX_TOOL_ROUNDS = 16;
 
@@ -102,39 +97,16 @@ const TOOLS: OpenAiTool[] = [
   {
     type: 'function',
     function: {
-      name: 'search_components',
+      name: 'list_blocks',
       description:
-        'Search the block catalog by keyword, group, or tag. Returns id/title/group only — light. ' +
-        'Use this first to find what blocks are available before proposing anything.',
+        'The block catalog: every block, with its group and its editable fields. Call this ONCE, with ' +
+        'no arguments, and choose from the result. Do not search section by section — the whole ' +
+        'catalog is small enough to read in one go, and searching per section is how you run out of ' +
+        'steps before proposing anything.',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'Keyword, e.g. "hero", "pricing", "logo".' },
-          group: { type: 'string', description: 'Restrict to one group.' },
-        },
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'scaffold_args',
-      description:
-        'Get correctly-shaped `args` templates, seeded from real previews and annotated with each ' +
-        'field\'s editorType and expected shape. REQUIRED for every block before proposing it — ' +
-        'guessing prop shapes produces blocks that render empty (a richtext field needs an HTML ' +
-        'string, an image field needs { src, alt }, not a bare URL). ' +
-        'PASS EVERY COMPONENT YOU INTEND TO USE IN ONE CALL: scaffolding eight blocks one at a time ' +
-        'burns eight round-trips and you will run out before you can propose anything.',
-      parameters: {
-        type: 'object',
-        properties: {
-          componentIds: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Every component you plan to use. Prefer one call with all of them.',
-          },
-          componentId: { type: 'string', description: 'Single component; use componentIds instead.' },
+          group: { type: 'string', description: 'Optional. Omit to see everything, which is usually right.' },
         },
       },
     },
@@ -186,9 +158,16 @@ const TOOLS: OpenAiTool[] = [
               type: 'object',
               properties: {
                 componentId: { type: 'string' },
-                args: { type: 'object', description: 'Filled args, shaped as scaffold_args described.' },
+                values: {
+                  type: 'object',
+                  description:
+                    'CONTENT ONLY, keyed by the field names from list_blocks — e.g. ' +
+                    '{ "headline": "One platform. Every conversation.", "cta": { "label": "Book a demo" } }. ' +
+                    'Write real copy. Do not describe structure or repeat field types; the server applies ' +
+                    'these to the block\'s real shape. Omit a field to keep its default.',
+                },
               },
-              required: ['componentId', 'args'],
+              required: ['componentId', 'values'],
             },
           },
           rationale: { type: 'string', description: 'One or two sentences on why this composition.' },
@@ -199,33 +178,58 @@ const TOOLS: OpenAiTool[] = [
   },
 ];
 
+/**
+ * Turn the model's content into real block args.
+ *
+ * Scaffolds each component here rather than making the model do it, then merges the authored values
+ * onto that template. The model never sees or restates a shape, which is what removes both the
+ * round-trips and the possibility of a block that applies cleanly and renders empty.
+ */
+async function buildBlocks(
+  raw: { componentId?: unknown; values?: unknown }[]
+): Promise<{ blocks: ProposedBlock[]; problems: string[] }> {
+  const blocks: ProposedBlock[] = [];
+  const problems: string[] = [];
+
+  for (const entry of raw) {
+    const componentId = String(entry?.componentId ?? '').trim();
+    if (!componentId) continue;
+
+    const scaffold = await scaffoldArgsForComponent(componentId);
+    if ('error' in scaffold) {
+      problems.push(`${componentId}: ${scaffold.error}`);
+      continue;
+    }
+
+    const values = (entry?.values ?? {}) as Record<string, unknown>;
+    const { args, unknownKeys } = mergeBlockValues(scaffold.args, values);
+    if (unknownKeys.length) {
+      // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
+      // problem, and silently dropping it is how that goes unnoticed for weeks.
+      console.warn('[playground-chat] unknown fields on', componentId, unknownKeys.join(', '));
+    }
+    blocks.push({ componentId, args });
+  }
+
+  return { blocks, problems };
+}
+
 async function runTool(name: string, args: Record<string, unknown>, preferredAssetIds: string[]): Promise<unknown> {
   const provider = getDataProvider();
 
-  if (name === 'search_components') {
-    const q = typeof args.query === 'string' ? args.query.toLowerCase().trim() : '';
+  if (name === 'list_blocks') {
     const group = typeof args.group === 'string' ? args.group.toLowerCase().trim() : '';
     let list = await provider.getComponents();
-    if (q) {
-      list = list.filter(
-        (c) =>
-          c.id.toLowerCase().includes(q) ||
-          (c.title || '').toLowerCase().includes(q) ||
-          (c.group || '').toLowerCase().includes(q)
-      );
-    }
     if (group) list = list.filter((c) => (c.group || '').toLowerCase() === group);
-    return list.slice(0, 40).map((c) => ({ id: c.id, title: c.title, group: c.group }));
-  }
-
-  if (name === 'scaffold_args') {
-    const ids = Array.isArray(args.componentIds)
-      ? (args.componentIds as unknown[]).map((v) => String(v).trim()).filter(Boolean)
-      : [String(args.componentId ?? '').trim()].filter(Boolean);
-    if (!ids.length) return { error: 'Pass componentIds.' };
-    const results = await Promise.all(ids.map((id) => scaffoldArgsForComponent(id)));
-    // Single-id calls keep the old shape so the model isn't handed an array it has to unwrap for one item.
-    return ids.length === 1 ? results[0] : Object.fromEntries(ids.map((id, i) => [id, results[i]]));
+    // The whole catalog with field summaries, in one response. Roughly a line per block — cheap enough
+    // that the model never needs to search section by section, which is what exhausted the loop before.
+    return list.map((c) => ({
+      id: c.id,
+      title: c.title,
+      group: c.group,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fields: summarizeFields((c as any)?.properties ?? null),
+    }));
   }
 
   if (name === 'search_assets') {
@@ -278,15 +282,15 @@ function systemPrompt(brandVoice: string, designMd: string, attachedCount: numbe
 You do not generate images or write CSS. You choose blocks from the catalog, write their copy, and fill
 their props with values shaped exactly as the scaffold tells you.
 
-## How to work
-1. Ask ONE round of clarifying questions if the request is vague — audience, tone, how many sections,
-   whether a form or pricing is needed. One round only; then get on with it.
-2. \`search_components\` to see what exists. Prefer composing from what is there over asking for
-   something that isn't.
-3. \`scaffold_args\` for EVERY block you intend to use — **all of them in a single call**, passing
-   \`componentIds\`. Never guess a prop shape.
-4. \`search_assets\` for any imagery. Use a real \`src\` from the store, or leave it empty and say so.
-5. \`propose_page\` once, with every block filled in.
+## How to work — this should take two or three tool calls, not ten
+1. Ask ONE round of clarifying questions if the request is genuinely vague. One round only.
+2. \`list_blocks\` ONCE, with no arguments. That is the entire catalog with every block's fields. Read
+   it and choose. Do NOT call it repeatedly for different sections.
+3. \`search_assets\` / \`search_icons\` only if the page needs imagery or icons.
+4. \`propose_page\` with all the blocks and your copy.
+
+You do not need to inspect a block before using it — the fields listed by \`list_blocks\` are all you
+need, and the server applies your values to the block's real shape. Write copy, not structure.
 ${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. When the user asks for a change, propose the WHOLE page again with that change made — the proposal replaces what is there.\n` : ''}
 ## Copy
 Write real copy, not placeholders. It must obey the brand voice below.
@@ -317,9 +321,6 @@ export async function runPlaygroundChatTurn(args: {
   ];
 
   const toolsUsed: string[] = [];
-  // Which components the model has actually scaffolded this turn. `propose_page` is checked against
-  // this rather than trusting the prompt's instruction to scaffold first.
-  const scaffolded = new Set<string>();
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     // Checked between rounds rather than mid-call: the in-flight request finishes either way, but we
@@ -354,33 +355,23 @@ export async function runPlaygroundChatTurn(args: {
       }
       emit({ type: 'status', text: narrate(call.name, parsed) });
 
-      // Terminal — but only once every block has actually been scaffolded.
-      //
-      // Whether a model follows "call scaffold_args for every block" is probabilistic, and the cost of
-      // it not doing so is invisible: unscaffolded args are guesses at prop shape, so the block applies
-      // cleanly and renders empty. That reads as a broken component rather than a skipped step. So the
-      // rule is enforced here instead of asserted in the prompt — the server knows exactly what was
-      // scaffolded.
-      //
-      // Handed back as a tool result rather than raised as an error: the model can scaffold the missing
-      // ones and re-propose within the same turn, which is invisible to the user and costs one round.
+      // Terminal. No scaffolding check any more: the server scaffolds every block itself while
+      // building the args, so there is no step the model can skip. The enforcement existed only to
+      // catch that, and removing the possibility is better than policing it.
       if (call.name === 'propose_page') {
-        const blocks = Array.isArray(parsed.blocks)
-          ? (parsed.blocks as ProposedBlock[]).filter((b) => b && typeof b.componentId === 'string')
-          : [];
-        const missing = [...new Set(blocks.map((b) => b.componentId).filter((id) => !scaffolded.has(id)))];
+        const raw = Array.isArray(parsed.blocks) ? (parsed.blocks as { componentId?: unknown; values?: unknown }[]) : [];
+        const { blocks, problems } = await buildBlocks(raw);
 
-        if (missing.length) {
-          console.log('[playground-chat] rejected proposal, unscaffolded:', missing.join(', '));
+        if (!blocks.length) {
+          // Every block failed to resolve — usually invented component ids. Hand it back so the model
+          // can pick real ones from the catalog rather than ending the turn on a dead proposal.
           convo.push({
             role: 'tool',
             tool_call_id: call.id,
             content: JSON.stringify({
               rejected: true,
-              reason:
-                'These blocks were never scaffolded, so their args are guesses and would render empty. ' +
-                'Call scaffold_args for each, fill the args it returns, then propose again.',
-              unscaffolded: missing,
+              reason: 'None of those blocks resolved. Use ids exactly as returned by list_blocks.',
+              problems,
             }),
           });
           continue;
@@ -396,18 +387,6 @@ export async function runPlaygroundChatTurn(args: {
       let result: unknown;
       try {
         result = await runTool(call.name, parsed, attached);
-        if (call.name === 'scaffold_args') {
-          // Only count a scaffold that actually resolved. Scaffolding a component that does not exist
-          // teaches the model nothing about its props, so it must not satisfy the check below.
-          const ids = Array.isArray(parsed.componentIds)
-            ? (parsed.componentIds as unknown[]).map((v) => String(v).trim())
-            : [String(parsed.componentId ?? '').trim()];
-          const bag = (result ?? {}) as Record<string, unknown>;
-          for (const id of ids.filter(Boolean)) {
-            const entry = ids.length === 1 ? bag : (bag[id] as Record<string, unknown> | undefined);
-            if (entry && !('error' in entry)) scaffolded.add(id);
-          }
-        }
       } catch (e) {
         // Feed the failure back rather than aborting the turn — the model can pick another block or
         // explain itself, which is far more useful than a dead conversation.
@@ -417,17 +396,14 @@ export async function runPlaygroundChatTurn(args: {
     }
   }
 
-  // Say what actually happened. "Tell me more specifically" blamed the user for a limit they cannot
-  // see and gave them nothing to act on — the run had in fact done plenty of work, just not finished.
-  const searched = toolsUsed.filter((t) => t === 'search_components').length;
-  const found = [...scaffolded];
-  const detail = found.length
-    ? `I searched the catalog and worked through ${found.length} block${found.length === 1 ? '' : 's'} — ` +
-      `${found.slice(0, 6).join(', ')}${found.length > 6 ? ', …' : ''} — but ran out of steps before putting the page together.`
-    : `I searched the catalog ${searched} time${searched === 1 ? '' : 's'} without settling on blocks to use.`;
-  const exhausted = `${detail} Try narrowing it — name the sections you want, or ask for a shorter page.`;
+  // Say what actually happened rather than blaming the user for a limit they cannot see. With the
+  // catalog available in one call this should now be close to unreachable — reaching it means
+  // something is genuinely wrong, so it reads as our problem, not theirs.
+  const exhausted =
+    `I got stuck working out the page — I made ${toolsUsed.length} attempts without settling on one. ` +
+    'That is a bug on our side rather than something wrong with your request. Try again, or describe the page in fewer sections.';
   emit({ type: 'reply', content: exhausted });
-  console.warn('[playground-chat] round cap hit', { rounds: MAX_TOOL_ROUNDS, tools: toolsUsed.length, scaffolded: found });
+  console.warn('[playground-chat] round cap hit', { rounds: MAX_TOOL_ROUNDS, tools: toolsUsed });
   return { reply: exhausted, toolsUsed };
 }
 
@@ -458,17 +434,15 @@ const REFINE_TOOLS: OpenAiTool[] = [
     type: 'function',
     function: {
       name: 'propose_block',
-      description:
-        'Return the single replacement block. Terminal — call once, after scaffolding whichever ' +
-        'component you settled on.',
+      description: 'Return the single replacement block. Terminal — call once.',
       parameters: {
         type: 'object',
         properties: {
           componentId: { type: 'string' },
-          args: { type: 'object', description: 'Filled args, shaped as scaffold_args described.' },
+          values: { type: 'object', description: 'CONTENT ONLY, keyed by the field names from list_blocks.' },
           note: { type: 'string', description: 'One short sentence on what changed and why.' },
         },
-        required: ['componentId', 'args'],
+        required: ['componentId', 'values'],
       },
     },
   },
@@ -504,15 +478,13 @@ Position ${args.index + 1}: ${target.componentId}
 ## What the user wants
 ${args.instruction}
 
-Search for a suitable component, call scaffold_args on whatever you settle on, fill its args with real
-copy carrying over anything worth keeping from the current block, then call propose_block ONCE.
-Returning the same componentId is fine when the request is about the copy rather than the layout.
+Call list_blocks once to see what is available, then call propose_block ONCE with the component id and
+your content. Carry over anything worth keeping from the current block. Returning the same componentId
+is fine when the request is about the copy rather than the layout.
 ${brandVoice ? `\n## Brand voice — any copy you write must obey this\n${brandVoice.slice(0, 3000)}\n` : ''}`,
     },
     { role: 'user', content: args.instruction },
   ];
-
-  const scaffolded = new Set<string>();
 
   for (let round = 0; round < 8; round += 1) {
     if (args.signal?.aborted) return { ok: false, error: 'Cancelled.' };
@@ -545,34 +517,25 @@ ${brandVoice ? `\n## Brand voice — any copy you write must obey this\n${brandV
       emit({ type: 'status', text: narrate(call.name, parsed) });
 
       if (call.name === 'propose_block') {
-        const componentId = String(parsed.componentId ?? '').trim();
-        // Same enforcement as the full proposal: unscaffolded args are guesses at prop shape, and the
-        // block would apply cleanly and render empty.
-        if (!componentId || !scaffolded.has(componentId)) {
+        const { blocks, problems } = await buildBlocks([{ componentId: parsed.componentId, values: parsed.values }]);
+        if (!blocks.length) {
           convo.push({
             role: 'tool',
             tool_call_id: call.id,
             content: JSON.stringify({
               rejected: true,
-              reason: `Call scaffold_args for "${componentId}" first, fill the args it returns, then propose again.`,
+              reason: 'That block did not resolve. Use an id exactly as returned by list_blocks.',
+              problems,
             }),
           });
           continue;
         }
-        return {
-          ok: true,
-          block: { componentId, args: (parsed.args ?? {}) as Record<string, unknown> },
-          note: typeof parsed.note === 'string' ? parsed.note : undefined,
-        };
+        return { ok: true, block: blocks[0], note: typeof parsed.note === 'string' ? parsed.note : undefined };
       }
 
       let result: unknown;
       try {
         result = await runTool(call.name, parsed, []);
-        if (call.name === 'scaffold_args' && typeof parsed.componentId === 'string') {
-          const id = parsed.componentId.trim();
-          if (id && !(result && typeof result === 'object' && 'error' in result)) scaffolded.add(id);
-        }
       } catch (e) {
         result = { error: e instanceof Error ? e.message : 'Tool failed.' };
       }
