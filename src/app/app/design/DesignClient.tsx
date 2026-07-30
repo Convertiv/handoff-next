@@ -1103,7 +1103,7 @@ const DesignWorkbenchPage = ({
    * take minutes together, so the card is driven by polling. It behaves like any other generation from
    * the user's side — a pending card in the canvas that becomes the finished image in place.
    */
-  const startSpecFirstDesign = async (submittedPrompt: string) => {
+  const startSpecFirstDesign = async (submittedPrompt: string, componentIds: string[] = []) => {
     const requestId = crypto.randomUUID();
     setError(null);
     setPrompt('');
@@ -1124,7 +1124,7 @@ const DesignWorkbenchPage = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ brief: submittedPrompt }),
+        body: JSON.stringify({ brief: submittedPrompt, componentIds }),
       });
       const json = (await res.json().catch(() => ({}))) as { artifactId?: string; pipelineId?: string; error?: string };
       if (!res.ok || !json.artifactId) throw new Error(json.error || 'Could not start the design.');
@@ -1221,7 +1221,10 @@ const DesignWorkbenchPage = ({
     // Refining an existing image still uses the direct path — that is editing a canvas, not
     // specifying a component.
     if (!refining) {
-      await startSpecFirstDesign(prompt.trim());
+      // The chat hand-off is "pick a component, then generate", and it passes that choice through as
+      // `?component=`. Dropping it here discarded the entire point of that conversation — the spec was
+      // written as if the user had never chosen anything.
+      await startSpecFirstDesign(prompt.trim(), initialComponentIds ?? []);
       return;
     }
 

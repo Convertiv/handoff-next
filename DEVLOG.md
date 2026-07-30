@@ -5,6 +5,44 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-30 — Post-merge integration debt: Natko's UI ↔ our backend
+
+The `feature/design-restructure` merge (`9ba122fc`) landed cleanly for everything except two UI files.
+All backend work is byte-identical to its parent — `payload.ts`, `create-server.ts`, `pipeline-stages.ts`,
+`design-from-brief.ts`, `brief-spec.ts`, `generation-prompt.ts`, `design-spec-generator.ts` and the
+artifact detail page were untouched.
+
+`LibraryClient.tsx` took Natko's version wholesale. `DesignClient.tsx` did **not** resolve to either
+side: it kept his declaration block and our body, which is why it stopped compiling —
+`LibraryArtifactRow`, the `authz/vocab` type imports and `activeSidebarTab` were dropped while the code
+referencing them stayed. Restored the first two; the third was gated on a sidebar tab that no longer
+exists, so the effect now loads on first need instead.
+
+**To resolve after the demo — the list, while it is still legible:**
+
+1. **~200 lines of orphaned machinery in `DesignClient`.** `fetchLibrary`, `libraryArtifacts`, the
+   inspector's status/visibility handlers, `shareUrls`, and `confirmDeleteArtifact` all still compile and
+   nothing renders them — `AssetInspector` is no longer mounted there. Decide per-handler whether it
+   moves to the new Library surface or goes.
+2. **Delete is gone from the library.** It shipped the day before the merge into the old sidebar; the new
+   `/library` grid has none. `AssetCard` already carries `permissions`, so the affordance is a small port
+   — gate on `canDelete`, confirm, `DELETE /api/handoff/ai/design-artifact/[id]`. The artifact detail
+   page's delete survived and works.
+3. **Two row types that look alike and are not.** `LibraryArtifactRow` (raw design row + lane fields,
+   local to `DesignClient`) vs `LibraryAsset` (`components/library/AssetCard.tsx`, normalized across
+   designs *and* patterns, so only the common denominator). Someone will try to unify these; the
+   question to answer first is whether the workbench still needs raw rows at all.
+4. **Where do lifecycle, visibility and share live now?** Those actions lost their home with the
+   inspector. They are real capability, not leftovers.
+5. **Protect `startSpecFirstDesign`.** It survived the merge and is the composer's entire spec-first path
+   — brief → spec → assets → composite, plus the stage labels. Any further `DesignClient` restructure
+   should treat it as load-bearing rather than as workbench plumbing.
+
+Also worth knowing: the merge added `radix-ui` and `@shadcn/react` to `package.json`, so a stale
+`node_modules` fails the build with four unresolved modules. `npm install` after pulling.
+
+---
+
 ## 2026-07-29 — Placement VERIFIED: the composite really does place the generated asset
 
 Brad, after a live spec-first run on 8x8: *"No they match perfect."*

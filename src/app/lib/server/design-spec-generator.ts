@@ -45,9 +45,16 @@ async function loadComponentSchemasForGuides(componentGuides: unknown): Promise<
     const provider = getDataProvider();
     const results: { id: string; title: string; propsJson: string }[] = [];
     for (const guide of componentGuides) {
-      if (!guide || typeof guide !== 'object') continue;
-      const g = guide as Record<string, unknown>;
-      const id = typeof g.id === 'string' ? g.id.trim() : '';
+      // Accepts a bare id as well as a guide object. Callers legitimately hold either — the workbench
+      // carries full guides, while `handoff_design_from_brief` and the chat hand-off carry ids — and
+      // the object-only check silently skipped every id-shaped caller, so "compose against these
+      // components" never reached the prompt and the omission looked like the model ignoring it.
+      const id =
+        typeof guide === 'string'
+          ? guide.trim()
+          : guide && typeof guide === 'object' && typeof (guide as Record<string, unknown>).id === 'string'
+            ? ((guide as Record<string, unknown>).id as string).trim()
+            : '';
       if (!id) continue;
       const row = await provider.getComponent(id);
       if (!row) continue;
