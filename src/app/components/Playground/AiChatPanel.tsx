@@ -7,6 +7,7 @@ import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
+import { applyOps, describeOp, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { usePlayground } from './PlaygroundContext';
 
 /**
@@ -34,7 +35,16 @@ type Msg =
        */
       label?: string;
     }
-  | { role: 'assistant'; content: string; proposal?: Proposal };
+  | { role: 'assistant'; content: string; proposal?: Proposal; changeset?: Changeset };
+
+interface Changeset {
+  ops: EditOp[];
+  summary: string;
+  rejected: { reason: string }[];
+  applied?: boolean;
+  /** The page as it was before applying, so a single Undo can put it back. */
+  undo?: PageBlock[];
+}
 
 interface Proposal {
   blocks: { componentId: string; args: Record<string, unknown> }[];
@@ -97,6 +107,7 @@ export default function AiChatPanel() {
 
       let reply = '';
       let proposal: Proposal | undefined;
+      let changeset: Changeset | undefined;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -110,7 +121,17 @@ export default function AiChatPanel() {
         buffer = lines.pop() ?? '';
         for (const line of lines) {
           if (!line.trim()) continue;
-          let event: { type: string; text?: string; content?: string; message?: string; blocks?: Proposal['blocks']; rationale?: string };
+          let event: {
+            type: string;
+            text?: string;
+            content?: string;
+            message?: string;
+            blocks?: Proposal['blocks'];
+            rationale?: string;
+            ops?: EditOp[];
+            summary?: string;
+            rejected?: { reason: string }[];
+          };
           try {
             event = JSON.parse(line);
           } catch {
@@ -119,12 +140,14 @@ export default function AiChatPanel() {
           if (event.type === 'status') setStatus(event.text ?? '');
           else if (event.type === 'reply') reply = event.content ?? '';
           else if (event.type === 'proposal') proposal = { blocks: event.blocks ?? [], rationale: event.rationale ?? '' };
+          else if (event.type === 'changeset')
+            changeset = { ops: event.ops ?? [], summary: event.summary ?? '', rejected: event.rejected ?? [] };
           else if (event.type === 'error') throw new Error(event.message || 'The request failed.');
         }
       }
 
-      if (reply || proposal) {
-        setMessages((cur) => [...cur, { role: 'assistant', content: reply, proposal }]);
+      if (reply || proposal || changeset) {
+        setMessages((cur) => [...cur, { role: 'assistant', content: reply, proposal, changeset }]);
       }
     } catch (e) {
       // An abort is the user choosing to stop, not a failure to report.
@@ -244,6 +267,54 @@ export default function AiChatPanel() {
     }
   };
 
+  const currentPage = (): PageBlock[] =>
+    selectedComponents.map((c) => ({ componentId: c.id, args: (c.data ?? {}) as Record<string, unknown> }));
+
+  /**
+   * Apply a changeset to the canvas.
+   *
+   * Verified again here, not just on the server: the canvas is the truth and it may have moved since
+   * the model planned the edit — someone dragged a block, or applied a previous changeset. Whatever
+   * still matches is applied and the rest is reported, because one stale index should not throw away
+   * the other four edits.
+   *
+   * The whole list is rebuilt in one call rather than surgically patched. Simpler, atomic, and it makes
+   * undo a single restore.
+   */
+  const applyChangeset = async (msgIndex: number, changeset: Changeset) => {
+    const before = currentPage();
+    const { valid, rejected } = verifyOps(changeset.ops, before);
+
+    if (!valid.length) {
+      setError(rejected[0]?.reason ?? 'The page changed — ask again and I will re-read it.');
+      return;
+    }
+
+    const after = applyOps(before, valid);
+    await bulkAddComponents(after.map((b) => ({ componentId: b.componentId, data: b.args })), true);
+
+    setMessages((cur) =>
+      cur.map((m, i) =>
+        i === msgIndex && m.role === 'assistant' && m.changeset
+          ? { ...m, changeset: { ...m.changeset, applied: true, undo: before, rejected: [...m.changeset.rejected, ...rejected.map((r) => ({ reason: r.reason }))] } }
+          : m
+      )
+    );
+  };
+
+  /** Put the page back exactly as it was. Cheap to build, and the reason people will trust this. */
+  const undoChangeset = async (msgIndex: number, changeset: Changeset) => {
+    if (!changeset.undo) return;
+    await bulkAddComponents(changeset.undo.map((b) => ({ componentId: b.componentId, data: b.args })), true);
+    setMessages((cur) =>
+      cur.map((m, i) =>
+        i === msgIndex && m.role === 'assistant' && m.changeset
+          ? { ...m, changeset: { ...m.changeset, applied: false, undo: undefined } }
+          : m
+      )
+    );
+  };
+
   const apply = async (index: number, proposal: Proposal, replace: boolean) => {
     await bulkAddComponents(
       proposal.blocks.map((b) => ({ componentId: b.componentId, data: b.args })),
@@ -307,6 +378,56 @@ export default function AiChatPanel() {
                 <Bubble variant="ghost">
                   <BubbleContent className="whitespace-pre-wrap">{m.content}</BubbleContent>
                 </Bubble>
+              ) : null}
+
+              {m.role === 'assistant' && m.changeset ? (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-medium">
+                    {m.changeset.ops.length} change{m.changeset.ops.length === 1 ? '' : 's'}
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5">
+                    {m.changeset.ops.map((op, oi) => (
+                      <li key={oi} className="text-xs text-muted-foreground">
+                        {describeOp(op)}
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Rejections are shown, not swallowed: an edit that did not land is something the
+                      user needs to know about, or they will assume it did. */}
+                  {m.changeset.rejected.length ? (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {m.changeset.rejected.map((r, ri) => (
+                        <li key={ri} className="text-[11px] text-amber-700 dark:text-amber-400">
+                          Skipped — {r.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  <div className="mt-2.5 flex items-center gap-2">
+                    {m.changeset.applied ? (
+                      <>
+                        <span className="text-xs text-emerald-700 dark:text-emerald-400">Applied.</span>
+                        {m.changeset.undo ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => void undoChangeset(i, m.changeset!)}
+                          >
+                            Undo
+                          </Button>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Button type="button" size="sm" className="h-7 text-xs" onClick={() => void applyChangeset(i, m.changeset!)}>
+                        Apply {m.changeset.ops.length === 1 ? 'change' : 'changes'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
               ) : null}
 
               {m.role === 'assistant' && m.proposal ? (

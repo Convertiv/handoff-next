@@ -6,6 +6,7 @@ import { formatBrandVoiceForPrompt, getDesignWorkspace } from '@/lib/server/desi
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { blankContentValues, mergeBlockValues, summarizeFields } from '@/lib/merge-block-values';
 import { formatExemplars } from '@/lib/page-exemplars';
+import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
 
 export { summarizeComposition };
@@ -37,6 +38,8 @@ export interface PlaygroundChatTurn {
   reply: string;
   /** Present only when the model called `propose_page`. The client renders an apply card. */
   proposal?: { blocks: ProposedBlock[]; rationale: string };
+  /** Present when the model called `propose_edits`. Targeted changes to what is already there. */
+  changeset?: { ops: EditOp[]; summary: string; rejected: { reason: string }[] };
   /** Tool names invoked this turn, in order. Surfaced for the UI to show its working. */
   toolsUsed: string[];
 }
@@ -61,6 +64,7 @@ export type PlaygroundChatEvent =
   | { type: 'status'; text: string }
   | { type: 'reply'; content: string }
   | { type: 'proposal'; blocks: ProposedBlock[]; rationale: string }
+  | { type: 'changeset'; ops: EditOp[]; summary: string; rejected: { reason: string }[] }
   | { type: 'error'; message: string };
 
 /** Human-readable narration for a tool call. Named for what the user cares about, not the function. */
@@ -78,6 +82,8 @@ function narrate(name: string, args: Record<string, unknown>): string {
     }
     case 'propose_page':
       return 'Putting the page together…';
+    case 'propose_edits':
+      return 'Working out what to change…';
     default:
       return 'Working…';
   }
@@ -139,6 +145,50 @@ const TOOLS: OpenAiTool[] = [
         type: 'object',
         properties: { query: { type: 'string', description: 'What the icon should depict, e.g. "shield", "chat".' } },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'propose_edits',
+      description:
+        'Change specific blocks on the page that already exists. USE THIS, not propose_page, whenever ' +
+        'the canvas has blocks and the request is a change rather than a fresh start — "shorten the ' +
+        'headline", "swap the hero", "add a pricing section", "drop the FAQ". Re-proposing the whole ' +
+        'page to change one field re-rolls copy the user was happy with.',
+      parameters: {
+        type: 'object',
+        properties: {
+          edits: {
+            type: 'array',
+            description: 'Operations against the numbered blocks shown under "Already on the canvas".',
+            items: {
+              type: 'object',
+              properties: {
+                op: { type: 'string', enum: ['update', 'replace', 'insert', 'remove'] },
+                index: { type: 'number', description: 'ZERO-based position. Block 1 in the listing is index 0.' },
+                expect: {
+                  type: 'string',
+                  description:
+                    'The component id you believe is at that index. Required for update, replace and ' +
+                    'remove. If it does not match, the operation is rejected rather than applied to the ' +
+                    'wrong block.',
+                },
+                componentId: { type: 'string', description: 'The NEW component, for replace and insert.' },
+                values: {
+                  type: 'object',
+                  description:
+                    'For update: only the fields that change — everything else is kept. For replace and ' +
+                    'insert: the full content for the new block.',
+                },
+              },
+              required: ['op', 'index'],
+            },
+          },
+          summary: { type: 'string', description: 'One line describing the change, for the user.' },
+        },
+        required: ['edits', 'summary'],
       },
     },
   },
@@ -331,7 +381,7 @@ need, and the server applies your values to the block's real shape. Write copy, 
   asset from \`search_assets\`; otherwise leave the placeholder, which shows the intended size.
 - A full page normally opens with the \`header\` block and closes with \`footer\`, both with empty
   values — they are site chrome with nothing to author. Omit them when asked for a single section.
-${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. When the user asks for a change, propose the WHOLE page again with that change made — the proposal replaces what is there.\n` : ''}
+${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. Use \`propose_edits\` to change them — the numbering above is 1-based for reading, so block 1 is index 0. Only use \`propose_page\` if the user wants to start over.\n` : ''}
 ## What a finished page looks like here
 Real pages on this site run to a dozen sections or more, and they alternate background treatment —
 a coloured band every third or fourth section, never one flat colour throughout. A four-section page
@@ -408,6 +458,71 @@ export async function runPlaygroundChatTurn(args: {
         /* a malformed argument object is reported back to the model rather than thrown */
       }
       emit({ type: 'status', text: narrate(call.name, parsed) });
+
+      // Terminal: targeted changes to the page that exists.
+      if (call.name === 'propose_edits') {
+        const current: PageBlock[] = (args.currentBlocks ?? []).map((b) => ({
+          componentId: b.componentId,
+          args: (b.args ?? {}) as Record<string, unknown>,
+        }));
+        const raw = Array.isArray(parsed.edits) ? (parsed.edits as Record<string, unknown>[]) : [];
+
+        // Build real args for anything carrying content, so an edit gets the same shape guarantees a
+        // fresh proposal does — correct prop shapes, no invented images, no sample content.
+        const ops: EditOp[] = [];
+        for (const e of raw) {
+          const op = String(e.op ?? '');
+          const index = Number(e.index);
+          const expect = String(e.expect ?? '');
+          if (op === 'remove') {
+            ops.push({ op: 'remove', index, expect });
+            continue;
+          }
+          const componentId = op === 'update' ? expect : String(e.componentId ?? '');
+          const built = await buildBlocks([{ componentId, values: e.values }], seenAssetSrcs);
+          const block = built.blocks[0];
+          if (!block) continue;
+          if (op === 'update') {
+            // Only the fields the model actually named. Merging the whole rebuilt block would drag
+            // blanked placeholders over content the user already has.
+            const named = Object.keys((e.values ?? {}) as Record<string, unknown>);
+            const values = Object.fromEntries(named.filter((k) => k in block.args).map((k) => [k, block.args[k]]));
+            ops.push({ op: 'update', index, expect, values });
+          } else if (op === 'replace') {
+            ops.push({ op: 'replace', index, expect, componentId, values: block.args });
+          } else if (op === 'insert') {
+            ops.push({ op: 'insert', index, componentId, values: block.args });
+          }
+        }
+
+        // Verified here so the model can be told it mis-indexed; the client verifies again at apply
+        // time, where the canvas is the actual truth.
+        const { valid, rejected } = verifyOps(ops, current);
+        if (rejected.length) console.warn('[playground-chat] rejected edits', rejected.map((r) => r.reason).join('; '));
+
+        if (!valid.length) {
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({
+              rejected: true,
+              reason: 'None of those edits matched the page. Re-read the numbered blocks and try again.',
+              problems: rejected.map((r) => r.reason),
+            }),
+          });
+          continue;
+        }
+
+        const summary = String(parsed.summary ?? '');
+        const reply = content ?? summary;
+        emit({ type: 'reply', content: reply });
+        emit({ type: 'changeset', ops: valid, summary, rejected: rejected.map((r) => ({ reason: r.reason })) });
+        return {
+          reply,
+          changeset: { ops: valid, summary, rejected: rejected.map((r) => ({ reason: r.reason })) },
+          toolsUsed,
+        };
+      }
 
       // Terminal. No scaffolding check any more: the server scaffolds every block itself while
       // building the args, so there is no step the model can skip. The enforcement existed only to
