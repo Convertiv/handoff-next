@@ -24,6 +24,20 @@ export interface PatternWriteActor {
   trigger?: string;
 }
 
+
+/**
+ * The value for `edit_history.user_id`, which is a FOREIGN KEY to `users.id`.
+ *
+ * `historyLabel` is a provenance string ("mcp:<id>", "cli:<id>") — a label, not a user. Writing it into
+ * the FK column violated the constraint on every MCP-authored write, so `handoff_create_page` failed
+ * 100% of the time at the audit insert while the UI, which sets no label, worked fine. The label now
+ * travels in the `diff` jsonb where it belongs, and the column gets a real id or null.
+ *
+ * Null is legitimate here: the column is nullable, and service/workspace tokens are not users.
+ */
+function historyUserId(actor: { userId?: string | null }): string | null {
+  return actor.userId ?? null;
+}
 /** Record a pattern-change row (unified changelog + change-why source). Best-effort. */
 async function recordPatternChange(
   db: ReturnType<typeof getDb>,
@@ -86,8 +100,8 @@ export async function writePattern(input: PatternInput, actor: PatternWriteActor
   await db.insert(editHistory).values({
     entityType: 'pattern',
     entityId: input.id,
-    userId: actor.historyLabel ?? actor.userId,
-    diff: { action: 'create', data: input },
+    userId: historyUserId(actor),
+    diff: { action: 'create', data: input, by: actor.historyLabel ?? null },
   });
 
   await insertSyncEvent({
@@ -137,8 +151,8 @@ export async function patchPattern(
   await db.insert(editHistory).values({
     entityType: 'pattern',
     entityId: id,
-    userId: actor.historyLabel ?? actor.userId,
-    diff: { action: 'update', updates },
+    userId: historyUserId(actor),
+    diff: { action: 'update', updates, by: actor.historyLabel ?? null },
   });
 
   const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
@@ -190,8 +204,8 @@ export async function setPatternMetaFields(
   await db.insert(editHistory).values({
     entityType: 'pattern',
     entityId: id,
-    userId: actor.historyLabel ?? actor.userId,
-    diff: { action: 'meta', meta },
+    userId: historyUserId(actor),
+    diff: { action: 'meta', meta, by: actor.historyLabel ?? null },
   });
 
   const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
@@ -228,8 +242,8 @@ export async function removePattern(id: string, actor: PatternWriteActor): Promi
   await db.insert(editHistory).values({
     entityType: 'pattern',
     entityId: id,
-    userId: actor.historyLabel ?? actor.userId,
-    diff: { action: 'delete' },
+    userId: historyUserId(actor),
+    diff: { action: 'delete', by: actor.historyLabel ?? null },
   });
 
   await recordPatternChange(db, { patternId: id, action: 'deleted', actor });
