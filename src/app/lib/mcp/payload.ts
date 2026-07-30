@@ -154,26 +154,37 @@ function withNotes(value: unknown, notes: string[], limit: number): unknown {
 }
 
 /**
- * Halve the longest array anywhere in the structure, recording what was dropped.
- * Returns null when there is no array with more than one element left to cut.
+ * Halve one array, recording what was dropped. Returns null when nothing is left to cut.
+ *
+ * **Shallowest array wins, not longest.** Picking the longest looked reasonable and is wrong: on a list
+ * of design artifacts the longest array is a `textInventory` nested inside one row, so trimming chewed
+ * through every row's internals — mangling all ten records instead of returning five intact ones — and
+ * on a real 335KB response from 8x8 it exhausted its passes and gave up entirely, turning a large
+ * result into no result.
+ *
+ * Dropping whole records removes far more bytes per pass and truncates comprehensibly: "showing 5 of 10
+ * artifacts" is something a caller can act on, "artifact 7's text inventory was halved" is not.
  */
 function halveLongestArray(root: unknown, notes: string[]): unknown | null {
-  let best: { arr: unknown[]; path: string } | null = null;
+  let best: { arr: unknown[]; path: string; depth: number } | null = null;
 
-  const find = (v: unknown, path: string): void => {
+  const find = (v: unknown, path: string, depth: number): void => {
     if (Array.isArray(v)) {
-      if (v.length > 1 && (!best || v.length > best.arr.length)) best = { arr: v, path: path || 'items' };
-      v.forEach((item, i) => find(item, `${path}[${i}]`));
+      // Shallower always beats deeper; same depth falls back to whichever is longer.
+      if (v.length > 1 && (!best || depth < best.depth || (depth === best.depth && v.length > best.arr.length))) {
+        best = { arr: v, path: path || 'items', depth };
+      }
+      v.forEach((item, i) => find(item, `${path}[${i}]`, depth + 1));
       return;
     }
     if (v && typeof v === 'object' && isPlainObject(v)) {
-      for (const [k, val] of Object.entries(v)) find(val, path ? `${path}.${k}` : k);
+      for (const [k, val] of Object.entries(v)) find(val, path ? `${path}.${k}` : k, depth + 1);
     }
   };
-  find(root, '');
+  find(root, '', 0);
   if (!best) return null;
 
-  const target = best as { arr: unknown[]; path: string };
+  const target = best as { arr: unknown[]; path: string; depth: number };
   const keep = Math.max(1, Math.floor(target.arr.length / 2));
   const dropped = target.arr.length - keep;
   notes.push(`Kept ${keep} of ${target.arr.length} entries in "${target.path}" (${dropped} omitted).`);

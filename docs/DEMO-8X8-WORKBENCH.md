@@ -1,62 +1,56 @@
 # 8x8 demo script — from a question to a specified design
 
-**Date:** Thu 2026-07-30, morning · **Surface:** live 8x8 registry deploy · **Runtime:** ~12 min
+**Date:** Thu 2026-07-30, morning · **Surface:** live 8x8 registry deploy (branch `feature/spec-driven`) ·
+**Runtime:** ~12 min
 
 The narrative: **"I want to build a hero"** → Claude checks what 8x8 *already has* → steers toward
-composing from it → drafts the copy in 8x8's real voice → the workbench builds only what's
-genuinely new → you critique and revise → transition to dev.
+composing from it → drafts the copy in 8x8's real voice → **the brief becomes a specification, and the
+specification produces the design** → you revise the spec, not the picture.
 
 Two things to keep front of mind while presenting:
 
-1. **Reuse is the thesis, not a feature.** The workbench generates net-new; the playground composes
-   what exists. They're counterweights. Every beat should push toward "you already have most of
-   this" — the cheapest component is the one nobody builds.
-2. **Permissions are table stakes.** One sentence at the end. This demo is about what the system
-   can *make*.
+1. **Reuse is the thesis, not a feature.** The cheapest component is the one nobody builds. Every beat
+   should push toward "you already have most of this."
+2. **Permissions are table stakes.** One sentence at the end. This demo is about what the system can
+   *make*.
+
+> **Rewritten 2026-07-29.** The previous script had the chain running image-first: generate a picture,
+> then derive a spec from it at the end as the payoff. That direction is now the *legacy* path. Spec-first
+> is the product, and it changes the shape of the demo — the specification is no longer the reveal at the
+> end, it is the thing that produces the design. Beats 4–6 are new.
 
 ---
 
 ## Why this lands: it's already 8x8's own words
 
-Read from the **8x8 registry** (`https://8x8-handoff.vercel.app`) via its MCP endpoint — not staged:
+Read live from the **8x8 registry** MCP endpoint — not staged. Verified 2026-07-29:
 
 | Field | What's in it |
 |---|---|
-| `stackProfile` | **`bootstrap-handlebars`** — Handlebars templates, Bootstrap 5 utilities, SCSS with `var(--color-*)`. **Not React.** |
-| `design_md` | "8x8 Design System Guidelines" — brand positioning (reliable, modern, outcome-focused; *"enterprise-grade without being cold or bureaucratic"*), visual principles (*"Clarity over decoration. Every element earns its place."*) |
-| `voiceTone` | *"Confident and direct — we know our product works and we're not apologetic about selling it."* Never: jargon for its own sake, exclamation marks in headlines, passive voice, wishy-washy hedges. *"Trusted advisor who's also good at their job, not salesperson."* |
-| `copyLength` | Headlines **3–8 words, never more than 10** · eyebrows **2–5** · CTAs **2–5, imperative verb first** · card descriptions **1 sentence, max 15 words** |
-| `avoidedPhrases` | *Synergy · Revolutionize · Disrupt · Game-changing · Best-in-class (without proof) · Next-generation (without specifics) · **Seamless (overused)** · **Easy** · Robust (vague) · **Leverage** (as a verb) · **Utilize** · Unlock your potential · Transform your business · We're excited to announce* |
-| `preferredPhrases` | *One platform · 99.999% uptime · AI-powered · Omnichannel support · Intelligent routing · All your communications, one place · Connect, collaborate, serve* |
-| `sampleCopy` | Real hero examples: **"One platform. Every conversation."** / *"Voice, video, chat, and contact center — unified so your teams can focus on customers, not tools."* / CTAs *"See how it works"* / *"Start free trial"* |
+| `stackProfile` | **`react-tailwind`** — React TSX, Tailwind utilities, tokens as CSS variables. ⚠️ *The previous script said `bootstrap-handlebars` / "Not React". That is stale — the live registry returns `react-tailwind`. Don't say "Handlebars" on stage.* |
+| `design_md` | "8x8 Design System Guidelines" — *"enterprise-grade without being cold or bureaucratic"*, *"Clarity over decoration. Every element earns its place."* |
+| `voiceTone` | *"Confident and direct — we know our product works and we're not apologetic about selling it."* Never: jargon, exclamation marks in headlines, passive voice, hedges. *"Trusted advisor who's also good at their job, not salesperson."* |
+| `copyLength` | Headlines **3–8 words, never more than 10** · eyebrows **2–5** · CTAs **2–5, imperative verb first** |
+| `avoidedPhrases` | *Synergy · Revolutionize · Disrupt · Game-changing · **Seamless** · **Easy** · Robust · **Leverage** · **Utilize** · Transform your business · We're excited to announce* |
+| `preferredPhrases` | *One platform · 99.999% uptime · AI-powered · Omnichannel support · Intelligent routing · All your communications, one place* |
+| `sampleCopy` | **"One platform. Every conversation."** / CTAs *"See how it works"*, *"Start free trial"* |
 
-⚠️ **Their guidance contradicts itself** — `avoidedPhrases` says avoid *"Seamless (overused — replace
-with concrete description)"* while `preferredPhrases` lists *"Seamless collaboration."* Decide before
-Thursday whether to (a) stay off that word entirely, or (b) surface the conflict as a *feature*
-("your own guidance disagrees with itself — here's where"). (b) is the stronger move with a design-ops
-audience, but only if you raise it deliberately rather than having the voice check stumble into it.
+⚠️ **Their guidance contradicts itself** — `avoidedPhrases` says avoid *"Seamless (overused)"* while
+`preferredPhrases` lists *"Seamless collaboration."* Decide beforehand whether to stay off the word or
+surface the conflict as a feature. Surfacing it is stronger with a design-ops audience — but only if you
+raise it deliberately rather than having the voice check stumble into it.
 
-**And it flows automatically.** When the MCP queues a generation it sends empty guideline strings,
-and `resolveDesignGenerationContext` (`design-workspace.ts:150`) falls back to the workspace — so
-every MCP-triggered design silently inherits the design guidelines, the full brand voice, *and* the
-uploaded button/input/iconography reference images. Say this out loud when it happens.
+**And it flows automatically.** Nothing in the demo restates the brand voice, the guidelines, or the
+button reference images. Every generation inherits them from the workspace. Say this out loud.
 
 ## The catalog is strong — 79 components, 2 patterns
 
-**11 heroes:** `hero-simple`, `hero-split`, `hero-split-media`, `hero-with-media`, `hero-featured`,
-`hero-background`, `hero-background-bubble`, `hero-logo-graphics`, `hero-icon-details`,
-`hero-split-personalizable`, **`hero-form`**. Plus coherent groups for Cards, CTA, Content, Data,
-Carousel + Tabs, Logo Cloud, Pricing, Quotes + Stats, Navigation, Footer Sections, Media, and atoms
-(`button`, `badge`, `icon`, `card`, `quote-card`, `feature-card`, `carousel`, `drawer`, `breadcrumb`).
+**11 heroes**, verified live 2026-07-29: `hero-simple`, `hero-split`, `hero-split-media`,
+`hero-with-media`, `hero-featured`, `hero-background`, `hero-background-bubble`, `hero-logo-graphics`,
+`hero-icon-details`, `hero-split-personalizable`, `hero-form`. Plus Cards, CTA, Content, Data, Carousel,
+Logo Cloud, Pricing, Quotes + Stats, Navigation, Footer, Media, and atoms.
 
-**But only 2 playground patterns** — "New Lander" (1 block) and "Playground pattern" (4 blocks). So
-lean the reuse beat on **components**, not patterns. There is no library of composed landers to point
-at yet.
-
-⚠️ **Do not let Claude call `handoff_get_component` on a real block during the demo.**
-`hero-form` returns **513KB**; `rate-card-app` returns 53KB. Use `handoff_search_components` (light)
-and talk over it. Also: `rate-card-app` ships with **0 properties**, so contract coverage is uneven
-across the library.
+**Only 2 playground patterns**, so lean the reuse beat on **components**, not patterns.
 
 ---
 
@@ -64,42 +58,28 @@ across the library.
 
 **Do this first. It's the whole pitch in one move.**
 
-With the 8x8 MCP **disconnected** (scratch session):
+MCP **disconnected**:
 
 > "Write a hero headline and subhead for a cloud communications platform."
 
-You'll get *"Transform Your Business Communications" / "Revolutionize how your teams connect"* —
-generic SaaS mush, and both phrases are on 8x8's explicit banned list.
+Generic SaaS mush — *"Transform Your Business Communications" / "Revolutionize how your teams connect"*.
+Both phrases are on 8x8's explicit banned list.
 
 Now connect the MCP:
 
-> "I want to build a hero. We're selling our integrated contact center + business phone platform to
-> IT and CX leaders. Pull our brand voice and draft the copy."
+> "I want to build a hero. We're selling our integrated contact center + business phone platform to IT
+> and CX leaders. Pull our brand voice and draft the copy."
 
-`handoff_get_brand_voice` + `handoff_get_design_guidelines`.
-
-Point at the screen: the banned phrases are gone, because it read the list. Then count the words —
-headline lands in 4–8, CTA in 2–4, because that's the rule.
-
----
+`handoff_get_brand_voice` + `handoff_get_design_guidelines`. The banned phrases are gone because it read
+the list. Count the words — headline lands in 4–8, CTA in 2–4, because that's the rule.
 
 ## Beat 2 — "What do we already have?" (2 min) ⭐ *the thesis beat*
 
-Before generating anything:
-
 > "Before we design anything new — what do we already have that could build this hero?"
 
-`handoff_search_components` + `handoff_list_pages` / pattern listing.
+`handoff_search_components`. **Verified light and fast** — 11 heroes, ~1KB.
 
-**The point, said plainly:** *"The goal isn't to generate more design. It's to stop rebuilding
-things you already own."* Most of a hero — eyebrow, heading, body, CTA pair, media slot — is
-almost always already in the system. Let Claude enumerate it.
-
-This is also where the **playground** enters as the workbench's counterweight: if an existing
-pattern already covers the layout, the answer isn't "generate", it's "open it in the playground and
-fill it in."
-
----
+*"The goal isn't to generate more design. It's to stop rebuilding things you already own."*
 
 ## Beat 3 — Refine the copy conversationally (90 sec)
 
@@ -107,83 +87,73 @@ fill it in."
 >
 > "Give me three CTA options."
 
-Iterate on *words* while it's cheap — before any pixels exist. The copy is the brief.
+Iterate on *words* while it's cheap — before any pixels exist. **The copy is the brief**, and in the next
+beat the brief is literally the input.
 
 ---
 
-## Beat 4 — Generate only what's genuinely new (2 min)
+## Beat 4 — The brief becomes a specification (3 min) ⭐ *the new payoff*
 
-> "Good. Now generate the hero design using that copy."
+Paste the agreed copy into the **workbench's main prompt** and send.
 
-`handoff_generate_design_image` → job → `handoff_get_design_job` polls.
+**This is the beat that changed.** Previously this generated a picture and a spec was reverse-engineered
+from it at the end. Now the composer runs **spec-first**, and the canvas narrates it:
 
-Narrate while it runs: *"I never told it our background colour, our typeface, or our button rules.
-It's pulling all of that from the workspace, along with our actual button reference images."*
+> Writing the specification… → Generating the images it calls for… → Composing the design from those images…
 
-> ⏱ **Dead air.** Vercel Cron runs `* * * * *`, so budget **up to ~60s** before pickup plus
-> generation time. Use the narration; have the fallback artifact ready.
+Say what each stage means as it goes:
 
-When it returns, read it against the guidance out loud: off-white background, PP Telegraf, one
-primary + one outline button. It followed rules nobody restated.
+1. **Writing the specification** — the component's contract: name, type, props, content, behaviour,
+   accessibility, and *what imagery it requires*. No image exists yet.
+2. **Generating the images it calls for** — each declared asset rendered on its own, at its own aspect
+   ratio and resolution. *"These are the real files, not crops of a screenshot."*
+3. **Composing the design from those images** — the comp is assembled **from** the assets, so the photo
+   on screen and the file a developer downloads are the same bytes. **Verified holding on 8x8.**
 
----
-
-## Beat 5 — Quibble and revise (2 min)
-
-> "The headline is competing with the product shot. Make it tighter and give the CTA more room."
-
-Two paths, and **they behave differently — choose deliberately:**
-
-- **In the workbench** (recommended): the bottom prompt bar does a true image-to-image iteration,
-  refining the design on screen.
-- **From MCP:** `handoff_generate_design_image` with `artifactId` attaches to the same artifact but
-  **re-rolls from scratch** — `iterationBaseUrl` is hardcoded null (`create-server.ts:1006`). You
-  get a different hero, not a refined one.
-
-Do it in the workbench. Better result, and it's a natural *"this is where a designer takes over"*
-moment.
-
----
-
-## Beat 6 — Transition to dev (3 min) ⭐ *the payoff*
-
-Back in Claude:
-
-> "Transition this to dev."
-
-`handoff_transition_to_dev` — **one** operation. Poll `handoff_get_design_artifact` and read
-`devHandoff` for stage progress: `extracting_assets → generating_spec → ready`.
+> ⏱ **Dead air.** Stages run one per cron tick (`* * * * *`), so budget a few minutes total. This is the
+> beat to talk over — and unlike a spinner, the stage labels are the product's claim made visible.
 
 Then open the artifact's **Spec** tab:
 
-1. **Build from what exists** — a composition score plus the specific components that could build
-   this, each with what it covers and a link into the component page. *This is the thesis beat
-   closing the loop.* Verified worth doing: the pre-change spec on 8x8 returned
-   `existingComponentMatches: 0` with 79 components sitting right there.
-2. **Design tokens** — observed colour/type/spacing values matched against 8x8's real tokens with an
-   on-system coverage score; off-system values called out with what to snap to.
-3. **Brand voice** — per-string pass/warn/fail, banned phrases flagged. **Ties back to Beat 1.**
-4. **Extracted assets** — ⚠️ **verify before promising this.** See the risk table: asset extraction
-   has never once succeeded on 8x8 (5 `none`, 1 `failed`, zero assets across all six artifacts). If
-   it's still failing Thursday, cut this from the beat and lead on 1–3, which don't depend on it.
+- **Build from what exists** — composition score plus the specific 8x8 components that could build this,
+  each with what it covers and a link into the component page. *The thesis beat closing the loop.*
+- **Assets** — each image with its provenance: `1536 × 1024 · 3:2 · focal center-right`, `fills photo`.
+  *"Generated to a declared requirement, at the size the slot needs."*
+- **Brand voice** — per-string pass/warn/fail, banned phrases flagged. **Ties back to Beat 1.**
 
-**What IS proven on 8x8:** spec generation works and the output is good. Artifact `e391308f`
-produced `PlansPricingSection` — organism, group Pricing, 6 props including a `selectedBilling`
-enum, **48 text-inventory items**, 6.4KB of clean markdown, capturing their real copy (*"Plans built
-for how you work."*) verbatim from `sampleCopy`.
+⚠️ **There is no Design tokens section on a spec-first design.** See "Known gaps" — know this before you
+open the tab, and lead on reuse + assets + voice, which are all populated.
 
-Say it: *"That's not a picture in a Slack thread. It's a specification — and it tells you what you
-already own, what's off-system, and where the copy drifted."*
+## Beat 5 — Revise the *specification*, not the picture (2 min) ⭐
 
-Optional close: `handoff_generate_component_from_design` → code in their stack.
+> "Tighten the headline and make the CTA say 'See it live'."
 
----
+In the Spec tab's **Revise the specification** box. What comes back:
+
+- a **diff** of exactly what changed in the contract
+- a **new spec version**, with your sentence recorded as the reason
+- three possible outcomes, and the honest one matters: a request that's really art direction ("make it
+  feel more premium") comes back as *art direction*, and a genuinely ambiguous one comes back as
+  *needs clarification* rather than being silently guessed at
+
+Then **Re-render from spec** to rebuild the images and the comp from the revised contract.
+
+*"That's the difference. We didn't re-roll a picture and hope. We changed the contract, and the design
+was rebuilt from it — and there's a version history saying why."*
+
+## Beat 6 — It's a specification, not a screenshot (2 min)
+
+> *"That's not a picture in a Slack thread. It's a specification — it tells you what you already own,
+> what imagery you need at what size, and where the copy drifted from your own voice. And the design is
+> a rendering of it, not the other way round."*
+
+Optional close: `handoff_generate_component_from_design` → code in their stack (**react-tailwind**).
 
 ## Beat 7 — Land it (30 sec)
 
-*"Everything you just watched works the other way round too — designers work in the workbench, and
-it's the same artifact, the same guidance, the same spec. Sharing, team visibility and permissions
-are already in there."*
+*"Everything you just watched works the other way round too — designers work in the workbench, and it's
+the same artifact, the same guidance, the same spec. Sharing, team visibility and permissions are already
+in there."*
 
 Show `/library` for three seconds. **Don't demo the permission model.**
 
@@ -193,25 +163,30 @@ Show `/library` for three seconds. **Don't demo the permission model.**
 
 | # | Check | Why |
 |---|---|---|
-| 1 | Run **one full `transition_to_dev`** end to end **on the 8x8 registry** | ⚠️ **The single highest-risk item.** Spec generation has never once completed on the *local dev* DB; **its state on 8x8 is unverified.** The unification fixed the *silent* failure, so a failure will now name itself — but it still has to actually succeed. |
-| 2 | Confirm the **reuse section** names real 8x8 components | The catalog is confirmed rich (79 components), so the inputs are there. What's unverified is whether the model picks well from them — and patterns are thin (2), so expect component hits, not pattern hits. |
-| 3 | Confirm the **tokens section** populates | Depends on the registry's DTCG spacing/radius tokens. Colour/typography come from the Figma snapshot and should be present; spacing/radius may legitimately be empty (as on SSC) — the section degrades gracefully but say nothing about spacing tokens if so. |
-| 4 | Pre-build a **fallback artifact** fully transitioned to dev | Insurance for Beats 4–6. |
-| 5 | MCP connected with a **device-login JWT**, not the sync secret | `handoff_generate_design_image` hard-fails on a service token. |
-| 6 | Rehearse Beat 1's "before" prompt | You want the generic version visibly full of banned phrases. Verify it is. |
-| 7 | Confirm the workbench iteration path works on the live deploy | Beat 5 depends on it. |
+| 1 | **Reconnect the MCP connector** in Claude | ⚠️ **Discovered 2026-07-29.** Connectors cache their tool list at connect time. A session connected before the deploy does **not** see `handoff_design_from_brief`, `handoff_revise_spec`, or `handoff_get_design_pipeline`. Reconnect and confirm all three appear, or Beats 4–5 have no MCP path. |
+| 2 | Run **one full spec-first design** end to end on 8x8 | The whole of Beats 4–6. Confirm the stage labels advance and the final image renders (it comes back as a private-Blob proxy path — a broken image here means a basePath problem). |
+| 3 | Confirm the **reuse section** names real 8x8 components | Catalog is confirmed rich; what's unverified is whether the model picks well. |
+| 4 | Exercise **Revise the specification** once | Beat 5. Try one clear spec change and one art-direction request, so you know both answers look right. |
+| 5 | Pre-build a **fallback artifact** fully rendered | Insurance for Beats 4–6. |
+| 6 | MCP connected with a **device-login JWT**, not the sync secret | Generation hard-fails on a service token. |
+| 7 | Rehearse Beat 1's "before" prompt | You want the generic version visibly full of banned phrases. |
 
 ---
+
+## Known gaps
+
+| Gap | What to do about it |
+|---|---|
+| 🟡 **No Design tokens section on a spec-first design.** The token section is a *conformance measurement* of observed values against the registry, so a spec written before anything is rendered has nothing to measure — `generateSpecFromBrief` deliberately omits it. The intent was to fill it in after the composite exists, but **that pass was never built**: the pipeline is `spec → assets → composite` and stops. | Either add a conformance stage after `composite`, or lead Beat 4's spec tab on reuse + assets + voice and don't open the tokens question. **Legacy image-first artifacts still have full token sections** — a pre-built one could cover this beat if it matters. |
+| 🟡 **Placement is verified, not enforced.** The composite model is *instructed* to place the generated assets rather than redraw them; confirmed by eye on 8x8, but nothing checks it. | Re-verify on the fallback artifact. If a demo run redraws, switch to the pre-built fallback. |
 
 ## Known risks
 
 | Risk | Mitigation |
 |---|---|
-| 🔴 **Asset extraction has never succeeded on 8x8** — 5 `none`, 1 `failed`, zero assets across all six artifacts. **This is now the top risk**, not spec generation. | The watchdog + reaper stop it *hanging*; they don't make it *succeed*. Either root-cause it before Thursday or cut the assets section from Beat 6. Note `c7621545` already shows the degraded path in production (`assets: failed` + `spec: done`), which the new `warning` field surfaces honestly. |
-| ~~Spec generation has never completed~~ — **resolved, it works on 8x8** | That finding came from the local dev DB. Two 8x8 artifacts have `specStatus: done` with good output. |
-| 🔴 **Four MCP tools return context-blowing payloads** — `list_design_artifacts` **34MB**, `get_design_artifact` **6.7MB**, `get_component_spec` **2.2MB** (completed specs only; tiny while pending), `get_component` **513KB** | All inline base64 images / full component source. Every one is a tool Claude might reach for mid-demo, and any could kill the conversation. Needs a size cap or field projection. Interim mitigation: steer the demo to `search_components` and the UI. Also: 8x8's six artifacts are all un-backfilled inline data URLs despite Blob being configured — running the backfill route would shrink these a lot. |
-| Reuse/token sections come back thin or wrong | They're AI-generated against a real catalog, so quality varies. Pre-flight #2/#3 tells you what you're working with — if reuse is weak, lead Beat 6 with assets + tokens instead. |
-| ~60s cron latency before generation starts | Scripted narration in Beat 4; fallback artifact. |
-| First design comes back visually weak | Beat 5 reframes it — critique *is* the demo. A mediocre first pass that improves is a better story than a perfect one-shot. |
-| Stuck extraction job mid-demo | Watchdog (240s self-fail) + cron reaper landed 2026-07-28. |
-| Asked about per-person invites | Honest answer: team visibility + share links today, named grants next. `handoff_resource_grant` is read-only in the codebase — nothing inserts a row. Don't claim it. |
+| ~~Four MCP tools return context-blowing payloads~~ — **resolved 2026-07-29** | A response cap runs at the single choke point every tool returns through: inline base64 becomes a descriptor, and an over-budget response drops whole records with the trim stated in the payload. `list_design_artifacts` also now returns a projection instead of full rows. Measured: 34MB → ~2KB. |
+| ~~Asset extraction has never succeeded on 8x8~~ — **retired** | Extraction is gone. Assets are generated from the spec's declared requirements, at the right size, verified working. |
+| ~~Spec generation has never completed~~ — **resolved** | Works on 8x8. |
+| Cron latency before each stage starts | Three stages means three waits. Beat 4's narration is written for it. |
+| First design comes back visually weak | Beat 5 reframes it — critique *is* the demo, and now the critique edits the contract. |
+| Asked about per-person invites | Honest answer: team visibility + share links today, named grants next. Don't claim more. |

@@ -120,6 +120,34 @@ describe('capPayload', () => {
     assert.match(parsed.hint ?? '', /narrower slice/);
   });
 
+  it('drops whole records rather than mangling every record, when a list is over budget', () => {
+    // The shape that broke on 8x8: a list whose LONGEST array is nested inside one row. Trimming by
+    // length chewed through each row's internals and left ten damaged records; trimming by depth drops
+    // whole rows and leaves the survivors intact.
+    const rows = Array.from({ length: 10 }, (_, i) => ({
+      id: `artifact-${i}`,
+      componentSpecMd: 'x'.repeat(14_000),
+      componentSpec: { content: { textInventory: Array.from({ length: 48 }, (_, j) => ({ text: `line ${j} `.repeat(20) })) } },
+      conversationHistory: [{ role: 'user', prompt: 'y'.repeat(4_000) }],
+    }));
+    // Sanity-check the fixture actually exercises the path — an under-budget payload passes trivially.
+    assert.ok(byteLength(JSON.stringify(rows, null, 2)) > 256 * 1024, 'fixture must exceed the limit');
+    const parsed = JSON.parse(capPayload(rows, 256 * 1024).text) as {
+      items?: { componentSpec: { content: { textInventory: unknown[] } } }[];
+      error?: string;
+    };
+    assert.equal(parsed.error, undefined, 'must not give up on a payload that is only ~30% over');
+    assert.ok(parsed.items && parsed.items.length < 10, 'should have dropped rows');
+    // Whatever survives is whole — a half-populated text inventory is a lie about the design.
+    for (const row of parsed.items!) assert.equal(row.componentSpec.content.textInventory.length, 48);
+  });
+
+  it('names the dropped records in terms a caller can act on', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ id: i, blob: 'x'.repeat(40_000) }));
+    const parsed = JSON.parse(capPayload(rows, 64 * 1024).text) as { _truncationNote?: string };
+    assert.match(String(parsed._truncationNote), /Kept \d+ of 10 entries in "items"/);
+  });
+
   it('terminates on deeply nested arrays rather than looping', () => {
     const nested = { a: Array.from({ length: 500 }, () => ({ b: Array.from({ length: 50 }, () => 'x'.repeat(100)) })) };
     assert.doesNotThrow(() => capPayload(nested, 8 * 1024));

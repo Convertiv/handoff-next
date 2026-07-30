@@ -751,7 +751,30 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         status: status?.trim(),
         limit: limit ?? 30,
       });
-      return textResult(rows);
+      // Project, don't dump. Full rows carry the spec, the spec markdown, the conversation history and
+      // the foundation context — 34MB across ten artifacts on 8x8, and still 335KB after image
+      // stripping, which is enough to blow the response cap and return nothing at all. A list answers
+      // "which designs exist and what state are they in"; anything deeper is what get_design_artifact
+      // is for.
+      return textResult(
+        rows.map((r) => {
+          const spec = r.componentSpec as { overview?: { name?: string; type?: string }; assetRequirements?: unknown[] } | null;
+          return {
+            id: r.id,
+            title: r.title,
+            status: r.status,
+            visibility: r.visibility,
+            specStatus: r.specStatus,
+            assetsStatus: r.assetsStatus,
+            componentName: spec?.overview?.name ?? null,
+            componentType: spec?.overview?.type ?? null,
+            declaredAssets: Array.isArray(spec?.assetRequirements) ? spec.assetRequirements.length : 0,
+            assetCount: Array.isArray(r.assets) ? r.assets.length : 0,
+            hasImage: Boolean(r.imageUrl),
+            updatedAt: r.updatedAt,
+          };
+        })
+      );
     }
   );
 
