@@ -7,6 +7,7 @@ import { buildProjectContext, resolveStackProfile } from '@/lib/mcp/project-prof
 import { buildDesignMd } from '@handoff/utils/design-md';
 import { loadStackGuideMarkdown } from '@/lib/mcp/stack-guides';
 import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queries';
+import { editorOf, isVisualSlot, placeholderValue, shapeNote } from '@/lib/mcp/scaffold-helpers';
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
 import { getDataProvider } from '@/lib/data';
 import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
@@ -1371,44 +1372,6 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   // The authoring "shape" of a prop is driven by its editorType (falling back to
   // the inferred type/kind). These keep the scaffold, the shape warnings, and
   // the report speaking the same language.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const editorOf = (m: any): string => m?.editorType ?? m?.type ?? m?.kind ?? 'any';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isVisualSlot = (m: any) =>
-    ['richtext', 'text', 'image', 'slot'].includes(m?.editorType) || m?.type === 'React.ReactNode' || m?.kind === 'slot';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const shapeNote = (m: any): string => {
-    switch (editorOf(m)) {
-      case 'richtext': return 'HTML string, e.g. "<p>Copy with <b>bold</b></p>"';
-      case 'text': case 'slot': case 'string': return 'string';
-      case 'image': return '{ src, alt, width?, height? }';
-      case 'button': return '{ label, href, variant? }';
-      case 'link': return '{ label, href }';
-      case 'select': case 'enum': return `one of: ${(m?.options ?? []).map((o: unknown) => JSON.stringify((o as { value?: unknown })?.value ?? o)).join(', ') || '(options)'}`;
-      case 'boolean': return 'boolean';
-      case 'number': return 'number';
-      case 'array': return `array of ${m?.items?.editorType ?? m?.items?.type ?? 'items'}`;
-      case 'object': return 'object';
-      default: return editorOf(m);
-    }
-  };
-  // A shape-correct placeholder value for a field, when no base-preview value exists.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const placeholderValue = (m: any): unknown => {
-    switch (editorOf(m)) {
-      case 'richtext': return '<p>Placeholder copy</p>';
-      case 'text': case 'slot': case 'string': return 'Text';
-      case 'image': return { src: '', alt: '', width: 0, height: 0 };
-      case 'button': return { label: 'Button', href: '#' };
-      case 'link': return { label: 'Link', href: '#' };
-      case 'select': case 'enum': { const o = m?.options?.[0]; return (o as { value?: unknown })?.value ?? o ?? ''; }
-      case 'boolean': return false;
-      case 'number': return 0;
-      case 'array': return [];
-      case 'object': return {};
-      default: return null;
-    }
-  };
   // Flag a provided value whose JS shape doesn't match its editorType (renders wrong).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const shapeMismatch = (m: any, v: unknown): string | null => {
