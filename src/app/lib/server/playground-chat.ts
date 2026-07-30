@@ -68,8 +68,11 @@ function narrate(name: string, args: Record<string, unknown>): string {
       const q = typeof args.query === 'string' ? args.query.trim() : '';
       return q ? `Looking for ${q} blocks…` : 'Looking through your blocks…';
     }
-    case 'scaffold_args':
-      return `Checking how ${String(args.componentId ?? 'that block')} is configured…`;
+    case 'scaffold_args': {
+      const ids = Array.isArray(args.componentIds) ? args.componentIds : [args.componentId].filter(Boolean);
+      if (ids.length > 1) return `Checking how ${ids.length} blocks are configured…`;
+      return `Checking how ${String(ids[0] ?? 'that block')} is configured…`;
+    }
     case 'search_assets': {
       const q = typeof args.query === 'string' ? args.query.trim() : '';
       return q ? `Searching your assets for ${q}…` : 'Searching your asset library…';
@@ -85,8 +88,15 @@ function narrate(name: string, args: Record<string, unknown>): string {
   }
 }
 
-/** Ceiling on the tool loop. Generous enough to scaffold several blocks, low enough to bound a runaway. */
-const MAX_TOOL_ROUNDS = 12;
+/**
+ * Ceiling on the tool loop.
+ *
+ * Raised from 12 after a real run exhausted it: an eight-block page scaffolded one component per round
+ * and ran out before proposing anything. Batching `scaffold_args` is the actual fix — this is headroom,
+ * not the mechanism. Rounds are superlinear in cost (the whole transcript replays each time), so
+ * hitting this remains a signal that something is wrong rather than normal operation.
+ */
+const MAX_TOOL_ROUNDS = 16;
 
 const TOOLS: OpenAiTool[] = [
   {
@@ -110,14 +120,22 @@ const TOOLS: OpenAiTool[] = [
     function: {
       name: 'scaffold_args',
       description:
-        'Get a correctly-shaped `args` template for a component, seeded from a real preview and ' +
-        'annotated with each field\'s editorType and expected shape. CALL THIS FOR EVERY BLOCK before ' +
-        'proposing it. Guessing prop shapes produces blocks that render empty — a richtext field needs ' +
-        'an HTML string, an image field needs { src, alt }, not a bare URL.',
+        'Get correctly-shaped `args` templates, seeded from real previews and annotated with each ' +
+        'field\'s editorType and expected shape. REQUIRED for every block before proposing it — ' +
+        'guessing prop shapes produces blocks that render empty (a richtext field needs an HTML ' +
+        'string, an image field needs { src, alt }, not a bare URL). ' +
+        'PASS EVERY COMPONENT YOU INTEND TO USE IN ONE CALL: scaffolding eight blocks one at a time ' +
+        'burns eight round-trips and you will run out before you can propose anything.',
       parameters: {
         type: 'object',
-        properties: { componentId: { type: 'string' } },
-        required: ['componentId'],
+        properties: {
+          componentIds: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Every component you plan to use. Prefer one call with all of them.',
+          },
+          componentId: { type: 'string', description: 'Single component; use componentIds instead.' },
+        },
       },
     },
   },
@@ -201,7 +219,13 @@ async function runTool(name: string, args: Record<string, unknown>, preferredAss
   }
 
   if (name === 'scaffold_args') {
-    return scaffoldArgsForComponent(String(args.componentId ?? ''));
+    const ids = Array.isArray(args.componentIds)
+      ? (args.componentIds as unknown[]).map((v) => String(v).trim()).filter(Boolean)
+      : [String(args.componentId ?? '').trim()].filter(Boolean);
+    if (!ids.length) return { error: 'Pass componentIds.' };
+    const results = await Promise.all(ids.map((id) => scaffoldArgsForComponent(id)));
+    // Single-id calls keep the old shape so the model isn't handed an array it has to unwrap for one item.
+    return ids.length === 1 ? results[0] : Object.fromEntries(ids.map((id, i) => [id, results[i]]));
   }
 
   if (name === 'search_assets') {
@@ -259,7 +283,8 @@ their props with values shaped exactly as the scaffold tells you.
    whether a form or pricing is needed. One round only; then get on with it.
 2. \`search_components\` to see what exists. Prefer composing from what is there over asking for
    something that isn't.
-3. \`scaffold_args\` for EVERY block you intend to use. Never guess a prop shape.
+3. \`scaffold_args\` for EVERY block you intend to use — **all of them in a single call**, passing
+   \`componentIds\`. Never guess a prop shape.
 4. \`search_assets\` for any imagery. Use a real \`src\` from the store, or leave it empty and say so.
 5. \`propose_page\` once, with every block filled in.
 ${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. When the user asks for a change, propose the WHOLE page again with that change made — the proposal replaces what is there.\n` : ''}
@@ -371,11 +396,17 @@ export async function runPlaygroundChatTurn(args: {
       let result: unknown;
       try {
         result = await runTool(call.name, parsed, attached);
-        if (call.name === 'scaffold_args' && typeof parsed.componentId === 'string') {
-          const id = parsed.componentId.trim();
+        if (call.name === 'scaffold_args') {
           // Only count a scaffold that actually resolved. Scaffolding a component that does not exist
           // teaches the model nothing about its props, so it must not satisfy the check below.
-          if (id && !(result && typeof result === 'object' && 'error' in result)) scaffolded.add(id);
+          const ids = Array.isArray(parsed.componentIds)
+            ? (parsed.componentIds as unknown[]).map((v) => String(v).trim())
+            : [String(parsed.componentId ?? '').trim()];
+          const bag = (result ?? {}) as Record<string, unknown>;
+          for (const id of ids.filter(Boolean)) {
+            const entry = ids.length === 1 ? bag : (bag[id] as Record<string, unknown> | undefined);
+            if (entry && !('error' in entry)) scaffolded.add(id);
+          }
         }
       } catch (e) {
         // Feed the failure back rather than aborting the turn — the model can pick another block or
@@ -386,9 +417,17 @@ export async function runPlaygroundChatTurn(args: {
     }
   }
 
-  const exhausted =
-    'I looked at a lot of blocks without settling on a composition. Tell me more specifically what the page should contain.';
+  // Say what actually happened. "Tell me more specifically" blamed the user for a limit they cannot
+  // see and gave them nothing to act on — the run had in fact done plenty of work, just not finished.
+  const searched = toolsUsed.filter((t) => t === 'search_components').length;
+  const found = [...scaffolded];
+  const detail = found.length
+    ? `I searched the catalog and worked through ${found.length} block${found.length === 1 ? '' : 's'} — ` +
+      `${found.slice(0, 6).join(', ')}${found.length > 6 ? ', …' : ''} — but ran out of steps before putting the page together.`
+    : `I searched the catalog ${searched} time${searched === 1 ? '' : 's'} without settling on blocks to use.`;
+  const exhausted = `${detail} Try narrowing it — name the sections you want, or ask for a shorter page.`;
   emit({ type: 'reply', content: exhausted });
+  console.warn('[playground-chat] round cap hit', { rounds: MAX_TOOL_ROUNDS, tools: toolsUsed.length, scaffolded: found });
   return { reply: exhausted, toolsUsed };
 }
 
