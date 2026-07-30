@@ -5,6 +5,44 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-30 — Workspace guidance is writable over MCP (admin-gated)
+
+`handoff_update_brand_voice` (merges a subset of the seven fields) and
+`handoff_update_design_guidelines` (replaces `designMd`) shipped to main. Motivation: 8x8's voice
+settings were fabricated for the demo and contradict the live site (`docs/8X8-VOICE-OBSERVED.md`), and
+correcting them meant a human retyping seven fields into `/design/settings`.
+
+Two decisions worth keeping:
+
+- **Gate mirrors intent, not mechanism.** The settings route gates on `session.user.role !== 'admin'`;
+  MCP has no session, so `denyGuidanceWrite()` requires `sync:write` **and** `role === 'admin'`. The
+  legacy sync secret and the workspace context both carry role `admin` by construction, so CLI/service
+  automation is unaffected; a non-admin device JWT is refused.
+- **Both tools echo what they replaced** — per-field before/after for the voice, and a line diff plus
+  the previous document for the guidelines. These overwrite guidance every later generation inherits,
+  so a silent replace would be unauditable. `diff.before.text` is the restore path.
+
+Merge/diff computation lives in `lib/design-workspace-format.ts` (pure, 12 tests in
+`test/design-workspace-guidance.test.ts`); `lib/server/design-workspace.ts` keeps the db wrappers.
+`authzActor()` became a function declaration — these tools register above it and would otherwise hit TDZ.
+
+**Not yet verified live:** no MCP client had reconnected at ship time, so the write path has never been
+exercised against a real registry. First real use should be the 8x8 voice correction.
+
+Two build gotchas hit on the way, both environmental:
+
+- `next build` cannot run from a `.claude/worktrees/*` worktree — no `node_modules` there, so Turbopack
+  fails to infer the workspace root. `tsc` works (it resolves from the parent), which makes the failure
+  look like a code error. Build from the primary worktree.
+- A local `build:registry` dies prerendering `/foundations/[...slug]` with "DATABASE_URL is required".
+  Pre-existing and local-only — compile + TypeScript pass, and Vercel builds fine.
+
+**Corrects the entry below:** main *is* the production branch for all three registries as of today —
+this commit produced `Production – 8x8-handoff`, `Production – hagyard-handoff` and
+`Production – ssc-handoff` deployments. The claim that 8x8 deploys from `feature/spec-driven` is stale.
+The `test:unit` trap in that entry is still live, though: the script still names `test/mcp-payload.test.ts`,
+which does not exist, and `tsx --test` exits 0 anyway. A green run is not proof of coverage.
+
 ## 2026-07-30 — ⚠️ main and feature/spec-driven have diverged; playground work is on main
 
 Recorded because it is invisible from inside either branch and will bite at merge time.
