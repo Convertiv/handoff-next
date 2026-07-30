@@ -5,6 +5,29 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-30 — Chat cadence vs pipeline cost: two-speed generation approved
+
+Brad, using Natko's chat window: *"because we have a 4 step process for generating each one takes
+forever, the chat feels weird."*
+
+Diagnosis: the chat IS wired correctly — `open_design_workbench` → `/design?prompt=…` →
+`autoGenerateRef` → `startSpecFirstDesign`. The problem is a conversational loop being served by a
+pipeline shaped for correctness: four stages, one per cron tick, 5–9 minutes per turn.
+
+**Approved, deferred until after the demo:** sketch while talking, specify on save. Every turn uses the
+existing inline SSE path (~60–100s, no cron); the four-stage pipeline runs once, when the design is
+added to the library. The approved sketch is attached to the composite stage as a *layout reference* so
+the final still resembles what was signed off while remaining spec-derived — which keeps the same-bytes
+guarantee intact.
+
+Full design, hook points and risks: `docs/TWO-SPEED-GENERATION.md`. The load-bearing constraint, worth
+repeating here: **the spec must always come from the brief, never from the sketch.** The moment save
+derives a spec by reading the prototype, the image-first inversion is back.
+
+Two bugs found while checking the wiring, both fixed in `73f578c0`: `loadComponentSchemasForGuides`
+skipped plain-string ids, so `handoff_design_from_brief` had been silently dropping component guides;
+and `startSpecFirstDesign` never passed the chat's component choice at all.
+
 ## 2026-07-30 — Post-merge integration debt: Natko's UI ↔ our backend
 
 The `feature/design-restructure` merge (`9ba122fc`) landed cleanly for everything except two UI files.
