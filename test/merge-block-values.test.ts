@@ -33,7 +33,14 @@ describe('mergeBlockValues', () => {
   });
 
   it('maps an image string onto src, not onto a label', () => {
-    const { args } = mergeBlockValues({ photo: { src: '', alt: '' } }, { photo: 'https://cdn/x.jpg' });
+    // Passing the src as known: this is about shape coercion. Provenance is covered separately, and
+    // without it the guard would (correctly) reject the URL before the shape assertion could run.
+    const { args } = mergeBlockValues(
+      { photo: { src: '', alt: '' } },
+      { photo: 'https://cdn/x.jpg' },
+      null,
+      new Set(['https://cdn/x.jpg'])
+    );
     assert.deepEqual(args.photo, { src: 'https://cdn/x.jpg', alt: '' });
   });
 
@@ -288,6 +295,70 @@ describe('array item keys', () => {
   it('respects a key the model supplied', () => {
     const { args } = mergeBlockValues({ items: [{ _key: 't', label: '' }] }, { items: [{ _key: '1996', label: 'Founded' }] });
     assert.equal((args.items as { _key: string }[])[0]._key, '1996');
+  });
+});
+
+describe('invented image URLs', () => {
+  const fields = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { editorType: v }]));
+
+  it('replaces a plausible but invented CDN path with the placeholder', () => {
+    // A live page shipped https://assets.8x8.com/images/healthcare-contact-center.jpg — invented, and
+    // a 404. Worse than a missing image because it looks real enough that nobody checks.
+    const { args, invalidValues } = mergeBlockValues(
+      { hero: { src: 'https://placehold.co/1536x1024', alt: '' } },
+      { hero: { src: 'https://assets.8x8.com/images/made-up.jpg', alt: 'x' } },
+      fields({ hero: 'image' }),
+      new Set()
+    );
+    assert.match(String((args.hero as { src: string }).src), /placehold\.co/);
+    assert.equal(invalidValues.length, 1);
+  });
+
+  it('accepts a src the asset store actually returned', () => {
+    const known = new Set(['https://real.blob/asset.jpg']);
+    const { args, invalidValues } = mergeBlockValues(
+      { hero: { src: 'https://placehold.co/1200x800', alt: '' } },
+      { hero: { src: 'https://real.blob/asset.jpg', alt: 'Care team' } },
+      fields({ hero: 'image' }),
+      known
+    );
+    assert.equal((args.hero as { src: string }).src, 'https://real.blob/asset.jpg');
+    assert.deepEqual(invalidValues, []);
+  });
+
+  it('accepts the app own proxy paths', () => {
+    const { invalidValues } = mergeBlockValues(
+      { hero: { src: '', alt: '' } },
+      { hero: { src: '/api/handoff/artifact-asset?p=x', alt: '' } },
+      fields({ hero: 'image' }),
+      new Set()
+    );
+    assert.deepEqual(invalidValues, []);
+  });
+
+  it('checks images nested inside array items too', () => {
+    const { invalidValues } = mergeBlockValues(
+      { cards: [{ img: { src: 'https://placehold.co/400x300', alt: '' } }] },
+      { cards: [{ img: { src: 'https://invented.example/a.jpg' } }] },
+      fields({ cards: 'array' }),
+      new Set()
+    );
+    assert.equal(invalidValues.length, 1);
+  });
+});
+
+describe('bookkeeping keys survive blanking', () => {
+  it('keeps _type, which components switch on', () => {
+    // A live page came back with `_type: ""` where the preview had "statCard".
+    const out = blankContentValues(
+      { stats: [{ _key: 'a', _type: 'statCard', stat: '100', eyebrow: 'Countries' }] },
+      { stats: { editorType: 'array' } }
+    );
+    const item = (out.stats as Record<string, unknown>[])[0];
+    assert.equal(item._type, 'statCard');
+    assert.equal(item._key, 'a');
+    assert.equal(item.stat, '');
   });
 });
 

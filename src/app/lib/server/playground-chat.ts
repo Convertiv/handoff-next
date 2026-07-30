@@ -187,7 +187,8 @@ const TOOLS: OpenAiTool[] = [
  * round-trips and the possibility of a block that applies cleanly and renders empty.
  */
 async function buildBlocks(
-  raw: { componentId?: unknown; values?: unknown }[]
+  raw: { componentId?: unknown; values?: unknown }[],
+  knownAssetSrcs?: Set<string>
 ): Promise<{ blocks: ProposedBlock[]; problems: string[]; gaps: { componentId: string; fields: string[] }[] }> {
   const blocks: ProposedBlock[] = [];
   const problems: string[] = [];
@@ -208,12 +209,13 @@ async function buildBlocks(
     // looking finished and isn't.
     const template = blankContentValues(scaffold.args, scaffold.fields);
     const values = (entry?.values ?? {}) as Record<string, unknown>;
-    const { args, unknownKeys, unfilled } = mergeBlockValues(template, values, scaffold.fields);
+    const { args, unknownKeys, invalidValues, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
     if (unknownKeys.length) {
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
       console.warn('[playground-chat] unknown fields on', componentId, unknownKeys.join(', '));
     }
+    if (invalidValues.length) console.warn('[playground-chat] rejected values on', componentId, invalidValues.join('; '));
     if (unfilled.length) gaps.push({ componentId, fields: unfilled });
     blocks.push({ componentId, args });
   }
@@ -221,7 +223,13 @@ async function buildBlocks(
   return { blocks, problems, gaps };
 }
 
-async function runTool(name: string, args: Record<string, unknown>, preferredAssetIds: string[]): Promise<unknown> {
+async function runTool(
+  name: string,
+  args: Record<string, unknown>,
+  preferredAssetIds: string[],
+  /** Collects every src the store returned, so an invented URL can be told from a real one. */
+  seenAssetSrcs?: Set<string>
+): Promise<unknown> {
   const provider = getDataProvider();
 
   if (name === 'list_blocks') {
@@ -270,6 +278,7 @@ async function runTool(name: string, args: Record<string, unknown>, preferredAss
       seen.add(id);
       out.push({ id, name: String(r.title ?? ''), src, alt: String(r.altText ?? ''), attached: preferredAssetIds.includes(id) });
     }
+    for (const a of out) seenAssetSrcs?.add(a.src);
     return out.slice(0, 25);
   }
 
@@ -363,6 +372,7 @@ export async function runPlaygroundChatTurn(args: {
   ];
 
   const toolsUsed: string[] = [];
+  const seenAssetSrcs = new Set<string>();
   // One retry only; see the gap handler below.
   let askedForGaps = false;
 
@@ -404,7 +414,7 @@ export async function runPlaygroundChatTurn(args: {
       // catch that, and removing the possibility is better than policing it.
       if (call.name === 'propose_page') {
         const raw = Array.isArray(parsed.blocks) ? (parsed.blocks as { componentId?: unknown; values?: unknown }[]) : [];
-        const { blocks, problems, gaps } = await buildBlocks(raw);
+        const { blocks, problems, gaps } = await buildBlocks(raw, seenAssetSrcs);
 
         // Ask once for the content it skipped. Templates are seeded from real previews, so an
         // unfilled field is not empty — it is somebody's sample copy, and shipping that produces a
@@ -452,7 +462,7 @@ export async function runPlaygroundChatTurn(args: {
 
       let result: unknown;
       try {
-        result = await runTool(call.name, parsed, attached);
+        result = await runTool(call.name, parsed, attached, seenAssetSrcs);
       } catch (e) {
         // Feed the failure back rather than aborting the turn — the model can pick another block or
         // explain itself, which is far more useful than a dead conversation.

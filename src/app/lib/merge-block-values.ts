@@ -32,6 +32,39 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
  */
 const STRING_TARGET = ['text', 'label', 'title', 'src', 'value'];
 
+/**
+ * Swap any image source we cannot serve back to the template's placeholder.
+ *
+ * Reported, not silent: the model needs to learn that inventing a CDN path does not work, and a
+ * reviewer needs to know an image is a stand-in rather than a real asset.
+ */
+function rejectInventedImages(
+  value: unknown,
+  template: unknown,
+  allowed: Set<string>
+): { value: unknown; changed: boolean } {
+  let changed = false;
+
+  const walk = (v: unknown, t: unknown): unknown => {
+    if (Array.isArray(v)) return v.map((item, i) => walk(item, Array.isArray(t) ? t[0] : undefined));
+    if (!isPlainObject(v)) return v;
+
+    const out: Record<string, unknown> = { ...v };
+    if (typeof out.src === 'string' && !isAllowedImageSrc(out.src, allowed)) {
+      const fallback = isPlainObject(t) && typeof t.src === 'string' ? t.src : '';
+      out.src = fallback.includes('placehold.co') ? fallback : placeholderImageUrl(1200, 800);
+      changed = true;
+    }
+    for (const [k, nested] of Object.entries(out)) {
+      if (k === 'src') continue;
+      out[k] = walk(nested, isPlainObject(t) ? t[k] : undefined);
+    }
+    return out;
+  };
+
+  return { value: walk(value, template), changed };
+}
+
 /** Editor types that hold content a person reads. Everything else is configuration. */
 const CONTENT_EDITORS = ['text', 'richtext', 'string', 'slot', 'image', 'array'];
 
@@ -184,7 +217,11 @@ function blankValue(value: unknown, editor: string): unknown {
 
   if (isPlainObject(value)) {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = blankValue(v, '');
+    for (const [k, v] of Object.entries(value)) {
+      // `_key`, `_type` and friends are bookkeeping the component may switch on — a live page came back
+      // with `_type: ""` where the preview had `"statCard"`. They are not content and must survive.
+      out[k] = k.startsWith('_') ? v : blankValue(v, '');
+    }
     return out;
   }
 
@@ -215,6 +252,22 @@ function isEmptyContent(value: unknown): boolean {
   return false;
 }
 
+/**
+ * Whether an image source is one we can actually serve.
+ *
+ * A live page came back with `https://assets.8x8.com/images/healthcare-contact-center.jpg` — invented,
+ * plausible, and a 404. That is worse than the workspace-relative paths it replaced, because it looks
+ * real enough that nobody checks. An image may only be a placeholder or something the asset store
+ * actually returned this turn.
+ */
+function isAllowedImageSrc(src: string, allowed: Set<string>): boolean {
+  if (!src) return true;
+  if (src.includes('placehold.co')) return true;
+  if (allowed.has(src)) return true;
+  // Proxy paths the app itself serves.
+  return src.startsWith('/api/');
+}
+
 export interface MergeResult {
   args: Record<string, unknown>;
   /** Keys the model invented. Reported, never silently dropped. */
@@ -235,7 +288,9 @@ export interface MergeResult {
 export function mergeBlockValues(
   scaffoldArgs: Record<string, unknown>,
   values: Record<string, unknown> | null | undefined,
-  fields?: Record<string, unknown> | null
+  fields?: Record<string, unknown> | null,
+  /** Image sources the asset store returned this turn. Anything else is invented. */
+  knownAssetSrcs?: Set<string>
 ): MergeResult {
   const args: Record<string, unknown> = { ...scaffoldArgs };
   const unknownKeys: string[] = [];
@@ -256,7 +311,10 @@ export function mergeBlockValues(
       continue;
     }
 
-    args[key] = coerceToShape(scaffoldArgs[key], value);
+    const merged = coerceToShape(scaffoldArgs[key], value);
+    const rejected = rejectInventedImages(merged, scaffoldArgs[key], knownAssetSrcs ?? new Set());
+    if (rejected.changed) invalidValues.push(`${key} image src was not from the asset library — replaced`);
+    args[key] = rejected.value;
   }
 
   const unfilled: string[] = [];
