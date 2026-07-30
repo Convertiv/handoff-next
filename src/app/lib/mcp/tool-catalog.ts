@@ -16,6 +16,8 @@ const CATEGORY_BY_TOOL: Record<string, string> = {
   handoff_get_stack_guide: 'Context',
   handoff_get_design_guidelines: 'Context',
   handoff_get_brand_voice: 'Context',
+  handoff_update_design_guidelines: 'Context',
+  handoff_update_brand_voice: 'Context',
   // Components
   handoff_search_components: 'Components',
   handoff_browse_components: 'Components',

@@ -75,12 +75,14 @@ projectProfile: {
 | `handoff_get_design_guidelines` | Team **Design.MD** from **Design → Settings** (Postgres `handoff_design_workspace`) |
 | `handoff_get_brand_voice` | Brand voice fields as JSON + formatted markdown |
 | `handoff_get_component_reference` | Reference image for `buttons` \| `inputs` \| `iconography` (`design:read`) |
+| `handoff_update_design_guidelines` | Replace team **Design.MD** wholesale (admin + `sync:write`); returns previous content |
+| `handoff_update_brand_voice` | Merge a subset of brand voice fields (admin + `sync:write`); returns per-field before/after |
 
 Server default: `HANDOFF_DEFAULT_STACK_PROFILE` env when client omits profile.
 
 **Reference maintenance:** Materials are regenerated from the live catalog (not copied from repo `handoff/reference/*.md`). After deploy or large catalog changes, run **Admin → Reference → Regenerate all** so MCP `handoff_get_reference` returns current content.
 
-**Design workspace:** Admins save Design.MD, brand voice, and component reference images under **Design → Settings**. The same data powers the design workbench LLM, component-generation jobs, and MCP tools above.
+**Design workspace:** Admins save Design.MD, brand voice, and component reference images under **Design → Settings**. The same data powers the design workbench LLM, component-generation jobs, and MCP tools above. Guidance is also writable over MCP (`handoff_update_design_guidelines`, `handoff_update_brand_voice`) so an agent that has just read the live site can correct drifted voice settings without a human retyping the form; both mirror the UI's admin gate and echo a diff, because they overwrite instructions every later generation inherits.
 
 ## Tools (Phase 1)
 

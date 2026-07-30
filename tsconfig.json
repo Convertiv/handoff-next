@@ -18,7 +18,10 @@
     "outDir": "dist",
     "paths": {
       "@handoff/*": ["./src/*"],
-      "handoff-app": ["./src/index.ts"]
+      "handoff-app": ["./src/index.ts"],
+      // Inert for this project (src/app is excluded from the build) — it lets the
+      // root-level tsx tests import an app module that uses the app's own "@/" alias.
+      "@/*": ["./src/app/*"]
     },
     "typeRoots": ["./node_modules/@types", "./node_modules/@figma"]
   },

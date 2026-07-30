@@ -34,9 +34,12 @@ import { COMPONENT_GALLERY_APP_JS_B64 } from '@/lib/mcp/apps/component-gallery.b
 import { issuerForCliSync } from '@/lib/server/request-public-url';
 import { jwtScopesInclude } from '@/lib/cli-sync-jwt';
 import {
+  BRAND_VOICE_FIELD_IDS,
   formatBrandVoiceForPrompt,
   formatDesignWorkspaceForMcp,
   getDesignWorkspace,
+  replaceDesignGuidelines,
+  updateBrandVoiceFields,
 } from '@/lib/server/design-workspace';
 import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
 import type { DesignGenerationRequestParams } from '@/lib/server/design-generation-worker';
@@ -438,6 +441,100 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     }
   );
 
+  // ─── Design-workspace guidance writes ────────────────────────────────────────
+  // The browser path (api/handoff/design/workspace PUT) gates these on
+  // `session.user.role !== 'admin'`. MCP has no session, so mirror the *intent*:
+  // require the write scope AND the same admin role. The legacy sync secret and
+  // the local workspace context both carry role 'admin' by construction, so CLI /
+  // service automation keeps working; a non-admin device JWT does not.
+  function denyGuidanceWrite() {
+    const denied = requireScope(auth, 'sync:write');
+    if (denied) return denied;
+    if (auth.role !== 'admin') {
+      return textResult({ error: 'Forbidden — admin role required to edit design workspace guidance.' });
+    }
+    return null;
+  }
+
+  server.registerTool(
+    'handoff_update_brand_voice',
+    {
+      description:
+        'Update the team brand voice in design workspace settings (admin + sync:write). Accepts any ' +
+        'subset of fields and MERGES over the stored value — omitted fields are left alone, and a field ' +
+        'set to "" is cleared. This is the standing copy guidance every future generation inherits ' +
+        '(design images, page copy, component previews, DESIGN.md exports), not a per-request override — ' +
+        'it changes output for everyone until it is changed again. The response echoes a per-field ' +
+        'before/after so the overwritten text is recoverable.',
+      inputSchema: {
+        companyDescription: z.string().optional().describe('Company, audience, product category, positioning.'),
+        copyDirection: z.string().optional().describe('Guidance for headlines, CTAs, value props, product messaging.'),
+        copyLength: z.string().optional().describe('How much copy to generate so text fits the design.'),
+        voiceTone: z.string().optional().describe('Voice, tone, personality, level of formality.'),
+        preferredPhrases: z.string().optional().describe('Phrases, terms, claims, or patterns to prefer.'),
+        avoidedPhrases: z.string().optional().describe('Phrases, words, claims, or tonal choices to avoid.'),
+        sampleCopy: z.string().optional().describe('Representative examples of approved copy.'),
+      },
+    },
+    async (fields) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = denyGuidanceWrite();
+      if (denied) return denied;
+      const supplied = Object.entries(fields).filter(([, v]) => v !== undefined);
+      if (supplied.length === 0) {
+        return textResult({
+          ok: false,
+          error: `No fields supplied. Pass at least one of: ${BRAND_VOICE_FIELD_IDS.join(', ')}.`,
+        });
+      }
+      // Shared MCP→actor mapping: null for the synthetic 'service'/'workspace'
+      // ids, which are not rows in the users table.
+      const { workspace, changed, unchanged } = await updateBrandVoiceFields(fields, authzActor().userId);
+      return textResult({
+        ok: true,
+        updatedAt: workspace.updatedAt,
+        changed,
+        unchanged,
+        note:
+          changed.length === 0
+            ? 'No change — every supplied field already matched the stored value.'
+            : 'Applied to the team brand voice. All future generations inherit this until it changes again.',
+        brandVoice: workspace.brandVoice,
+        markdown: formatBrandVoiceForPrompt(workspace.brandVoice),
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_update_design_guidelines',
+    {
+      description:
+        'Replace the team Design.MD guidelines in design workspace settings (admin + sync:write). This ' +
+        'REPLACES the whole document — there is no merge, so send the complete text (read the current ' +
+        'value with handoff_get_design_guidelines first). These are the standing design instructions ' +
+        'every future generation inherits, not a per-request override. The response returns the previous ' +
+        'content alongside the new one so the overwritten version is recoverable.',
+      inputSchema: {
+        designMd: z.string().describe('Full replacement markdown for the team design guidelines. "" clears them.'),
+      },
+    },
+    async ({ designMd }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = denyGuidanceWrite();
+      if (denied) return denied;
+      const { workspace, diff } = await replaceDesignGuidelines(designMd, authzActor().userId);
+      return textResult({
+        ok: true,
+        updatedAt: workspace.updatedAt,
+        diff,
+        note: diff.unchanged
+          ? 'No change — the supplied guidelines matched the stored value.'
+          : 'Replaced the team design guidelines. All future generations inherit this until it changes again. ' +
+            '`diff.before.text` is the overwritten version (capped) if it needs restoring.',
+      });
+    }
+  );
+
   server.registerTool(
     'handoff_get_component_reference',
     {
@@ -671,12 +768,15 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
    * MCP caller → authz actor. Synthetic ids ('service'/'workspace') are not real
    * users, so they carry a null userId and rely on their 'admin' role for access
    * (workspace/CLI sync keeps working). Shared with `patternActor` so the two
-   * can't drift.
+   * can't drift. Declared as a function (not a const) because tools registered
+   * earlier in this file — the design-workspace guidance writes — also use it.
    */
-  const authzActor = (): MutateActor => ({
-    userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
-    role: auth.role ?? null,
-  });
+  function authzActor(): MutateActor {
+    return {
+      userId: auth.userId && auth.userId !== 'service' && auth.userId !== 'workspace' ? auth.userId : null,
+      role: auth.role ?? null,
+    };
+  }
 
   /**
    * Effective access to one design artifact, mirroring the HTTP routes:

@@ -7,6 +7,10 @@ The voice currently in Design.MD was invented for the demo. This is what 8x8 act
 two disagree, the site wins — a voice check that flags real 8x8 copy is worse than no voice check,
 because it teaches people to ignore it.
 
+Applying these corrections no longer means retyping the settings form: `handoff_update_brand_voice`
+(admin, `sync:write`) merges a subset of the voice fields over the stored value and returns a per-field
+before/after, and `handoff_update_design_guidelines` replaces Design.MD the same way.
+
 ## Where the fabricated guidance is wrong
 
 | Invented rule | What the site does |

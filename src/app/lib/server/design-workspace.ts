@@ -7,7 +7,17 @@ import {
   type DesignWorkspacePatch,
   type DesignWorkspaceRow,
 } from '@/lib/db/queries';
-import { formatBrandVoiceForPrompt, isWorkspaceEmpty, type BrandVoiceMap } from '@/lib/design-workspace-format';
+import {
+  BRAND_VOICE_FIELD_IDS,
+  diffDesignGuidelines,
+  formatBrandVoiceForPrompt,
+  isWorkspaceEmpty,
+  mergeBrandVoiceFields,
+  type BrandVoiceFieldChange,
+  type BrandVoiceFieldId,
+  type BrandVoiceMap,
+  type DesignGuidelinesDiff,
+} from '@/lib/design-workspace-format';
 import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
 export type DesignWorkspaceDto = {
   id: string;
@@ -85,7 +95,58 @@ export async function upsertDesignWorkspace(
   return rowToDto(row);
 }
 
-export { formatBrandVoiceForPrompt, isWorkspaceEmpty };
+export {
+  BRAND_VOICE_FIELD_IDS,
+  formatBrandVoiceForPrompt,
+  isWorkspaceEmpty,
+  type BrandVoiceFieldChange,
+  type BrandVoiceFieldId,
+  type DesignGuidelinesDiff,
+};
+
+// ── Guidance writes (settings UI + MCP) ─────────────────────────────────────
+// `designMd` and `brandVoice` are inherited by every future generation, so a
+// write here is not a local edit — it changes the standing instructions. Both
+// helpers report a before/after (computed in `design-workspace-format`) so the
+// caller and its transcript can show what was overwritten instead of silently
+// swapping a voice profile.
+
+/**
+ * Merge a subset of brand-voice fields over the stored value. Fields absent from
+ * `fields` are left alone (this is a patch, not a replace); a field set to an
+ * empty/whitespace string is cleared. Writes nothing when every supplied field
+ * already matches, so a no-op call does not bump `updatedAt`.
+ */
+export async function updateBrandVoiceFields(
+  fields: Partial<Record<BrandVoiceFieldId, string>>,
+  actorUserId: string | null
+): Promise<{
+  workspace: DesignWorkspaceDto;
+  changed: BrandVoiceFieldChange[];
+  unchanged: BrandVoiceFieldId[];
+}> {
+  const current = await getDesignWorkspace();
+  const { merged, changed, unchanged } = mergeBrandVoiceFields(current.brandVoice, fields);
+  if (changed.length === 0) return { workspace: current, changed, unchanged };
+  const workspace = await upsertDesignWorkspace({ brandVoice: merged }, actorUserId);
+  return { workspace, changed, unchanged };
+}
+
+/**
+ * Replace `designMd` wholesale (there is no sensible merge for a prose document)
+ * and return the previous content alongside the new one, so the overwritten
+ * version is recoverable from the response. Writes nothing when unchanged.
+ */
+export async function replaceDesignGuidelines(
+  designMd: string,
+  actorUserId: string | null
+): Promise<{ workspace: DesignWorkspaceDto; diff: DesignGuidelinesDiff }> {
+  const current = await getDesignWorkspace();
+  const diff = diffDesignGuidelines(current.designMd, designMd);
+  if (diff.unchanged) return { workspace: current, diff };
+  const workspace = await upsertDesignWorkspace({ designMd }, actorUserId);
+  return { workspace, diff };
+}
 
 export function formatDesignWorkspaceForMcp(workspace: DesignWorkspaceDto): {
   designMdPreview: string;
