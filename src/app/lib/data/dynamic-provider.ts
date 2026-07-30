@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { unstable_cache } from 'next/cache';
 import type { InferSelectModel } from 'drizzle-orm';
 import type { ComponentListObject, ComponentObject, PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
+import { byDisplayName, mergePatternLists, patternListFromRow } from './pattern-merge';
 import type { ClientConfig } from '@handoff/types/config';
 import type { Types as CoreTypes } from 'handoff-core';
 import type { SectionLink } from '../../components/util';
@@ -74,21 +75,6 @@ function componentObjectFromRow(r: HandoffComponentRow): ComponentObject | null 
   return list as ComponentObject;
 }
 
-function patternListFromRow(r: HandoffPatternRow): PatternListObject {
-  if (r.data && typeof r.data === 'object') {
-    return r.data as PatternListObject;
-  }
-  return {
-    id: r.id,
-    path: r.path ?? `/system/pattern/${r.id}`,
-    title: r.title,
-    description: r.description ?? '',
-    group: r.group ?? '',
-    tags: (r.tags as string[]) ?? [],
-    components: (r.components as PatternObject['components']) ?? [],
-  } as PatternListObject;
-}
-
 function patternObjectFromRow(r: HandoffPatternRow): PatternObject | null {
   if (r.data && typeof r.data === 'object') {
     return r.data as PatternObject;
@@ -113,7 +99,7 @@ function mergeComponentLists(staticList: ComponentListObject[], dbRows: HandoffC
       merged.set(r.id, componentListFromRow(r));
     }
   }
-  return [...merged.values()].sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id));
+  return [...merged.values()].sort(byDisplayName);
 }
 
 /** Light projected DB row (no jsonb) — see `getDbComponentSummaries`. */
@@ -141,7 +127,7 @@ function mergeComponentSummaries(
   const merged = new Map<string, ComponentMenuSummary>();
   for (const item of staticList) merged.set(item.id, item);
   for (const r of dbRows) merged.set(r.id, summaryFromRow(r));
-  return [...merged.values()].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+  return [...merged.values()].sort(byDisplayName);
 }
 
 /** Heuristic: Design System → Components blocks use links under `system/component/`. */
@@ -192,21 +178,6 @@ function injectMergedComponentMenus(menu: SectionLink[], summaries: ComponentMen
     });
   }
   return next;
-}
-
-function mergePatternLists(staticList: PatternListObject[], dbRows: HandoffPatternRow[]): PatternListObject[] {
-  const merged = new Map<string, PatternListObject>();
-  for (const item of staticList) {
-    merged.set(item.id, item);
-  }
-  for (const r of dbRows) {
-    if (r.data && typeof r.data === 'object') {
-      merged.set(r.id, patternListFromRow(r));
-    } else if (!merged.has(r.id)) {
-      merged.set(r.id, patternListFromRow(r));
-    }
-  }
-  return [...merged.values()].sort((a, b) => (a.title || a.id).localeCompare(b.title || b.id));
 }
 
 /**
