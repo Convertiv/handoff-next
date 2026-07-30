@@ -51,13 +51,9 @@ export function AssetCard({
   const ownerName = asset.owner?.name?.trim() || (asset.isMe ? 'You' : 'Teammate');
 
   return (
-    <li className="group flex flex-col overflow-hidden rounded-lg border bg-card">
-      <button
-        type="button"
-        className="relative block aspect-video w-full overflow-hidden bg-muted/30 text-left"
-        onClick={onOpen}
-        title="Open"
-      >
+    <li className="group flex overflow-hidden rounded-lg border bg-card transition-colors hover:border-gray-400 dark:hover:border-gray-600">
+      <button type="button" className="flex flex-1 flex-col text-left" onClick={onOpen}>
+        <div className="relative aspect-video w-full overflow-hidden bg-muted/30">
         {asset.thumbnailUrl ? (
           <Image
             src={asset.thumbnailUrl}
@@ -65,7 +61,7 @@ export function AssetCard({
             width={512}
             height={288}
             unoptimized
-            className="h-full w-full object-cover transition-transform group-hover:scale-[1.02]"
+            className="h-full w-full object-cover"
           />
         ) : (
           <span className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
@@ -83,16 +79,10 @@ export function AssetCard({
           <TypeIcon className="h-3.5 w-3.5" aria-hidden />
           <span className="sr-only">{typeLabel}</span>
         </span>
-      </button>
+        </div>
 
-      <div className="flex flex-1 flex-col gap-2 p-3">
-        <button
-          type="button"
-          className="-mb-1 text-left text-sm font-medium leading-tight text-foreground hover:underline"
-          onClick={onOpen}
-        >
-          {asset.title}
-        </button>
+        <div className="flex flex-1 flex-col gap-2 p-3">
+        <span className="-mb-1 text-sm font-medium leading-tight text-foreground">{asset.title}</span>
 
         <p className="text-xs text-muted-foreground">
           {ownerName}
@@ -103,7 +93,8 @@ export function AssetCard({
           <span className={PLAIN_BADGE}>{LIFECYCLE_META[asset.status].short}</span>
           <span className={PLAIN_BADGE}>{VISIBILITY_META[asset.visibility].label}</span>
         </div>
-      </div>
+        </div>
+      </button>
     </li>
   );
 }
