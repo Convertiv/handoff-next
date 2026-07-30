@@ -187,6 +187,92 @@ describe('blankContentValues', () => {
   });
 });
 
+describe('field shapes come from real preview values', () => {
+  it('calls a plain-text field plain, so the model does not wrap it in <p>', () => {
+    // A live page shipped "<p>Trusted by leading hospital systems…</p>" into a field that takes bare
+    // text, because every `slot` had been described as "HTML string".
+    const out = summarizeFields({ bodySlot: { editorType: 'slot' } }, { bodySlot: 'Our proven platform delivers.' });
+    assert.match(out, /bodySlot: plain text/);
+  });
+
+  it('calls a markup field HTML, and shows which tag', () => {
+    const out = summarizeFields({ titleSlot: { editorType: 'slot' } }, { titleSlot: '<h1>About 8x8</h1>' });
+    assert.match(out, /titleSlot: HTML, e\.g\. <h1>…/);
+  });
+
+  it('names the real keys of an object field', () => {
+    // buttonSlots is { url, text } on one block and { label, href } on another; only the value knows.
+    const out = summarizeFields({ buttonSlots: { editorType: 'array' } }, { buttonSlots: [{ url: '#', text: 'Go' }] });
+    assert.match(out, /\{ url, text \}/);
+  });
+
+  it('says what an array ITEM contains, which is what was missing', () => {
+    const out = summarizeFields(
+      { stats: { editorType: 'array' } },
+      { stats: [{ stat: '2M+', eyebrow: 'Users', sub: '', bodySlot: '' }] }
+    );
+    assert.match(out, /array of \{ stat, eyebrow, sub, bodySlot \} — write EVERY item/);
+  });
+
+  it('hides bookkeeping keys from the shape', () => {
+    const out = summarizeFields({ items: { editorType: 'array' } }, { items: [{ _key: '1', _type: 'stat', label: 'x' }] });
+    assert.doesNotMatch(out, /_key/);
+  });
+
+  it('falls back to the declared type when there is no preview value', () => {
+    assert.match(summarizeFields({ title: { editorType: 'text' } }, {}), /title: text/);
+  });
+});
+
+describe('supplied-but-empty counts as unfilled', () => {
+  const fields = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { editorType: v }]));
+
+  it('flags an array of blank objects', () => {
+    // The live failure: four stat objects, every field empty, and the presence check called it done.
+    const { unfilled } = mergeBlockValues(
+      { stats: [{ stat: '', eyebrow: '' }] },
+      { stats: [{ stat: '' }, { stat: '' }, { stat: '' }, { stat: '' }] },
+      fields({ stats: 'array' })
+    );
+    assert.deepEqual(unfilled, ['stats']);
+  });
+
+  it('accepts an array that actually has content', () => {
+    const { unfilled } = mergeBlockValues(
+      { stats: [{ stat: '', eyebrow: '' }] },
+      { stats: [{ stat: '2M+', eyebrow: 'Users' }] },
+      fields({ stats: 'array' })
+    );
+    assert.deepEqual(unfilled, []);
+  });
+
+  it('flags an empty string supplied for a text field', () => {
+    const { unfilled } = mergeBlockValues({ title: '' }, { title: '   ' }, fields({ title: 'text' }));
+    assert.deepEqual(unfilled, ['title']);
+  });
+
+  it('flags an untouched image so the model at least looks for a real asset', () => {
+    const { unfilled, args } = mergeBlockValues(
+      { hero: { src: 'https://placehold.co/1200x800', alt: '' } },
+      {},
+      fields({ hero: 'image' })
+    );
+    assert.deepEqual(unfilled, ['hero']);
+    // Flagged, but the placeholder survives — if no asset fits, a sized stand-in beats an empty slot.
+    assert.match(String((args.hero as { src: string }).src), /placehold\.co/);
+  });
+
+  it('does not flag an image the model filled from the asset store', () => {
+    const { unfilled } = mergeBlockValues(
+      { hero: { src: 'https://placehold.co/1200x800', alt: '' } },
+      { hero: { src: 'https://cdn.example.com/real.jpg', alt: 'Care team' } },
+      fields({ hero: 'image' })
+    );
+    assert.deepEqual(unfilled, []);
+  });
+});
+
 describe('array item keys', () => {
   it('gives generated items distinct keys', () => {
     // All N items inheriting the template's single `_key` is a duplicate-key bug waiting on the first
@@ -206,25 +292,9 @@ describe('array item keys', () => {
 });
 
 describe('summarizeFields', () => {
-  it('names the JS shape a field expects, not just its editor type', () => {
-    // "slot" told the model nothing, so it guessed — a plain string sometimes, nothing other times.
-    const out = summarizeFields({ headline: { editorType: 'text' }, photo: { editorType: 'image' } });
-    assert.equal(out, 'headline (plain string), photo ({ src, alt })');
-  });
-
-  it('spells out that slot and richtext take markup', () => {
-    assert.match(summarizeFields({ bodySlot: { editorType: 'slot' } }), /HTML string/);
-    assert.match(summarizeFields({ body: { editorType: 'richtext' } }), /HTML string/);
-  });
-
-  it('tells the model an array needs every item written', () => {
-    assert.match(summarizeFields({ stats: { editorType: 'array' } }), /write every item/);
-  });
-
   it('caps the list so the whole catalog stays cheap to send', () => {
     const many = Object.fromEntries(Array.from({ length: 25 }, (_, i) => [`f${i}`, { editorType: 'text' }]));
-    const out = summarizeFields(many);
-    assert.match(out, /\+15 more/);
+    assert.match(summarizeFields(many), /\+13 more/);
   });
 
   it('is empty for a component with no fields', () => {

@@ -193,6 +193,28 @@ function blankValue(value: unknown, editor: string): unknown {
   return value;
 }
 
+/**
+ * Whether a value carries no authored content.
+ *
+ * Structure without content is the failure this catches: `[{stat: "", eyebrow: ""}]` is shaped
+ * correctly and says nothing, which renders as an empty row rather than an obvious gap.
+ */
+function isEmptyContent(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (typeof value === 'boolean' || typeof value === 'number') return false;
+  if (Array.isArray(value)) return value.length === 0 || value.every(isEmptyContent);
+  if (isPlainObject(value)) {
+    // Placeholder images count as filled — they are a deliberate stand-in, not a gap.
+    if (typeof value.src === 'string' && value.src.includes('placehold.co')) return false;
+    // Keys beginning `_` are bookkeeping (`_key`, `_type`) and say nothing about content.
+    return Object.entries(value)
+      .filter(([k]) => !k.startsWith('_'))
+      .every(([, v]) => isEmptyContent(v));
+  }
+  return false;
+}
+
 export interface MergeResult {
   args: Record<string, unknown>;
   /** Keys the model invented. Reported, never silently dropped. */
@@ -227,7 +249,10 @@ export function mergeBlockValues(
 
   const unfilled: string[] = [];
   for (const [key, meta] of Object.entries(fields ?? {})) {
-    if (supplied.has(key)) continue;
+    // Supplied-but-empty counts as unfilled. A live page came back with four stat objects whose every
+    // field was blank: the model had understood "four stats" and written none of them, and a
+    // presence-only check called that done.
+    if (supplied.has(key) && !isEmptyContent(args[key])) continue;
     const info = isPlainObject(meta) ? meta : {};
     const editor = typeof info.editorType === 'string' ? info.editorType : '';
     // `fromBase` means the value came from a real preview — i.e. it is somebody's sample content, not
@@ -254,25 +279,62 @@ export function mergeBlockValues(
  * Compact on purpose: this is returned for every component in the catalog, so it has to be cheap enough
  * that the model can see all of them in a single call and stop searching one section at a time.
  */
-const EDITOR_HINT: Record<string, string> = {
-  slot: 'HTML string',
-  richtext: 'HTML string',
-  text: 'plain string',
-  string: 'plain string',
-  image: '{ src, alt }',
-  button: '{ label, url }',
-  link: '{ label, url }',
-  array: 'array — write every item',
-};
+/**
+ * Describe a field by what its real preview value looks like, not by its declared editor type.
+ *
+ * Guessing from `editorType` produced two live bugs. Mapping every `slot` to "HTML string" made the
+ * model wrap plain-text fields in `<p>` — `stats.bodySlot` and `overlineSlot` take bare text. And
+ * "array — write every item" never said what an item *contains*, so it dutifully returned four stat
+ * objects with every field blank.
+ *
+ * The preview value is the ground truth: it is what the component actually renders. `buttonSlots` is
+ * `{ url, text }` here and `{ label, href }` elsewhere, and only the value knows which.
+ */
+function describeValue(value: unknown, depth = 0): string {
+  if (typeof value === 'string') {
+    const tag = /<([a-z][a-z0-9]*)\b/i.exec(value);
+    return tag ? `HTML, e.g. <${tag[1].toLowerCase()}>…` : 'plain text';
+  }
+  if (typeof value === 'boolean') return 'true/false';
+  if (typeof value === 'number') return 'number';
 
-export function summarizeFields(fields: Record<string, unknown> | null | undefined, max = 10): string {
+  if (Array.isArray(value)) {
+    if (!value.length) return 'array';
+    return `array of ${describeValue(value[0], depth + 1)} — write EVERY item`;
+  }
+
+  if (isPlainObject(value)) {
+    // A rendered element is markup the component draws; the authorable form is an HTML string.
+    if (isReactElementish(value)) return 'HTML string';
+    const keys = Object.keys(value).filter((k) => !k.startsWith('_'));
+    if (!keys.length) return 'object';
+    // One level deep only. Nesting the full tree would bloat a listing that covers every block.
+    return depth > 0 ? `{ ${keys.join(', ')} }` : `{ ${keys.join(', ')} }`;
+  }
+
+  return 'value';
+}
+
+/**
+ * One line per component field: its name and the shape its preview actually uses.
+ *
+ * Compact on purpose — this is returned for every block in the catalog, so the model can see all of
+ * them in one call and never has to inspect a block before using it.
+ */
+export function summarizeFields(
+  fields: Record<string, unknown> | null | undefined,
+  values?: Record<string, unknown> | null,
+  max = 12
+): string {
   const entries = Object.entries(fields ?? {});
   if (!entries.length) return '';
+
   const parts = entries.slice(0, max).map(([name, meta]) => {
+    const seeded = values?.[name];
+    if (seeded !== undefined) return `${name}: ${describeValue(seeded)}`;
+    // No preview value to learn from — fall back to the declared type.
     const editor = isPlainObject(meta) && typeof meta.editorType === 'string' ? meta.editorType : 'any';
-    // Naming the JS shape, not just the editor type. "slot" told the model nothing, so it guessed:
-    // a plain string sometimes, nothing at all other times.
-    return `${name} (${EDITOR_HINT[editor] ?? editor})`;
+    return `${name}: ${editor}`;
   });
   if (entries.length > max) parts.push(`+${entries.length - max} more`);
   return parts.join(', ');

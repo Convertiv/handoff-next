@@ -229,13 +229,22 @@ async function runTool(name: string, args: Record<string, unknown>, preferredAss
     if (group) list = list.filter((c) => (c.group || '').toLowerCase() === group);
     // The whole catalog with field summaries, in one response. Roughly a line per block — cheap enough
     // that the model never needs to search section by section, which is what exhausted the loop before.
-    return list.map((c) => ({
-      id: c.id,
-      title: c.title,
-      group: c.group,
+    return list.map((c) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fields: summarizeFields((c as any)?.properties ?? null),
-    }));
+      const comp = c as any;
+      // Shapes come from a real preview's values, so `buttonSlots` is described as whatever this
+      // component actually uses rather than a guess from its declared type. List rows already carry
+      // previews, so this costs no extra query.
+      const previews = (comp?.previews ?? {}) as Record<string, { values?: Record<string, unknown> }>;
+      const key = 'generic' in previews ? 'generic' : Object.keys(previews)[0];
+      const values = key ? (previews[key]?.values ?? (previews[key] as Record<string, unknown>)) : null;
+      return {
+        id: c.id,
+        title: c.title,
+        group: c.group,
+        fields: summarizeFields(comp?.properties ?? null, values as Record<string, unknown> | null),
+      };
+    });
   }
 
   if (name === 'search_assets') {
@@ -302,7 +311,11 @@ need, and the server applies your values to the block's real shape. Write copy, 
 - **Write every content field.** Nothing is filled in for you; a field you skip ships empty. This is
   the most common way a generated page looks unfinished.
 - **Arrays need every item.** Four stats means four entries, each with its own copy — not one.
-- Fields marked *HTML string* take real markup: \`<h2>…</h2>\`, \`<p>…</p>\`, \`<ul><li>…</li></ul>\`.
+- **Match the shape \`list_blocks\` shows for each field, exactly.** It is taken from what the block
+  really renders. \`plain text\` means no markup — wrapping it in \`<p>\` puts visible tags on the page.
+  \`HTML, e.g. <h1>…\` means write that markup. \`{ url, text }\` means those keys, not \`label\`.
+- **\`array of { … } — write EVERY item\`** means every item, fully filled. Four stats means four
+  entries each with its own numbers and copy. An array of empty objects is worse than no array.
 - Image fields already hold a correctly-proportioned placeholder. Replace \`src\` only with a real
   asset from \`search_assets\`; otherwise leave the placeholder, which shows the intended size.
 - A full page normally opens with the \`header\` block and closes with \`footer\`, both with empty
