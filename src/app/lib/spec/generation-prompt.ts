@@ -40,16 +40,45 @@ function contentByLocation(spec: ComponentSpec): string[] {
   return [...groups.entries()].map(([loc, lines]) => `- **${loc}**\n${lines.map((l) => `  - ${l}`).join('\n')}`);
 }
 
-/** Concrete values the generator can actually honour, labelled with the token they came from. */
+/**
+ * Concrete values the generator can actually honour, labelled with the token they came from.
+ *
+ * **Emits the design system's value, never the observed one, and skips anything off-system.**
+ *
+ * The `tokens` section is a *measurement of a render*, not a specification — `observed` is what the
+ * model actually drew, which on a drifting design is precisely the value you do not want repeated.
+ * Feeding it back created a loop that made re-rendering useless: a hero rendered its buttons blue
+ * (`#0065d1`) because Design.MD named a teal absent from the token set; conformance dutifully recorded
+ * `observed: "#0065d1", token: null, matchLevel: "none"`; and the next render was then *instructed*
+ * "colour #0065d1 — primary button background". Every re-render cemented the mistake, and no amount of
+ * spec revision could shift it, because the revision changed the implementation notes while this
+ * section kept restating the error as a requirement.
+ *
+ * So: an exact or close match contributes the **token's** value (from `reference`, which reads
+ * "<value> → <token>"), and an off-system observation contributes nothing at all. A value with no token
+ * behind it is a finding to be fixed, never an instruction to be obeyed.
+ */
 function tokenLines(spec: ComponentSpec): string[] {
   const t = spec.tokens;
   if (!t) return [];
   const out: string[] = [];
-  const push = (label: string, rows: { observed: string; usage: string; token: string | null }[] | undefined) => {
+  const push = (
+    label: string,
+    rows: { observed: string; usage: string; token: string | null; reference?: string | null; matchLevel?: string }[] | undefined
+  ) => {
     for (const r of rows ?? []) {
-      const observed = clean(r.observed);
-      if (!observed) continue;
-      out.push(`- ${label} ${observed} — ${clean(r.usage) || 'general'}${r.token ? ` (${r.token})` : ''}`);
+      // Off-system: the render drifted here. Say nothing and let the foundations sheet and the design
+      // guidelines govern, rather than canonising the drift.
+      if (!r.token || r.matchLevel === 'none') continue;
+      // `reference` reads "<system value> → <token>". Only trust it when the arrow is actually there —
+      // a reference in any other shape is not a value, and treating it as one substitutes garbage for a
+      // colour. Without the arrow, `observed` is the best available answer and is correct for an exact
+      // match by definition.
+      const ref = r.reference ?? '';
+      const systemValue = ref.includes('→') ? clean(ref.split('→')[0] ?? '') : '';
+      const value = systemValue || clean(r.observed);
+      if (!value) continue;
+      out.push(`- ${label} ${value} — ${clean(r.usage) || 'general'} (${r.token})`);
     }
   };
   push('colour', t.colors);
