@@ -11,11 +11,9 @@ import { ModeToggle } from '../../components/ModeSwitcher';
 import { MainNav } from '../../components/Navigation/MainNav';
 import { MobileNav } from '../../components/Navigation/MobileNav';
 import { Button } from '../ui/button';
-import { cn, normalizePathForMatch } from '../../lib/utils';
+import { cn } from '../../lib/utils';
 import { useAuthUi } from '../context/AuthUiContext';
 import { useConfigContext } from '../context/ConfigContext';
-
-const TOOLS_PATHS = ['/library', '/design', '/patterns', '/playground'];
 
 function CliIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -24,46 +22,6 @@ function CliIcon(props: React.SVGProps<SVGSVGElement>) {
       <path d="m8 9 3 3-3 3" />
       <path d="M13.5 15.25H16" />
     </svg>
-  );
-}
-
-function ToolsSubNav() {
-  const pathname = usePathname();
-  const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
-
-  const isToolsSection = TOOLS_PATHS.some((p) =>
-    normalizePathForMatch(pathname).startsWith(normalizePathForMatch(p))
-  );
-  if (!isToolsSection) return null;
-
-  const tools = [
-    { href: `${basePath}/library`, label: 'Library' },
-    { href: `${basePath}/design`, label: 'Workbench' },
-    { href: `${basePath}/playground`, label: 'Playground' },
-  ];
-
-  return (
-    <div className="border-t border-border/40">
-      <nav className="container mx-auto flex max-w-[1500px] items-center justify-end gap-1 px-8 py-1">
-        {tools.map(({ href, label }) => {
-          const isActive = normalizePathForMatch(pathname).startsWith(normalizePathForMatch(href));
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'rounded-md px-3 py-1.5 text-sm transition-colors',
-                isActive
-                  ? 'bg-accent text-accent-foreground font-medium'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              )}
-            >
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
-    </div>
   );
 }
 
@@ -126,7 +84,6 @@ export function Header() {
           </div>
         </div>
       </header>
-      <ToolsSubNav />
     </div>
   );
 }

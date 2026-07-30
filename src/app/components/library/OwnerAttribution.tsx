@@ -82,15 +82,19 @@ export function OwnerAttribution({
   owner,
   isMe,
   editedLabel,
+  hideAvatar,
+  className,
 }: {
   owner: Owner;
   isMe: boolean;
   editedLabel?: string;
+  hideAvatar?: boolean;
+  className?: string;
 }) {
   const name = owner?.name?.trim() || 'teammate';
   return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-      <OwnerAvatar owner={owner} />
+    <div className={cn('flex items-center gap-2 text-sm text-muted-foreground', className)}>
+      {hideAvatar ? null : <OwnerAvatar owner={owner} />}
       <span>
         {isMe ? <span className="text-foreground">You</span> : <>by {name}</>}
         {editedLabel ? <span className="text-muted-foreground"> · edited {editedLabel}</span> : null}
