@@ -53,6 +53,14 @@ export type GeneratedImage = {
   jobId?: number;
   /** Draft artifact ID if auto-saved */
   artifactId?: string;
+  /**
+   * Spec-first run this card is following.
+   *
+   * A spec-first generation isn't one request — it's `spec → assets → composite` across three cron
+   * invocations, so the card is driven by polling the pipeline rather than by an SSE stream. Its
+   * presence is what distinguishes the two kinds of pending card.
+   */
+  pipelineId?: string;
   /** ISO timestamp when the generation was kicked off */
   createdAt?: string;
   /** Alias used by session persistence */

@@ -5,6 +5,38 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-29 — Spec-first belongs on the composer prompt, not in the Library
+
+I first put the "start from a brief" entry in the workbench's Library sidebar, reasoning that spec-first
+is async across three cron stages and so does not fit a composer that renders an image inline. Brad:
+*"This UI isn't what we were shooting for. Shoving all this in the library is weird. We have a big
+prompt that should drive this."* Right — that was solving a UI problem by hiding the feature.
+
+The composer's own card model already fit. `GeneratedImage` carries `status`, `stage` and `artifactId`,
+so a spec-first run is just a pending card whose stage label advances:
+
+  Writing the specification… → Generating the images it calls for… → Composing the design from those images…
+
+Those labels are the product's claim made visible. A bare spinner would hide the only thing that
+distinguishes this from prompt-to-image.
+
+- The main prompt now runs **spec-first for a new design**; refining an existing image keeps the direct
+  path, because that is editing a canvas rather than specifying a component.
+- Driven by polling, not SSE — the stages run on the design-jobs cron, in different invocations from
+  the request, so there is no connection to stream over. A dropped poll is not a failed run.
+- A failed stage reports *which* stage failed. "Generation failed" for a spec that came back too thin
+  to build from sends you looking in the wrong place.
+- Removed the "attach a prompt image / layout guide / foundations before generating" guard. It only
+  ever applied to a new design — which now returns earlier — and it no longer describes a real
+  requirement: a brief plus the registry's own foundations is enough to specify from.
+
+**Gotcha worth remembering:** the finished image comes back as a **private-Blob proxy path**
+(`/api/handoff/artifact-asset?p=…`), not a data URL. It needs the app's `basePath` prefixed or the
+canvas silently renders a broken image. `tsc` cannot catch this class of bug — the response shape was
+also wrong on first write (`{ artifact: row }`, not `{ imageUrl }`) and only reading the route caught it.
+
+---
+
 ## 2026-07-29 (later still) — Spec-first: the chain now runs the direction we claim
 
 Branch `feature/spec-driven`. Brad, on a live 8x8 artifact: *"the generate assets button is kinda

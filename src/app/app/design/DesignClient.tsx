@@ -235,12 +235,6 @@ const DesignWorkbenchPage = ({
   const [draftArtifactId, setDraftArtifactId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<WorkbenchSession | null>(null);
   const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
-  // Spec-first: brief -> specification -> assets -> composite. Unlike the composer's prompt->image
-  // path, nothing renders inline; the run is handed to the pipeline and the user follows it on the
-  // artifact page.
-  const [brief, setBrief] = useState('');
-  const [briefBusy, setBriefBusy] = useState(false);
-  const [briefError, setBriefError] = useState<string | null>(null);
   const [libraryArtifacts, setLibraryArtifacts] = useState<LibraryArtifactRow[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
@@ -352,35 +346,6 @@ const DesignWorkbenchPage = ({
   }, [activeSidebarTab, libraryLoaded, isLoggedIn, fetchLibrary]);
 
   // Switch lanes: clear the current page and force a fresh first-page load.
-  /**
-   * Start a spec-first design and hand off to its artifact page.
-   *
-   * Navigates rather than waiting: the three stages run one per cron invocation and take minutes
-   * together, and the artifact page already polls the pipeline and fills in as each finishes. Blocking
-   * the composer on that would misrepresent it as a synchronous generation.
-   */
-  const handleStartFromBrief = async () => {
-    if (!brief.trim() || briefBusy) return;
-    setBriefBusy(true);
-    setBriefError(null);
-    try {
-      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-from-brief'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ brief }),
-      });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; artifactId?: string; error?: string };
-      if (!res.ok || !json.artifactId) throw new Error(json.error || 'Could not start the design.');
-      setBrief('');
-      window.location.href = `${basePath}/design/library/${encodeURIComponent(json.artifactId)}/`;
-    } catch (e) {
-      setBriefError(e instanceof Error ? e.message : 'Could not start the design.');
-    } finally {
-      setBriefBusy(false);
-    }
-  };
-
   const handleLibraryLaneChange = useCallback((lane: Lane) => {
     setLibraryLane(lane);
     setLibraryArtifacts([]);
@@ -1047,6 +1012,118 @@ const DesignWorkbenchPage = ({
     }
   };
 
+  /**
+   * Human-readable label for where a spec-first run has got to.
+   *
+   * Named for what the user is waiting on rather than the stage key, because these ARE the product's
+   * claim — you watch the specification get written, then the assets, then the design assembled from
+   * them. A bare spinner would hide the only part that distinguishes this from prompt-to-image.
+   */
+  const specFirstStageLabel = (progress: { current: string | null; stages: { stage: string; status: string }[] }): string => {
+    const active = progress.current ?? progress.stages.find((s) => s.status === 'pending')?.stage ?? null;
+    if (active === 'spec') return 'Writing the specification…';
+    if (active === 'assets') return 'Generating the images it calls for…';
+    if (active === 'composite') return 'Composing the design from those images…';
+    return 'Finishing up…';
+  };
+
+  /**
+   * Run a design spec-first from the composer prompt.
+   *
+   * Unlike `generateDesignImage`, this is not one request: the stages run one per cron invocation and
+   * take minutes together, so the card is driven by polling. It behaves like any other generation from
+   * the user's side — a pending card in the canvas that becomes the finished image in place.
+   */
+  const startSpecFirstDesign = async (submittedPrompt: string) => {
+    const requestId = crypto.randomUUID();
+    setError(null);
+    setPrompt('');
+    setGeneratedImages((current) => [
+      { id: requestId, prompt: submittedPrompt, status: 'pending', stage: 'Writing the specification…', createdAt: new Date().toISOString() },
+      ...current,
+    ]);
+    setSelectedGeneratedImageId(requestId);
+
+    const fail = (message: string) =>
+      setGeneratedImages((current) =>
+        current.map((img) => (img.id === requestId ? { ...img, status: 'error', error: message, stage: undefined } : img))
+      );
+
+    let artifactId: string;
+    try {
+      const res = await fetch(handoffApiUrl('/api/handoff/ai/design-from-brief'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ brief: submittedPrompt }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { artifactId?: string; pipelineId?: string; error?: string };
+      if (!res.ok || !json.artifactId) throw new Error(json.error || 'Could not start the design.');
+      artifactId = json.artifactId;
+      setGeneratedImages((current) =>
+        current.map((img) => (img.id === requestId ? { ...img, artifactId, pipelineId: json.pipelineId } : img))
+      );
+    } catch (e) {
+      fail(e instanceof Error ? e.message : 'Could not start the design.');
+      return;
+    }
+
+    // Poll rather than stream: the work happens on the design-jobs cron, in a different invocation
+    // from this request, so there is no connection to stream over.
+    const pollUrl = handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}/pipeline`);
+    const deadline = Date.now() + 15 * 60_000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 6000));
+      let progress: { finished: boolean; current: string | null; stages: { stage: string; status: string; error: string | null }[] } | null = null;
+      try {
+        const res = await fetch(pollUrl, { credentials: 'include' });
+        progress = ((await res.json()) as { pipeline?: typeof progress }).pipeline ?? null;
+      } catch {
+        // A dropped poll is not a failed run — the cron is unaffected. Try again next tick.
+        continue;
+      }
+      if (!progress) continue;
+
+      if (!progress.finished) {
+        const label = specFirstStageLabel(progress);
+        setGeneratedImages((current) => current.map((img) => (img.id === requestId ? { ...img, stage: label } : img)));
+        continue;
+      }
+
+      // Report the stage that actually failed. "Generation failed" for a spec that came back too thin
+      // to build from sends you looking in the wrong place.
+      const failed = progress.stages.find((st) => st.status === 'failed');
+      if (failed) {
+        fail(`${failed.stage} stage failed: ${failed.error ?? 'no reason recorded'}`);
+        return;
+      }
+
+      try {
+        const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}`), {
+          credentials: 'include',
+        });
+        const artifact = (await res.json()) as { artifact?: { imageUrl?: string } };
+        const stored = artifact.artifact?.imageUrl ?? '';
+        if (!stored) {
+          fail('The pipeline finished but produced no image.');
+          return;
+        }
+        // Images now live in a private Blob store, so this is a proxy path (`/api/handoff/...`) rather
+        // than a data URL. It needs the app's basePath to resolve, or the canvas renders a broken image.
+        const src = stored.startsWith('/') && !stored.startsWith('//') ? `${basePath}${stored}` : stored;
+        setGeneratedImages((current) =>
+          current.map((img) => (img.id === requestId ? { ...img, status: 'completed', src, stage: undefined } : img))
+        );
+        setImageSrc(src);
+      } catch (e) {
+        fail(e instanceof Error ? e.message : 'Could not load the finished design.');
+      }
+      return;
+    }
+
+    fail('The design is taking longer than expected. It is still running — open it from the Library.');
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     if (!isLoggedIn) {
@@ -1061,23 +1138,22 @@ const DesignWorkbenchPage = ({
     }
 
     const refining = Boolean(imageSrc);
-    const hasPromptImage = promptImages.length > 0;
-    const hasCustomFoundationImage = Boolean(customFoundationImage);
-    const hasSavedComponentReferences = Object.values(componentReferenceDataUrls).some(Boolean);
-    const hasLayoutGuideReference = Boolean(layoutGuideImage || layoutGuideWireframeUrl);
-    if (
-      !refining &&
-      !hasPromptImage &&
-      !hasFoundationsForRaster &&
-      !hasCustomFoundationImage &&
-      !hasSavedComponentReferences &&
-      !hasLayoutGuideReference
-    ) {
-      setError(
-        'Attach a prompt image, add a Layout Guide, save component references in settings, use foundations, or add a custom foundation image in settings.'
-      );
+
+    // A new design goes spec-first: the brief writes a specification, the specification declares its
+    // imagery, the images are generated individually, and the composite is assembled FROM them. The
+    // old path generated one flat image and derived everything from it afterwards, which is why
+    // "generated assets" never matched the design they were supposedly taken from.
+    //
+    // Refining an existing image still uses the direct path — that is editing a canvas, not
+    // specifying a component.
+    if (!refining) {
+      await startSpecFirstDesign(prompt.trim());
       return;
     }
+
+    // The "attach a reference before generating" guard lived here. It only ever applied to a new
+    // design, which now returns above — and it no longer describes a real requirement, because a brief
+    // plus the registry's own foundations is enough to specify from. Refinement always has a canvas.
 
     try {
       await generateDesignImage({
@@ -1574,37 +1650,6 @@ const DesignWorkbenchPage = ({
               </div>
               <div className="border-b px-3 py-2">
                 <LaneTabs value={libraryLane} onChange={handleLibraryLaneChange} />
-              </div>
-              {/* Spec-first entry. Lives here rather than in the composer because the chain is
-                  spec -> assets -> composite across three cron stages: there is no image to show in the
-                  canvas until the last one finishes, so the artifact page (which already polls the
-                  pipeline) is the surface that can actually represent it. */}
-              <div className="space-y-2 border-b px-3 py-2">
-                <label htmlFor="brief-input" className="text-xs font-medium text-muted-foreground">
-                  Start from a brief
-                </label>
-                <Textarea
-                  id="brief-input"
-                  value={brief}
-                  onChange={(e) => setBrief(e.target.value)}
-                  placeholder="Describe what you want designed. Detail helps — this writes the specification."
-                  className="min-h-[64px] text-xs"
-                  disabled={briefBusy}
-                />
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-muted-foreground">Spec first, then assets, then the image.</p>
-                  <Button
-                    type="button"
-                    size="sm"
-                    className="h-7"
-                    disabled={!brief.trim() || briefBusy || !isLoggedIn || !serverAiAvailable}
-                    onClick={() => void handleStartFromBrief()}
-                  >
-                    {briefBusy ? <Loader2Icon className="mr-1 h-3 w-3 animate-spin" /> : null}
-                    Specify
-                  </Button>
-                </div>
-                {briefError ? <p className="text-[11px] text-destructive">{briefError}</p> : null}
               </div>
               <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
                 {libraryError ? <p className="text-xs text-destructive">{libraryError}</p> : null}
