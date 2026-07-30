@@ -4,6 +4,9 @@ import { getDataProvider } from '@/lib/data';
 import { openAiChatTools, type OpenAiTool } from '@/lib/server/ai-client';
 import { formatBrandVoiceForPrompt, getDesignWorkspace } from '@/lib/server/design-workspace';
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
+import { summarizeComposition } from '@/lib/composition-summary';
+
+export { summarizeComposition };
 
 /**
  * The playground's "generate with AI": a conversation that assembles a page from **existing** blocks.
@@ -71,6 +74,10 @@ function narrate(name: string, args: Record<string, unknown>): string {
       const q = typeof args.query === 'string' ? args.query.trim() : '';
       return q ? `Searching your assets for ${q}…` : 'Searching your asset library…';
     }
+    case 'search_icons': {
+      const q = typeof args.query === 'string' ? args.query.trim() : '';
+      return q ? `Finding a ${q} icon…` : 'Looking through the icon library…';
+    }
     case 'propose_page':
       return 'Putting the page together…';
     default:
@@ -126,6 +133,21 @@ const TOOLS: OpenAiTool[] = [
       parameters: {
         type: 'object',
         properties: { query: { type: 'string', description: 'What the image should depict.' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_icons',
+      description:
+        'Search the design system icon library. Returns { name, category, tags }. Use a returned NAME ' +
+        'in any icon-typed field. Like imagery, icons come from the system — never invent an icon name, ' +
+        'because an unrecognised one renders as nothing and reads as a broken block.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'What the icon should depict, e.g. "shield", "chat".' } },
+        required: ['query'],
       },
     },
   },
@@ -207,10 +229,26 @@ async function runTool(name: string, args: Record<string, unknown>, preferredAss
     return out.slice(0, 25);
   }
 
+  if (name === 'search_icons') {
+    const q = typeof args.query === 'string' ? args.query.toLowerCase().trim() : '';
+    const catalog = await provider.getIconCatalog();
+    const hits = q
+      ? catalog.filter(
+          (e) =>
+            e.name.toLowerCase().includes(q) ||
+            (e.description ?? '').toLowerCase().includes(q) ||
+            (e.tags ?? []).some((t) => t.toLowerCase().includes(q))
+        )
+      : catalog;
+    // Names and tags only. Icon SVG bodies are large and get re-sent on every subsequent round of the
+    // loop, so the full catalog entry is exactly the wrong thing to put in a tool result.
+    return hits.slice(0, 30).map((e) => ({ name: e.name, category: e.category, tags: (e.tags ?? []).slice(0, 6) }));
+  }
+
   return { error: `Unknown tool "${name}".` };
 }
 
-function systemPrompt(brandVoice: string, designMd: string, attachedCount: number): string {
+function systemPrompt(brandVoice: string, designMd: string, attachedCount: number, composition: string): string {
   return `You compose landing pages in a design-system playground by assembling EXISTING blocks.
 
 You do not generate images or write CSS. You choose blocks from the catalog, write their copy, and fill
@@ -224,7 +262,7 @@ their props with values shaped exactly as the scaffold tells you.
 3. \`scaffold_args\` for EVERY block you intend to use. Never guess a prop shape.
 4. \`search_assets\` for any imagery. Use a real \`src\` from the store, or leave it empty and say so.
 5. \`propose_page\` once, with every block filled in.
-${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}
+${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. When the user asks for a change, propose the WHOLE page again with that change made — the proposal replaces what is there.\n` : ''}
 ## Copy
 Write real copy, not placeholders. It must obey the brand voice below.
 ${brandVoice ? `\n### Brand voice\n${brandVoice.slice(0, 4000)}\n` : ''}${designMd ? `\n### Design guidelines\n${designMd.slice(0, 2000)}\n` : ''}
@@ -239,14 +277,17 @@ export async function runPlaygroundChatTurn(args: {
   onEvent?: (event: PlaygroundChatEvent) => void;
   /** Aborts between rounds. Without it, a closed tab leaves the loop running and burning tokens. */
   signal?: AbortSignal;
+  /** What is currently on the canvas, so a follow-up can refer to it. Summarised, never sent whole. */
+  currentBlocks?: { componentId: string; args?: Record<string, unknown> }[];
 }): Promise<PlaygroundChatTurn> {
   const emit = args.onEvent ?? (() => {});
   const attached = args.attachedAssetIds ?? [];
   const workspace = await getDesignWorkspace().catch(() => null);
   const brandVoice = workspace ? formatBrandVoiceForPrompt(workspace.brandVoice).trim() : '';
 
+  const composition = summarizeComposition(args.currentBlocks ?? []);
   const convo: unknown[] = [
-    { role: 'system', content: systemPrompt(brandVoice, workspace?.designMd ?? '', attached.length) },
+    { role: 'system', content: systemPrompt(brandVoice, workspace?.designMd ?? '', attached.length, composition) },
     ...args.messages.map((m) => ({ role: m.role, content: m.content })),
   ];
 
@@ -349,4 +390,156 @@ export async function runPlaygroundChatTurn(args: {
     'I looked at a lot of blocks without settling on a composition. Tell me more specifically what the page should contain.';
   emit({ type: 'reply', content: exhausted });
   return { reply: exhausted, toolsUsed };
+}
+
+// ── Single-block refinement ───────────────────────────────────────────────────
+
+/**
+ * Reconsider one block in a proposal without touching the rest.
+ *
+ * The all-or-nothing problem: the only way to change a suggested hero was to regenerate everything and
+ * hope the parts you liked survived. This scopes the request to one slot — the model sees the whole
+ * composition for context but can only return a single block, so "I don't like the bubble hero" cannot
+ * quietly reword the pricing section.
+ *
+ * Scoping also sidesteps the reason full conversational editing looked expensive: the model never has
+ * to resolve "before the footer" when there are two candidate footers, because the caller already said
+ * which index it means.
+ */
+export interface BlockRefinementResult {
+  ok: boolean;
+  block?: ProposedBlock;
+  note?: string;
+  error?: string;
+}
+
+const REFINE_TOOLS: OpenAiTool[] = [
+  ...TOOLS.filter((t) => t.function.name !== 'propose_page'),
+  {
+    type: 'function',
+    function: {
+      name: 'propose_block',
+      description:
+        'Return the single replacement block. Terminal — call once, after scaffolding whichever ' +
+        'component you settled on.',
+      parameters: {
+        type: 'object',
+        properties: {
+          componentId: { type: 'string' },
+          args: { type: 'object', description: 'Filled args, shaped as scaffold_args described.' },
+          note: { type: 'string', description: 'One short sentence on what changed and why.' },
+        },
+        required: ['componentId', 'args'],
+      },
+    },
+  },
+];
+
+export async function refineProposalBlock(args: {
+  blocks: ProposedBlock[];
+  index: number;
+  /** What the user wants: "something other than a bubble hero", "shorter copy", … */
+  instruction: string;
+  actorUserId?: string | null;
+  onEvent?: (event: PlaygroundChatEvent) => void;
+  signal?: AbortSignal;
+}): Promise<BlockRefinementResult> {
+  const emit = args.onEvent ?? (() => {});
+  const target = args.blocks[args.index];
+  if (!target) return { ok: false, error: 'That block is no longer in the proposal.' };
+
+  const workspace = await getDesignWorkspace().catch(() => null);
+  const brandVoice = workspace ? formatBrandVoiceForPrompt(workspace.brandVoice).trim() : '';
+
+  const convo: unknown[] = [
+    {
+      role: 'system',
+      content: `You are changing ONE block of an already-composed page. Do not redesign the page.
+
+## The page as it stands
+${summarizeComposition(args.blocks)}
+
+## The block to change
+Position ${args.index + 1}: ${target.componentId}
+
+## What the user wants
+${args.instruction}
+
+Search for a suitable component, call scaffold_args on whatever you settle on, fill its args with real
+copy carrying over anything worth keeping from the current block, then call propose_block ONCE.
+Returning the same componentId is fine when the request is about the copy rather than the layout.
+${brandVoice ? `\n## Brand voice — any copy you write must obey this\n${brandVoice.slice(0, 3000)}\n` : ''}`,
+    },
+    { role: 'user', content: args.instruction },
+  ];
+
+  const scaffolded = new Set<string>();
+
+  for (let round = 0; round < 8; round += 1) {
+    if (args.signal?.aborted) return { ok: false, error: 'Cancelled.' };
+
+    const { content, toolCalls } = await openAiChatTools(convo, REFINE_TOOLS, {
+      actorUserId: args.actorUserId ?? null,
+      route: '/api/handoff/ai/playground-chat/refine',
+      eventType: 'ai.playground_refine',
+    });
+
+    if (!toolCalls.length) {
+      // No tool call means it answered in prose — usually a question or a refusal. Pass it through
+      // rather than reporting a failure, so the user reads the actual reason.
+      return { ok: false, error: content ?? 'No replacement was proposed.' };
+    }
+
+    convo.push({
+      role: 'assistant',
+      content,
+      tool_calls: toolCalls.map((t) => ({ id: t.id, type: 'function', function: { name: t.name, arguments: t.arguments } })),
+    });
+
+    for (const call of toolCalls) {
+      let parsed: Record<string, unknown> = {};
+      try {
+        parsed = JSON.parse(call.arguments) as Record<string, unknown>;
+      } catch {
+        /* reported back to the model rather than thrown */
+      }
+      emit({ type: 'status', text: narrate(call.name, parsed) });
+
+      if (call.name === 'propose_block') {
+        const componentId = String(parsed.componentId ?? '').trim();
+        // Same enforcement as the full proposal: unscaffolded args are guesses at prop shape, and the
+        // block would apply cleanly and render empty.
+        if (!componentId || !scaffolded.has(componentId)) {
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({
+              rejected: true,
+              reason: `Call scaffold_args for "${componentId}" first, fill the args it returns, then propose again.`,
+            }),
+          });
+          continue;
+        }
+        return {
+          ok: true,
+          block: { componentId, args: (parsed.args ?? {}) as Record<string, unknown> },
+          note: typeof parsed.note === 'string' ? parsed.note : undefined,
+        };
+      }
+
+      let result: unknown;
+      try {
+        result = await runTool(call.name, parsed, []);
+        if (call.name === 'scaffold_args' && typeof parsed.componentId === 'string') {
+          const id = parsed.componentId.trim();
+          if (id && !(result && typeof result === 'object' && 'error' in result)) scaffolded.add(id);
+        }
+      } catch (e) {
+        result = { error: e instanceof Error ? e.message : 'Tool failed.' };
+      }
+      convo.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result).slice(0, 24_000) });
+    }
+  }
+
+  return { ok: false, error: 'Could not settle on a replacement. Try describing what you want instead.' };
 }

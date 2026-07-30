@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Link2, Loader2, Sparkles, User } from 'lucide-react';
+import { Bot, Link2, Loader2, RefreshCw, Sparkles, Trash2, User, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
@@ -72,7 +72,11 @@ export default function AiChatPanel() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         signal: controller.signal,
-        body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, content: m.content })) }),
+        body: JSON.stringify({
+          messages: next.map((m) => ({ role: m.role, content: m.content })),
+          // So a follow-up can say "make the hero shorter" and mean the one on screen.
+          currentBlocks: selectedComponents.map((c) => ({ componentId: c.id, args: c.data ?? {} })),
+        }),
       });
       if (!res.ok || !res.body) {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
@@ -180,6 +184,53 @@ export default function AiChatPanel() {
     }
   };
 
+  /** Which block is being refined: message index, block index, and the pending instruction. */
+  const [refining, setRefining] = useState<{ msg: number; block: number } | null>(null);
+  const [refineText, setRefineText] = useState('');
+  const [refineBusy, setRefineBusy] = useState(false);
+
+  const updateProposal = (msgIndex: number, fn: (p: Proposal) => Proposal) =>
+    setMessages((cur) =>
+      cur.map((m, i) => (i === msgIndex && m.role === 'assistant' && m.proposal ? { ...m, proposal: fn(m.proposal) } : m))
+    );
+
+  /** Drop a block. No model call — the user has already decided. */
+  const removeBlock = (msgIndex: number, blockIndex: number) =>
+    updateProposal(msgIndex, (p) => ({ ...p, blocks: p.blocks.filter((_, i) => i !== blockIndex) }));
+
+  /**
+   * Ask for a different block in one slot.
+   *
+   * Scoped server-side to a single block, so the rest of the proposal cannot drift while you are
+   * fixing one thing — which is the whole complaint about all-or-nothing regeneration.
+   */
+  const refineBlock = async (msgIndex: number, blockIndex: number, instruction: string) => {
+    const msg = messages[msgIndex];
+    if (msg?.role !== 'assistant' || !msg.proposal || refineBusy) return;
+    setRefineBusy(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/handoff/ai/playground-chat/refine', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ blocks: msg.proposal.blocks, index: blockIndex, instruction }),
+      });
+      const json = (await res.json()) as { ok?: boolean; block?: Proposal['blocks'][number]; error?: string };
+      if (!res.ok || !json.block) throw new Error(json.error || 'Could not change that block.');
+      updateProposal(msgIndex, (p) => ({
+        ...p,
+        blocks: p.blocks.map((b, i) => (i === blockIndex ? json.block! : b)),
+      }));
+      setRefining(null);
+      setRefineText('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not change that block.');
+    } finally {
+      setRefineBusy(false);
+    }
+  };
+
   const apply = async (index: number, proposal: Proposal, replace: boolean) => {
     await bulkAddComponents(
       proposal.blocks.map((b) => ({ componentId: b.componentId, data: b.args })),
@@ -227,21 +278,80 @@ export default function AiChatPanel() {
                   <p className="text-xs font-medium">
                     {m.proposal.blocks.length} block{m.proposal.blocks.length === 1 ? '' : 's'}
                   </p>
+                  {/* Per-block actions. Regenerating the whole page to change one hero was the single
+                      loudest complaint — each row can be swapped, reworded or dropped on its own, and
+                      the server scopes the request so the rest cannot drift while you fix one thing. */}
                   <ol className="mt-2 space-y-1.5">
-                    {m.proposal.blocks.map((b, bi) => (
-                      <li key={bi} className="flex items-center gap-2">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={componentThumbnailUrl(b.componentId)}
-                          alt=""
-                          className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
-                          loading="lazy"
-                        />
-                        <span className="min-w-0 truncate text-xs text-muted-foreground">
-                          {bi + 1}. {b.componentId}
-                        </span>
-                      </li>
-                    ))}
+                    {m.proposal.blocks.map((b, bi) => {
+                      const isRefining = refining?.msg === i && refining.block === bi;
+                      return (
+                        <li key={bi} className="rounded-md border bg-background/60 p-1.5">
+                          <div className="group flex items-center gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={componentThumbnailUrl(b.componentId)}
+                              alt=""
+                              className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
+                              loading="lazy"
+                            />
+                            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                              {bi + 1}. {b.componentId}
+                            </span>
+                            {m.proposal!.applied ? null : (
+                              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRefining(isRefining ? null : { msg: i, block: bi });
+                                    setRefineText('');
+                                  }}
+                                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                  aria-label={`Change block ${bi + 1}`}
+                                  title="Change this block"
+                                >
+                                  {isRefining ? <X className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => removeBlock(i, bi)}
+                                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                  aria-label={`Remove block ${bi + 1}`}
+                                  title="Remove"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {isRefining ? (
+                            <div className="mt-1.5 flex gap-1.5">
+                              <input
+                                value={refineText}
+                                onChange={(e) => setRefineText(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && refineText.trim()) void refineBlock(i, bi, refineText);
+                                  if (e.key === 'Escape') setRefining(null);
+                                }}
+                                placeholder="Something else, shorter copy…"
+                                disabled={refineBusy}
+                                autoFocus
+                                className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs"
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="h-7 shrink-0 text-xs"
+                                disabled={refineBusy || !refineText.trim()}
+                                onClick={() => void refineBlock(i, bi, refineText)}
+                              >
+                                {refineBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Change'}
+                              </Button>
+                            </div>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ol>
 
                   {m.proposal.applied ? (
