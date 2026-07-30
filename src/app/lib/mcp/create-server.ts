@@ -70,6 +70,82 @@ function textResult(data: unknown) {
   return { content: [{ type: 'text' as const, text }] };
 }
 
+/**
+ * Ceiling on an inlined design preview, as base64 characters (~4MB of encoded data).
+ *
+ * Generous enough for a 2048×1152 composite in practice, low enough that a pathological image cannot
+ * wedge a conversation. Tunable with `HANDOFF_MCP_MAX_IMAGE_KB`.
+ */
+const MAX_INLINE_IMAGE_BASE64 = (() => {
+  const kb = Number.parseInt(process.env.HANDOFF_MCP_MAX_IMAGE_KB ?? '', 10);
+  return (Number.isFinite(kb) && kb > 0 ? kb : 4096) * 1024;
+})();
+
+/**
+ * Where a human can go and look at this design.
+ *
+ * Tool results were returning ids and nothing viewable — you could watch a pipeline finish and still
+ * have no way to see what it made. Every tool that creates or advances a design now hands back a real
+ * URL, built from the request's own origin so it is correct on any deploy rather than hardcoded.
+ */
+function designUrls(request: Request, artifactId: string, storedImageUrl?: string | null) {
+  const origin = issuerForCliSync(request);
+  const image = (storedImageUrl ?? '').trim();
+  return {
+    artifactUrl: `${origin}/design/library/${encodeURIComponent(artifactId)}/`,
+    // Images live in a private Blob store, so this is a proxy path. Absolute-ise it; a bare
+    // `/api/handoff/...` is useless to anything outside the app.
+    imageUrl: image ? (image.startsWith('/') && !image.startsWith('//') ? `${origin}${image}` : image) : null,
+  };
+}
+
+/**
+ * A tool result that carries the design itself, not just a description of it.
+ *
+ * MCP supports image content blocks, and this is what they are for: the client renders the picture
+ * instead of tokenising a megabyte of base64, which is the same reason `capPayload` strips `data:` URIs
+ * out of JSON. Falls back to text alone whenever the image cannot be read — a missing preview should
+ * never cost you the result.
+ */
+async function textWithImageResult(data: unknown, storedImageUrl: string | null | undefined) {
+  const base = textResult(data);
+  const url = (storedImageUrl ?? '').trim();
+  if (!url) return base;
+  try {
+    const { blobPathnameFromProxyUrl, readPrivateBlob } = await import('@/lib/storage/artifact-images');
+    let mimeType = 'image/png';
+    let dataBase64 = '';
+
+    const blobPath = blobPathnameFromProxyUrl(url);
+    if (blobPath) {
+      const read = await readPrivateBlob(blobPath);
+      if (!read) return base;
+      mimeType = read.contentType;
+      dataBase64 = read.buffer.toString('base64');
+    } else {
+      const m = /^data:(image\/[\w.+-]+);base64,(.+)$/i.exec(url);
+      if (!m) return base;
+      mimeType = m[1].toLowerCase();
+      dataBase64 = m[2];
+    }
+    if (!dataBase64) return base;
+
+    // An image block bypasses the text cap, so it needs its own bound — an unbounded 2048×1152 PNG is
+    // the same mistake in a different content type. Over the limit, the URL alone is the honest answer:
+    // say the image was too large and where to open it, rather than pushing megabytes at the client.
+    if (dataBase64.length > MAX_INLINE_IMAGE_BASE64) {
+      return textResult({
+        ...(data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : { data }),
+        imageNote: `The design is ${Math.round(dataBase64.length / 1024)}KB — too large to inline. Open artifactUrl to view it.`,
+      });
+    }
+    return { content: [...base.content, { type: 'image' as const, data: dataBase64, mimeType }] };
+  } catch (err) {
+    console.warn('[mcp] could not attach design image', err);
+    return base;
+  }
+}
+
 /** Compact a unified changelog entry for MCP — what changed, who, when, and the "why". */
 function summarizeChange(e: UnifiedChangelogEntry) {
   if (e.entityType === 'component') {
@@ -797,7 +873,18 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       // One derived answer to "is this ready for dev?", so a caller polling the handoff does
       // not have to interpret assetsStatus and specStatus separately.
       const { devHandoffStatusForRow } = await import('@/lib/server/dev-handoff');
-      return textResult({ ...row, permissions: access?.perms ?? null, devHandoff: devHandoffStatusForRow(row) });
+      // The design itself, plus links to it. Without these the caller gets a row whose `imageUrl` is a
+      // bare private-Blob proxy path — unopenable outside the app, and stripped from the JSON anyway
+      // when it is still an inline data URL.
+      return textWithImageResult(
+        {
+          ...row,
+          ...designUrls(request, row.id, row.imageUrl),
+          permissions: access?.perms ?? null,
+          devHandoff: devHandoffStatusForRow(row),
+        },
+        row.imageUrl
+      );
     }
   );
 
@@ -1080,6 +1167,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (!result.ok) return textResult(result);
       return textResult({
         ...result,
+        ...designUrls(request, id),
         note: 'Each stage runs in its own invocation (~1-2 min each). Poll handoff_get_design_pipeline with pipelineId.',
       });
     }
@@ -1116,7 +1204,9 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         userId: auth.userId,
         componentGuides: componentIds ?? [],
       });
-      return textResult(result);
+      return textResult(
+        result.artifactId ? { ...result, ...designUrls(request, result.artifactId) } : result
+      );
     }
   );
 
@@ -1174,7 +1264,20 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       // read progress on someone else's design. Reports "not found" to avoid confirming it exists.
       const deniedAccess = await denyArtifactAccess(progress.artifactId, 'view');
       if (deniedAccess) return textResult({ error: 'Pipeline not found' });
-      return textResult(progress);
+
+      // Hand back somewhere to look, not just a status. Watching a pipeline finish and still having no
+      // way to see what it produced was the gap this closes.
+      const { getDesignArtifactById } = await import('@/lib/db/queries');
+      const row = await getDesignArtifactById(progress.artifactId);
+      const urls = designUrls(request, progress.artifactId, row?.imageUrl);
+      const body = { ...progress, ...urls };
+
+      // Attach the design itself once the composite has landed. Gated on the stage rather than on the
+      // whole pipeline so the image shows up on the poll that produced it, not a tick later after
+      // conformance — and not re-sent on every poll before it exists.
+      const compositeDone = progress.stages.some((st) => st.stage === 'composite' && st.status === 'done');
+      if ((progress.finished || compositeDone) && urls.imageUrl) return textWithImageResult(body, row?.imageUrl);
+      return textResult(body);
     }
   );
 

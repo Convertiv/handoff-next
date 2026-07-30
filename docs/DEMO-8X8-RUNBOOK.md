@@ -109,7 +109,8 @@ Secondary CTA: See how it works
 Title it "8x8 Platform Hero".
 ```
 
-Fires `handoff_design_from_brief`. Returns `artifactId`, `pipelineId`, and `stages`.
+Fires `handoff_design_from_brief`. Returns `artifactId`, `pipelineId`, `stages`, and **`artifactUrl`** —
+open that in a browser now and leave it up; the page fills in as the stages land.
 
 **Check:** `stages` is `["spec", "assets", "composite", "conformance"]` — four stages. Three means you're
 on an older build.
@@ -120,6 +121,11 @@ Then poll:
 Poll handoff_get_design_pipeline for that artifact every 45 seconds and tell me the stage as it changes.
 Stop when it's finished or a stage fails.
 ```
+
+**The poll returns the design itself.** Once the `composite` stage is done, `handoff_get_design_pipeline`
+attaches the rendered image to its response, so it appears inline in the conversation — along with
+`artifactUrl` and an absolute `imageUrl` you can open or download. No need to leave the session to see
+what was made.
 
 **Expected progression** — each stage takes a tick to pick up plus 1–2 minutes to run:
 
@@ -150,7 +156,10 @@ Fires `handoff_get_component_spec`.
 - **voice** has per-string findings
 - **tokens** — may not be there yet if `conformance` hasn't finished. Re-run this step after it does.
 
-Then open the artifact page in the browser and show the **Spec** tab. It's the same data, laid out.
+Then open `artifactUrl` and show the **Spec** tab. It's the same data, laid out.
+
+> `handoff_get_design_artifact` also returns the image inline, plus `artifactUrl` and an absolute
+> `imageUrl`. Use it if you want the design back on screen mid-conversation.
 
 ## Step 7 — Revise the specification, not the picture ⭐
 
@@ -180,7 +189,8 @@ until it finishes.
 
 Runs `assets → composite → conformance`. **This replaces the current image** — that's the point.
 
-**Check:** the new design reflects the revised headline and CTA.
+**Check:** the new design reflects the revised headline and CTA. The final poll returns the new image
+inline, so you can compare it against the one from Step 5 without leaving the session.
 
 ## Step 9 — The guarantee
 
@@ -203,6 +213,7 @@ the comp and the file the developer gets are the same bytes.
 | `handoff_design_from_brief` is missing | Reconnect the connector. No workaround — the old `handoff_generate_design_image` is the image-first path and produces the orphan-asset behaviour this demo exists to replace. |
 | A stage fails | The error names the stage. `spec` → brief too thin, add art direction. `assets`/`composite` → usually transient, the queue retries once; re-run Step 8. |
 | Everything is too slow | Switch to the pre-built artifact and narrate from it. Steps 6, 7 and 9 all work on an existing design. |
+| The image doesn't appear inline | You'll get `imageNote` saying it was too large, with `artifactUrl` to open instead. Nothing is broken — the design exists either way. |
 | `conformance` produces no tokens | Non-fatal by design. Most likely the registry has no DTCG spacing/radius tokens, so it degrades to colour/type. Don't raise tokens as a beat if it's empty. |
 | Asked about per-person invites | Team visibility + share links today, named grants next. Don't claim more. |
 
