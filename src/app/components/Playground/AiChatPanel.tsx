@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Link2, Loader2, Sparkles, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ChatInput } from '@/components/Chat/ChatInput';
+import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 import { usePlayground } from './PlaygroundContext';
 
 /**
@@ -226,10 +227,19 @@ export default function AiChatPanel() {
                   <p className="text-xs font-medium">
                     {m.proposal.blocks.length} block{m.proposal.blocks.length === 1 ? '' : 's'}
                   </p>
-                  <ol className="mt-1.5 space-y-0.5">
+                  <ol className="mt-2 space-y-1.5">
                     {m.proposal.blocks.map((b, bi) => (
-                      <li key={bi} className="truncate text-xs text-muted-foreground">
-                        {bi + 1}. <code className="rounded bg-muted px-1">{b.componentId}</code>
+                      <li key={bi} className="flex items-center gap-2">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={componentThumbnailUrl(b.componentId)}
+                          alt=""
+                          className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
+                          loading="lazy"
+                        />
+                        <span className="min-w-0 truncate text-xs text-muted-foreground">
+                          {bi + 1}. {b.componentId}
+                        </span>
                       </li>
                     ))}
                   </ol>

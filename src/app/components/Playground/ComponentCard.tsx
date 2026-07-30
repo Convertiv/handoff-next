@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Loader2, Plus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { PlaygroundComponent } from './types';
+import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 
 interface ComponentCardProps {
   component: PlaygroundComponent;
@@ -33,17 +34,13 @@ export default function ComponentCard({ component, onAdd }: ComponentCardProps) 
       )}
     >
       <div className="relative aspect-[4/3] bg-muted">
-        {component.image && (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={`${basePath}${component.image}`}
-            alt={component.title}
-            className="h-full w-full object-cover"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
-          />
-        )}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={componentThumbnailUrl(component.id, basePath)}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
         {adding ? (
           <div className="absolute inset-0 flex items-center justify-center bg-background/60">
             <Loader2 className="h-5 w-5 animate-spin text-primary" />

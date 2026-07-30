@@ -10,6 +10,7 @@ import { cn } from '../../lib/utils';
 import { usePlayground } from './PlaygroundContext';
 import ComponentCard from './ComponentCard';
 import type { PlaygroundComponent } from './types';
+import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 
 type ViewMode = 'grid' | 'table';
 
@@ -26,17 +27,16 @@ function ComponentRow({
   return (
     <div className="group flex items-center gap-3 rounded-md border border-transparent px-3 py-2 transition-colors hover:border-border hover:bg-muted/40">
       <div className="h-10 w-14 shrink-0 overflow-hidden rounded bg-muted">
-        {component.image && (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={`${basePath}${component.image}`}
-            alt={component.title}
-            className="h-full w-full object-cover"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
-          />
-        )}
+        {/* The catalog's own `image` is a workspace-mode path that 404s in registry mode, and the
+            onError handler that used to be here hid that — so this list has been silently blank.
+            The schematic route always resolves. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={componentThumbnailUrl(component.id, basePath)}
+          alt=""
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{component.title}</p>
