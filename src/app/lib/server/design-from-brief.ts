@@ -59,6 +59,10 @@ export async function startDesignFromBrief(args: {
     // Recorded in the shape the rest of the pipeline reads, so `briefFromArtifact` and the copy
     // extraction find it exactly as they would for a prompt-generated design.
     conversationHistory: [{ role: 'user', prompt: brief, timestamp: new Date().toISOString() }],
+    // How this design came to exist, so the UI can stop offering operations that would invert it.
+    // "Transition to dev" re-derives the specification by reading the composite — on a spec-first
+    // artifact that would overwrite the authored spec with a description of its own rendering.
+    metadata: { origin: 'spec-first' },
     specStatus: 'pending',
     assetsStatus: 'none',
     status: 'draft',

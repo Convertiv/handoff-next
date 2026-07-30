@@ -569,6 +569,39 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
     if (pipelineFinished === true) void fetchArtifact();
   }, [pipelineFinished, fetchArtifact]);
 
+  /**
+   * Re-render the design from its current specification.
+   *
+   * The loop closer for a spec-first design: revise the spec, then rebuild from it. Runs
+   * `assets -> composite`, so the images are regenerated against the current requirements and the
+   * design is assembled from those images — which is what keeps the photo in the comp and the file a
+   * developer downloads the same bytes.
+   *
+   * Destructive to the current image, deliberately and only on request. That is why it is a button
+   * rather than something the spec patcher triggers on its own.
+   */
+  const handleRerenderFromSpec = async () => {
+    if (!artifactId) return;
+    setPipelineBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}/pipeline`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ intent: 'assets-and-composite' }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string; stages?: string[] };
+      if (!res.ok) throw new Error(json.error || 'Could not start the re-render.');
+      setNotice(`Re-rendering (${(json.stages ?? []).join(' \u2192 ')}). Each stage takes a minute or two.`);
+      await fetchPipeline();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not start the re-render.');
+    } finally {
+      setPipelineBusy(false);
+    }
+  };
+
   const handleGenerateAssets = async () => {
     if (!artifactId) return;
     setPipelineBusy(true);
@@ -616,7 +649,38 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
   };
 
   const lastPrompt = artifact ? lastUserPrompt(artifact.conversationHistory) : null;
+
   const assets = Array.isArray(artifact?.assets) ? artifact!.assets! : [];
+
+  /**
+   * Was this design authored spec-first?
+   *
+   * It decides which operations are still coherent. On a spec-first artifact "Transition to dev" would
+   * re-derive the specification by reading the composite — overwriting an authored spec with a
+   * description of its own rendering — and "Generate assets" would produce images the current composite
+   * was never built from. Both are the inverted direction.
+   *
+   * The explicit marker is set at creation. The asset fallback catches designs made spec-first before
+   * that marker existed: `generatedFromRequirement` provenance only appears on images produced FROM a
+   * declared requirement, never on anything the old extractor made.
+   */
+  const isSpecFirst = Boolean(
+    (artifact?.metadata as { origin?: string } | undefined)?.origin === 'spec-first' ||
+      (artifact?.componentSpec &&
+        assets.some((a) => (a as { generatedFromRequirement?: unknown }).generatedFromRequirement))
+  );
+
+  /**
+   * The brief, shown once.
+   *
+   * Spec-first records the brief in BOTH `description` and the conversation history, so rendering the
+   * two separately printed the same paragraph twice.
+   */
+  const briefText = (() => {
+    const description = (artifact?.description ?? '').trim();
+    if (description && lastPrompt && description === lastPrompt.trim()) return description;
+    return null;
+  })();
   const match = artifact ? bestComponentMatch(artifact.componentSpec) : null;
   const statusLc: Lifecycle | null =
     artifact && LIFECYCLE_SET.has(artifact.status as Lifecycle) ? (artifact.status as Lifecycle) : null;
@@ -695,39 +759,65 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                   <Button variant="ghost" size="sm" className="w-full justify-start" asChild>
                     <Link href={`${basePath}/design/`}>Workbench</Link>
                   </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="w-full justify-start gap-1.5"
-                    disabled={reextractBusy || Boolean(devHandoff?.running)}
-                    onClick={() => void handleTransitionToDev()}
-                  >
-                    {reextractBusy || devHandoff?.running ? (
-                      <Loader2Icon className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <SparklesIcon className="h-4 w-4" />
-                    )}
-                    {devHandoff?.stage === 'ready' ? 'Re-run dev handoff' : 'Transition to dev'}
-                  </Button>
-                  {declaresImagery ? (
+                  {/* Spec-first designs get neither "Transition to dev" nor "Generate assets": the first
+                      would re-derive the specification by reading the composite, overwriting an authored
+                      spec with a description of its own rendering, and the second would generate images
+                      the current composite was never built from. Both run the chain backwards. What such
+                      a design needs instead is to be re-rendered from its spec after the spec changes. */}
+                  {isSpecFirst ? (
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="secondary"
                       size="sm"
                       className="w-full justify-start gap-1.5"
                       disabled={pipelineBusy || Boolean(pipeline && !pipeline.finished)}
-                      onClick={() => void handleGenerateAssets()}
-                      title="Generate each image the spec declares as a separate, web-ready asset"
+                      onClick={() => void handleRerenderFromSpec()}
+                      title="Regenerate the images this spec declares and rebuild the design from them. Replaces the current image."
                     >
                       {pipelineBusy || (pipeline && !pipeline.finished) ? (
                         <Loader2Icon className="h-4 w-4 animate-spin" />
                       ) : (
                         <SparklesIcon className="h-4 w-4" />
                       )}
-                      Generate assets
+                      Re-render from spec
                     </Button>
-                  ) : null}
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="w-full justify-start gap-1.5"
+                        disabled={reextractBusy || Boolean(devHandoff?.running)}
+                        onClick={() => void handleTransitionToDev()}
+                      >
+                        {reextractBusy || devHandoff?.running ? (
+                          <Loader2Icon className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <SparklesIcon className="h-4 w-4" />
+                        )}
+                        {devHandoff?.stage === 'ready' ? 'Re-run dev handoff' : 'Transition to dev'}
+                      </Button>
+                      {declaresImagery ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start gap-1.5"
+                          disabled={pipelineBusy || Boolean(pipeline && !pipeline.finished)}
+                          onClick={() => void handleGenerateAssets()}
+                          title="Generate each image the spec declares as a separate, web-ready asset"
+                        >
+                          {pipelineBusy || (pipeline && !pipeline.finished) ? (
+                            <Loader2Icon className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <SparklesIcon className="h-4 w-4" />
+                          )}
+                          Generate assets
+                        </Button>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               </>
             ) : null}
@@ -782,19 +872,9 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                   {/* Overview tab */}
               {activeTab === 'overview' ? (
                 <div className="space-y-6">
-                  {artifact.description ? (
-                    <div className="rounded-lg border bg-muted/30 px-4 py-3">
-                      <p className="text-sm whitespace-pre-wrap text-foreground/90">{artifact.description}</p>
-                    </div>
-                  ) : null}
-
-                  {lastPrompt ? (
-                    <div className="rounded-lg border bg-background px-4 py-3">
-                      <p className="text-xs font-medium uppercase text-muted-foreground">Last prompt</p>
-                      <p className="mt-1 text-sm whitespace-pre-wrap text-foreground/90">{lastPrompt}</p>
-                    </div>
-                  ) : null}
-
+                  {/* Image first. The prompt used to sit above it in two blocks — `description` and
+                      `lastPrompt` — which on a spec-first design are the same text, because the brief is
+                      written to both. The design is what you came to look at; the brief is reference. */}
                   <div className="overflow-hidden rounded-xl border bg-muted/20">
                     {artifact.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -803,6 +883,27 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                       <p className="p-8 text-center text-sm text-muted-foreground">No image stored.</p>
                     )}
                   </div>
+
+                  {briefText ? (
+                    <div className="rounded-lg border bg-muted/30 px-4 py-3">
+                      <p className="text-xs font-medium uppercase text-muted-foreground">Brief</p>
+                      <p className="mt-1 text-sm whitespace-pre-wrap text-foreground/90">{briefText}</p>
+                    </div>
+                  ) : (
+                    <>
+                      {artifact.description ? (
+                        <div className="rounded-lg border bg-muted/30 px-4 py-3">
+                          <p className="text-sm whitespace-pre-wrap text-foreground/90">{artifact.description}</p>
+                        </div>
+                      ) : null}
+                      {lastPrompt ? (
+                        <div className="rounded-lg border bg-background px-4 py-3">
+                          <p className="text-xs font-medium uppercase text-muted-foreground">Last prompt</p>
+                          <p className="mt-1 text-sm whitespace-pre-wrap text-foreground/90">{lastPrompt}</p>
+                        </div>
+                      ) : null}
+                    </>
+                  )}
 
                   {/* Assets. The old "Extracted assets" section lived here with a re-extract button —
                       removed because extraction is retired: it re-generated crops via an image model at a
@@ -815,7 +916,8 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     <section className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
                       This design needs{' '}
                       {(artifact.componentSpec as { assetRequirements?: unknown[] } | undefined)?.assetRequirements?.length ?? 0}{' '}
-                      image asset(s). Use <strong>Generate assets</strong> to produce them at the right size.
+                      image asset(s). Use <strong>{isSpecFirst ? 'Re-render from spec' : 'Generate assets'}</strong> to
+                      produce them at the right size.
                     </section>
                   ) : null}
 
@@ -856,7 +958,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
                       <SparklesIcon className="mx-auto mb-2 h-8 w-8 opacity-40" />
                       <p>
-                        Not yet handed off. Click <strong>Transition to dev</strong> to extract the assets and generate the
+                        Not yet handed off. Click <strong>Transition to dev</strong> to read this design and write its
                         specification.
                       </p>
                     </div>

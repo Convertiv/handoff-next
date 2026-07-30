@@ -5,6 +5,35 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-29 — Retiring the inverted buttons on a spec-first design
+
+Spec-first landed and worked. Brad: *"Do we need the run dev handoff or generate assets button any
+more?"* — for a spec-first design, no, and keeping them is worse than clutter:
+
+- **Transition to dev** re-derives the specification by *reading the composite*. On a spec-first design
+  that overwrites an authored spec with a description of its own rendering — it re-inverts the artifact.
+- **Generate assets** produces images the current composite was never built from. That is exactly the
+  orphan-asset bug that started this whole thread.
+
+Both still make sense on a legacy image-first design, so the answer is conditional, not deletion.
+
+- `startDesignFromBrief` now records `metadata.origin = 'spec-first'`.
+- The detail page derives `isSpecFirst` from that marker **or** from any asset carrying
+  `generatedFromRequirement` provenance — the fallback catches designs made spec-first before the marker
+  existed (Brad already has some), since that provenance only appears on images produced FROM a declared
+  requirement and never on anything the old extractor made.
+- Spec-first designs get **Re-render from spec** instead: `assets -> composite`, regenerating the images
+  against the current requirements and rebuilding the design from them. That is the loop closer — revise
+  the spec with the patcher, then re-render. Destructive to the current image, so it stays an explicit
+  button rather than something the patcher triggers itself.
+
+**Also fixed:** the brief was printed twice above the image, because `startDesignFromBrief` writes it to
+BOTH `description` and the conversation history and the page rendered those as separate blocks. Now the
+image comes first and a single "Brief" block sits below it — the design is what you came to look at.
+Legacy artifacts, where description and last prompt genuinely differ, still show both.
+
+---
+
 ## 2026-07-29 — Spec-first belongs on the composer prompt, not in the Library
 
 I first put the "start from a brief" entry in the workbench's Library sidebar, reasoning that spec-first
