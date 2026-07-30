@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { mergeBlockValues, summarizeFields } from '../src/app/lib/merge-block-values';
+import { blankContentValues, mergeBlockValues, summarizeFields } from '../src/app/lib/merge-block-values';
 
 /**
  * The template owns the shape; the model owns the content. These rules are what make it impossible for
@@ -128,10 +128,97 @@ describe('mergeBlockValues — preview sample content', () => {
   });
 });
 
+describe('blankContentValues', () => {
+  const fields = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { editorType: v }]));
+
+  it('empties content so an unwritten field ships blank, not as somebody else sample copy', () => {
+    const out = blankContentValues(
+      { title: 'Sample headline', bodySlot: 'Harum consequatur repellendus quaerat.' },
+      fields({ title: 'text', bodySlot: 'richtext' })
+    );
+    assert.equal(out.title, '');
+    assert.equal(out.bodySlot, '');
+  });
+
+  it('keeps configuration, because a default theme really is a default', () => {
+    const out = blankContentValues(
+      { title: 'Sample', theme: 'Off White', columns: 3, dark: false },
+      fields({ title: 'text', theme: 'select', columns: 'number', dark: 'boolean' })
+    );
+    assert.equal(out.theme, 'Off White');
+    assert.equal(out.columns, 3);
+    assert.equal(out.dark, false);
+  });
+
+  it('reduces an array to ONE blank item — the shape to author against', () => {
+    // Keeping all three handed back somebody's three press releases as a starting point.
+    const out = blankContentValues(
+      { cards: [{ title: 'Q3 Results', body: 'Revenue exceeds…' }, { title: 'B' }, { title: 'C' }] },
+      fields({ cards: 'array' })
+    );
+    assert.deepEqual(out.cards, [{ title: '', body: '' }]);
+  });
+
+  it('replaces an image with a placeholder at the template proportions', () => {
+    const out = blankContentValues(
+      { hero: { src: '../../images/content/card-image-1.webp', alt: 'Editable hero image', width: 1536, height: 1200 } },
+      fields({ hero: 'image' })
+    );
+    assert.deepEqual(out.hero, { src: 'https://placehold.co/1536x1200', alt: '', width: 1536, height: 1200 });
+  });
+
+  it('recovers dimensions from an existing placeholder URL when width/height are absent', () => {
+    const out = blankContentValues({ hero: { src: 'https://placehold.co/2560x1400', alt: 'x' } }, fields({ hero: 'image' }));
+    assert.match(String((out.hero as { src: string }).src), /2560x1400/);
+  });
+
+  it('falls back to a sane ratio when nothing says otherwise', () => {
+    const out = blankContentValues({ hero: { src: '', alt: '' } }, fields({ hero: 'image' }));
+    assert.equal((out.hero as { src: string }).src, 'https://placehold.co/1200x800');
+  });
+
+  it('blanks a serialized React element to an empty string', () => {
+    const out = blankContentValues(
+      { bodySlot: { key: null, type: 'p', props: { children: 'docs text' }, _owner: null } },
+      fields({ bodySlot: 'slot' })
+    );
+    assert.equal(out.bodySlot, '');
+  });
+});
+
+describe('array item keys', () => {
+  it('gives generated items distinct keys', () => {
+    // All N items inheriting the template's single `_key` is a duplicate-key bug waiting on the first
+    // page that actually fills an array.
+    const { args } = mergeBlockValues(
+      { stats: [{ _key: 'stat1', stat: '', eyebrow: '' }] },
+      { stats: [{ stat: '2M+' }, { stat: '160+' }, { stat: '99.999%' }] }
+    );
+    const keys = (args.stats as { _key: string }[]).map((s) => s._key);
+    assert.equal(new Set(keys).size, 3);
+  });
+
+  it('respects a key the model supplied', () => {
+    const { args } = mergeBlockValues({ items: [{ _key: 't', label: '' }] }, { items: [{ _key: '1996', label: 'Founded' }] });
+    assert.equal((args.items as { _key: string }[])[0]._key, '1996');
+  });
+});
+
 describe('summarizeFields', () => {
-  it('names each field with its editor type', () => {
+  it('names the JS shape a field expects, not just its editor type', () => {
+    // "slot" told the model nothing, so it guessed — a plain string sometimes, nothing other times.
     const out = summarizeFields({ headline: { editorType: 'text' }, photo: { editorType: 'image' } });
-    assert.equal(out, 'headline (text), photo (image)');
+    assert.equal(out, 'headline (plain string), photo ({ src, alt })');
+  });
+
+  it('spells out that slot and richtext take markup', () => {
+    assert.match(summarizeFields({ bodySlot: { editorType: 'slot' } }), /HTML string/);
+    assert.match(summarizeFields({ body: { editorType: 'richtext' } }), /HTML string/);
+  });
+
+  it('tells the model an array needs every item written', () => {
+    assert.match(summarizeFields({ stats: { editorType: 'array' } }), /write every item/);
   });
 
   it('caps the list so the whole catalog stays cheap to send', () => {

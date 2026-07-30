@@ -4,7 +4,7 @@ import { getDataProvider } from '@/lib/data';
 import { openAiChatTools, type OpenAiTool } from '@/lib/server/ai-client';
 import { formatBrandVoiceForPrompt, getDesignWorkspace } from '@/lib/server/design-workspace';
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
-import { mergeBlockValues, summarizeFields } from '@/lib/merge-block-values';
+import { blankContentValues, mergeBlockValues, summarizeFields } from '@/lib/merge-block-values';
 import { summarizeComposition } from '@/lib/composition-summary';
 
 export { summarizeComposition };
@@ -202,8 +202,12 @@ async function buildBlocks(
       continue;
     }
 
+    // Shape from the preview, content blanked. Leaving the preview's own copy in place made an
+    // unfilled field render as somebody else's sample rather than as a gap, which is how a page ships
+    // looking finished and isn't.
+    const template = blankContentValues(scaffold.args, scaffold.fields);
     const values = (entry?.values ?? {}) as Record<string, unknown>;
-    const { args, unknownKeys, unfilled } = mergeBlockValues(scaffold.args, values, scaffold.fields);
+    const { args, unknownKeys, unfilled } = mergeBlockValues(template, values, scaffold.fields);
     if (unknownKeys.length) {
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
@@ -293,6 +297,16 @@ their props with values shaped exactly as the scaffold tells you.
 
 You do not need to inspect a block before using it — the fields listed by \`list_blocks\` are all you
 need, and the server applies your values to the block's real shape. Write copy, not structure.
+
+## Filling blocks
+- **Write every content field.** Nothing is filled in for you; a field you skip ships empty. This is
+  the most common way a generated page looks unfinished.
+- **Arrays need every item.** Four stats means four entries, each with its own copy — not one.
+- Fields marked *HTML string* take real markup: \`<h2>…</h2>\`, \`<p>…</p>\`, \`<ul><li>…</li></ul>\`.
+- Image fields already hold a correctly-proportioned placeholder. Replace \`src\` only with a real
+  asset from \`search_assets\`; otherwise leave the placeholder, which shows the intended size.
+- A full page normally opens with the \`header\` block and closes with \`footer\`, both with empty
+  values — they are site chrome with nothing to author. Omit them when asked for a single section.
 ${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. When the user asks for a change, propose the WHOLE page again with that change made — the proposal replaces what is there.\n` : ''}
 ## Copy
 Write real copy, not placeholders. It must obey the brand voice below.
@@ -379,9 +393,9 @@ export async function runPlaygroundChatTurn(args: {
             content: JSON.stringify({
               incomplete: true,
               reason:
-                'These fields were left at their preview defaults, which are sample content — lorem ipsum, ' +
-                'placeholder press releases, or a component\'s own documentation. Supply real values for ' +
-                'them and call propose_page again with the complete set of blocks.',
+                'These content fields are empty. Nothing fills them for you — an unwritten field ships ' +
+                'blank. Write real values (arrays need EVERY item authored, not one) and call ' +
+                'propose_page again with the complete set of blocks.',
               missing: gaps,
             }),
           });
