@@ -93,6 +93,41 @@ the wrong call.
   existing pipeline queue and the chat reports progress. Designing for this now avoids discovering it
   when turns start timing out.
 
+## Phase 3.5 — Exemplars belong to the project, not the product ⚠️
+
+**This is remediation, not a feature.** `lib/page-exemplars.ts` currently hardcodes **8x8's** page
+structures into the Handoff app. Every registry that uses the playground now inherits an
+enterprise-SaaS product-page shape — fifteen sections, analyst recognition, security badge rows —
+whether or not it resembles anything they publish. A design system tool that imposes one client's page
+architecture on every other client has the problem backwards.
+
+Exemplars are workspace data, exactly like `designMd` and `brandVoice`:
+
+- **Stored per registry**, alongside the other workspace settings.
+- **No default.** If a workspace has none, the prompt simply omits that section. A generic "typical
+  marketing page" fallback sounds harmless and isn't — it would quietly become everyone's house style,
+  which is the same mistake in a milder form.
+- **Written over MCP**, following the pattern `handoff_update_brand_voice` just established:
+  admin-gated, merge rather than replace, echo what changed.
+- The 8x8 exemplars move out of code and into 8x8's workspace. They were derived from observation and
+  should live where the observations apply.
+
+**The authoring flow is the interesting part, and it already exists in pieces.** Deriving exemplars is
+what an LLM session is good at, and the tools are mostly built:
+
+1. `extract-url` reads a real page — already used by the chat's "pull from URL".
+2. The session reads several, and proposes structures.
+3. `handoff_update_page_exemplars` stores them.
+
+So "point Handoff at your own site and let it learn your page shapes" needs one write tool, not a
+crawler. That is a genuinely good story for onboarding a new registry, and it is the same move as
+correcting a fabricated brand voice from observed copy.
+
+Worth deciding when building: whether exemplars are freeform text or the structured
+`{ sections: [{ purpose, tone, items }] }` shape used today. Structured is checkable and rendersconsistently;
+freeform is easier for a human to write by hand. Structured with a text `notes` field is probably the
+right compromise.
+
 ## Phase 4 — Output
 
 - **Preview as an image.** Needs a decision (below) — the cheap version captures the existing preview

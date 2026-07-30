@@ -14,6 +14,12 @@
  * **Data, not prose, so they stay editable when the site changes.** They are also deliberately
  * *shapes* rather than block ids: naming exact components would rot the moment the catalog does, and
  * the model already has the catalog in front of it. What it lacks is the rhythm.
+ *
+ * ⚠️ **These are 8x8's, and they should not live here.** Handoff is multi-tenant; hardcoding one
+ * client's page architecture into the shared app imposes it on every other registry. They belong in
+ * workspace settings beside `designMd` and `brandVoice`, authored per project and written over MCP —
+ * see "Phase 3.5" in `docs/PLAYGROUND-PLAN.md`. Treat this file as a temporary home, and do not add
+ * more client-specific structures to it.
  */
 
 export interface ExemplarSection {
