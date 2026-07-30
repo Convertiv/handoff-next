@@ -344,6 +344,11 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
         {/* Scroll region */}
         <div className="flex-1 overflow-y-auto py-10">
           <div className="container mx-auto max-w-[1500px] px-8">
+          <h2 className="text-center text-4xl font-semibold tracking-tight">Prototype Library</h2>
+          <p className="mx-auto mb-10 mt-3 max-w-2xl text-center text-lg font-light leading-relaxed text-muted-foreground">
+            Designs and pages built with your design system - generate them with AI, refine them in chat, and share
+            the results with your team.
+          </p>
           {/* Notices */}
           {error ? (
             <div className="mb-3 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

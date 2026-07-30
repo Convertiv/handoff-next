@@ -6,7 +6,6 @@ import {
   ClipboardIcon,
   DownloadIcon,
   FileTextIcon,
-  GaugeIcon,
   LayoutGridIcon,
   LibraryIcon,
   LightbulbIcon,
@@ -14,7 +13,6 @@ import {
   PanelsTopLeftIcon,
   PaperclipIcon,
   RotateCcwIcon,
-  SettingsIcon,
   WandSparklesIcon,
   XIcon,
   ZoomInIcon,
@@ -22,7 +20,6 @@ import {
 } from 'lucide-react';
 import { PenNib } from '@phosphor-icons/react';
 import Image from 'next/image';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
@@ -104,11 +101,6 @@ const CANVAS_INITIAL_SCALE = 0.35;
 const CANVAS_MIN_SCALE = 0.2;
 const TRACKPAD_ZOOM_STEP = 0.01;
 const LAYOUT_WIZARD_PROMPT = 'Make me a design using our design system based on this wireframe.';
-const STAGE_LABELS: Record<string, string> = {
-  preparing: 'Preparing…',
-  building_prompt: 'Building prompt…',
-  generating: 'Generating…',
-};
 const PROMPT_SUGGESTIONS = [
   'Design a modern SaaS landing page hero for a productivity app.',
   'Create a pricing section with three plans and a highlighted recommended tier.',
@@ -120,11 +112,21 @@ const PROMPT_SUGGESTIONS = [
   'Create an empty state for a project dashboard with a clear next action.',
   'Design a calendar scheduling screen for booking customer calls.',
 ];
+/** Curated block screenshots (under public/assets/design/blocks/) offered as prompt attachments. */
+const BLOCK_LIBRARY = [
+  { file: 'callout-cta.jpg', label: 'Callout CTA' },
+  { file: 'carousel.png', label: 'Carousel' },
+  { file: 'container.png', label: 'Container' },
+  { file: 'customer-stories.jpg', label: 'Customer stories' },
+  { file: 'faq.jpg', label: 'FAQ' },
+  { file: 'features-comparison.jpg', label: 'Features comparison' },
+  { file: 'table.jpg', label: 'Table' },
+];
 /** Shortcut prompts shown in the chat sidebar before the first message. */
 const CHAT_EMPTY_SUGGESTIONS = [
-  { icon: PanelsTopLeftIcon, text: 'Design a SaaS landing page hero' },
-  { icon: LayoutGridIcon, text: 'Create a pricing section with three plans' },
-  { icon: GaugeIcon, text: 'Design a dashboard overview with key metrics' },
+  'Design a SaaS landing page hero',
+  'Create a pricing table with three plans, middle one being recommended. Each plan has 4 bullets and button "Start Now" at the bottom.',
+  'Design a dashboard overview with key metrics, recent activity and quick actions. Make it light on text and with decent amount of whitespace.',
 ];
 
 function formatGenerationTimestamp(createdAt: string | undefined): string {
@@ -206,6 +208,8 @@ const DesignWorkbenchPage = ({
   const [isAnalyzingLayoutGuide, setIsAnalyzingLayoutGuide] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [promptSuggestionsOpen, setPromptSuggestionsOpen] = useState(false);
+  const [chatSuggestionsOpen, setChatSuggestionsOpen] = useState(false);
+  const [blocksOpen, setBlocksOpen] = useState(false);
   const [imageQuality, setImageQuality] = useState<ImageQuality>('low');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [conversationHistory, setConversationHistory] = useState<DesignConversationTurn[]>([]);
@@ -223,6 +227,7 @@ const DesignWorkbenchPage = ({
   const [saveDefaultTitle, setSaveDefaultTitle] = useState('');
   const [saveDescription, setSaveDescription] = useState('');
   const [saveImageSrc, setSaveImageSrc] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [layoutWizardOpen, setLayoutWizardOpen] = useState(false);
   const [layoutWizardTransitioning, setLayoutWizardTransitioning] = useState(false);
@@ -926,6 +931,19 @@ const DesignWorkbenchPage = ({
     setImageSrc(resolveHistoryImageSrc(url));
   };
 
+  // Attach a curated block screenshot as a prompt image, same as a manual upload.
+  const handleAttachBlock = async (block: { file: string; label: string }) => {
+    try {
+      const res = await fetch(`${basePath}/assets/design/blocks/${block.file}`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      addPromptImageFiles([new File([blob], block.file, { type: blob.type || 'image/jpeg' })]);
+      setBlocksOpen(false);
+    } catch {
+      setError(`Could not load the "${block.label}" block image.`);
+    }
+  };
+
   const handleDownloadImage = (imageUrl: string, generationNumber: number) => {
     const link = document.createElement('a');
     link.href = resolveHistoryImageSrc(imageUrl);
@@ -939,15 +957,19 @@ const DesignWorkbenchPage = ({
     setSaveDefaultTitle(defaultTitle);
     setSaveTitle(defaultTitle);
     setSaveDescription('');
-    setError(null);
+    setSaveError(null);
     setSaveOpen(true);
   };
 
   const handleSaveArtifact = async () => {
     const title = (saveTitle.trim() || saveDefaultTitle.trim()).trim();
-    if (!title || !saveImageSrc) return;
+    if (!title) {
+      setSaveError('Title is required.');
+      return;
+    }
+    if (!saveImageSrc) return;
     setIsSaving(true);
-    setError(null);
+    setSaveError(null);
     try {
       const res = await fetch(handoffApiUrl('/api/handoff/ai/design-artifact'), {
         method: 'POST',
@@ -972,7 +994,7 @@ const DesignWorkbenchPage = ({
       setSaveDescription('');
       setSaveImageSrc(null);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Save failed.');
+      setSaveError(e instanceof Error ? e.message : 'Save failed.');
     } finally {
       setIsSaving(false);
     }
@@ -1308,17 +1330,37 @@ const DesignWorkbenchPage = ({
               </div>
               <p className="text-sm font-semibold">Design, refine, and iterate with your design system</p>
               <div className="space-y-0.5">
-                {CHAT_EMPTY_SUGGESTIONS.map(({ icon: Icon, text }) => (
-                  <button
-                    key={text}
-                    type="button"
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                    onClick={() => setPrompt(text)}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    <span className="truncate">{text}</span>
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  onClick={handleOpenLayoutWizard}
+                >
+                  <WandSparklesIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Design from existing block...</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                  onClick={() => setChatSuggestionsOpen((open) => !open)}
+                  aria-expanded={chatSuggestionsOpen}
+                >
+                  <LightbulbIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">Try a prompt...</span>
+                </button>
+                {chatSuggestionsOpen ? (
+                  <div className="space-y-2 pt-1">
+                    {CHAT_EMPTY_SUGGESTIONS.map((text) => (
+                      <button
+                        key={text}
+                        type="button"
+                        className="block w-full rounded-lg bg-gray-100/60 px-2 py-2 text-left text-xs leading-snug text-muted-foreground transition hover:bg-gray-100 hover:text-foreground"
+                        onClick={() => setPrompt(text)}
+                      >
+                        {text}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : (
@@ -1415,18 +1457,12 @@ const DesignWorkbenchPage = ({
                           </Message>
                         </MessageScrollerItem>
                         <MessageScrollerItem messageId="pending-status">
-                          <Message>
-                            <MessageContent>
-                              <Bubble variant="muted">
-                                <BubbleContent className="flex items-center gap-2 text-muted-foreground">
-                                  <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
-                                  {activeGeneration.stage
-                                    ? (STAGE_LABELS[activeGeneration.stage] ?? activeGeneration.stage)
-                                    : 'Generating…'}
-                                </BubbleContent>
-                              </Bubble>
-                            </MessageContent>
-                          </Message>
+                          <Marker>
+                            <MarkerIcon>
+                              <Loader2Icon className="animate-spin" />
+                            </MarkerIcon>
+                            <MarkerContent>Making the design...</MarkerContent>
+                          </Marker>
                         </MessageScrollerItem>
                       </>
                     ) : null}
@@ -1516,10 +1552,16 @@ const DesignWorkbenchPage = ({
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button variant="ghost" size="icon-sm" className="text-muted-foreground" asChild>
-                      <Link href={`${basePath}/design/settings/`} aria-label="Design settings">
-                        <SettingsIcon className="h-4 w-4" />
-                      </Link>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-muted-foreground"
+                      onClick={() => setBlocksOpen(true)}
+                      aria-label="Attach a block from the library"
+                      title="Attach a block from the library"
+                    >
+                      <PanelsTopLeftIcon className="h-4 w-4" />
                     </Button>
                   </div>
                   <div className="flex items-center gap-1">
@@ -1556,6 +1598,34 @@ const DesignWorkbenchPage = ({
             </div>
         </aside>
       </div>
+      <Dialog open={blocksOpen} onOpenChange={setBlocksOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Attach a block</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Pick a block from the library to attach it to your prompt as a reference.
+          </p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {BLOCK_LIBRARY.map((block) => (
+              <button
+                key={block.file}
+                type="button"
+                className="group overflow-hidden rounded-lg border bg-muted/20 text-left transition hover:border-primary"
+                onClick={() => void handleAttachBlock(block)}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`${basePath}/assets/design/blocks/${block.file}`}
+                  alt={block.label}
+                  className="aspect-video w-full bg-white object-cover"
+                />
+                <p className="px-2 py-1.5 text-xs font-medium">{block.label}</p>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
@@ -1572,9 +1642,13 @@ const DesignWorkbenchPage = ({
               <Input
                 id="artifact-title"
                 value={saveTitle}
-                onChange={(e) => setSaveTitle(e.target.value)}
+                onChange={(e) => {
+                  setSaveTitle(e.target.value);
+                  setSaveError(null);
+                }}
                 placeholder="e.g. Hero - pricing page"
               />
+              {saveError ? <p className="text-xs text-destructive">{saveError}</p> : null}
             </div>
             <div className="space-y-1">
               <Label htmlFor="artifact-desc">Description and assets</Label>
