@@ -225,8 +225,8 @@ export default function PatternPicker({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[min(85vh,720px)] max-w-4xl flex-col gap-0 overflow-hidden p-0">
         <DialogHeader className="shrink-0 border-b px-6 py-4">
-          <DialogTitle>Pattern library</DialogTitle>
-          <DialogDescription>Browse saved patterns and load one into the playground.</DialogDescription>
+          <DialogTitle>Saved pages</DialogTitle>
+          <DialogDescription>Open a saved page, or start from one.</DialogDescription>
         </DialogHeader>
 
         <div className="flex shrink-0 flex-wrap items-center gap-3 border-b px-6 py-3">

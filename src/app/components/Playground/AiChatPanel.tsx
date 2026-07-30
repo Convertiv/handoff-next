@@ -21,7 +21,7 @@ import { usePlayground } from './PlaygroundContext';
 
 type Msg =
   | { role: 'user'; content: string }
-  | { role: 'assistant'; content: string; proposal?: Proposal; toolsUsed?: string[] };
+  | { role: 'assistant'; content: string; proposal?: Proposal };
 
 interface Proposal {
   blocks: { componentId: string; args: Record<string, unknown> }[];
@@ -35,6 +35,8 @@ export default function AiChatPanel() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState('');
+  const abortRef = useRef<AbortController | null>(null);
   const [urlOpen, setUrlOpen] = useState(false);
   const [url, setUrl] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -43,6 +45,13 @@ export default function AiChatPanel() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, busy]);
 
+  /**
+   * Send a turn and consume its event stream.
+   *
+   * The server narrates what it is doing — searching, scaffolding, looking for imagery — and each
+   * status replaces the last, so the panel reads as one live line rather than an accumulating log.
+   * Only the reply and proposal become permanent messages.
+   */
   const send = async (text: string) => {
     if (!text.trim() || busy) return;
     setError(null);
@@ -51,30 +60,68 @@ export default function AiChatPanel() {
     const next: Msg[] = [...messages, { role: 'user', content: text }];
     setMessages(next);
     setBusy(true);
+    setStatus('Thinking…');
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const res = await fetch('/api/handoff/ai/playground-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
+        signal: controller.signal,
         body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, content: m.content })) }),
       });
-      const json = (await res.json()) as {
-        reply?: string;
-        proposal?: Proposal;
-        toolsUsed?: string[];
-        error?: string;
-      };
-      if (!res.ok) throw new Error(json.error || 'The request failed.');
-      setMessages((cur) => [
-        ...cur,
-        { role: 'assistant', content: json.reply ?? '', proposal: json.proposal, toolsUsed: json.toolsUsed },
-      ]);
+      if (!res.ok || !res.body) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error || 'The request failed.');
+      }
+
+      let reply = '';
+      let proposal: Proposal | undefined;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // Newline-delimited JSON: the last piece may be a partial line, so it stays in the buffer.
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let event: { type: string; text?: string; content?: string; message?: string; blocks?: Proposal['blocks']; rationale?: string };
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+          if (event.type === 'status') setStatus(event.text ?? '');
+          else if (event.type === 'reply') reply = event.content ?? '';
+          else if (event.type === 'proposal') proposal = { blocks: event.blocks ?? [], rationale: event.rationale ?? '' };
+          else if (event.type === 'error') throw new Error(event.message || 'The request failed.');
+        }
+      }
+
+      if (reply || proposal) {
+        setMessages((cur) => [...cur, { role: 'assistant', content: reply, proposal }]);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'The request failed.');
+      // An abort is the user choosing to stop, not a failure to report.
+      if (!(e instanceof DOMException && e.name === 'AbortError')) {
+        setError(e instanceof Error ? e.message : 'The request failed.');
+      }
     } finally {
+      abortRef.current = null;
+      setStatus('');
       setBusy(false);
     }
   };
+
+  const stop = () => abortRef.current?.abort();
 
   /**
    * Pull a page's content into the conversation.
@@ -212,19 +259,23 @@ export default function AiChatPanel() {
                   )}
                 </div>
               ) : null}
-
-              {/* Showing its working: which blocks it looked at, whether it consulted the asset store. */}
-              {m.role === 'assistant' && m.toolsUsed?.length ? (
-                <p className="text-[11px] text-muted-foreground">{summarizeTools(m.toolsUsed)}</p>
-              ) : null}
             </div>
           </div>
         ))}
 
         {busy ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Looking through your blocks…
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              <span className="truncate">{status || 'Thinking…'}</span>
+            </div>
+            <button
+              type="button"
+              onClick={stop}
+              className="shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Stop
+            </button>
           </div>
         ) : null}
 
@@ -265,15 +316,4 @@ export default function AiChatPanel() {
       </div>
     </div>
   );
-}
-
-/** Turn the raw tool list into one readable line — "searched blocks · scaffolded 3 · checked assets". */
-function summarizeTools(tools: string[]): string {
-  const count = (n: string) => tools.filter((t) => t === n).length;
-  const parts: string[] = [];
-  if (count('search_components')) parts.push('searched blocks');
-  const scaffolds = count('scaffold_args');
-  if (scaffolds) parts.push(`scaffolded ${scaffolds}`);
-  if (count('search_assets')) parts.push('checked assets');
-  return parts.join(' · ');
 }

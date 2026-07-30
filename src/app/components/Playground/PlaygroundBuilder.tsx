@@ -296,7 +296,7 @@ export default function PlaygroundBuilder() {
                     <FolderOpen className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom">Load pattern</TooltipContent>
+                <TooltipContent side="bottom">Open a page</TooltipContent>
               </Tooltip>
               {selectedComponents.length > 0 && (
                 <Tooltip>
@@ -305,7 +305,7 @@ export default function PlaygroundBuilder() {
                       <SaveIcon className="h-4 w-4" />
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">{editingPatternId ? 'Update pattern' : 'Save pattern'}</TooltipContent>
+                  <TooltipContent side="bottom">{editingPatternId ? 'Update page' : 'Save page'}</TooltipContent>
                 </Tooltip>
               )}
             </>

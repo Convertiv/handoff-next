@@ -41,6 +41,43 @@ export interface PlaygroundChatMessage {
   content: string;
 }
 
+/**
+ * Progress emitted while the loop runs.
+ *
+ * Deliberately *events*, not tokens. A turn spends 10–30s doing real work — searching the catalog,
+ * scaffolding props, looking for imagery — and a spinner cannot distinguish that from being stuck.
+ * Streaming the model's prose would show characters appearing while the interesting part happened
+ * invisibly between them; streaming what it is *doing* is the thing worth watching.
+ *
+ * The loop takes a callback rather than being a generator so it stays transport-agnostic: the route
+ * turns these into SSE, and a test can collect them into an array.
+ */
+export type PlaygroundChatEvent =
+  | { type: 'status'; text: string }
+  | { type: 'reply'; content: string }
+  | { type: 'proposal'; blocks: ProposedBlock[]; rationale: string }
+  | { type: 'error'; message: string };
+
+/** Human-readable narration for a tool call. Named for what the user cares about, not the function. */
+function narrate(name: string, args: Record<string, unknown>): string {
+  switch (name) {
+    case 'search_components': {
+      const q = typeof args.query === 'string' ? args.query.trim() : '';
+      return q ? `Looking for ${q} blocks…` : 'Looking through your blocks…';
+    }
+    case 'scaffold_args':
+      return `Checking how ${String(args.componentId ?? 'that block')} is configured…`;
+    case 'search_assets': {
+      const q = typeof args.query === 'string' ? args.query.trim() : '';
+      return q ? `Searching your assets for ${q}…` : 'Searching your asset library…';
+    }
+    case 'propose_page':
+      return 'Putting the page together…';
+    default:
+      return 'Working…';
+  }
+}
+
 /** Ceiling on the tool loop. Generous enough to scaffold several blocks, low enough to bound a runaway. */
 const MAX_TOOL_ROUNDS = 12;
 
@@ -198,7 +235,12 @@ export async function runPlaygroundChatTurn(args: {
   messages: PlaygroundChatMessage[];
   attachedAssetIds?: string[];
   actorUserId?: string | null;
+  /** Progress sink. Omit for a plain awaited turn — the loop behaves identically either way. */
+  onEvent?: (event: PlaygroundChatEvent) => void;
+  /** Aborts between rounds. Without it, a closed tab leaves the loop running and burning tokens. */
+  signal?: AbortSignal;
 }): Promise<PlaygroundChatTurn> {
+  const emit = args.onEvent ?? (() => {});
   const attached = args.attachedAssetIds ?? [];
   const workspace = await getDesignWorkspace().catch(() => null);
   const brandVoice = workspace ? formatBrandVoiceForPrompt(workspace.brandVoice).trim() : '';
@@ -214,6 +256,10 @@ export async function runPlaygroundChatTurn(args: {
   const scaffolded = new Set<string>();
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    // Checked between rounds rather than mid-call: the in-flight request finishes either way, but we
+    // stop paying for the next one.
+    if (args.signal?.aborted) return { reply: '', toolsUsed };
+
     const { content, toolCalls } = await openAiChatTools(convo, TOOLS, {
       actorUserId: args.actorUserId ?? null,
       route: '/api/handoff/ai/playground-chat',
@@ -221,7 +267,9 @@ export async function runPlaygroundChatTurn(args: {
     });
 
     if (!toolCalls.length) {
-      return { reply: content ?? '', toolsUsed };
+      const reply = content ?? '';
+      emit({ type: 'reply', content: reply });
+      return { reply, toolsUsed };
     }
 
     convo.push({
@@ -238,6 +286,7 @@ export async function runPlaygroundChatTurn(args: {
       } catch {
         /* a malformed argument object is reported back to the model rather than thrown */
       }
+      emit({ type: 'status', text: narrate(call.name, parsed) });
 
       // Terminal — but only once every block has actually been scaffolded.
       //
@@ -271,11 +320,11 @@ export async function runPlaygroundChatTurn(args: {
           continue;
         }
 
-        return {
-          reply: content ?? String(parsed.rationale ?? 'Here is the page.'),
-          proposal: { blocks, rationale: String(parsed.rationale ?? '') },
-          toolsUsed,
-        };
+        const rationale = String(parsed.rationale ?? '');
+        const reply = content ?? rationale ?? 'Here is the page.';
+        emit({ type: 'reply', content: reply });
+        emit({ type: 'proposal', blocks, rationale });
+        return { reply, proposal: { blocks, rationale }, toolsUsed };
       }
 
       let result: unknown;
@@ -296,8 +345,8 @@ export async function runPlaygroundChatTurn(args: {
     }
   }
 
-  return {
-    reply: 'I looked at a lot of blocks without settling on a composition. Tell me more specifically what the page should contain.',
-    toolsUsed,
-  };
+  const exhausted =
+    'I looked at a lot of blocks without settling on a composition. Tell me more specifically what the page should contain.';
+  emit({ type: 'reply', content: exhausted });
+  return { reply: exhausted, toolsUsed };
 }
