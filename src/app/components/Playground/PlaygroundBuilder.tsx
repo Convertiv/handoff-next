@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { usePlayground } from './PlaygroundContext';
+import AiChatPanel from './AiChatPanel';
 import { EditContextProvider, useEditContext } from './EditContext';
 import SortableItem from './SortableItem';
 import Preview, { constructComponentPreview } from './Preview';
@@ -114,6 +115,9 @@ export default function PlaygroundBuilder() {
   const [patternPickerOpen, setPatternPickerOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  // Closed by default: the canvas is the point, and the chat is opt-in rather than
+  // something that narrows the preview for everyone who opens the playground.
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -243,6 +247,21 @@ export default function PlaygroundBuilder() {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">{leftPanelOpen ? 'Hide blocks' : 'Show blocks'}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => setAiPanelOpen(!aiPanelOpen)}
+                aria-label={aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}
+              >
+                <SparklesIcon className={cn('h-4 w-4 transition-colors', aiPanelOpen && 'text-primary')} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}</TooltipContent>
           </Tooltip>
 
           <div className="mx-1 h-4 w-px bg-border" />
@@ -485,6 +504,8 @@ export default function PlaygroundBuilder() {
             )}
           </div>
         )}
+
+        {aiPanelOpen && <AiChatPanel />}
       </div>
 
       <WizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
