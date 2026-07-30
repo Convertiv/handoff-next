@@ -20,11 +20,10 @@ import {
   Minimize,
   Monitor,
   PanelLeft,
-  PanelRight,
   Plus,
   SaveIcon,
-  Settings2,
   Smartphone,
+  ChevronLeft,
   SparklesIcon,
   Tablet,
 } from 'lucide-react';
@@ -65,24 +64,57 @@ function buildHandoffPageExport(selectedComponents: SelectedPlaygroundComponent[
   };
 }
 
-function RightPanelContent() {
+/**
+ * The block editor, shown in place of the block list rather than beside it.
+ *
+ * Editing one block is a mode, not a second thing to look at: the list and the editor were competing
+ * for attention in two rails while the canvas — the thing you are actually judging — got squeezed
+ * between them. Swapping within one rail gives the preview the width back and makes "which block am I
+ * editing" unambiguous.
+ *
+ * Both exits return to the list. Cancel simply discards: `EditContext` keeps edits local until
+ * `handleSave` commits them, so leaving without saving needs no undo.
+ */
+function BlockEditorPanel({ onDone }: { onDone: () => void }) {
   const { component, properties, data, handleSave } = useEditContext();
   if (!component) return null;
 
   return (
     <>
-      <div className="border-b px-4 py-3">
-        <h3 className="truncate text-sm font-semibold">{component.title}</h3>
-        {component.description && (
-          <p className="mt-0.5 truncate text-xs text-muted-foreground">{component.description}</p>
-        )}
+      <div className="flex items-start gap-2 border-b px-3 py-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-0.5 h-6 w-6 shrink-0 p-0"
+          onClick={onDone}
+          aria-label="Back to blocks"
+          title="Back to blocks"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold">{component.title}</h3>
+          {component.description && (
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{component.description}</p>
+          )}
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {renderFormFields(properties, data)}
       </div>
-      <div className="border-t p-3">
-        <Button onClick={handleSave} size="sm" className="w-full">
-          Apply Changes
+      <div className="flex gap-2 border-t p-3">
+        <Button variant="outline" size="sm" className="flex-1" onClick={onDone}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          className="flex-1"
+          onClick={() => {
+            handleSave();
+            onDone();
+          }}
+        >
+          Apply
         </Button>
       </div>
     </>
@@ -117,7 +149,6 @@ export default function PlaygroundBuilder() {
   // to look at yet, so the chat IS the starting point; arriving to edit a saved pattern is a different
   // intent and shouldn't have the preview narrowed for it.
   const [aiPanelOpen, setAiPanelOpen] = useState(() => !editingPatternId);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const previewContainerRef = useRef<HTMLDivElement>(null);
   // The canvas preview iframe — shared with the right-panel editor so field
@@ -146,12 +177,6 @@ export default function PlaygroundBuilder() {
   );
 
   const activeComponent = selectedComponents.find((c) => c.uniqueId === activeComponentId) ?? null;
-
-  useEffect(() => {
-    if (activeComponentId && !rightPanelOpen) {
-      setRightPanelOpen(true);
-    }
-  }, [activeComponentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const render = async () => {
@@ -359,24 +384,26 @@ export default function PlaygroundBuilder() {
             <TooltipContent side="bottom">{isFullscreen ? 'Exit fullscreen' : 'Fullscreen preview'}</TooltipContent>
           </Tooltip>
 
-          <div className="mx-1 h-4 w-px bg-border" />
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setRightPanelOpen(!rightPanelOpen)}>
-                <PanelRight className={cn('h-4 w-4 transition-colors', rightPanelOpen && 'text-primary')} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{rightPanelOpen ? 'Hide settings' : 'Show settings'}</TooltipContent>
-          </Tooltip>
         </div>
       </div>
 
       {/* ── Main content area ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* ── Left Panel — Blocks ── */}
+        {/* ── Left Panel — Blocks, or the editor for one block ── */}
         {leftPanelOpen && (
-          <div className="flex w-[260px] shrink-0 flex-col border-r bg-background">
+          <div className="flex w-[300px] shrink-0 flex-col border-r bg-background">
+            {activeComponent ? (
+              <EditContextProvider
+                key={activeComponent.uniqueId}
+                component={activeComponent}
+                onCommit={updateComponent}
+                targetIframeRef={canvasIframeRef}
+              >
+                <BlockEditorPanel onDone={() => setActiveComponentId(null)} />
+                <MediaBrowser />
+              </EditContextProvider>
+            ) : (
+              <>
             <div className="flex items-center justify-between border-b px-4 py-3">
               <div className="flex items-center gap-2">
                 <Layers className="h-4 w-4 text-muted-foreground" />
@@ -437,6 +464,8 @@ export default function PlaygroundBuilder() {
                 }
               />
             </div>
+              </>
+            )}
           </div>
         )}
 
@@ -469,31 +498,6 @@ export default function PlaygroundBuilder() {
             </div>
           </div>
         </div>
-
-        {/* ── Right Panel — Settings ── */}
-        {rightPanelOpen && (
-          <div className="flex w-[300px] shrink-0 flex-col border-l bg-background">
-            {activeComponent ? (
-              <EditContextProvider
-                key={activeComponent.uniqueId}
-                component={activeComponent}
-                onCommit={updateComponent}
-                targetIframeRef={canvasIframeRef}
-              >
-                <RightPanelContent />
-                <MediaBrowser />
-              </EditContextProvider>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-                <Settings2 className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                <p className="text-sm font-medium text-muted-foreground">No block selected</p>
-                <p className="mt-1 text-xs text-muted-foreground/70">
-                  Click a block in the left panel to edit its properties here.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
 
         {aiPanelOpen && <AiChatPanel />}
       </div>
