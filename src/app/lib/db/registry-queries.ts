@@ -482,7 +482,28 @@ export async function getRegistryFontForSatori(familyKey: string, weight: number
   const usable = rows.filter(
     (r) => r.style === 'normal' && ['ttf', 'otf', 'woff'].includes((r.format || '').toLowerCase()) && r.data
   );
-  if (!usable.length) return null;
+  if (!usable.length) {
+    // The quietest and most damaging failure in the font chain. When no usable row is found satori
+    // silently substitutes Inter, the foundations sheet teaches the model the wrong letterforms, and
+    // every design generated from it inherits them — with nothing in the logs to explain why. The three
+    // real causes are indistinguishable without this line:
+    //   * the family was never pushed at all (tokens carry the NAME from Figma; the sheet needs the FILE)
+    //   * it was pushed as WOFF2, which is filtered out above — Brotli-compressed and transformed glyf,
+    //     so it cannot be unwrapped to sfnt the way WOFF can
+    //   * the family key does not match — "Bely Display" in a token resolves to `belydisplay`, so a file
+    //     pushed as "Bely" (`bely`) will never be found
+    console.warn(
+      `[registry-fonts] ⚠ no usable font for familyKey="${familyKey}" w${weight}. ` +
+        (rows.length
+          ? `${rows.length} row(s) exist but none qualify: ${rows
+              .map((r) => `${r.filename}[format=${r.format || '?'} style=${r.style || '?'} w${r.weight}]`)
+              .join(', ')}. Usable formats are ttf/otf/woff with style=normal — WOFF2 cannot be used.`
+          : `No rows at all for that key — the family was never pushed, or the token's family name ` +
+            `resolves to a different key than the pushed file.`) +
+        ' The foundations sheet will fall back to Inter for this family.'
+    );
+    return null;
+  }
 
   const formatRank = (f: string) => (['ttf', 'otf'].includes(f.toLowerCase()) ? 0 : 1);
   const sorted = [...usable].sort((a, b) => {

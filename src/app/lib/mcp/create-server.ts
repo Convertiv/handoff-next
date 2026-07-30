@@ -581,7 +581,24 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         list = list.filter((c) => (c.group || '').toLowerCase() === group.trim().toLowerCase());
       }
       const cap = limit ?? 50;
-      return textResult(list.slice(0, cap).map((c) => ({ id: c.id, title: c.title, group: c.group, type: c.type })));
+      const origin = issuerForCliSync(request);
+      // Names alone are hard to choose between. A link and a thumbnail turn "here are 11 heroes" into
+      // something you can actually look at — and let a client render a picker rather than a list.
+      // `previewImageUrl` is null on components with no stored image, which the caller must handle:
+      // it is populated per component and there is no guarantee a registry has any.
+      return textResult(
+        list.slice(0, cap).map((c) => {
+          const image = typeof c.image === 'string' ? c.image.trim() : '';
+          return {
+            id: c.id,
+            title: c.title,
+            group: c.group,
+            type: c.type,
+            componentUrl: `${origin}/system/component/${encodeURIComponent(c.id)}/`,
+            previewImageUrl: image ? (image.startsWith('/') && !image.startsWith('//') ? `${origin}${image}` : image) : null,
+          };
+        })
+      );
     }
   );
 

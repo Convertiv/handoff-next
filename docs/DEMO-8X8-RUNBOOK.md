@@ -76,9 +76,31 @@ could build this hero. Don't fetch full component source, just search.
 Fires `handoff_search_components`. Returns ~11 heroes, ~1KB.
 
 **Check:** it names real ids (`hero-split-media`, `hero-form`, …) rather than describing generic heroes.
+Each result now carries `componentUrl` and `previewImageUrl`.
 
-> ⚠️ **Don't let it call `handoff_get_component` on a real block.** `hero-form` is 513KB of source. The
-> response cap will trim it, but it still burns context for nothing.
+> ⚠️ **Don't let it call `handoff_get_component` on a real block.** `badge` — an *atom* — is 466KB of
+> source. The cap now clips it to something usable instead of erroring, but it still burns context for
+> nothing.
+
+### Step 3b — Show it, don't list it ⭐
+
+```
+Build me a small HTML page from those results: a card grid, one card per component, showing the
+thumbnail from previewImageUrl, the title, and the group, with each card linking to componentUrl.
+Inline the thumbnails as data URIs so they render.
+```
+
+This is the thesis beat made visual — a wall of what 8x8 already owns, each tile clicking through to
+the real component page.
+
+**Two things that will bite, in order of likelihood:**
+
+1. **Thumbnails may be blank.** `previewImageUrl` is `null` for any component with no stored image, and
+   whether 8x8's catalog has them is **unverified** — check this on your rehearsal run. If they're all
+   null, drop the thumbnail and render a linked card grid with title/group/type; it still reads well.
+2. **Remote images don't load in an Artifact.** Artifacts run under a strict CSP that blocks external
+   hosts, which is why the prompt says *inline them as data URIs* — Claude fetches each image and embeds
+   it. Skip that instruction and you'll get a grid of broken-image icons.
 
 ## Step 4 — Refine the copy (no tools)
 

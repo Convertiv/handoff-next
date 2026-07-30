@@ -118,9 +118,18 @@ export function capPayload(data: unknown, limit = maxResponseBytes()): CapResult
 
   let current = value;
   const notes: string[] = [];
-  // Bounded: each pass halves the largest array, so it terminates whether or not the limit is reachable.
-  for (let pass = 0; pass < 24 && byteLength(text) > limit; pass += 1) {
-    const trimmed = halveLongestArray(current, notes);
+  // Two reduction strategies, in order of how much they cost the caller.
+  //
+  // Arrays first: dropping whole records loses entries but keeps every survivor intact and truthful.
+  // When no array can help, the payload is one fat object whose bulk is in long strings — a component
+  // row is mostly `code`/`html`/`sass`. Halving the longest string is lossy, but it is *far* better than
+  // the alternative this replaces: `get_component('badge')` returned 466KB of mostly source and the
+  // trimmer, having no array to cut, gave up and returned an error. No result is worse than a clipped
+  // one — the caller usually wanted the properties, not the stylesheet.
+  //
+  // Bounded twice over: each pass strictly shrinks the payload, and the pass count is capped.
+  for (let pass = 0; pass < 40 && byteLength(text) > limit; pass += 1) {
+    const trimmed = halveLongestArray(current, notes) ?? halveLongestString(current, notes);
     if (!trimmed) break;
     current = trimmed;
     text = JSON.stringify(withNotes(current, notes, limit), null, 2) ?? 'null';
@@ -170,8 +179,13 @@ function halveLongestArray(root: unknown, notes: string[]): unknown | null {
 
   const find = (v: unknown, path: string, depth: number): void => {
     if (Array.isArray(v)) {
-      // Shallower always beats deeper; same depth falls back to whichever is longer.
-      if (v.length > 1 && (!best || depth < best.depth || (depth === best.depth && v.length > best.arr.length))) {
+      // Shallower always beats deeper; same depth falls back to whichever is longer. The size floor
+      // matters as much as the ordering: without it, trimming a component happily dropped an enum
+      // option — `["info","success"]` became `["info"]` — to save ten bytes. A clipped source string is
+      // honest about being clipped; a silently shortened enum is just wrong. Small arrays carry meaning
+      // per entry, so they are left alone and the string trimmer takes over instead.
+      const worthCutting = v.length > 1 && byteLength(JSON.stringify(v) ?? '') >= MIN_TRIMMABLE_ARRAY_BYTES;
+      if (worthCutting && (!best || depth < best.depth || (depth === best.depth && v.length > best.arr.length))) {
         best = { arr: v, path: path || 'items', depth };
       }
       v.forEach((item, i) => find(item, `${path}[${i}]`, depth + 1));
@@ -191,6 +205,73 @@ function halveLongestArray(root: unknown, notes: string[]): unknown | null {
 
   const replace = (v: unknown): unknown => {
     if (v === target.arr) return target.arr.slice(0, keep);
+    if (Array.isArray(v)) return v.map(replace);
+    if (v && typeof v === 'object' && isPlainObject(v)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(v)) out[k] = replace(val);
+      return out;
+    }
+    return v;
+  };
+  return replace(root);
+}
+
+/** Strings shorter than this are left alone — clipping them costs meaning and saves nothing. */
+const MIN_TRIMMABLE_STRING = 400;
+
+/**
+ * Arrays whose whole serialized form is smaller than this are left alone.
+ *
+ * Dropping entries from a short array — enum options, a handful of variants — destroys meaning to
+ * reclaim a rounding error. Only arrays big enough to matter are worth the loss.
+ */
+const MIN_TRIMMABLE_ARRAY_BYTES = 2048;
+
+/**
+ * Halve the longest string value in the structure, marking where it was cut.
+ *
+ * The fallback for a payload that is one large object rather than a long list — a component row whose
+ * `code`, `html` and `sass` fields are most of its weight. Lossy by nature, so it only runs once
+ * `halveLongestArray` has nothing left to drop, and it says which field it clipped so the caller can
+ * re-request that field on its own.
+ *
+ * Returns null when no string is long enough to be worth cutting, which is what ends the loop.
+ */
+function halveLongestString(root: unknown, notes: string[]): unknown | null {
+  let best: { text: string; path: string } | null = null;
+
+  const find = (v: unknown, path: string): void => {
+    if (typeof v === 'string') {
+      if (byteLength(v) >= MIN_TRIMMABLE_STRING && (!best || v.length > best.text.length)) {
+        best = { text: v, path: path || 'value' };
+      }
+      return;
+    }
+    if (Array.isArray(v)) {
+      v.forEach((item, i) => find(item, `${path}[${i}]`));
+      return;
+    }
+    if (v && typeof v === 'object' && isPlainObject(v)) {
+      for (const [k, val] of Object.entries(v)) find(val, path ? `${path}.${k}` : k);
+    }
+  };
+  find(root, '');
+  if (!best) return null;
+
+  const target = best as { text: string; path: string };
+  const keep = Math.max(200, Math.floor(target.text.length / 2));
+  if (keep >= target.text.length) return null;
+  const clipped = `${target.text.slice(0, keep)}\n…[${target.path} truncated — request this field on its own for the full value]`;
+  notes.push(`Truncated "${target.path}" to ${keep} of ${target.text.length} characters.`);
+
+  // Replace by identity, so an identical string elsewhere in the payload is left untouched — only the
+  // one field we measured and reported gets cut.
+  let replaced = false;
+  const replace = (v: unknown): unknown => {
+    if (!replaced && v === target.text) {
+      replaced = true;
+      return clipped;
+    }
     if (Array.isArray(v)) return v.map(replace);
     if (v && typeof v === 'object' && isPlainObject(v)) {
       const out: Record<string, unknown> = {};

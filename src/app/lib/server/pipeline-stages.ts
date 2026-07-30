@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { getDesignArtifactById, updateDesignArtifactById } from '@/lib/db/queries';
-import { openAiImageEdit, type ImageEditInput } from '@/lib/server/ai-client';
+import type { ImageEditInput } from '@/lib/server/ai-client';
 import { buildGenerationPromptFromSpec } from '@/lib/spec/generation-prompt';
 import { planAssetsFromSpec } from '@/lib/spec/asset-plan';
 import { assetsAsArtifactAssets, generateSpecAssets } from '@/lib/server/asset-first-generation';
@@ -108,67 +108,90 @@ const runAssetsStage: StageHandler = async ({ job }) => {
 /**
  * Compose the design FROM the generated assets.
  *
- * The attachment labels instruct the model to place each asset rather than reinterpret it, which is
- * what keeps the photograph in the comp identical to the file a developer downloads. Verified holding
- * on a live run (2026-07-29) — but it is a model instruction, not an enforcement, so a placement check
- * remains worth building.
+ * Delegates to the real generation worker rather than calling the image API directly. That is the whole
+ * point of this rewrite: the first version assembled its own `openAiImageEdit` call and, in doing so,
+ * silently dropped everything the workspace contributes — 8x8's uploaded **button, input and
+ * iconography reference images**, the custom foundation image, the textual foundations block, the design
+ * guidelines and the brand voice. The output looked plausible and was badly off-brand: wrong buttons,
+ * wrong typeface. Exactly the failure already recorded for MCP generation on 2026-07-29, recreated by
+ * writing a second generation path instead of reusing the first.
+ *
+ * `assetsAsAttachments` was always built for the worker's `designerAssembled` path — supplying both
+ * `attachedImages` and `attachedImageLabels` makes it attach them as labelled references and skip the
+ * iteration base, which is correct here because the composite is built fresh from the assets rather than
+ * edited from a previous canvas.
+ *
+ * **Do not reintroduce a direct image call here.** Anything the workbench sends must flow through the
+ * worker, or this stage drifts out of parity again the next time the workbench gains context.
  */
 const runCompositeStage: StageHandler = async ({ job, upstream }) => {
   const { spec, userId } = await requireSpec(job.artifactId);
   const row = await getDesignArtifactById(job.artifactId);
 
-  const generated = ((upstream.assets as { generated?: { key: string; slot: string }[] } | undefined)?.generated ?? []);
+  // The assets this pipeline just generated, as labelled references telling the model to PLACE them.
+  const generated = (upstream.assets as { generated?: { key: string; slot: string }[] } | undefined)?.generated ?? [];
   const artifactAssets = Array.isArray(row?.assets) ? (row!.assets as Record<string, unknown>[]) : [];
 
-  const images: ImageEditInput[] = [];
-  const labels: string[] = [];
+  const attachedImages: { filename: string; contentType: 'image/png' | 'image/jpeg' | 'image/webp'; dataBase64: string }[] = [];
+  const attachedImageLabels: string[] = [];
   for (const g of generated) {
     const asset = artifactAssets.find((a) => a.key === g.key);
     const url = typeof asset?.imageUrl === 'string' ? asset.imageUrl : '';
     if (!url) continue;
     const input = await toEditInput(`${g.key}.png`, url);
     if (!input) continue;
-    images.push(input);
-    labels.push(
+    attachedImages.push({
+      filename: input.filename,
+      contentType: input.contentType as 'image/png' | 'image/jpeg' | 'image/webp',
+      dataBase64: input.data.toString('base64'),
+    });
+    attachedImageLabels.push(
       `${input.filename}: the final image for the "${g.slot}" slot. Place it as-is in that position, ` +
         `cropping only if the layout demands it. Do NOT redraw, restyle, or replace its content.`
     );
   }
 
-  // The rasterized token sheet. Measured on 8x8: generation without it produced 76% token overlap,
-  // with it the same prompt came back exact. In spec-first this stage IS the design's only image, so
-  // omitting the sheet here would make the new path produce worse output than the one it replaces.
-  const foundationSheet = await foundationSheetInput();
-  if (foundationSheet) {
-    images.unshift(foundationSheet);
-    labels.unshift(
-      'design-system-foundations.png: the design system\'s colours, type and spacing. Use it for styling ONLY — never reproduce the sheet itself as visible content.'
-    );
-  }
+  // The registry's real tokens. The worker rasterizes these into the foundations sheet; an empty
+  // context makes it skip rasterization entirely, which is how generation loses the sheet.
+  const { buildFoundationContextFromRegistry } = await import('@/lib/server/foundation-context');
+  const foundationContext = await buildFoundationContextFromRegistry();
 
-  // gpt-image-2 requires at least one input image even for text-to-image.
-  if (images.length === 0) {
-    images.push({ filename: 'canvas.png', contentType: 'image/png', data: BLANK_PNG });
-    labels.push('canvas.png: blank starting canvas — compose from the specification alone.');
-  }
+  const { insertDesignGenerationJob } = await import('@/lib/db/queries');
+  const { runDesignGenerationJob } = await import('@/lib/server/design-generation-worker');
 
-  const prompt =
-    buildGenerationPromptFromSpec(spec) +
-    (labels.length ? `\n\n## Attached images\n${labels.map((l) => `- ${l}`).join('\n')}` : '');
-
-  const imageUrl = await openAiImageEdit({
-    prompt,
-    images,
-    model: 'gpt-image-2',
-    size: '2048x1152',
-    quality: 'high',
-    actorUserId: userId,
-    route: 'pipeline:composite',
-    eventType: 'ai.generate_design',
+  const jobId = await insertDesignGenerationJob({
+    artifactId: job.artifactId,
+    userId,
+    requestParams: {
+      prompt: buildGenerationPromptFromSpec(spec),
+      quality: 'high',
+      // No iteration base: the composite is assembled from the assets, not edited from a prior canvas.
+      iterationBaseUrl: null,
+      conversationHistory: [],
+      componentGuides: [],
+      foundationContext,
+      // Empty strings, deliberately: `resolveDesignGenerationContext` falls back to the workspace's own
+      // guidelines and brand voice, which is how every design inherits them without restating them.
+      designGuidelines: '',
+      brandVoiceGuidelines: '',
+      promptImageCount: 0,
+      attachedImages,
+      attachedImageLabels,
+    } as never,
   });
 
-  await updateDesignArtifactById(job.artifactId, { imageUrl } as Parameters<typeof updateDesignArtifactById>[1]);
-  return { attachedAssets: generated.length, bytes: imageUrl.length };
+  await runDesignGenerationJob(jobId, userId);
+
+  // The worker writes the image onto the linked artifact itself, so success is judged by what landed
+  // on the row rather than by the call returning.
+  const after = await getDesignArtifactById(job.artifactId);
+  if (!after?.imageUrl?.trim() || after.imageUrl === row?.imageUrl) {
+    const { getDesignGenerationJob } = await import('@/lib/db/queries');
+    const finished = await getDesignGenerationJob(jobId);
+    throw new Error(finished?.error ? String(finished.error) : 'The composite stage produced no image.');
+  }
+
+  return { attachedAssets: attachedImages.length, jobId };
 };
 
 // ── spec ──────────────────────────────────────────────────────────────────────
@@ -229,23 +252,6 @@ async function registryPalette(): Promise<string[]> {
   }
 }
 
-/** The rasterized foundations sheet as an image input, or null when there is nothing to rasterize. */
-async function foundationSheetInput(): Promise<ImageEditInput | null> {
-  try {
-    const [{ buildFoundationContextFromRegistry }, { renderFoundationsImage }] = await Promise.all([
-      import('@/lib/server/foundation-context'),
-      import('@/lib/server/foundation-image'),
-    ]);
-    const context = await buildFoundationContextFromRegistry();
-    const png = await renderFoundationsImage(context);
-    if (!png) return null;
-    return { filename: 'design-system-foundations.png', contentType: 'image/png', data: png };
-  } catch (err) {
-    console.warn('[pipeline] foundation sheet unavailable', err);
-    return null;
-  }
-}
-
 // ── conformance ───────────────────────────────────────────────────────────────
 
 /**
@@ -293,8 +299,3 @@ export const STAGE_MIN_BUDGET_MS: Record<PipelineStage, number> = {
   conformance: 60_000,
 };
 
-/** 1×1 transparent PNG — minimum accepted input for text-to-image. */
-const BLANK_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-  'base64'
-);

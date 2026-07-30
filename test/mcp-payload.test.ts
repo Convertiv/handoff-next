@@ -112,12 +112,22 @@ describe('capPayload', () => {
     assert.match(r.text, /truncated/);
   });
 
-  it('reports an irreducible single object instead of emitting a broken response', () => {
+  it('clips a single fat object under the limit rather than refusing it', () => {
+    // Previously this returned an error: no array to halve meant nothing to do. Refusing a result the
+    // caller can still use is the worse outcome, so the string trimmer handles it now.
     const r = capPayload({ blob: 'z'.repeat(200_000) }, 10_000);
     assert.equal(r.truncated, true);
-    const parsed = JSON.parse(r.text) as { error?: string; hint?: string };
-    assert.match(parsed.error ?? '', /exceeded/);
-    assert.match(parsed.hint ?? '', /narrower slice/);
+    const parsed = JSON.parse(r.text) as { error?: string; blob?: string };
+    assert.equal(parsed.error, undefined);
+    assert.ok(byteLength(r.text) <= 10_000);
+    assert.match(String(parsed.blob), /truncated/);
+  });
+
+  it('still emits valid JSON if a payload somehow resists every reduction', () => {
+    // The error branch is close to unreachable now, but it must never emit malformed JSON if it fires.
+    const r = capPayload({ a: 'x'.repeat(50_000) }, 300);
+    assert.doesNotThrow(() => JSON.parse(r.text));
+    assert.equal(r.truncated, true);
   });
 
   it('drops whole records rather than mangling every record, when a list is over budget', () => {
@@ -146,6 +156,39 @@ describe('capPayload', () => {
     const rows = Array.from({ length: 10 }, (_, i) => ({ id: i, blob: 'x'.repeat(40_000) }));
     const parsed = JSON.parse(capPayload(rows, 64 * 1024).text) as { _truncationNote?: string };
     assert.match(String(parsed._truncationNote), /Kept \d+ of 10 entries in "items"/);
+  });
+
+  it('clips long strings when there is no array to drop, instead of giving up', () => {
+    // get_component('badge') on 8x8: one object, 466KB, almost all of it source. The trimmer had no
+    // array to cut and returned an error — no result at all, when the caller wanted the properties.
+    const component = {
+      id: 'badge',
+      properties: { variant: { type: 'enum', options: ['info', 'success'] } },
+      code: 'x'.repeat(200_000),
+      html: 'y'.repeat(180_000),
+    };
+    const parsed = JSON.parse(capPayload(component, 256 * 1024).text) as Record<string, unknown>;
+    assert.equal(parsed.error, undefined, 'must return something usable');
+    assert.equal(parsed.id, 'badge', 'the small, useful fields must survive');
+    assert.match(String(parsed._truncationNote), /Truncated "code"/);
+  });
+
+  it('does not shorten a small array to save a rounding error', () => {
+    // Regression: trimming dropped an enum option to reclaim ten bytes. A clipped source string is
+    // honest about being clipped; a silently shortened enum is a lie about the component's contract.
+    const component = {
+      properties: { variant: { type: 'enum', options: ['info', 'success', 'warning'] } },
+      code: 'x'.repeat(400_000),
+    };
+    const parsed = JSON.parse(capPayload(component, 256 * 1024).text) as {
+      properties: { variant: { options: string[] } };
+    };
+    assert.deepEqual(parsed.properties.variant.options, ['info', 'success', 'warning']);
+  });
+
+  it('names the clipped field so the caller can re-request it', () => {
+    const parsed = JSON.parse(capPayload({ sass: 'z'.repeat(400_000) }, 64 * 1024).text) as { sass?: string };
+    assert.match(String(parsed.sass), /sass truncated — request this field on its own/);
   });
 
   it('terminates on deeply nested arrays rather than looping', () => {
