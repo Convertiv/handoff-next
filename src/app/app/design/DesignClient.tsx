@@ -71,6 +71,32 @@ import {
   type WorkbenchSession,
 } from './workbench-session';
 import { COMPONENT_REFERENCE_SETTINGS, CUSTOM_FOUNDATION_IMAGE_FILENAME } from './settings/settings-constants';
+import type { Lane, Lifecycle, ResourcePermissions, Visibility } from '@/lib/authz/vocab';
+
+/**
+ * A saved design as the workbench's library endpoint returns it.
+ *
+ * Distinct from `LibraryAsset` in `components/library`, which is the newer, normalized shape the
+ * standalone Library grid renders — that one spans designs *and* patterns, so it carries only the
+ * fields both can supply. This is the raw design row: what `/api/handoff/ai/design-artifact?lane=…`
+ * actually sends, including the lane fields the inspector needs.
+ *
+ * If the workbench's remaining library state is retired (see the note on `fetchLibrary`), this goes
+ * with it rather than being reconciled with `LibraryAsset`.
+ */
+type LibraryArtifactRow = {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  imageUrl: string;
+  updatedAt: string;
+  /** Lane fields, stamped by the lane list endpoint. */
+  visibility: Visibility;
+  permissions: ResourcePermissions;
+  owner: { id: string; name?: string | null; image?: string | null } | null;
+  isMe: boolean;
+};
 
 type LayoutWizardStatus = 'idle' | 'analyzing' | 'generating' | 'done';
 
@@ -346,11 +372,15 @@ const DesignWorkbenchPage = ({
     }
   }, [libraryLane]);
 
-  // Lazily load the library the first time its tab is opened, and whenever the
-  // active lane changes (the lane switch resets `libraryLoaded` below).
+  // Load the library once, and again whenever the lane changes (the lane switch resets
+  // `libraryLoaded` below).
+  //
+  // This used to be gated on the sidebar's Library tab being open. That tab no longer exists — the
+  // design-restructure merge moved the library to its own surface (`app/library`, rendering
+  // `LibraryAsset` via `AssetCard`) — so the gate referenced a state that was deleted with it.
   useEffect(() => {
-    if (activeSidebarTab === 'library' && !libraryLoaded && isLoggedIn) void fetchLibrary();
-  }, [activeSidebarTab, libraryLoaded, isLoggedIn, fetchLibrary]);
+    if (!libraryLoaded && isLoggedIn) void fetchLibrary();
+  }, [libraryLoaded, isLoggedIn, fetchLibrary]);
 
   // Switch lanes: clear the current page and force a fresh first-page load.
   /**
