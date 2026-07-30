@@ -167,7 +167,11 @@ const runCompositeStage: StageHandler = async ({ job, upstream }) => {
       quality: 'high',
       // No iteration base: the composite is assembled from the assets, not edited from a prior canvas.
       iterationBaseUrl: null,
-      conversationHistory: [],
+      // The worker REPLACES the artifact's history with these turns plus its own, so the existing one
+      // has to be passed through. Sending [] wipes the user's brief from the record — the artifact page
+      // then shows a machine-generated prompt as the "last prompt", and `briefFromArtifact` is left
+      // relying on the description fallback to know what was even asked for.
+      conversationHistory: (Array.isArray(row?.conversationHistory) ? row.conversationHistory : []) as never,
       componentGuides: [],
       foundationContext,
       // Empty strings, deliberately: `resolveDesignGenerationContext` falls back to the workspace's own
