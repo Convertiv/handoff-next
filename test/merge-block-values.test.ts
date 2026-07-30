@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { blankContentValues, mergeBlockValues, summarizeFields } from '../src/app/lib/merge-block-values';
+import { blankContentValues, humanizeFieldName, mergeBlockValues, summarizeFields } from '../src/app/lib/merge-block-values';
 
 /**
  * The template owns the shape; the model owns the content. These rules are what make it impossible for
@@ -172,7 +172,10 @@ describe('blankContentValues', () => {
       { hero: { src: '../../images/content/card-image-1.webp', alt: 'Editable hero image', width: 1536, height: 1200 } },
       fields({ hero: 'image' })
     );
-    assert.deepEqual(out.hero, { src: 'https://placehold.co/1536x1200', alt: '', width: 1536, height: 1200 });
+    const hero = out.hero as { src: string; alt: string; width: number };
+    assert.match(hero.src, /^https:\/\/placehold\.co\/1536x1200/);
+    assert.equal(hero.width, 1536, 'other template keys survive');
+    assert.equal(hero.alt, 'Hero', 'alt captions the stand-in rather than describing a missing image');
   });
 
   it('recovers dimensions from an existing placeholder URL when width/height are absent', () => {
@@ -182,7 +185,7 @@ describe('blankContentValues', () => {
 
   it('falls back to a sane ratio when nothing says otherwise', () => {
     const out = blankContentValues({ hero: { src: '', alt: '' } }, fields({ hero: 'image' }));
-    assert.equal((out.hero as { src: string }).src, 'https://placehold.co/1200x800');
+    assert.match(String((out.hero as { src: string }).src), /^https:\/\/placehold\.co\/1200x800/);
   });
 
   it('blanks a serialized React element to an empty string', () => {
@@ -295,6 +298,63 @@ describe('array item keys', () => {
   it('respects a key the model supplied', () => {
     const { args } = mergeBlockValues({ items: [{ _key: 't', label: '' }] }, { items: [{ _key: '1996', label: 'Founded' }] });
     assert.equal((args.items as { _key: string }[])[0]._key, '1996');
+  });
+});
+
+describe('readable placeholders', () => {
+  const fields = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { editorType: v }]));
+
+  it('labels the placeholder with what belongs there', () => {
+    // An unlabelled grey box only says "something is missing", which is the least useful thing a
+    // placeholder can communicate in a review.
+    const out = blankContentValues({ imageSlot: { src: '', alt: '', width: 1536, height: 1024 } }, fields({ imageSlot: 'image' }));
+    const src = String((out.imageSlot as { src: string }).src);
+    assert.match(src, /1536x1024/);
+    assert.match(src, /text=Image/);
+  });
+
+  it('turns a camelCase field name into a caption', () => {
+    assert.equal(humanizeFieldName('desktopImageSlot'), 'Desktop image');
+    assert.equal(humanizeFieldName('mediaSlot'), 'Media');
+    assert.equal(humanizeFieldName('imageSlot'), 'Image');
+  });
+
+  it('gives a slot that renders an <img> a placeholder, not an empty string', () => {
+    // mediaSlot came through as "" on a live page while imageSlot got a placeholder — the slot held
+    // markup, so the image branch never ran.
+    const out = blankContentValues(
+      { mediaSlot: '<img src="../../images/content/x.webp" alt="Team" />' },
+      fields({ mediaSlot: 'slot' })
+    );
+    assert.match(String(out.mediaSlot), /<img src="https:\/\/placehold\.co/);
+  });
+
+  it('handles a rendered element tree containing an image', () => {
+    const tree = { key: null, type: 'figure', props: { children: { type: 'img', props: { src: 'x.png' } } }, _owner: null };
+    const out = blankContentValues({ mediaSlot: tree }, fields({ mediaSlot: 'slot' }));
+    assert.match(String(out.mediaSlot), /placehold\.co/);
+  });
+
+  it('leaves a non-image slot as an empty string', () => {
+    const tree = { key: null, type: 'p', props: { children: 'docs' }, _owner: null };
+    const out = blankContentValues({ bodySlot: tree }, fields({ bodySlot: 'slot' }));
+    assert.equal(out.bodySlot, '');
+  });
+
+  it('gives an image field with no preview object a stand-in anyway', () => {
+    // Otherwise the slot collapses and the page loses its proportions.
+    const out = blankContentValues({ hero: '' }, fields({ hero: 'image' }));
+    assert.match(String((out.hero as { src: string }).src), /placehold\.co/);
+  });
+
+  it('keeps srcset in step with src, or the browser serves the stale one', () => {
+    const out = blankContentValues(
+      { hero: { src: 'old.jpg', srcset: 'old.jpg 2x', alt: '' } },
+      fields({ hero: 'image' })
+    );
+    const hero = out.hero as { src: string; srcset: string };
+    assert.equal(hero.srcset, hero.src);
   });
 });
 

@@ -117,8 +117,24 @@ function placeholderDimensions(template: Record<string, unknown>): { w: number; 
  * 404s. It renders as a grey box labelled with its size, so the page reads as "image goes here at this
  * ratio" rather than "something is broken" — and it is the natural socket for a generated asset later.
  */
-export function placeholderImageUrl(w: number, h: number): string {
-  return `https://placehold.co/${w}x${h}`;
+export function placeholderImageUrl(w: number, h: number, label?: string): string {
+  const base = `https://placehold.co/${w}x${h}`;
+  if (!label) return base;
+  // A labelled box says what belongs there. An unlabelled grey rectangle in a review only says
+  // "something is missing", which is the least useful thing a placeholder can communicate.
+  return `${base}?text=${encodeURIComponent(label.slice(0, 40))}`;
+}
+
+/** "desktopImageSlot" -> "Desktop image". Used as the placeholder's caption. */
+export function humanizeFieldName(name: string): string {
+  const words = name
+    .replace(/Slot$/, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase();
+  const label = words || 'image';
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function coerceToShape(template: unknown, value: unknown): unknown {
@@ -193,24 +209,52 @@ export function blankContentValues(
     const info = isPlainObject(meta) ? meta : {};
     const editor = typeof info.editorType === 'string' ? info.editorType : '';
     if (!CONTENT_EDITORS.includes(editor)) continue;
-    out[key] = blankValue(args[key], editor);
+    out[key] = blankValue(args[key], editor, key);
   }
 
   return out;
 }
 
-function blankValue(value: unknown, editor: string): unknown {
+/** Whether a serialized element tree renders an image somewhere inside it. */
+function containsImage(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(containsImage);
+  if (!isPlainObject(node)) return false;
+  if (node.type === 'img') return true;
+  return Object.values(node).some(containsImage);
+}
+
+function blankValue(value: unknown, editor: string, name = ''): unknown {
+  const label = name ? humanizeFieldName(name) : '';
+
   if (editor === 'image' || (isPlainObject(value) && 'src' in value)) {
     const template = isPlainObject(value) ? value : {};
     const { w, h } = placeholderDimensions(template);
     // Keep the template's other keys (srcset, className) so the shape still matches the component.
-    return { ...template, src: placeholderImageUrl(w, h), alt: '' };
+    // `srcset` must go with the src it described, or the browser serves the stale one.
+    const out: Record<string, unknown> = { ...template, src: placeholderImageUrl(w, h, label), alt: label };
+    if ('srcset' in out) out.srcset = out.src;
+    return out;
+  }
+
+  // An image field whose preview carried no object at all still needs a stand-in, or the slot
+  // collapses and the page loses its proportions.
+  if (editor === 'image') {
+    return { src: placeholderImageUrl(1200, 800, label), alt: label };
   }
 
   if (Array.isArray(value)) {
     // One item, blanked, as the shape to author against. Keeping all of them would hand back somebody
     // else's three press releases as a starting point.
-    return value.length ? [blankValue(value[0], '')] : [];
+    return value.length ? [blankValue(value[0], '', name)] : [];
+  }
+
+  // A slot whose preview renders an image is still an image slot — blanking it to "" was why
+  // `mediaSlot` came through empty while `imageSlot` got a placeholder.
+  if (typeof value === 'string' && /<img\b/i.test(value)) {
+    return `<img src="${placeholderImageUrl(1200, 800, label)}" alt="${label}" />`;
+  }
+  if (isReactElementish(value) && containsImage(value)) {
+    return `<img src="${placeholderImageUrl(1200, 800, label)}" alt="${label}" />`;
   }
 
   if (isReactElementish(value)) return '';
@@ -237,6 +281,7 @@ function blankValue(value: unknown, editor: string): unknown {
  * correctly and says nothing, which renders as an empty row rather than an obvious gap.
  */
 function isEmptyContent(value: unknown): boolean {
+  if (typeof value === 'string' && value.includes('placehold.co')) return false;
   if (value == null) return true;
   if (typeof value === 'string') return value.trim() === '';
   if (typeof value === 'boolean' || typeof value === 'number') return false;
