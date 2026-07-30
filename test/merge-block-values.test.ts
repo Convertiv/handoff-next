@@ -74,6 +74,60 @@ describe('mergeBlockValues', () => {
   });
 });
 
+describe('mergeBlockValues — preview sample content', () => {
+  const fields = (o: Record<string, string>) =>
+    Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { editorType: v }]));
+
+  it('replaces a serialized React element with the authored string', () => {
+    // Previews store slot values as rendered trees. Treating one as a normal object found no matching
+    // key, so the model's copy was discarded and the preview's own text shipped.
+    const template = { bodySlot: { key: null, type: 'p', props: { children: 'Use Simple Copy for…' }, _owner: null } };
+    const { args } = mergeBlockValues(template, { bodySlot: 'Real body copy.' });
+    assert.equal(args.bodySlot, 'Real body copy.');
+  });
+
+  it('reports content fields the model never supplied', () => {
+    const { unfilled } = mergeBlockValues(
+      { title: 'T', bodySlot: 'Harum consequatur repellendus quaerat.', dark: false },
+      { title: 'Real title' },
+      fields({ title: 'text', bodySlot: 'richtext', dark: 'boolean' })
+    );
+    assert.deepEqual(unfilled, ['bodySlot']);
+  });
+
+  it('does not report configuration fields — a default theme is a real default', () => {
+    const { unfilled } = mergeBlockValues(
+      { title: 'T', theme: 'Off White', columns: 3 },
+      { title: 'X' },
+      fields({ title: 'text', theme: 'select', columns: 'number' })
+    );
+    assert.deepEqual(unfilled, []);
+  });
+
+  it('clears a workspace-relative image path, which 404s in registry mode', () => {
+    // `../../images/content/card-image-1.webp` shipped to a live page and rendered broken.
+    const { args } = mergeBlockValues(
+      { imageSlot: { src: '../../images/content/card-image-1.webp', alt: 'Editable hero image' } },
+      {},
+      fields({ imageSlot: 'image' })
+    );
+    assert.deepEqual(args.imageSlot, { src: '', alt: 'Editable hero image' });
+  });
+
+  it('leaves a real asset URL alone', () => {
+    const { args } = mergeBlockValues(
+      { imageSlot: { src: 'https://cdn.example.com/hero.jpg', alt: '' } },
+      {},
+      fields({ imageSlot: 'image' })
+    );
+    assert.equal((args.imageSlot as { src: string }).src, 'https://cdn.example.com/hero.jpg');
+  });
+
+  it('reports nothing when there is no field metadata to judge against', () => {
+    assert.deepEqual(mergeBlockValues({ a: 'x' }, {}).unfilled, []);
+  });
+});
+
 describe('summarizeFields', () => {
   it('names each field with its editor type', () => {
     const out = summarizeFields({ headline: { editorType: 'text' }, photo: { editorType: 'image' } });

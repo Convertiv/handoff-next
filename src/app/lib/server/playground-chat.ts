@@ -187,9 +187,10 @@ const TOOLS: OpenAiTool[] = [
  */
 async function buildBlocks(
   raw: { componentId?: unknown; values?: unknown }[]
-): Promise<{ blocks: ProposedBlock[]; problems: string[] }> {
+): Promise<{ blocks: ProposedBlock[]; problems: string[]; gaps: { componentId: string; fields: string[] }[] }> {
   const blocks: ProposedBlock[] = [];
   const problems: string[] = [];
+  const gaps: { componentId: string; fields: string[] }[] = [];
 
   for (const entry of raw) {
     const componentId = String(entry?.componentId ?? '').trim();
@@ -202,16 +203,17 @@ async function buildBlocks(
     }
 
     const values = (entry?.values ?? {}) as Record<string, unknown>;
-    const { args, unknownKeys } = mergeBlockValues(scaffold.args, values);
+    const { args, unknownKeys, unfilled } = mergeBlockValues(scaffold.args, values, scaffold.fields);
     if (unknownKeys.length) {
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
       console.warn('[playground-chat] unknown fields on', componentId, unknownKeys.join(', '));
     }
+    if (unfilled.length) gaps.push({ componentId, fields: unfilled });
     blocks.push({ componentId, args });
   }
 
-  return { blocks, problems };
+  return { blocks, problems, gaps };
 }
 
 async function runTool(name: string, args: Record<string, unknown>, preferredAssetIds: string[]): Promise<unknown> {
@@ -321,6 +323,8 @@ export async function runPlaygroundChatTurn(args: {
   ];
 
   const toolsUsed: string[] = [];
+  // One retry only; see the gap handler below.
+  let askedForGaps = false;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     // Checked between rounds rather than mid-call: the in-flight request finishes either way, but we
@@ -360,7 +364,29 @@ export async function runPlaygroundChatTurn(args: {
       // catch that, and removing the possibility is better than policing it.
       if (call.name === 'propose_page') {
         const raw = Array.isArray(parsed.blocks) ? (parsed.blocks as { componentId?: unknown; values?: unknown }[]) : [];
-        const { blocks, problems } = await buildBlocks(raw);
+        const { blocks, problems, gaps } = await buildBlocks(raw);
+
+        // Ask once for the content it skipped. Templates are seeded from real previews, so an
+        // unfilled field is not empty — it is somebody's sample copy, and shipping that produces a
+        // page that looks finished and is not. Once only: a second ask rarely helps and the honest
+        // fallback is a visibly incomplete page rather than a plausible fake one.
+        if (gaps.length && !askedForGaps) {
+          askedForGaps = true;
+          console.log('[playground-chat] asking for unfilled content', JSON.stringify(gaps));
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({
+              incomplete: true,
+              reason:
+                'These fields were left at their preview defaults, which are sample content — lorem ipsum, ' +
+                'placeholder press releases, or a component\'s own documentation. Supply real values for ' +
+                'them and call propose_page again with the complete set of blocks.',
+              missing: gaps,
+            }),
+          });
+          continue;
+        }
 
         if (!blocks.length) {
           // Every block failed to resolve — usually invented component ids. Hand it back so the model
