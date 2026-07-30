@@ -1194,12 +1194,18 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     'handoff_design_from_brief',
     {
       description:
-        'Create a design SPEC-FIRST from a plain-language brief. Writes the specification first, ' +
-        'generates each declared image on its own at its correct aspect ratio, then composes the design ' +
-        'FROM those images — so the photo in the comp is the same file a developer downloads, and ' +
-        'revising the spec re-renders rather than re-rolls. Use this instead of ' +
-        'handoff_generate_design_image when starting something new from a description. Returns ' +
-        'immediately; poll handoff_get_design_pipeline for progress (a few minutes across all stages).',
+        'START HERE when someone wants to DESIGN something new — "build a hero", "design a pricing ' +
+        'section", "create a landing page section", "I need a CTA band". Takes a plain-language brief ' +
+        'and produces an actual visual design. ' +
+        'Do NOT use handoff_create_preview for this: a preview configures an EXISTING component with ' +
+        'specific values, it does not design anything. Reaching for a preview because the catalog ' +
+        'already contains a similar component is the common mistake — the user asked for a new design, ' +
+        'and what already exists informs it rather than replacing it. ' +
+        'Spec-first: writes the specification, generates each declared image on its own at its correct ' +
+        'aspect ratio, then composes the design FROM those images — so the photo in the comp is the same ' +
+        'file a developer downloads, and revising the spec re-renders rather than re-rolls. Use instead ' +
+        'of handoff_generate_design_image. Returns immediately; poll handoff_get_design_pipeline for ' +
+        'progress (a few minutes across all stages).',
       inputSchema: {
         brief: z.string().describe('What to design, in plain language. Detail helps — this writes the spec.'),
         title: z.string().optional(),
@@ -2008,7 +2014,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     {
       description:
         'Author a NEW registry preview for a component — a named, semantic value-set (e.g. a "Primary ' +
-        'CTA" button). Call handoff_scaffold_args first for correctly-shaped `values`. Values are validated ' +
+        'CTA" button). CONFIGURES AN EXISTING COMPONENT; it does not design anything new. If the user ' +
+        'asked to build or design something ("build a hero", "design a pricing section"), use ' +
+        'handoff_design_from_brief instead, even when a similar component already exists. ' +
+        'Call handoff_scaffold_args first for correctly-shaped `values`. Values are validated ' +
         'against the component contract; invalid values are rejected, not saved. This is how Claude publishes ' +
         'a configured, meaningful example to the workbench. Richtext ' +
         'fields take HTML strings. Returns `verifyUrl` (renders this value-set in the workbench immediately — ' +

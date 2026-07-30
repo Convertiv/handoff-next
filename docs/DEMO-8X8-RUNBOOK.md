@@ -144,6 +144,12 @@ Secondary CTA: See how it works
 Title it "8x8 Platform Hero".
 ```
 
+> ⚠️ **Name the tool.** A freeform *"I want to build a new hero for 8x8"* sent a live session into
+> `handoff_create_preview` on `hero-background` instead — the catalog already had a hero, so configuring
+> one looked like the helpful answer. Tool descriptions now disambiguate this (**reconnect the connector**
+> for that to take effect), but on stage, say `handoff_design_from_brief` explicitly. It costs nothing and
+> removes the only step in the demo that depends on the model guessing right.
+
 Fires `handoff_design_from_brief`. Returns `artifactId`, `pipelineId`, `stages`, and **`artifactUrl`** —
 open that in a browser now and leave it up; the page fills in as the stages land.
 
