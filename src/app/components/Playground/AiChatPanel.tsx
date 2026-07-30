@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Link2, Loader2, RefreshCw, Sparkles, Trash2, User, X } from 'lucide-react';
+import { Link2, Loader2, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Bubble, BubbleContent } from '@/components/ui/bubble';
+import { Message, MessageContent } from '@/components/ui/message';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 import { usePlayground } from './PlaygroundContext';
@@ -10,10 +12,11 @@ import { usePlayground } from './PlaygroundContext';
 /**
  * Build-a-page chat for the playground.
  *
- * Reuses `ChatInput` from the workbench chat — it is genuinely generic (`onSend`, `disabled`). It does
- * **not** reuse `ChatMessage`, which is bound to the workbench's `ChatContext` action union and would
- * drag navigation cards and component grids in with it. Playground messages are simpler: prose, plus
- * at most one proposal. Reuse what is actually shared; don't force-fit the rest.
+ * Reuses `ChatInput` from the workbench chat — it is genuinely generic (`onSend`, `disabled`) — and the
+ * `Message`/`Bubble` primitives for turn layout. It does **not** reuse `ChatMessage`, which is bound to
+ * the workbench's `ChatContext` action union and would drag navigation cards and component grids in
+ * with it. Playground messages are simpler: prose, plus at most one proposal. Reuse what is actually
+ * shared; don't force-fit the rest.
  *
  * **The chat proposes, this applies.** The server returns blocks and never writes a pattern. Applying
  * calls `bulkAddComponents`, so the page assembles in the preview the user is already looking at and
@@ -21,7 +24,16 @@ import { usePlayground } from './PlaygroundContext';
  */
 
 type Msg =
-  | { role: 'user'; content: string }
+  | {
+      role: 'user';
+      content: string;
+      /**
+       * Shown in place of `content` when the turn was assembled for the model rather than typed. A
+       * pulled URL sends the whole extracted page as a user turn; the model needs all of it in history,
+       * but rendering it verbatim puts hundreds of words the user never wrote in the transcript.
+       */
+      label?: string;
+    }
   | { role: 'assistant'; content: string; proposal?: Proposal };
 
 interface Proposal {
@@ -53,12 +65,12 @@ export default function AiChatPanel() {
    * status replaces the last, so the panel reads as one live line rather than an accumulating log.
    * Only the reply and proposal become permanent messages.
    */
-  const send = async (text: string) => {
+  const send = async (text: string, label?: string) => {
     if (!text.trim() || busy) return;
     setError(null);
     // Build the outgoing history from the value we're about to set, not from state — state updates
     // are async and the request would otherwise omit the message that triggered it.
-    const next: Msg[] = [...messages, { role: 'user', content: text }];
+    const next: Msg[] = [...messages, { role: 'user', content: text, label }];
     setMessages(next);
     setBusy(true);
     setStatus('Thinking…');
@@ -177,7 +189,8 @@ export default function AiChatPanel() {
       setUrl('');
       setUrlOpen(false);
       setBusy(false);
-      await send(summary);
+      // The model gets the whole extraction; the transcript shows what the user actually asked for.
+      await send(summary, `Pull content from ${page.url || url}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read that page.');
       setBusy(false);
@@ -250,7 +263,8 @@ export default function AiChatPanel() {
         <span className="text-sm font-medium">Build with AI</span>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
+      {/* gap, not space-y: user turns add their own top margin and gap composes with that. */}
+      <div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
         {messages.length === 0 ? (
           <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-xs text-muted-foreground">
             <p className="font-medium text-foreground">Describe the page you want.</p>
@@ -261,17 +275,39 @@ export default function AiChatPanel() {
           </div>
         ) : null}
 
+        {/* Turns are told apart by shape, not by an icon: the user is a filled bubble pushed right (the
+            workbench and design chats read the same way), the assistant is unbubbled prose running the
+            full width of the rail. Two things follow that matter at 340px — the assistant keeps every
+            pixel for its proposal card, and that card is never nested inside a filled bubble fighting it
+            for figure/ground. Avatars are dropped: at this width a 32px gutter on every turn costs more
+            than the two icons were telling anyone.
+
+            `secondary` rather than the workbench's solid `primary`. Primary here is near-black in light
+            and near-white in dark, which is also exactly the proposal card's Build-page button — a bubble
+            is far larger than a button, so the two together cost the CTA its primacy. `muted` is the
+            card's own fill. Secondary is filled and unmistakably a bubble without being either.
+            (`tinted` is not an option: it resolves `oklch(from var(--primary) …)` and this app's
+            `--primary` is a bare HSL triplet, so the declaration is invalid and no background renders.) */}
         {messages.map((m, i) => (
-          <div key={i} className="flex gap-2.5">
-            <div className="mt-0.5 shrink-0">
+          <Message
+            key={i}
+            align={m.role === 'user' ? 'end' : 'start'}
+            // Extra air ahead of each new question, so an exchange reads as one group.
+            className={m.role === 'user' && i > 0 ? 'mt-2' : undefined}
+          >
+            <MessageContent>
+              {/* The visual cue is silent to a screen reader, so name the speaker. */}
+              <span className="sr-only">{m.role === 'user' ? 'You said:' : 'Assistant said:'}</span>
+
               {m.role === 'user' ? (
-                <User className="h-4 w-4 text-muted-foreground" />
-              ) : (
-                <Bot className="h-4 w-4 text-muted-foreground" />
-              )}
-            </div>
-            <div className="min-w-0 flex-1 space-y-2">
-              {m.content ? <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p> : null}
+                <Bubble variant="secondary" align="end">
+                  <BubbleContent className="whitespace-pre-wrap">{m.label ?? m.content}</BubbleContent>
+                </Bubble>
+              ) : m.content ? (
+                <Bubble variant="ghost">
+                  <BubbleContent className="whitespace-pre-wrap">{m.content}</BubbleContent>
+                </Bubble>
+              ) : null}
 
               {m.role === 'assistant' && m.proposal ? (
                 <div className="rounded-lg border bg-muted/30 p-3">
@@ -379,8 +415,8 @@ export default function AiChatPanel() {
                   )}
                 </div>
               ) : null}
-            </div>
-          </div>
+            </MessageContent>
+          </Message>
         ))}
 
         {busy ? (
