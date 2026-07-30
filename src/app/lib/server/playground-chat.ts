@@ -209,6 +209,9 @@ export async function runPlaygroundChatTurn(args: {
   ];
 
   const toolsUsed: string[] = [];
+  // Which components the model has actually scaffolded this turn. `propose_page` is checked against
+  // this rather than trusting the prompt's instruction to scaffold first.
+  const scaffolded = new Set<string>();
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     const { content, toolCalls } = await openAiChatTools(convo, TOOLS, {
@@ -236,11 +239,38 @@ export async function runPlaygroundChatTurn(args: {
         /* a malformed argument object is reported back to the model rather than thrown */
       }
 
-      // Terminal: stop the loop and hand the composition to the client.
+      // Terminal — but only once every block has actually been scaffolded.
+      //
+      // Whether a model follows "call scaffold_args for every block" is probabilistic, and the cost of
+      // it not doing so is invisible: unscaffolded args are guesses at prop shape, so the block applies
+      // cleanly and renders empty. That reads as a broken component rather than a skipped step. So the
+      // rule is enforced here instead of asserted in the prompt — the server knows exactly what was
+      // scaffolded.
+      //
+      // Handed back as a tool result rather than raised as an error: the model can scaffold the missing
+      // ones and re-propose within the same turn, which is invisible to the user and costs one round.
       if (call.name === 'propose_page') {
         const blocks = Array.isArray(parsed.blocks)
           ? (parsed.blocks as ProposedBlock[]).filter((b) => b && typeof b.componentId === 'string')
           : [];
+        const missing = [...new Set(blocks.map((b) => b.componentId).filter((id) => !scaffolded.has(id)))];
+
+        if (missing.length) {
+          console.log('[playground-chat] rejected proposal, unscaffolded:', missing.join(', '));
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({
+              rejected: true,
+              reason:
+                'These blocks were never scaffolded, so their args are guesses and would render empty. ' +
+                'Call scaffold_args for each, fill the args it returns, then propose again.',
+              unscaffolded: missing,
+            }),
+          });
+          continue;
+        }
+
         return {
           reply: content ?? String(parsed.rationale ?? 'Here is the page.'),
           proposal: { blocks, rationale: String(parsed.rationale ?? '') },
@@ -251,6 +281,12 @@ export async function runPlaygroundChatTurn(args: {
       let result: unknown;
       try {
         result = await runTool(call.name, parsed, attached);
+        if (call.name === 'scaffold_args' && typeof parsed.componentId === 'string') {
+          const id = parsed.componentId.trim();
+          // Only count a scaffold that actually resolved. Scaffolding a component that does not exist
+          // teaches the model nothing about its props, so it must not satisfy the check below.
+          if (id && !(result && typeof result === 'object' && 'error' in result)) scaffolded.add(id);
+        }
       } catch (e) {
         // Feed the failure back rather than aborting the turn — the model can pick another block or
         // explain itself, which is far more useful than a dead conversation.

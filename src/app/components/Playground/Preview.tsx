@@ -259,6 +259,17 @@ function getBlockControlsScript(): string {
       window.parent.postMessage({type:'playground-block-action',action:action,blockId:id},'*');
     });
   });
+
+  // Selecting a block in the rail should bring it into view. The reverse direction already worked —
+  // clicking a block in the canvas selected it — so the canvas could scroll you to a block but the
+  // list could not, which reads as the click doing nothing. Matters more since the rail now swaps to
+  // the editor on select: without this you lose your place in the page entirely.
+  window.addEventListener('message',function(event){
+    if(!event.data||event.data.type!=='playground-scroll-to-block')return;
+    var target=document.querySelector('.playground-block[data-block-id="'+event.data.blockId+'"]');
+    if(!target)return;
+    target.scrollIntoView({behavior:'smooth',block:'start'});
+  });
 })();
 `;
 }

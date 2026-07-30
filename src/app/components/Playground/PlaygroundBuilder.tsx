@@ -178,6 +178,17 @@ export default function PlaygroundBuilder() {
 
   const activeComponent = selectedComponents.find((c) => c.uniqueId === activeComponentId) ?? null;
 
+  // Bring the selected block into view in the canvas. Paired with the listener injected by
+  // `getBlockControlsScript`; posting to a canvas that has not finished loading is a no-op, and the
+  // next selection will land, so no retry is needed.
+  useEffect(() => {
+    if (!activeComponentId) return;
+    canvasIframeRef.current?.contentWindow?.postMessage(
+      { type: 'playground-scroll-to-block', blockId: activeComponentId },
+      '*'
+    );
+  }, [activeComponentId]);
+
   useEffect(() => {
     const render = async () => {
       setLoadingHtml(true);
