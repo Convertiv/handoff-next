@@ -235,6 +235,10 @@ const DesignWorkbenchPage = ({
   const [draftArtifactId, setDraftArtifactId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<WorkbenchSession | null>(null);
   const [panelImage, setPanelImage] = useState<GeneratedImage | null>(null);
+  // Held rather than acted on immediately — deleting a design is irreversible, so the row's button
+  // opens a confirmation instead of doing the work.
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [libraryArtifacts, setLibraryArtifacts] = useState<LibraryArtifactRow[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [libraryLoadingMore, setLibraryLoadingMore] = useState(false);
@@ -346,6 +350,36 @@ const DesignWorkbenchPage = ({
   }, [activeSidebarTab, libraryLoaded, isLoggedIn, fetchLibrary]);
 
   // Switch lanes: clear the current page and force a fresh first-page load.
+  /**
+   * Permanently delete a saved design.
+   *
+   * Removes the row optimistically only after the server confirms — a design that reappears on the next
+   * refresh because the delete actually failed is worse than a moment's latency. The server re-checks
+   * `canDelete` and 404s rather than 403s, so hiding the button is a courtesy, not the enforcement.
+   */
+  const confirmDeleteArtifact = async () => {
+    if (!deleteTarget || deleteBusy) return;
+    const { id } = deleteTarget;
+    setDeleteBusy(true);
+    setLibraryError(null);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(id)}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || 'Could not delete this design.');
+      setLibraryArtifacts((current) => current.filter((a) => a.id !== id));
+      if (inspectorId === id) setInspectorId(null);
+      setLibraryNotice('Design deleted.');
+      setDeleteTarget(null);
+    } catch (e) {
+      setLibraryError(e instanceof Error ? e.message : 'Could not delete this design.');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const handleLibraryLaneChange = useCallback((lane: Lane) => {
     setLibraryLane(lane);
     setLibraryArtifacts([]);
@@ -1745,6 +1779,19 @@ const DesignWorkbenchPage = ({
                             Duplicate
                           </Button>
                         )}
+                        {a.permissions.canDelete ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => setDeleteTarget({ id: a.id, title: a.title })}
+                            aria-label={`Delete ${a.title}`}
+                            title="Delete"
+                          >
+                            <Trash2Icon className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -2125,6 +2172,31 @@ const DesignWorkbenchPage = ({
         </div>
 
       </div>
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => { if (!deleteBusy && !open) setDeleteTarget(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this design?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              <strong className="font-medium">{deleteTarget?.title || 'This design'}</strong> will be
+              permanently deleted, along with its specification, its version history and every generated
+              asset.
+            </p>
+            <p className="text-muted-foreground">This cannot be undone.</p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button type="button" variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleteBusy}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void confirmDeleteArtifact()} disabled={deleteBusy}>
+              {deleteBusy ? <Loader2Icon className="mr-1 h-4 w-4 animate-spin" /> : null}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>

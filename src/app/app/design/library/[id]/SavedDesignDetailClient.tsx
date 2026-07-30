@@ -1,7 +1,7 @@
 'use client';
 
 import type { ClientConfig } from '@handoff/types/config';
-import { ArrowLeft, ExternalLink, Link2Icon, Loader2Icon, RefreshCwIcon, SparklesIcon } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Link2Icon, Loader2Icon, RefreshCwIcon, SparklesIcon, Trash2Icon } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Layout from '@/components/Layout/Main';
@@ -20,7 +20,8 @@ import {
   type DevHandoffSpecView,
   type DevHandoffStatusView,
 } from '@/components/Design/DevHandoffPanel';
-import type { Lifecycle, Visibility } from '@/lib/authz/vocab';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import type { Lifecycle, ResourcePermissions, Visibility } from '@/lib/authz/vocab';
 
 /** Owner shape returned alongside the artifact by the detail route. */
 type ArtifactOwner = { id: string; name?: string | null; image?: string | null } | null;
@@ -185,6 +186,9 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const [artifact, setArtifact] = useState<SavedDesignArtifactDetail | null>(null);
   const [owner, setOwner] = useState<ArtifactOwner>(null);
+  const [permissions, setPermissions] = useState<ResourcePermissions | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [isMe, setIsMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -211,12 +215,16 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
       artifact?: SavedDesignArtifactDetail;
       owner?: ArtifactOwner;
       isMe?: boolean;
+      permissions?: ResourcePermissions | null;
       error?: string;
     };
     if (!res.ok) throw new Error(json.error || `Failed to load (${res.status})`);
     if (!json.artifact) throw new Error('Design not found.');
     setOwner(json.owner ?? null);
     setIsMe(Boolean(json.isMe));
+    // The route has always returned these; the client just dropped them, which is why edit affordances
+    // here were rendered unconditionally and left the server to 404 anyone who shouldn't see them.
+    setPermissions(json.permissions ?? null);
     return normalizeArtifactDetail(json.artifact as Record<string, unknown>);
   }, [artifactId, message]);
 
@@ -580,6 +588,33 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
    * Destructive to the current image, deliberately and only on request. That is why it is a button
    * rather than something the spec patcher triggers on its own.
    */
+  /**
+   * Permanently delete this design.
+   *
+   * Irreversible and takes the spec, its version history and every generated asset with it, so it is
+   * gated behind an explicit confirmation that names the design — a destructive action one click from a
+   * list is a destructive action people take by accident. The server re-checks `canDelete` and 404s
+   * rather than 403s, so hiding the button is a courtesy, not the enforcement.
+   */
+  const handleDelete = async () => {
+    if (!artifactId || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(artifactId)}`), {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || 'Could not delete this design.');
+      // Nothing left to show on this page — go back to where the list lives.
+      window.location.href = `${basePath}/design/`;
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Could not delete this design.');
+      setDeleteBusy(false);
+      setDeleteOpen(false);
+    }
+  };
+
   const handleRerenderFromSpec = async () => {
     if (!artifactId) return;
     setPipelineBusy(true);
@@ -819,6 +854,23 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     </>
                   )}
                 </div>
+
+                {/* Destructive, so it sits apart from the working actions rather than in the same run of
+                    buttons where a mis-click lands on it. Hidden without canDelete; the route enforces. */}
+                {permissions?.canDelete ? (
+                  <div className="mt-4 border-t pt-3">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="w-full justify-start gap-1.5 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      <Trash2Icon className="h-4 w-4" />
+                      Delete design
+                    </Button>
+                  </div>
+                ) : null}
               </>
             ) : null}
           </aside>
@@ -1003,9 +1055,7 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                       assets={(artifact.assets ?? []) as AssetView[]}
                       basePath={basePath}
                       artifactId={artifactId}
-                      // Enforced server-side (the route 404s without canEdit), matching the other edit
-                      // affordances on this page — the UI has no permission signal threaded in yet.
-                      canRevise
+                      canRevise={permissions?.canEdit ?? true}
                       onRevised={() => void fetchArtifact()}
                       rawMarkdownSlot={
                         <div className="space-y-2">
@@ -1039,6 +1089,33 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
           </div>
         </div>
       </Layout>
+
+      {/* Deleting takes the spec, its version history and every generated asset with it, so it asks
+          first and names what it is about to remove. A destructive action one click from a list is a
+          destructive action people take by accident. */}
+      <Dialog open={deleteOpen} onOpenChange={(open) => { if (!deleteBusy) setDeleteOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete this design?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>
+              <strong className="font-medium">{artifact?.title || 'This design'}</strong> will be permanently
+              deleted, along with its specification, its version history and every generated asset.
+            </p>
+            <p className="text-muted-foreground">This cannot be undone.</p>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button type="button" variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteBusy}>
+              Cancel
+            </Button>
+            <Button type="button" variant="destructive" onClick={() => void handleDelete()} disabled={deleteBusy}>
+              {deleteBusy ? <Loader2Icon className="mr-1 h-4 w-4 animate-spin" /> : null}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }
