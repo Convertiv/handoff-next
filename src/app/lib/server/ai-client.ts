@@ -306,6 +306,96 @@ export async function openAiChatJson(
 }
 
 /**
+ * OpenAI chat completions with tools, **non-streaming**.
+ *
+ * The streaming variant surfaces tool calls to the *client* as actions, which is right when the tool is
+ * something the browser does (navigate, open a panel). A server-side tool loop needs the opposite: run
+ * the tool here, feed the result back, and let the model continue. This returns the assistant message
+ * so a caller can do exactly that.
+ *
+ * Shares `logAiEvent` with the other entry points so tool-driven conversations show up in cost tracking
+ * like everything else — the thing the playground's browser-side wizard never did.
+ */
+export type OpenAiToolCall = { id: string; name: string; arguments: string };
+
+export async function openAiChatTools(
+  messages: unknown[],
+  tools: OpenAiTool[],
+  options?: { actorUserId?: string | null; route?: string | null; eventType?: string; model?: string; maxTokens?: number }
+): Promise<{ content: string | null; toolCalls: OpenAiToolCall[] }> {
+  const startedAt = Date.now();
+  const apiKey = process.env.HANDOFF_AI_API_KEY?.trim();
+  if (!apiKey) throw new Error('HANDOFF_AI_API_KEY is not configured.');
+  const model = options?.model?.trim() || getServerAiModel();
+
+  const timeoutMs = openAiChatRequestTimeoutMs();
+  let response: Response;
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model,
+        messages,
+        tools,
+        tool_choice: 'auto',
+        temperature: 0.7,
+        max_tokens: options?.maxTokens ?? 4096,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    const name = e instanceof Error ? e.name : '';
+    if (name === 'AbortError' || name === 'TimeoutError') {
+      throw new Error(`OpenAI chat request timed out after ${timeoutMs}ms.`);
+    }
+    throw e;
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    await logAiEvent({
+      eventType: options?.eventType ?? 'ai.chat_tools',
+      actorUserId: options?.actorUserId,
+      route: options?.route,
+      model,
+      durationMs: Date.now() - startedAt,
+      status: 'error',
+      error: `OpenAI error (${response.status}): ${body.slice(0, 500)}`,
+      metadata: { statusCode: response.status },
+    });
+    if (response.status === 401) throw new Error('Invalid HANDOFF_AI_API_KEY.');
+    if (response.status === 429) throw new Error('OpenAI rate limit; try again shortly.');
+    throw new Error(`OpenAI error (${response.status}): ${body.slice(0, 500)}`);
+  }
+
+  const json = (await response.json()) as {
+    choices?: { message?: { content?: string | null; tool_calls?: { id: string; function?: { name?: string; arguments?: string } }[] } }[];
+    usage?: { prompt_tokens?: number; completion_tokens?: number };
+  };
+  const message = json.choices?.[0]?.message;
+  const toolCalls: OpenAiToolCall[] = (message?.tool_calls ?? []).map((t) => ({
+    id: t.id,
+    name: t.function?.name ?? '',
+    arguments: t.function?.arguments ?? '{}',
+  }));
+
+  await logAiEvent({
+    eventType: options?.eventType ?? 'ai.chat_tools',
+    actorUserId: options?.actorUserId,
+    route: options?.route,
+    model,
+    durationMs: Date.now() - startedAt,
+    status: 'success',
+    responsePreview: (message?.content ?? toolCalls.map((t) => t.name).join(', ')).slice(0, 1000),
+    usageInputTokens: json.usage?.prompt_tokens,
+    usageOutputTokens: json.usage?.completion_tokens,
+  });
+
+  return { content: message?.content ?? null, toolCalls };
+}
+
+/**
  * OpenAI chat completions with streaming and tool support.
  * Returns a ReadableStream that emits newline-delimited JSON events:
  *   {"type":"delta","content":"..."}

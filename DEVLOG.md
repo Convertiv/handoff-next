@@ -5,6 +5,29 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-30 — ⚠️ main and feature/spec-driven have diverged; playground work is on main
+
+Recorded because it is invisible from inside either branch and will bite at merge time.
+
+`origin/main` does **not** contain the spec-first work — no `lib/spec/patch.ts`, `brief-spec.ts`,
+`mcp/payload.ts`, `server/design-from-brief.ts`, `server/pipeline-queue.ts`, `server/woff-to-sfnt.ts`.
+Main received only the last two commits (nav prune, playground bug fixes), applied onto a tree that
+never had the rest. `origin/feature/spec-driven` has **everything**, and is what 8x8 is deployed from —
+which is why the MCP payload cap and inline images work live while being absent from main.
+
+`feature/playground-improvement` branches off main, so it inherits that gap. Brad's call
+(2026-07-30): keep building the playground chat here and reconcile later. Safe for this work
+specifically — it is all new files with no spec-first imports — but **merging this branch to main does
+not bring spec-first with it**, and anything built here cannot use spec-first code.
+
+**Second trap, deliberately left in place for now:** `package.json`'s `test:unit` names 8 test files
+that do not exist on main, and `tsx --test` exits 0 regardless. A full run reports "114 pass" while a
+third of the suite silently does not execute. Do not read a green run on this branch as coverage.
+
+Reconciliation is the real fix: either rebase playground work onto `spec-driven`, or merge `spec-driven`
+into main and make main current again.
+
+
 ## 2026-07-28 (later still) — "Transition to Dev": unified handoff + reuse/token/voice spec sections
 
 Rationalized asset extraction and spec generation into **one** operation, exposed as

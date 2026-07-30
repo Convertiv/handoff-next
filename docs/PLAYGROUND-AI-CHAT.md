@@ -74,11 +74,46 @@ without the user restating it — the same inheritance the workbench gets.
 is a separate capability (import an existing page) — check whether it shares the key path before
 deleting anything.
 
-## Open questions
+## Resolved: attached media is a content source
 
-- **Media attachment.** Brad asked for it. Attaching a reference image to a *component-assembly* chat is
-  only useful if the model reads it for layout intent ("build something like this"), since the output is
-  blocks, not pixels. Worth confirming that is the intent before wiring vision in.
-- **Does it edit an existing page, or only build new?** `bulkAddComponents(replace)` supports both. The
-  richer behaviour — "swap the hero for the split one", "add a pricing section" — needs the chat to know
-  the current composition, which means passing it in on every turn.
+Attachments become **page imagery**, not layout guidance. Layout comes from the prompt and the brand
+reference — the blocks already carry 8x8's structure and styling, so there is nothing for a visual
+reference to steer. That also means **no vision on the chat route**, which keeps it cheap and fast.
+
+The asset store's upload flow already exists and is the one the Assets UI and `MediaBrowser` use:
+
+```
+POST /api/handoff/assets/presign  →  PUT to the returned URL  →  POST /api/handoff/assets/confirm
+```
+
+So an attachment goes through that path and becomes a real, catalogued asset with an id and a `src` —
+reusable on the next page, visible in the media browser, and subject to the same lifecycle as anything
+else in the store. It is not a one-off blob bolted onto one composition. That is worth the extra
+round-trip: an image good enough to put on a page is an image worth keeping.
+
+Sequence for a turn with an attachment:
+
+1. Client uploads through presign/confirm **before** sending the message, so the model never handles bytes.
+2. The message carries the resulting asset ids.
+3. `search_assets` and the proposal treat them like any other stored asset — the model simply knows
+   these specific ones are preferred for this page.
+
+## Resolved: build-only in the first cut
+
+The chat is **conversational** — multi-turn, asks clarifying questions, iterates on copy — but its
+terminal action composes a **new** page. No edit tools yet.
+
+Editing (`"swap the hero"`, `"add pricing before the footer"`) needs the current composition passed on
+every turn plus targeted mutation tools, and that is where positional reasoning goes subtly wrong when
+there are two plausible targets. Deferred deliberately, not forgotten: `bulkAddComponents(entries,
+replace?)` already supports both, so it is additive when we want it.
+
+Until then the playground's existing drag-and-drop and edit sheet cover manual adjustment. The chat's
+value is nothing → full page, which is the part no other affordance covers.
+
+## Still open
+
+- **Does `replace` default true or false on apply?** Build-only makes this sharper: if the canvas is
+  empty it does not matter, but proposing onto a page that already has blocks either appends or wipes.
+  Appending is the safer default; wiping is probably what someone means when they have just described a
+  whole page. Decide when the apply card is built — it can also just ask.

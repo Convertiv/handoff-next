@@ -128,7 +128,7 @@ export default function SavePatternDialog({
   onSaved,
 }: SavePatternDialogProps) {
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
-  const [title, setTitle] = useState('Playground pattern');
+  const [title, setTitle] = useState('Untitled page');
   const [description, setDescription] = useState('');
   const [group, setGroup] = useState('');
   const [tagsRaw, setTagsRaw] = useState('');
@@ -139,7 +139,7 @@ export default function SavePatternDialog({
     if (open) {
       setError(null);
       if (!editingPatternId) {
-        setTitle('Playground pattern');
+        setTitle('Untitled page');
         setDescription('');
         setGroup('');
         setTagsRaw('');
@@ -232,10 +232,10 @@ export default function SavePatternDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{editingPatternId ? 'Update pattern' : 'Save pattern'}</DialogTitle>
+          <DialogTitle>{editingPatternId ? 'Update page' : 'Save page'}</DialogTitle>
           <DialogDescription>
-            Store this layout in the database{editingPatternId ? '' : ' with a new id'}. You can open it later from Patterns or
-            Load pattern in the Playground.
+            Saves this composition as a reusable page, so you can reopen it later or start a new one from it.
+            {editingPatternId ? '' : ' It gets its own link and appears in your library.'}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 py-1">
