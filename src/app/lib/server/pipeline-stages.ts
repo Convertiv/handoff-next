@@ -246,12 +246,32 @@ async function foundationSheetInput(): Promise<ImageEditInput | null> {
   }
 }
 
+// ── conformance ───────────────────────────────────────────────────────────────
+
+/**
+ * Measure the rendered design against the registry's tokens.
+ *
+ * Runs last, because it can only run last: the `tokens` section reports which *observed* values map onto
+ * real tokens, so it needs something rendered to observe. A brief-written spec omits it for exactly that
+ * reason, and without this stage a spec-first design never got one at all.
+ *
+ * Never fails the pipeline. An unmeasured design is the state every spec-first design was already in;
+ * failing here would turn a missing section into a broken run.
+ */
+const runConformanceStage: StageHandler = async ({ job }) => {
+  const { measureTokenConformance } = await import('@/lib/server/design-spec-generator');
+  const result = await measureTokenConformance(job.artifactId);
+  if (!result.measured) console.log('[pipeline] conformance skipped', job.artifactId, result.reason);
+  return result;
+};
+
 // ── registry ──────────────────────────────────────────────────────────────────
 
 const HANDLERS: Record<PipelineStage, StageHandler> = {
   assets: runAssetsStage,
   composite: runCompositeStage,
   spec: runSpecStage,
+  conformance: runConformanceStage,
 };
 
 /** Handler for a stage name, or null when the stage is unknown (so the queue can fail it clearly). */
@@ -269,6 +289,8 @@ export const STAGE_MIN_BUDGET_MS: Record<PipelineStage, number> = {
   assets: 150_000,
   composite: 130_000,
   spec: 90_000,
+  // One vision call against one image — far cheaper than the generation stages.
+  conformance: 60_000,
 };
 
 /** 1×1 transparent PNG — minimum accepted input for text-to-image. */

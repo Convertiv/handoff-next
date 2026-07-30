@@ -60,6 +60,9 @@ export async function startDevPipeline(args: {
     stages.push({ stage: 'spec', payload: { mode: 'brief' }, maxAttempts: 2 });
     stages.push({ stage: 'assets', maxAttempts: 2 });
     stages.push({ stage: 'composite', maxAttempts: 2 });
+    // Token conformance can only be measured against something rendered, so it goes last. One retry:
+    // it is a measurement, and a design without it is merely unmeasured, not broken.
+    stages.push({ stage: 'conformance', maxAttempts: 1 });
     const id = await enqueuePipeline({ artifactId: args.artifactId, stages });
     if (!id) return { ok: false, error: 'Could not enqueue the pipeline.' };
     return { ok: true, pipelineId: id, stages: stages.map((s) => s.stage) };
@@ -89,6 +92,11 @@ export async function startDevPipeline(args: {
   }
 
   if (wantsComposite) stages.push({ stage: 'composite', maxAttempts: 2 });
+  // A new composite invalidates any previous measurement, so re-measure rather than leave a tokens
+  // section describing an image that no longer exists — but only when a spec regeneration isn't already
+  // queued behind it. Image-mode spec generation reads the composite and produces its own tokens section,
+  // so adding conformance there would spend a call to be overwritten by the next stage.
+  if (wantsComposite && !wantsSpec) stages.push({ stage: 'conformance', maxAttempts: 1 });
   if (wantsSpec) stages.push({ stage: 'spec', maxAttempts: 2 });
 
   if (!stages.length) return { ok: false, error: 'Nothing to do for this intent.' };

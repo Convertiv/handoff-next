@@ -1024,6 +1024,7 @@ const DesignWorkbenchPage = ({
     if (active === 'spec') return 'Writing the specification…';
     if (active === 'assets') return 'Generating the images it calls for…';
     if (active === 'composite') return 'Composing the design from those images…';
+    if (active === 'conformance') return 'Checking it against your design tokens…';
     return 'Finishing up…';
   };
 
@@ -1084,18 +1085,23 @@ const DesignWorkbenchPage = ({
       }
       if (!progress) continue;
 
-      if (!progress.finished) {
-        const label = specFirstStageLabel(progress);
-        setGeneratedImages((current) => current.map((img) => (img.id === requestId ? { ...img, stage: label } : img)));
-        continue;
-      }
-
       // Report the stage that actually failed. "Generation failed" for a spec that came back too thin
       // to build from sends you looking in the wrong place.
       const failed = progress.stages.find((st) => st.status === 'failed');
       if (failed) {
         fail(`${failed.stage} stage failed: ${failed.error ?? 'no reason recorded'}`);
         return;
+      }
+
+      // Show the design the moment the composite exists, rather than waiting for the whole pipeline.
+      // Token conformance runs after it and measures the finished image — worth doing, but making the
+      // user watch a spinner for a cron tick after their design is ready would be a waste of their time
+      // and the demo's. It lands on the artifact's spec tab when it completes.
+      const compositeDone = progress.stages.some((st) => st.stage === 'composite' && st.status === 'done');
+      if (!progress.finished && !compositeDone) {
+        const label = specFirstStageLabel(progress);
+        setGeneratedImages((current) => current.map((img) => (img.id === requestId ? { ...img, stage: label } : img)));
+        continue;
       }
 
       try {

@@ -946,3 +946,87 @@ function briefFromArtifact(row: { conversationHistory?: unknown; description?: s
   const description = (row.description ?? '').trim();
   return description || null;
 }
+
+/**
+ * Measure the rendered design against the registry's real tokens, and merge the result into the spec.
+ *
+ * The conformance pass that spec-first was missing. A brief-written specification deliberately carries no
+ * `tokens` section — that section reports which *observed* values map onto real tokens, and before
+ * anything is rendered there is nothing to observe. Emitting one at authoring time would be a coverage
+ * score for a design that does not exist.
+ *
+ * So it runs here instead, after the composite: same token-mapping call the image-first path has always
+ * used, pointed at the image the pipeline just produced. That keeps the section's meaning intact —
+ * always a measurement of a real rendering, never a guess — and closes the gap where a spec-first design
+ * simply never got one.
+ *
+ * Only `tokens` is touched. `voice` is measured against the copy the spec authored, which rendering does
+ * not change, and re-running it here would just spend a call to reach the same answer.
+ *
+ * Never throws: a failed measurement leaves the spec without the section, exactly as before, rather than
+ * failing a design that is otherwise complete.
+ */
+export async function measureTokenConformance(artifactId: string): Promise<{ measured: boolean; reason?: string }> {
+  if (!process.env.HANDOFF_AI_API_KEY?.trim()) return { measured: false, reason: 'AI is not configured.' };
+
+  const row = await getDesignArtifactById(artifactId);
+  if (!row) return { measured: false, reason: 'Artifact not found.' };
+  if (!row.imageUrl?.trim()) return { measured: false, reason: 'No rendered image to measure.' };
+
+  const spec = (row.componentSpec ?? null) as ComponentSpec | null;
+  if (!spec) return { measured: false, reason: 'No specification to attach the measurement to.' };
+
+  const tokenSummary = await getTokenSummary().catch(() => null);
+  if (!tokenSummary || isTokenSummaryEmpty(tokenSummary)) {
+    // A registry with no tokens is a legitimate state, not a failure — say so instead of reporting 0%
+    // coverage, which would read as "this design is off-system" rather than "there is nothing to check".
+    return { measured: false, reason: 'The registry has no tokens to measure against.' };
+  }
+
+  const visionPart = await imageUrlToVisionPart(row.imageUrl, 'high');
+  if (!visionPart) return { measured: false, reason: 'The rendered image could not be read.' };
+
+  let tokens: NonNullable<ComponentSpec['tokens']> | null = null;
+  try {
+    const raw = await openAiChatJson(
+      [
+        { role: 'system', content: buildTokenPrompt({ tokenSummary: formatTokenSummaryForPrompt(tokenSummary) }) },
+        { role: 'user', content: [{ type: 'text', text: 'Map this design onto the design system tokens:' }, visionPart] },
+      ],
+      {
+        actorUserId: row.userId,
+        route: 'design-spec-conformance',
+        eventType: 'ai.design_spec_tokens',
+        model: SPEC_MODEL(),
+        maxTokens: 2500,
+      }
+    );
+    tokens = parseSection<NonNullable<ComponentSpec['tokens']>>(raw);
+  } catch (err) {
+    console.warn('[design-spec-generator] token conformance failed', artifactId, err);
+    return { measured: false, reason: err instanceof Error ? err.message.slice(0, 500) : 'The measurement failed.' };
+  }
+  if (!tokens) return { measured: false, reason: 'The measurement could not be parsed.' };
+
+  const next: ComponentSpec = { ...spec, tokens };
+  const specMd = specToMarkdown(next);
+  await updateDesignArtifactById(artifactId, {
+    componentSpec: next as unknown as Parameters<typeof updateDesignArtifactById>[1]['componentSpec'],
+    componentSpecMd: specMd,
+  } as Parameters<typeof updateDesignArtifactById>[1]);
+
+  // Recorded as a version so the stored spec and its latest version never disagree. Without this the
+  // current spec would carry a tokens section that no version in the history accounts for.
+  const { recordSpecVersion } = await import('@/lib/spec/versioning');
+  await recordSpecVersion({
+    artifactId,
+    spec: next,
+    specMd,
+    source: 'generated',
+    changeReason: 'Measured the rendered design against the design system tokens.',
+    createdByUserId: row.userId,
+  });
+
+  console.log('[design-spec-generator] token conformance measured for', artifactId, `coverage=${tokens.coverage ?? 'n/a'}`);
+  return { measured: true };
+}

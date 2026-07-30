@@ -101,6 +101,10 @@ from it at the end. Now the composer runs **spec-first**, and the canvas narrate
 
 > Writing the specification… → Generating the images it calls for… → Composing the design from those images…
 
+The design appears as soon as the composite lands. A fourth stage — **token conformance** — then measures
+the finished image against 8x8's real tokens and adds that section to the spec, without making you wait
+for it.
+
 Say what each stage means as it goes:
 
 1. **Writing the specification** — the component's contract: name, type, props, content, behaviour,
@@ -121,8 +125,10 @@ Then open the artifact's **Spec** tab:
   *"Generated to a declared requirement, at the size the slot needs."*
 - **Brand voice** — per-string pass/warn/fail, banned phrases flagged. **Ties back to Beat 1.**
 
-⚠️ **There is no Design tokens section on a spec-first design.** See "Known gaps" — know this before you
-open the tab, and lead on reuse + assets + voice, which are all populated.
+- **Design tokens** — colour/type/spacing values read off the rendered design, matched against 8x8's real
+  tokens with an on-system coverage score, and off-system values called out with what to snap to. This is
+  measured *after* the design exists, so it may land a tick after the image does. If the tab shows no
+  tokens section yet, refresh once.
 
 ## Beat 5 — Revise the *specification*, not the picture (2 min) ⭐
 
@@ -164,7 +170,7 @@ Show `/library` for three seconds. **Don't demo the permission model.**
 | # | Check | Why |
 |---|---|---|
 | 1 | **Reconnect the MCP connector** in Claude | ⚠️ **Discovered 2026-07-29.** Connectors cache their tool list at connect time. A session connected before the deploy does **not** see `handoff_design_from_brief`, `handoff_revise_spec`, or `handoff_get_design_pipeline`. Reconnect and confirm all three appear, or Beats 4–5 have no MCP path. |
-| 2 | Run **one full spec-first design** end to end on 8x8 | The whole of Beats 4–6. Confirm the stage labels advance and the final image renders (it comes back as a private-Blob proxy path — a broken image here means a basePath problem). |
+| 2 | Run **one full spec-first design** end to end on 8x8 | The whole of Beats 4–6. Confirm the stage labels advance and the final image renders (it comes back as a private-Blob proxy path — a broken image here means a basePath problem). **Then wait one more tick and re-open the Spec tab to confirm the tokens section appears** — the conformance stage is new and unverified on 8x8. |
 | 3 | Confirm the **reuse section** names real 8x8 components | Catalog is confirmed rich; what's unverified is whether the model picks well. |
 | 4 | Exercise **Revise the specification** once | Beat 5. Try one clear spec change and one art-direction request, so you know both answers look right. |
 | 5 | Pre-build a **fallback artifact** fully rendered | Insurance for Beats 4–6. |
@@ -177,7 +183,7 @@ Show `/library` for three seconds. **Don't demo the permission model.**
 
 | Gap | What to do about it |
 |---|---|
-| 🟡 **No Design tokens section on a spec-first design.** The token section is a *conformance measurement* of observed values against the registry, so a spec written before anything is rendered has nothing to measure — `generateSpecFromBrief` deliberately omits it. The intent was to fill it in after the composite exists, but **that pass was never built**: the pipeline is `spec → assets → composite` and stops. | Either add a conformance stage after `composite`, or lead Beat 4's spec tab on reuse + assets + voice and don't open the tokens question. **Legacy image-first artifacts still have full token sections** — a pre-built one could cover this beat if it matters. |
+| ~~No Design tokens section on a spec-first design~~ — **built 2026-07-29** | A `conformance` stage now runs after `composite`, measuring the rendered image against the registry's tokens and merging the section in. It only ever measures something real, which is why it cannot run earlier. Unverified on 8x8 — see pre-flight #2. |
 | 🟡 **Placement is verified, not enforced.** The composite model is *instructed* to place the generated assets rather than redraw them; confirmed by eye on 8x8, but nothing checks it. | Re-verify on the fallback artifact. If a demo run redraws, switch to the pre-built fallback. |
 
 ## Known risks

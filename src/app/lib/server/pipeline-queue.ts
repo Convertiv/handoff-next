@@ -22,7 +22,7 @@ import { handoffPipelineJobs } from '@/lib/db/schema-pg';
  * adding a handler and a `seq` — not tightening a budget.
  */
 
-export type PipelineStage = 'assets' | 'composite' | 'spec';
+export type PipelineStage = 'assets' | 'composite' | 'spec' | 'conformance';
 export type PipelineJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
 
 /** Terminal states — a stage in one of these no longer blocks its successors. */
