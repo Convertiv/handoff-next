@@ -229,9 +229,12 @@ Rules:
 - If existing components were provided, evaluate each for matchLevel and fill existingComponentMatches accordingly.
 - cssNotes and developerHints: describe LAYOUT and STRUCTURE only. Do NOT state specific hex colours,
   font sizes, spacing values or border radii. Those are resolved separately against the design
-  system's real tokens, and a guess here contradicts that mapping — on a live run this section
-  claimed "Teal (#00A3BF)" and "8px border-radius" for a design whose actual tokens were #04888a and
-  12px. Describe the intent ("primary action colour", "card corner radius") and let the token
+  system's real tokens, and a value here contradicts that mapping — on a live run this section claimed
+  "Teal (#00A3BF)" and "8px border-radius" for a design whose actual tokens were #04888a and 12px.
+  Worth knowing where those came from: NOT model invention. 8x8's Design.MD literally says "the 8x8
+  primary teal (#00A3BF)" and "Cards use 8px border-radius", neither of which exists in their token
+  set. Prose guidance and the token system drift apart, and when they do the tokens are the truth —
+  which is exactly why this section must name intent and let the mapping supply the value. Describe the intent ("primary action colour", "card corner radius") and let the token
   mapping supply the value.
 - Return ONLY valid JSON — no markdown, no commentary.`;
 }
