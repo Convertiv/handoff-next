@@ -19,8 +19,12 @@ import { FunctionField } from './FunctionField';
 import { RawJsonField } from './RawJsonField';
 
 export function renderFormFields(obj: any, data: any, path: string[] = []) {
-  return Object.entries(obj).map(([key, value]: [string, any]) => {
+  return Object.entries(obj ?? {}).map(([key, value]: [string, any]) => {
     const currentPath = [...path, key];
+
+    // A malformed descriptor should cost one field, not the whole editor. Same failure shape as the
+    // array crash below: one bad property took down the page and left no way to fix it by hand.
+    if (!value || typeof value !== 'object') return null;
 
     if (value.type === 'boolean') {
       return (
@@ -65,9 +69,28 @@ function hasObjectItems(value: any): boolean {
   return !!value?.items?.properties && Object.keys(value.items.properties).length > 0;
 }
 
+/**
+ * Coerce whatever is stored into something an array editor can render.
+ *
+ * A field declared `type: 'array'` does not always hold an array. `alert.buttonSlot` is declared as one
+ * but its preview stores a single serialized React element — an object — and `items.map(...)` then
+ * threw `items.map is not a function`, which the error boundary showed as "This page couldn't load".
+ * Every component whose array-typed slot has a non-array preview value hit the same wall, so editing
+ * them was impossible.
+ *
+ * A single value becomes a one-item array, which is what the author meant. Anything else becomes empty
+ * rather than crashing: an editor that opens with nothing in it can still be used, and the page around
+ * it survives.
+ */
+export function toArrayItems(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw == null || raw === '') return [];
+  return [raw];
+}
+
 function ArrayField({ identifier, value }: { identifier: string[]; value: any; data: any }) {
   const { getData, handleInputChange } = useEditContext();
-  const items: any[] = getData(identifier) ?? [];
+  const items: any[] = toArrayItems(getData(identifier));
   const objectItems = hasObjectItems(value);
   // Scalar/leaf items (e.g. a `fields` annotation's `of: 'button'`) carry an
   // item editor via `items.editorType`/`items.type` and no `items.properties`.
