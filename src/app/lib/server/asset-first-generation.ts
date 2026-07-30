@@ -18,12 +18,16 @@ import type { StoredImage } from '@/lib/server/design-generation-worker';
  *  - the asset is the real deliverable — the composite is assembled *from* it
  *  - so the photograph in the comp and the file a developer downloads are the same bytes
  *
- * ⚠️ The remaining risk, stated plainly because it is unresolved: an image model handed a reference
- * photograph may still *reinterpret* it rather than placing it verbatim. `attachmentLabel` instructs
- * it not to, but nothing here enforces that. If the composite redraws the photo, the comp and the
- * standalone asset diverge and the central guarantee is lost. Verifying placement needs an image
- * comparison between the generated asset and its region in the composite — not built yet, and the
- * thing to test before relying on this path.
+ * **Placement holds in practice.** The open question was whether an image model handed a reference
+ * photograph would place it verbatim or quietly reinterpret it — `attachmentLabel` instructs it not to,
+ * but nothing here enforces that, and a redraw would silently cost the central guarantee. Confirmed by
+ * inspection on live 8x8 spec-first runs (2026-07-29): the photograph in the composite matches the
+ * standalone asset.
+ *
+ * That is an observation, not an invariant. It rests on a model instruction, so a model or prompt change
+ * can break it without any code changing and without any test failing. A pixel comparison between each
+ * generated asset and its region in the composite is what would turn this into something enforced;
+ * until then, re-check it by eye after any change to the composite prompt or the image model.
  */
 
 export interface GeneratedAsset {

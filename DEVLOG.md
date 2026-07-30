@@ -5,6 +5,32 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-29 — Placement VERIFIED: the composite really does place the generated asset
+
+Brad, after a live spec-first run on 8x8: *"No they match perfect."*
+
+This was the one open risk carrying the whole architecture. Asset-first only means anything if the
+composite model **places** the attached photograph rather than redrawing it — the guarantee is that the
+image in the comp and the file a developer downloads are the same bytes. `attachmentLabel` instructs the
+model not to reinterpret, but nothing enforces it, and a silent redraw would have cost the guarantee
+while everything still looked fine.
+
+Confirmed by inspection. Corrected the stale ⚠️ block in `asset-first-generation.ts`, which still
+described this as unresolved and would have sent the next pass chasing a solved problem.
+
+**It is an observation, not an invariant.** It rests on a model instruction, so a model or prompt change
+can break it with no code change and no failing test. A pixel comparison between each generated asset and
+its region in the composite is what would make it enforced. Until that exists: re-check by eye after any
+change to the composite prompt or the image model.
+
+### Where the spec-driven chain stands
+
+Working end to end on 8x8, from the composer prompt: brief → specification → assets → composite, with
+the spec patcher for revisions and "Re-render from spec" to rebuild. Image-first is now the legacy path,
+kept for existing artifacts.
+
+---
+
 ## 2026-07-29 — Retiring the inverted buttons on a spec-first design
 
 Spec-first landed and worked. Brad: *"Do we need the run dev handoff or generate assets button any
