@@ -38,7 +38,6 @@ import ComponentLibrary from './ComponentLibrary';
 import PatternPicker from './PatternPicker';
 import SavePatternDialog from './SavePatternDialog';
 import TemplateManager from './TemplateManager';
-import WizardDialog from './Wizard/WizardDialog';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
 import type { PlaygroundPageExport, SelectedPlaygroundComponent } from './types';
@@ -110,14 +109,14 @@ export default function PlaygroundBuilder() {
 
   const [html, setHtml] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
-  const [wizardOpen, setWizardOpen] = useState(false);
   const [savePatternOpen, setSavePatternOpen] = useState(false);
   const [patternPickerOpen, setPatternPickerOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
-  // Closed by default: the canvas is the point, and the chat is opt-in rather than
-  // something that narrows the preview for everyone who opens the playground.
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  // Open when starting a new page, closed when opening an existing pattern. A blank canvas has nothing
+  // to look at yet, so the chat IS the starting point; arriving to edit a saved pattern is a different
+  // intent and shouldn't have the preview narrowed for it.
+  const [aiPanelOpen, setAiPanelOpen] = useState(() => !editingPatternId);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -249,21 +248,6 @@ export default function PlaygroundBuilder() {
             <TooltipContent side="bottom">{leftPanelOpen ? 'Hide blocks' : 'Show blocks'}</TooltipContent>
           </Tooltip>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => setAiPanelOpen(!aiPanelOpen)}
-                aria-label={aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}
-              >
-                <SparklesIcon className={cn('h-4 w-4 transition-colors', aiPanelOpen && 'text-primary')} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}</TooltipContent>
-          </Tooltip>
-
           <div className="mx-1 h-4 w-px bg-border" />
 
           {(templates.length > 0 || isDynamicApp) && <TemplateManager />}
@@ -326,11 +310,17 @@ export default function PlaygroundBuilder() {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => setWizardOpen(true)}>
-                <SparklesIcon className="h-4 w-4" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0"
+                onClick={() => setAiPanelOpen((v) => !v)}
+                aria-label={aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}
+              >
+                <SparklesIcon className={cn('h-4 w-4 transition-colors', aiPanelOpen && 'text-primary')} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Generate with AI</TooltipContent>
+            <TooltipContent side="bottom">{aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}</TooltipContent>
           </Tooltip>
         </div>
 
@@ -507,8 +497,6 @@ export default function PlaygroundBuilder() {
 
         {aiPanelOpen && <AiChatPanel />}
       </div>
-
-      <WizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
 
       <SavePatternDialog
         open={savePatternOpen}

@@ -15,11 +15,13 @@ export function ChatFab() {
   const { toggleChat, isOpen } = useChatContext();
   const pathname = usePathname();
 
-  // The design workbench has its own chat sidebar and the library has its own
-  // tooling — the floating assistant just gets in the way there. The app serves
-  // both slash forms of every route, so normalize before matching.
+  // Surfaces with their own AI panel, or their own tooling, don't want a floating assistant on top of
+  // it — two entry points to "ask the AI" in one screen is a question about which one to use, not a
+  // convenience. The workbench and the playground each have a chat sidebar; the library has its own
+  // tooling. The app serves both slash forms of every route, so normalize before matching.
   const path = pathname.replace(/\/+$/, '');
-  const hidden = path === '/design' || path.startsWith('/design/') || path === '/library' || path.startsWith('/library/');
+  const OWN_SURFACE = ['/design', '/library', '/playground'];
+  const hidden = OWN_SURFACE.some((p) => path === p || path.startsWith(`${p}/`));
 
   if (hidden || !aiFeatures || !authEnabled || !session?.user) return null;
 
