@@ -9,6 +9,7 @@ import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 import { applyOps, describeOp, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { containsImageSrc, swapImageSrc } from '@/lib/swap-image-src';
+import { pollGenerationJob } from '@/lib/client/poll-generation-job';
 import { usePlayground } from './PlaygroundContext';
 
 /**
@@ -305,15 +306,9 @@ export default function AiChatPanel() {
   /**
    * Watch a generation job and drop the finished image into the page.
    *
-   * Polling rather than streaming: the job outlives the request that started it, by design, and may
-   * outlive the chat turn by minutes. A 3s poll against a job that takes 1-4 minutes is cheap, and it
-   * survives the user navigating away and coming back mid-generation in a way an open socket does not.
-   *
-   * The ceiling matches the cron reaper, so a job the server has given up on stops being polled at
-   * roughly the same time rather than spinning until the tab closes.
+   * The waiting is `pollGenerationJob`; what is interesting here is where the result goes.
    */
   const watchImage = async (msgIndex: number, image: PendingImage) => {
-    const deadline = Date.now() + 15 * 60 * 1000;
     const setState = (patch: Partial<PendingImage>) =>
       setMessages((cur) =>
         cur.map((m, i) =>
@@ -323,30 +318,18 @@ export default function AiChatPanel() {
         )
       );
 
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 3000));
-      let job: { status?: string; imageUrl?: string | null; error?: string | null } | undefined;
-      try {
-        const res = await fetch(`/api/handoff/ai/design-generation-job/${image.jobId}`, { credentials: 'include' });
-        if (!res.ok) throw new Error(String(res.status));
-        ({ job } = (await res.json()) as { job: typeof job });
-      } catch {
-        // A blip is not a failure — the job is still running server-side. Keep polling until the
-        // deadline; the only thing a transient error should cost is one interval.
-        continue;
-      }
-      if (!job || job.status === 'pending' || job.status === 'running') continue;
+    const result = await pollGenerationJob(image.jobId);
+    if (result.status !== 'done' || !result.imageUrl) {
+      setState({ state: 'failed', error: result.error ?? 'Generation failed.' });
+      return;
+    }
 
-      if (job.status !== 'done' || !job.imageUrl) {
-        setState({ state: 'failed', error: job.error ?? 'Generation failed.' });
-        return;
-      }
-
+    {
       // Serialized against the other watchers. A turn commonly generates two or three images, and
       // `bulkAddComponents` rewrites the whole page: two watchers that each read the canvas and then
       // write it back would have the second silently undo the first's swap. Chaining means each one
       // reads a canvas that already includes every swap before it.
-      const url = job.imageUrl;
+      const url = result.imageUrl;
       swapQueue.current = swapQueue.current.then(async () => {
         // Read *inside* the chain, not before it. Matching by value is also what makes this safe
         // against the user: they may have deleted the block, set their own image, or started a new
@@ -368,9 +351,7 @@ export default function AiChatPanel() {
       swapQueue.current = swapQueue.current.catch((err) => {
         console.error('[playground] image swap failed', err);
       });
-      return;
     }
-    setState({ state: 'failed', error: 'Timed out waiting for the image.' });
   };
 
   /**

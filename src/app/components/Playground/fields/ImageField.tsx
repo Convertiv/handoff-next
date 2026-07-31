@@ -1,14 +1,36 @@
+import { useEffect, useRef, useState } from 'react';
 import { Label } from '../../ui/label';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
-import { ImageIcon, ImageOff, Trash2Icon } from 'lucide-react';
+import { ImageIcon, Loader2, Sparkles, Trash2Icon, X } from 'lucide-react';
 import { useEditContext } from '../EditContext';
+import { pollGenerationJob } from '@/lib/client/poll-generation-job';
 
+/**
+ * The image slot's editor: pick from the library, or describe one and have it made.
+ *
+ * Generation here rather than only in the chat because swapping one picture should not require
+ * narrating the whole page to an assistant. The field already knows which slot it is and what
+ * dimensions the block wants, so it can ask for exactly the right thing and write the answer straight
+ * back — no placeholder to match, unlike the chat path.
+ *
+ * Same queue, same worker, same asset library as `request_image`; only the entry point differs. See
+ * `docs/PLAYGROUND-ASSETS.md`.
+ */
 export function ImageField({ identifier, value }: { identifier: string[]; value: any; data: any }) {
   const { getData, handleInputChange, setCurrentImagePath, setCurrentImageRules, setMediaBrowserOpen } = useEditContext();
 
   const imgData = getData(identifier);
   const hasSrc = !!imgData?.src;
+
+  const [genOpen, setGenOpen] = useState(false);
+  const [brief, setBrief] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  /** Aborts the poll when the sheet closes, so a discarded generation stops costing requests. */
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const openBrowser = () => {
     setCurrentImagePath(identifier);
@@ -19,6 +41,52 @@ export function ImageField({ identifier, value }: { identifier: string[]; value:
   const removeImage = () => {
     handleInputChange([...identifier, 'src'], '');
     handleInputChange([...identifier, 'srcset'], '');
+  };
+
+  const generate = async () => {
+    if (!brief.trim() || generating) return;
+    setGenError(null);
+    setGenerating(true);
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch('/api/handoff/ai/generate-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        signal: controller.signal,
+        body: JSON.stringify({
+          brief,
+          altText: imgData?.alt || undefined,
+          // The block's own contract decides the aspect ratio, so a 16:9 hero slot does not get a
+          // square photo cropped to fit.
+          dimensions: value.rules?.dimensions ?? null,
+        }),
+      });
+      const json = (await res.json()) as { jobId?: number; error?: string };
+      if (!res.ok || !json.jobId) throw new Error(json.error || 'Could not start generation.');
+
+      const result = await pollGenerationJob(json.jobId, { signal: controller.signal });
+      if (result.status !== 'done' || !result.imageUrl) {
+        throw new Error(result.error || 'Generation failed.');
+      }
+
+      // Straight into the field. The editor knows the exact path, so unlike the chat's canvas-wide
+      // swap there is nothing to search for and nothing to race.
+      handleInputChange([...identifier, 'src'], result.imageUrl);
+      handleInputChange([...identifier, 'srcset'], '');
+      if (!imgData?.alt) handleInputChange([...identifier, 'alt'], brief.trim().slice(0, 120));
+      setGenOpen(false);
+      setBrief('');
+    } catch (e) {
+      if (!(e instanceof DOMException && e.name === 'AbortError')) {
+        setGenError(e instanceof Error ? e.message : 'Generation failed.');
+      }
+    } finally {
+      abortRef.current = null;
+      setGenerating(false);
+    }
   };
 
   return (
@@ -42,6 +110,17 @@ export function ImageField({ identifier, value }: { identifier: string[]; value:
           <ImageIcon className="h-3.5 w-3.5" />
           {hasSrc ? 'Change Image' : 'Select Image'}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => setGenOpen((o) => !o)}
+          aria-expanded={genOpen}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          Generate
+        </Button>
         {hasSrc && (
           <Button type="button" variant="outline" size="sm" className="gap-1.5 text-muted-foreground hover:text-destructive" onClick={removeImage}>
             <Trash2Icon className="h-3.5 w-3.5" />
@@ -49,6 +128,49 @@ export function ImageField({ identifier, value }: { identifier: string[]; value:
           </Button>
         )}
       </div>
+
+      {genOpen && (
+        <div className="space-y-2 rounded-lg border bg-muted/30 p-2.5">
+          <Input
+            autoFocus
+            value={brief}
+            disabled={generating}
+            placeholder="A nurse using a tablet in a bright ward"
+            onChange={(e) => setBrief(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                void generate();
+              }
+            }}
+          />
+          {generating ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              {/* Named up front: a minute of silence with no expectation set reads as broken. */}
+              <span className="text-xs text-muted-foreground">Generating — this takes a minute or two.</span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-7 gap-1 text-xs"
+                onClick={() => abortRef.current?.abort()}
+              >
+                <X className="h-3 w-3" />
+                Stop
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button type="button" size="sm" className="h-7 text-xs" disabled={!brief.trim()} onClick={() => void generate()}>
+                Generate image
+              </Button>
+              <span className="text-[11px] text-muted-foreground">Saved to your asset library.</span>
+            </div>
+          )}
+          {genError && <p className="text-xs text-destructive">{genError}</p>}
+        </div>
+      )}
 
       <div className="space-y-1">
         <Label htmlFor={`${identifier[identifier.length - 1]}_alt`} className="text-xs">

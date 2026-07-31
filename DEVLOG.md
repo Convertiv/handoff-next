@@ -47,8 +47,21 @@ a failure state.
   images finishing together had the second undo the first — swaps are serialized through a promise
   chain, reading canvas state *inside* the chain.
 
+**Generate in the block editor too** (Brad's idea, same day). Clicking an image field offers a brief
+box alongside Select Image. Same queue, same worker, same library — only the entry point differs, and
+it is the *simpler* path: the field knows its own identifier, so the result writes straight in with no
+placeholder to match, nothing to serialize, nothing to race. It also knows the slot's declared
+`rules.dimensions`, so `sizeForDimensions` picks the aspect ratio the block actually wants rather
+than the chat's guessed orientation.
+
+Two things pulled into shared modules while wiring it, both because a second copy would have drifted:
+`pollGenerationJob` (the wait, the retry semantics, the deadline) and `buildImagePrompt` (the no-text
+rule and the house-style clip). The chat had been sending the model's raw prompt with neither —
+generated lettering is the image failure most likely to be mistaken for a real word on a marketing
+page, and it was missing from the path that generates most of the images.
+
 **Not yet run end-to-end.** No image has actually been generated, stored, or swapped in; migration
-`0025` has not executed against a real database. 260 unit tests pass and the build typechecks, which
+`0025` has not executed against a real database. 274 unit tests pass and the build typechecks, which
 is not the same thing.
 
 ---

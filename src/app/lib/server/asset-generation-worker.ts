@@ -25,6 +25,8 @@ export interface AssetGenerationRequestParams {
   prompt: string;
   /** Asset library title. Also what the chat shows while it is generating. */
   title: string;
+  /** What was actually asked for, before the style and no-text rules were appended. Shown in the library. */
+  brief?: string;
   altText?: string | null;
   size?: ImageEditSize;
   quality?: ImageEditQuality;
@@ -108,10 +110,10 @@ export async function runAssetGenerationJob(jobId: number): Promise<void> {
       mimeType: decoded.mimeType,
       title: params.title,
       altText: params.altText ?? params.title,
-      description: params.prompt,
+      description: params.brief ?? params.prompt,
       tags: ['generated', ...(params.tags ?? [])],
       sourceType: 'upload',
-      sourceMetadata: { generatedBy: 'playground', prompt: params.prompt, jobId },
+      sourceMetadata: { generatedBy: 'playground', prompt: params.prompt, brief: params.brief ?? null, jobId },
       createdBy: job.userId,
     });
 

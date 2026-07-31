@@ -6,6 +6,7 @@ import { formatBrandVoiceForPrompt, getDesignWorkspace } from '@/lib/server/desi
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { blankContentValues, mergeBlockValues, placeholderImageUrl, summarizeFields } from '@/lib/merge-block-values';
 import { formatExemplars } from '@/lib/page-exemplars';
+import { buildImagePrompt } from '@/lib/image-generation-request';
 import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
 
@@ -334,6 +335,8 @@ export interface QueuedImage {
 interface ImageRequestContext {
   /** FK to `user.id` — the job table requires it, so a turn with no user cannot generate. */
   actorUserId: string | null;
+  /** The workspace's design guidance, so generated imagery matches the system it is going into. */
+  styleGuidance: string;
   queued: QueuedImage[];
 }
 
@@ -426,12 +429,16 @@ async function runTool(
       userId: imageCtx.actorUserId,
       requestParams: {
         intent: 'asset',
-        prompt,
+        // Same composition the block editor's Generate uses — the no-text rule and the house style
+        // matter identically from either entry point, and generated lettering is the failure most
+        // likely to be mistaken for a real word on a marketing page.
+        prompt: buildImagePrompt(prompt, imageCtx.styleGuidance),
         title,
         altText: typeof args.altText === 'string' ? args.altText : title,
         size: `${w}x${h}`,
         quality: 'medium',
         tags: ['playground'],
+        brief: prompt,
         placeholderSrc,
       },
     });
@@ -542,7 +549,11 @@ export async function runPlaygroundChatTurn(args: {
 
   const toolsUsed: string[] = [];
   const seenAssetSrcs = new Set<string>();
-  const imageCtx: ImageRequestContext = { actorUserId: args.actorUserId ?? null, queued: [] };
+  const imageCtx: ImageRequestContext = {
+    actorUserId: args.actorUserId ?? null,
+    styleGuidance: workspace?.designMd ?? '',
+    queued: [],
+  };
   /**
    * Announce any generations this turn started, immediately before the turn ends.
    *
