@@ -225,18 +225,10 @@ function coerceToShape(template: unknown, value: unknown): unknown {
   }
 
   if (isPlainObject(template)) {
-    if (isReactElementish(template)) {
-      // An authored image is the exception: map `{ src, alt }` onto the element's own img props rather
-      // than replacing the element with a bare object the component cannot render. The model is told
-      // the shape is `{ src, alt }` and that stays true — the adaptation belongs here, where the real
-      // shape is known, not in the prompt.
-      if (isPlainObject(value) && typeof value.src === 'string') {
-        const set = setElementImage(template, value.src, typeof value.alt === 'string' ? value.alt : '');
-        if (set.changed) return set.value;
-      }
-      // Otherwise a rendered element cannot be merged into, and whatever was authored replaces it.
-      return value ?? '';
-    }
+    // A rendered element cannot be merged into, and it is not what the component wants back: whatever
+    // was authored replaces it. Writing into the element's `props` instead — which an earlier fix did —
+    // produces a value the component silently ignores in favour of its own default.
+    if (isReactElementish(template)) return value ?? '';
 
     if (isPlainObject(value)) {
       const out: Record<string, unknown> = { ...template };
@@ -305,14 +297,15 @@ function blankValue(value: unknown, editor: string, name = ''): unknown {
   const label = name ? humanizeFieldName(name) : '';
 
   if (editor === 'image' || (isPlainObject(value) && 'src' in value)) {
-    // A serialized element stays one. Spreading it and adding a top-level `src` left `props.src`
-    // holding the preview's own `../../images/...` path — which 404s in registry mode — so the block
-    // rendered with no image at all and no placeholder either.
+    // **A serialized element is render output, not an input prop.** Verified against the live
+    // `hero-background` module: passing `{ src, alt }` renders; passing an element with `props.src`
+    // is silently ignored and the component falls back to its own default image. So an element here is
+    // not a shape to preserve — it is contaminated seed data, and the declared `{ src, alt }` contract
+    // is what the component actually accepts. Dimensions are still worth lifting out of it.
     if (isReactElementish(value)) {
       const img = findImageNode(value);
       const dims = placeholderDimensions(isPlainObject(img?.props) ? (img!.props as Record<string, unknown>) : {});
-      const set = setElementImage(value, placeholderImageUrl(dims.w, dims.h, label), label);
-      if (set.changed) return set.value;
+      return { src: placeholderImageUrl(dims.w, dims.h, label), alt: label, width: dims.w, height: dims.h };
     }
 
     const template = isPlainObject(value) ? value : {};
@@ -466,6 +459,8 @@ export function mergeBlockValues(
     // Clear an unusable asset path outright. A broken image is worse than an absent one: it reads as
     // a bug in the page rather than a gap we can still fill.
     const current = args[key];
+    // A leftover element form can still reach here when nothing was authored for the field. Clearing
+    // its src is the safe move: an unresolvable `../../images/...` path renders as a broken image.
     const elementImg = isReactElementish(current) ? findImageNode(current) : null;
     if (elementImg && isPlainObject(elementImg.props) && isUnusableAssetPath(elementImg.props.src)) {
       args[key] = setElementImage(current, '', '').value;

@@ -23,6 +23,52 @@ Three failures this month, all the same shape:
 
 Each was fixed at its call site. The cause was never fixed, so it came back twice.
 
+## CORRECTION, 2026-07-31 — the premise was backwards
+
+Everything below the measurement was written before the round-trip was actually run. Running it inverted
+the conclusion, so read this first.
+
+**Test:** load `/api/component/hero-background-client.mjs` in a browser, render with the slot set four
+ways, inspect the DOM.
+
+| `desktopImageSlot` value | Result |
+|---|---|
+| `{ src, alt }` — the **declared** shape | ✅ renders the src |
+| `{ ...element, src, alt }` | ✅ renders the src (top-level wins) |
+| element with `props.src` — the **derived lens** | ❌ **silently ignored**; component falls back to its own default image |
+| the stored preview value, verbatim | ❌ **throws** `(e \|\| []).filter is not a function` |
+
+Same pattern on the other slots: `buttonSlots` must be a plain `[{ url, text }]` array — the component
+calls `.filter` on it, and the stored element form crashes the render. `overlineSlot` as a plain string
+renders; as an element it renders nothing at all.
+
+**So the declared contract is right, and the stored preview values are wrong.** They are serialized
+*render output*, not input props. Feeding them back either crashes the component or is discarded.
+
+This reverses the central claim below. The bridge is not a bad label over good data; it is a **correct
+label over contaminated seed data.** `scaffoldArgsForComponent` seeds `args` from preview values,
+`summarizeFields` describes shapes from them, and the lens derives write paths from them — all three
+learn from output and therefore teach the wrong shape.
+
+It also explains the symptom that started this: an image "in the assets but not on the page". The
+element form is not dropped, it is *replaced* by the component's default — so the page shows a
+plausible wrong image rather than an obvious gap.
+
+**Two things were wrong in the repo as a result, now fixed:**
+- `d7101ef2` made `blankValue`/`coerceToShape` preserve the element and write `props.src`. That is the
+  ignored form. Reverted: an output-shaped element is normalised to plain `{ src, alt, width, height }`,
+  keeping only the dimensions worth lifting out of it.
+- **The 176 finding is real but its cause is inverted.** The audit correctly detects 176 disagreements
+  between declared contract and stored preview; the fix is not 50 lenses, it is repairing how previews
+  are captured. Treat `breaks-write` as "this preview cannot be fed back", not "this descriptor is
+  wrong". The verdict names should be changed accordingly — not done yet.
+
+**What survives:** the invariant. `scaffold → render → assert` is the right test and is now known to
+work in a browser against a real module. It should run over the catalog, and it would have caught all of
+this at the source rather than after three fix attempts in the wrong direction.
+
+Keep reading below for the original argument, but treat its direction as superseded.
+
 ## Measured, 2026-07-31 (8x8)
 
 `GET /api/admin/field-bridge-audit`, 65 components, 218 previews, 1878 field checks:

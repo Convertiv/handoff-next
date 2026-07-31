@@ -10,6 +10,14 @@
  * A lens is a location, and a location can be checked. This module derives one from a real preview
  * value and reports where the declared editor type disagrees with it.
  *
+ * ⚠️ **The interpretation of those disagreements is inverted from what the verdict names suggest.**
+ * A browser round-trip against the live `hero-background` module (see the CORRECTION at the top of
+ * `docs/FIELD-BRIDGE.md`) showed the *declared* shape renders and the *derived* one is silently
+ * ignored: stored preview values are serialized render output, not input props. So a `breaks-write`
+ * finding means "this preview value cannot be fed back into the component", not "this descriptor is
+ * wrong". The 176 findings are real; the remedy is repairing preview capture, not writing lenses.
+ * The verdict names should be changed to say so.
+ *
  * **React registries only.** Handlebars components take plain serializable JSON as template context, so
  * the value's shape is the declared shape and there is nothing to locate.
  */

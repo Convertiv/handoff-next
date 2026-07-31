@@ -435,13 +435,22 @@ describe('summarizeFields', () => {
 });
 
 /**
- * The real `desktopImageSlot` on `hero-background`: a serialized React element whose src lives at
- * `props.src`, while the field descriptor advertises `{ src, alt }`.
+ * The real `desktopImageSlot` on `hero-background` — a serialized React element.
  *
- * This shape produced a failure that reported success at every step — merged, "Applied", image card
- * ticked — and never changed the page, because everything wrote a top-level `src` the renderer does
- * not read. Third bug from the same root cause (after `<p>` in plain-text slots and `buttonSlots`
- * declared as an array), so it gets tests pinned to the actual value.
+ * **Verified against the live component module in a browser, not reasoned about.** Rendering
+ * `hero-background` with this slot set four ways:
+ *
+ * | value | result |
+ * |---|---|
+ * | `{ src, alt }` | renders the src |
+ * | `{ ...element, src, alt }` | renders the src (top-level wins) |
+ * | element with `props.src` | **silently ignored** — component falls back to its own default image |
+ * | the stored preview value verbatim | **throws** `(e \|\| []).filter is not a function` |
+ *
+ * So a serialized element in a preview is **render output, not an input prop**, and the declared
+ * `{ src, alt }` contract is correct. An earlier fix wrote into `props.src` on the theory that the
+ * element was the real shape; that produced values the component discards, which is worse than the bug
+ * it replaced because the page shows a plausible default instead of nothing.
  */
 describe('image slots whose preview value is a React element', () => {
   const heroImageSlot = () => ({
@@ -462,28 +471,29 @@ describe('image slots whose preview value is a React element', () => {
 
   const fields = { desktopImageSlot: { editorType: 'image', shape: '{ src, alt, width?, height? }', fromBase: true } };
 
-  it('blanks to a placeholder inside props, not a top-level src', () => {
+  it('normalises the element to the plain shape the component accepts', () => {
     const blanked = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields) as {
-      desktopImageSlot: { type: string; props: Record<string, unknown> };
+      desktopImageSlot: Record<string, unknown>;
     };
     const slot = blanked.desktopImageSlot;
-    assert.equal(slot.type, 'img', 'must still be an element the component can render');
-    assert.match(String(slot.props.src), /placehold\.co/);
-    // The unresolvable preview path must be gone from where the renderer actually looks.
-    assert.ok(!String(slot.props.src).includes('../../images'));
-    assert.ok(!('src' in (slot as unknown as Record<string, unknown>)), 'a top-level src is invisible to the renderer');
+    // Not an element: that form is discarded by the component in favour of its own default.
+    assert.ok(!('type' in slot) && !('props' in slot), 'must not stay a serialized element');
+    assert.match(String(slot.src), /placehold\.co/);
+    assert.ok(!String(slot.src).includes('../../images'), 'the unresolvable preview path must be gone');
   });
 
-  it('keeps the slot aspect ratio from props.width/height', () => {
+  it('lifts the aspect ratio out of props.width/height before discarding the element', () => {
     const blanked = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields) as {
-      desktopImageSlot: { props: { src: string } };
+      desktopImageSlot: { src: string; width: number; height: number };
     };
     // 2560x1400 is 64:35 — a square placeholder in a wide hero makes a good layout look broken.
-    const [, w, h] = /(\d+)x(\d+)/.exec(blanked.desktopImageSlot.props.src) ?? [];
+    assert.equal(blanked.desktopImageSlot.width, 2560);
+    assert.equal(blanked.desktopImageSlot.height, 1400);
+    const [, w, h] = /(\d+)x(\d+)/.exec(blanked.desktopImageSlot.src) ?? [];
     assert.ok(Number(w) > Number(h), `expected a landscape placeholder, got ${w}x${h}`);
   });
 
-  it('writes an authored { src, alt } into props and keeps the element', () => {
+  it('passes an authored { src, alt } through as plain data', () => {
     const known = new Set(['/api/handoff/assets/img_abc/raw']);
     const template = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields);
     const { args } = mergeBlockValues(
@@ -492,16 +502,13 @@ describe('image slots whose preview value is a React element', () => {
       fields,
       known
     );
-    const slot = args.desktopImageSlot as { type: string; props: Record<string, unknown> };
-    assert.equal(slot.type, 'img');
-    assert.equal(slot.props.src, '/api/handoff/assets/img_abc/raw');
-    assert.equal(slot.props.alt, 'Students on campus');
-    // Layout props from the real component must survive the merge.
-    assert.equal(slot.props.className, 'h-full w-full object-cover');
-    assert.equal(slot.props.width, 2560);
+    const slot = args.desktopImageSlot as Record<string, unknown>;
+    assert.equal(slot.src, '/api/handoff/assets/img_abc/raw');
+    assert.equal(slot.alt, 'Students on campus');
+    assert.ok(!('props' in slot), 'an element-shaped result is silently ignored by the component');
   });
 
-  it('still rejects an invented src inside props', () => {
+  it('still rejects an invented src', () => {
     const template = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields);
     const { args, invalidValues } = mergeBlockValues(
       template,
@@ -509,38 +516,20 @@ describe('image slots whose preview value is a React element', () => {
       fields,
       new Set()
     );
-    const slot = args.desktopImageSlot as { props: Record<string, unknown> };
-    assert.ok(!String(slot.props.src).includes('assets.8x8.com'));
+    const slot = args.desktopImageSlot as Record<string, unknown>;
+    assert.ok(!String(slot.src).includes('assets.8x8.com'));
     assert.equal(invalidValues.length, 1);
   });
 
-  it('replaces a stale srcset so the browser cannot serve the old image', () => {
-    const withSrcSet = heroImageSlot();
-    (withSrcSet.props as Record<string, unknown>).srcSet = '../../images/content/old.jpeg 2x';
-    const { args } = mergeBlockValues(
-      blankContentValues({ desktopImageSlot: withSrcSet }, fields),
-      { desktopImageSlot: { src: '/api/handoff/assets/img_abc/raw', alt: 'x' } },
-      fields,
-      new Set(['/api/handoff/assets/img_abc/raw'])
-    );
-    const slot = args.desktopImageSlot as { props: Record<string, unknown> };
-    assert.equal(slot.props.srcSet, '/api/handoff/assets/img_abc/raw');
-  });
-
-  it('finds the img inside a wrapper element, not just at the root', () => {
-    const picture = {
-      type: 'picture',
-      props: { children: [{ type: 'source', props: {} }, heroImageSlot()] },
-      _owner: null,
-      _store: {},
-    };
-    const { args } = mergeBlockValues(
-      blankContentValues({ desktopImageSlot: picture }, fields),
-      { desktopImageSlot: { src: '/api/handoff/assets/img_abc/raw', alt: 'x' } },
-      fields,
-      new Set(['/api/handoff/assets/img_abc/raw'])
-    );
-    const slot = args.desktopImageSlot as { props: { children: { type: string; props: Record<string, unknown> }[] } };
-    assert.equal(slot.props.children[1]!.props.src, '/api/handoff/assets/img_abc/raw');
+  it('leaves a preview that already holds plain data alone', () => {
+    // Previews are an inconsistent mix: some store input props, some store render output. Only the
+    // output-shaped ones need normalising.
+    const plainFields = { imageSlot: { editorType: 'image', shape: '{ src, alt }', fromBase: true } };
+    const blanked = blankContentValues(
+      { imageSlot: { src: '../../images/content/x.webp', alt: 'A', width: 800, height: 600 } },
+      plainFields
+    ) as { imageSlot: Record<string, unknown> };
+    assert.match(String(blanked.imageSlot.src), /placehold\.co/);
+    assert.equal(blanked.imageSlot.width, 800);
   });
 });
