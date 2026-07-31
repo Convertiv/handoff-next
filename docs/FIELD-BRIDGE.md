@@ -69,6 +69,122 @@ this at the source rather than after three fix attempts in the wrong direction.
 
 Keep reading below for the original argument, but treat its direction as superseded.
 
+## Read the 8x8 source, 2026-07-31 — there are FOUR contracts and no owner
+
+The workspace is checked out at `~/Documents/Clients/8x8/8x8-website`. Reading it replaces the inference
+below. The short version: **nothing is contaminated. There are four independent descriptions of the same
+prop, written in four places, and no single owner.**
+
+### 1. The type contract — `handoff/components/blocks/hero-background/schema.ts`
+
+Generated from TypeScript. Every `*Slot` is:
+
+```json
+"desktopImageSlot": { "type": "React.ReactNode", "kind": "slot",
+  "description": "Desktop background image slot. Recommended: 2560 x 1400 … about 64:35 …" }
+```
+
+**Not `image`. Not `array`. No mention of `{ src, alt }`.** True, and almost useless — exactly the
+"ReactNode tells you nothing" point, now confirmed from the source rather than argued.
+
+### 2. The intent hints — `handoff/handoff.config.js` (8x8's own)
+
+```js
+const MEDIA_FIELD_PATTERN = /\b(image|media|video|poster|avatar|thumbnail|background|logo|lottie)\b/i;
+const extractDimensionRule = (description = "") => { … DIMENSION_PATTERN … }
+```
+
+**This is where `editorType: 'image'` comes from** — a regex on the field name, plus dimension rules
+parsed out of English prose in the description. This is the "little bridge" and it is a *hint* layer:
+which editor to show, what dimensions to recommend. Legitimate for intent. It is not, and cannot be, a
+statement about data shape.
+
+### 3. The real JSON contract — `blocks/*/template.tsx` (8x8's own, invisible to us)
+
+```tsx
+type HeroBackgroundPreviewFields = {
+  title?, paragraph?, body?, overline?,
+  buttons?: PreviewButton[], breadcrumb?: PreviewBreadcrumb[],
+  images?: { desktop?: PreviewImage; mobile?: PreviewImage },
+};
+
+desktopImageSlot={renderPreviewImageSlot(block.desktopImageSlot, block.images?.desktop)}
+buttonSlots={renderPreviewButtonSlots(block.buttonSlots, block.buttons)}
+```
+
+and in `previewHelpers.tsx`:
+
+```js
+function renderPreviewImageSlot(slot, image, className = "h-full w-full object-cover") {
+  if (slot) return slot;                                    // ReactNode: passed straight through
+  if (!image?.src) return undefined;
+  return <img src={image.src} alt={image.alt ?? ""} className={className} />;
+}
+```
+
+**Two designed input paths per slot**, and the JSON-friendly one uses *different field names*:
+`images.desktop`, `buttons`, `title`, `overline`, `paragraph`, `breadcrumb`. `PreviewImage` is
+`{ src, alt, url, href, target }`; `PreviewButton` is `{ label|text, variant|type, url|href, target }`.
+
+**handoff-app has never captured any of this.** Only 12 of 59 blocks have it, so it is a live migration,
+not a finished convention.
+
+### 4. handoff-app's `shapeNote` — `'{ src, alt, width?, height? }'`
+
+A guess at (3), derived from (2), for a prop whose real type is (1). It happens to be close to
+`PreviewImage` — which is why it *seemed* right — but it is asserted against the `*Slot` name, i.e.
+path 1's field with path 2's shape.
+
+### The serialization story, corrected
+
+8x8 wrote `reviveSerializedReactNode` in `handoff.config.js` and injects it via
+`hooks.clientBuildConfig`. It walks a serialized tree and rebuilds it with `React.createElement`,
+mapping a non-string `type` to `React.Fragment`.
+
+**So serialized elements in previews are not contamination — they are the intended wire format**, with a
+reviver meant to restore them. The previous section's "shallow-rendered contamination" reading is wrong.
+
+But the reviver is **absent from both the local build and the deployed bundle** (`grep -c
+reviveSerializedReactNode` = 0 on each). It is not a stale-build problem: the bundle is newer than the
+config, the reviver dates from May, and the replace target does match the generator's emitted string
+(verified by extracting the template literal and testing `.includes`).
+
+The remaining explanation is that the reviver is injected into the **SSR/hydration** entry
+(`plugins/ssr-render.js`, which ends in `hydrateRoot(...)`), while the playground imports a **different**
+entry exporting `render`/`update` (`preview/component/api.js`) that has no revive step. **Not fully
+confirmed** — worth ten more minutes before anyone acts on it.
+
+### Measured behaviour, for reference
+
+Rendering the live module (`/api/component/hero-background-client.mjs`):
+
+| Input | Result |
+|---|---|
+| data fields — `images.desktop`, `buttons`, `title`, `overline` | ✅ richest output: 2 styled buttons, both images, all copy |
+| `*Slot` fields as plain data (`{src,alt}`, `[{url,text}]`, HTML string) | ✅ renders, but plainer buttons |
+| `*Slot` fields as serialized elements | ❌ ignored; component falls back to its own default image |
+| stored preview values verbatim | ❌ throws `(e \|\| []).filter is not a function` |
+
+### What follows
+
+**Do not build lenses over preview values.** That was solving the wrong problem — twice over, since
+previews are neither ground truth nor contamination, but a format awaiting a reviver that is not running.
+
+Two real options, in preference order:
+
+1. **Capture contract (3).** `template.tsx`'s preview-field type is the authoring contract, already
+   written per component, and it renders best. It is plain JSON with no revive needed, which suits both
+   the AI and a form editor. The gap is that handoff-app never reads it — a TS type in the workspace that
+   nothing extracts. This also makes the `*Slot` props irrelevant to authoring, which is the right
+   outcome.
+2. **Fix the revive path**, so serialized elements work on the playground entry as 8x8 intended. Keeps
+   the existing preview data meaningful, but keeps authoring in terms of React trees — harder for both a
+   model and a form.
+
+Either way the immediate defensive move stands: **`shapeNote` should stop asserting `{ src, alt }` for a
+`React.ReactNode` slot.** It is a guess, it is right by luck, and it is the thing that has now produced
+four wrong turns.
+
 ## Root cause, 2026-07-31 — previews contain shallow-rendered components
 
 Traced the write path. `previews` reaches the DB **verbatim** from the CLI push (`sync-queries.ts`
