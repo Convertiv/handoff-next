@@ -13,15 +13,45 @@ travels with the thing it describes.
 Probing in the registry after push means the answer arrives too late to stop a bad push, and probing on
 demand in the app means paying for it forever.
 
-**The browser dependency is probably avoidable.** The 600ms per render measured in the browser pane is
-mostly browser and scheduler overhead, not React. `-client.mjs` is self-contained ESM bundling its own
-React, and `render(container, props)` needs only a DOM — **jsdom in Node should serve**, at single-digit
-milliseconds per render. That collapses the cost model: 49 renders per component becomes under a second,
-and the whole 65-component catalog under a minute. Cheap enough to run on **every** build rather than as
-a scheduled job.
+**The browser dependency is gone. Tested 2026-07-31.**
 
-That is the single most valuable thing to verify before building anything, because it decides whether
-this is a background job with cached results or simply part of `handoff build`.
+jsdom in Node renders `hero-background-client.mjs` and produces the **same capability record** as the
+browser:
+
+```
+import           39ms   (browser: 532ms)
+per render      4.3ms   (browser: ~600ms)
+full probe       211ms  for 7 slots x 7 candidates = 49 renders
+whole catalog   ~14s    extrapolated across 65 components
+```
+
+Not merely equal — **more complete.** jsdom found `buttonSlots` accepts both `array-of-link` and
+`array-of-urltext`; the browser run reported only the latter, because that candidate had gone through the
+batched path and hit the interference described below. Probing per-slot throughout, which is only
+affordable because it is this cheap, gives the fuller answer.
+
+Every finding reproduced exactly: `image-object` renders, `serialized-element` is silently ignored in
+favour of the component's own default, a non-array `buttonSlots` throws
+`(e || []).filter is not a function`.
+
+**So this is part of `handoff build`, not a scheduled job.** Fourteen seconds for a whole catalog needs
+no caching strategy, no queue, and no headless browser in CI.
+
+### The probe harness
+
+jsdom needs a small fixed set of stubs before the module loads. This *is* the harness, and it is worth
+keeping short and explicit:
+
+`window` `document` `navigator` `HTMLElement` `Element` `Node` `Text` `DocumentFragment`
+`getComputedStyle` `CustomEvent` `Event` `MutationObserver` `SVGElement` `Image` `DOMParser` `self`,
+plus `requestAnimationFrame`/`cancelAnimationFrame`, no-op `IntersectionObserver` and `ResizeObserver`,
+a `matchMedia` returning `matches: false`, and `scrollTo`.
+
+**`matchMedia` is the one with teeth.** CSS-driven responsive layout is safe — the desktop image sits
+inside `hidden lg:block` and is still in the DOM — but a component that *branches in JavaScript* on a
+media query could hide a slot from the probe under a fixed synthetic viewport. That is the
+"fails safe but wrong" case, now concrete and worth a second probe pass at a different simulated width
+if it ever shows up.
 
 ## Where candidates come from
 
@@ -102,7 +132,7 @@ whether it needed one or not — and only 12 of 59 got done.
 
 ## What I would verify before building any of it
 
-1. **jsdom renders these modules.** Decides cheap-and-always versus expensive-and-cached. Half a day.
+1. ~~jsdom renders these modules.~~ **Done — it does, at 4.3ms per render.**
 2. **A component that needs context to render.** The failure mode flagged as "fails safe but wrong". 8x8
    has tabs and accordions; find one and see whether the probe reports it honestly.
 3. **One non-8x8 React component**, ideally Resolvet's, to confirm nothing here quietly depends on 8x8's
