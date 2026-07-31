@@ -5,6 +5,7 @@ import {
   assetIdForBytes,
   contentHashForBytes,
   extensionForMimeType,
+  shouldReencodeToWebp,
   type StorableImageMimeType,
 } from '@/lib/image-bytes';
 import { buildAssetKey, buildThumbnailKey, isS3Configured, putToS3 } from '@/lib/server/s3-assets';
@@ -36,6 +37,13 @@ export interface StoreImageAssetInput {
   sourceMetadata?: Record<string, unknown>;
   /** FK to `user.id`. Null for service callers — the column is nullable, unlike the job table's. */
   createdBy?: string | null;
+  /**
+   * Re-encode PNG/JPEG to WebP before storing. Default on — see `shouldReencodeToWebp`.
+   *
+   * Pass `false` for authored artwork: a logo, an icon, a screenshot with text in it. Lossy
+   * compression is right for a generated photograph and wrong for a diagram.
+   */
+  reencode?: boolean;
 }
 
 export interface StoredImageAsset {
@@ -47,8 +55,12 @@ export interface StoredImageAsset {
 }
 
 export async function storeImageAsset(input: StoreImageAssetInput): Promise<StoredImageAsset> {
-  const { bytes, mimeType } = input;
-  if (!bytes.length) throw new Error('storeImageAsset: empty bytes');
+  if (!input.bytes.length) throw new Error('storeImageAsset: empty bytes');
+
+  // **Convert first, then derive everything from the result.** The id, the content hash, the recorded
+  // size and the stored bytes must all describe the same thing; hashing the input and storing the
+  // output would make `fileSizeBytes` a lie and the content-addressed id not address the content.
+  const { bytes, mimeType } = await toStorageFormat(input.bytes, input.mimeType, input.reencode);
 
   const contentHash = contentHashForBytes(bytes);
   const assetId = assetIdForBytes(bytes);
@@ -127,6 +139,47 @@ export async function storeImageAsset(input: StoreImageAssetInput): Promise<Stor
   }
 
   return { assetId, storageUrl, deduped: false };
+}
+
+/**
+ * Re-encode to WebP where that is a win, and fall back to the original bytes if it is not.
+ *
+ * Never fatal. A generation that has already cost a minute of compute and real money should not be
+ * thrown away because an encoder hiccuped — storing the original PNG is worse than WebP and far better
+ * than storing nothing.
+ *
+ * One consequence worth knowing: because the id is the hash of the *encoded* bytes, a future sharp
+ * version that encodes differently would give the same source image a new asset id. That is a
+ * duplicate row, not a broken one, and it is the cheaper end of the trade against `fileSizeBytes` and
+ * the id describing something other than what is stored.
+ */
+async function toStorageFormat(
+  bytes: Buffer,
+  mimeType: StorableImageMimeType,
+  reencode?: boolean
+): Promise<{ bytes: Buffer; mimeType: StorableImageMimeType }> {
+  if (!shouldReencodeToWebp(mimeType, reencode ?? true)) return { bytes, mimeType };
+
+  try {
+    const sharp = (await import('sharp')).default;
+    // Quality 82 is the usual photographic sweet spot. Metadata is dropped by default, which is what
+    // strips the C2PA provenance blocks and the embedded icon that bulk out a generated PNG.
+    const webp = await sharp(bytes).webp({ quality: 82 }).toBuffer();
+    // Trust the result only if it is actually smaller — for a flat or already-optimal image it may not
+    // be, and there is no reason to take a lossy pass for a worse file.
+    if (webp.length && webp.length < bytes.length) {
+      console.log('[store-image-asset] re-encoded to webp', {
+        from: bytes.length,
+        to: webp.length,
+        saved: `${Math.round((1 - webp.length / bytes.length) * 100)}%`,
+      });
+      return { bytes: webp, mimeType: 'image/webp' };
+    }
+    return { bytes, mimeType };
+  } catch (err) {
+    console.warn('[store-image-asset] webp re-encode failed, storing original', err);
+    return { bytes, mimeType };
+  }
 }
 
 /**

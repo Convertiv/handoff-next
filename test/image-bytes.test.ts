@@ -6,6 +6,7 @@ import {
   decodeImageDataUrl,
   extensionForMimeType,
   isStorableImageMimeType,
+  shouldReencodeToWebp,
 } from '../src/app/lib/image-bytes';
 
 const png = (payload: string) => `data:image/png;base64,${Buffer.from(payload).toString('base64')}`;
@@ -101,5 +102,20 @@ describe('assetIdForBytes', () => {
   it('shares its hash with contentHashForBytes, which is stored for dedupe', () => {
     const bytes = Buffer.from('x');
     assert.ok(contentHashForBytes(bytes).startsWith(assetIdForBytes(bytes).slice(4)));
+  });
+});
+
+describe('shouldReencodeToWebp', () => {
+  it('converts the formats the image model returns', () => {
+    assert.ok(shouldReencodeToWebp('image/png'));
+    assert.ok(shouldReencodeToWebp('image/jpeg'));
+  });
+
+  it('never re-encodes WebP, which would be a second lossy pass for nothing', () => {
+    assert.equal(shouldReencodeToWebp('image/webp'), false);
+  });
+
+  it('respects an opt-out, for artwork that must be stored as given', () => {
+    assert.equal(shouldReencodeToWebp('image/png', false), false);
   });
 });

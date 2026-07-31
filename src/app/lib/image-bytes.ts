@@ -67,6 +67,24 @@ export function decodeImageDataUrl(value: unknown): DecodedImage | null {
 }
 
 /**
+ * Should these bytes be re-encoded to WebP before storing?
+ *
+ * Generated PNGs are enormous — a 1536x1024 from the image model runs 2-3MB, and with no S3 configured
+ * that becomes 3-4MB of base64 in a Postgres row, which is the pattern already identified as the
+ * workbench's performance root cause. WebP at photographic quality is roughly a tenth of that, and
+ * re-encoding drops the C2PA provenance blocks and embedded icon that make up a visible slice of the
+ * original.
+ *
+ * Two things it must not do. Re-encoding WebP to WebP is a second lossy pass for no gain. And lossy
+ * compression is wrong for authored artwork — a logo or a screenshot with text should be stored as
+ * given, which is why callers can opt out rather than this being unconditional.
+ */
+export function shouldReencodeToWebp(mimeType: StorableImageMimeType, requested = true): boolean {
+  if (!requested) return false;
+  return mimeType === 'image/png' || mimeType === 'image/jpeg';
+}
+
+/**
  * Content-addressed id, matching the `img_<hash>` convention the Figma ingest already established.
  *
  * Addressing by content means generating the same image twice costs one row, and re-running a failed
