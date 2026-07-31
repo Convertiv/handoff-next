@@ -527,6 +527,12 @@ export const handoffDesignGenerationJobs = pgTable('handoff_design_generation_jo
   status: text('status').notNull().default('pending'),
   stage: text('stage').notNull().default('preparing'),
   imageUrl: text('image_url'),
+  /**
+   * Set when `requestParams.intent === 'asset'` — the job put its image in the asset library rather
+   * than into a design artifact. No FK: a job may fail before an asset exists, and deleting the asset
+   * should not erase the record of the job that made it.
+   */
+  assetId: text('asset_id'),
   error: text('error'),
   /** Serialized FormData-like payload: { prompt, quality, iterationBaseUrl, conversationHistory, componentGuideIds, foundationContext, designGuidelines, brandVoiceGuidelines, attachedImages } */
   requestParams: jsonb('request_params').notNull().default({}),

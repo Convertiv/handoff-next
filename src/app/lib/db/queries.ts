@@ -1225,7 +1225,7 @@ export async function getDesignGenerationJob(id: number): Promise<DesignGenerati
 
 export async function updateDesignGenerationJob(
   id: number,
-  patch: Partial<Pick<DesignGenerationJobRow, 'status' | 'stage' | 'imageUrl' | 'error' | 'artifactId'>>
+  patch: Partial<Pick<DesignGenerationJobRow, 'status' | 'stage' | 'imageUrl' | 'error' | 'artifactId' | 'assetId'>>
 ): Promise<void> {
   const db = getDb();
   const values: Partial<typeof handoffDesignGenerationJobs.$inferInsert> = { updatedAt: new Date() };
@@ -1234,6 +1234,7 @@ export async function updateDesignGenerationJob(
   if (patch.imageUrl !== undefined) values.imageUrl = patch.imageUrl;
   if (patch.error !== undefined) values.error = patch.error;
   if (patch.artifactId !== undefined) values.artifactId = patch.artifactId;
+  if (patch.assetId !== undefined) values.assetId = patch.assetId;
   await db.update(handoffDesignGenerationJobs).set(values).where(eq(handoffDesignGenerationJobs.id, id));
 }
 
@@ -1388,6 +1389,38 @@ const QUEUE_STARVATION_MS = 45 * 60 * 1000;
  * Age is measured from `updated_at`. An unrelated write to the artifact bumps that column and
  * restarts the clock, which can delay a reap but never strands a row permanently.
  */
+/**
+ * Fail generation jobs that have sat in `running` past any plausible completion.
+ *
+ * Nothing reaped these. A killed invocation — a deploy mid-generation, an OOM, a timeout — left the
+ * row `running` forever, and the only thing that noticed was the client's 300s poll giving up with no
+ * explanation. Survivable with one producer; with the playground now enqueueing too, a stuck row is a
+ * placeholder that never resolves and a user with no idea why.
+ *
+ * The ceiling is generous on purpose: `openAiImageEdit` allows itself 240s and high quality genuinely
+ * takes minutes, so reaping early would kill work that was going to succeed.
+ */
+export async function reapStuckGenerationJobs(maxAgeMs: number = 15 * 60 * 1000): Promise<number> {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - maxAgeMs);
+  const rows = await db
+    .update(handoffDesignGenerationJobs)
+    .set({
+      status: 'failed',
+      stage: 'done',
+      error: `Timed out — no progress for over ${Math.round(maxAgeMs / 60000)} minutes.`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(handoffDesignGenerationJobs.status, 'running'),
+        or(lt(handoffDesignGenerationJobs.updatedAt, cutoff), isNull(handoffDesignGenerationJobs.updatedAt))
+      )
+    )
+    .returning({ id: handoffDesignGenerationJobs.id });
+  return rows.length;
+}
+
 export async function reapStuckDesignArtifactJobs(
   maxAgeMs: number = 15 * 60 * 1000
 ): Promise<{ extractions: number; specs: number }> {

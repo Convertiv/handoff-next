@@ -27,6 +27,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       status: job.status,
       stage: job.stage,
       imageUrl: job.imageUrl,
+      // Set only for `intent: 'asset'` jobs — where the image landed in the library.
+      assetId: job.assetId,
       error: job.error,
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,

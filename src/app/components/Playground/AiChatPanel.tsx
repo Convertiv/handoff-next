@@ -8,6 +8,7 @@ import { Message, MessageContent } from '@/components/ui/message';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 import { applyOps, describeOp, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
+import { containsImageSrc, swapImageSrc } from '@/lib/swap-image-src';
 import { usePlayground } from './PlaygroundContext';
 
 /**
@@ -35,7 +36,21 @@ type Msg =
        */
       label?: string;
     }
-  | { role: 'assistant'; content: string; proposal?: Proposal; changeset?: Changeset };
+  | { role: 'assistant'; content: string; proposal?: Proposal; changeset?: Changeset; images?: PendingImage[] };
+
+/**
+ * An image being generated for a slot that is currently showing a placeholder.
+ *
+ * Generation is 25s-4min and the chat route budget is 120s, so the turn cannot wait for it — the page
+ * is applied with placeholders and these fill in behind it. See `docs/PLAYGROUND-ASSETS.md`.
+ */
+interface PendingImage {
+  jobId: number;
+  title: string;
+  placeholderSrc: string;
+  state: 'generating' | 'done' | 'failed' | 'gone';
+  error?: string;
+}
 
 interface Changeset {
   ops: EditOp[];
@@ -63,6 +78,8 @@ export default function AiChatPanel() {
   const [urlOpen, setUrlOpen] = useState(false);
   const [url, setUrl] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Serializes canvas writes from image watchers — see `watchImage`. */
+  const swapQueue = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -108,6 +125,7 @@ export default function AiChatPanel() {
       let reply = '';
       let proposal: Proposal | undefined;
       let changeset: Changeset | undefined;
+      let images: PendingImage[] | undefined;
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -131,6 +149,7 @@ export default function AiChatPanel() {
             ops?: EditOp[];
             summary?: string;
             rejected?: { reason: string }[];
+            queued?: { jobId: number; title: string; placeholderSrc: string }[];
           };
           try {
             event = JSON.parse(line);
@@ -142,12 +161,25 @@ export default function AiChatPanel() {
           else if (event.type === 'proposal') proposal = { blocks: event.blocks ?? [], rationale: event.rationale ?? '' };
           else if (event.type === 'changeset')
             changeset = { ops: event.ops ?? [], summary: event.summary ?? '', rejected: event.rejected ?? [] };
+          else if (event.type === 'images')
+            images = (event.queued ?? []).map((q) => ({ ...q, state: 'generating' as const }));
           else if (event.type === 'error') throw new Error(event.message || 'The request failed.');
         }
       }
 
-      if (reply || proposal || changeset) {
-        setMessages((cur) => [...cur, { role: 'assistant', content: reply, proposal, changeset }]);
+      if (reply || proposal || changeset || images?.length) {
+        // The index the poller needs to patch is this message's, which is only known once it is in
+        // the list — hence the functional update returning it rather than computing it from state.
+        let msgIndex = -1;
+        setMessages((cur) => {
+          msgIndex = cur.length;
+          return [...cur, { role: 'assistant', content: reply, proposal, changeset, images }];
+        });
+        // Generation is already running server-side; these watchers only decide when the canvas
+        // learns about it. Deliberately not awaited — the turn is over.
+        if (images?.length && msgIndex >= 0) {
+          for (const image of images) void watchImage(msgIndex, image);
+        }
       }
     } catch (e) {
       // An abort is the user choosing to stop, not a failure to report.
@@ -271,6 +303,77 @@ export default function AiChatPanel() {
     selectedComponents.map((c) => ({ componentId: c.id, args: (c.data ?? {}) as Record<string, unknown> }));
 
   /**
+   * Watch a generation job and drop the finished image into the page.
+   *
+   * Polling rather than streaming: the job outlives the request that started it, by design, and may
+   * outlive the chat turn by minutes. A 3s poll against a job that takes 1-4 minutes is cheap, and it
+   * survives the user navigating away and coming back mid-generation in a way an open socket does not.
+   *
+   * The ceiling matches the cron reaper, so a job the server has given up on stops being polled at
+   * roughly the same time rather than spinning until the tab closes.
+   */
+  const watchImage = async (msgIndex: number, image: PendingImage) => {
+    const deadline = Date.now() + 15 * 60 * 1000;
+    const setState = (patch: Partial<PendingImage>) =>
+      setMessages((cur) =>
+        cur.map((m, i) =>
+          i === msgIndex && m.role === 'assistant' && m.images
+            ? { ...m, images: m.images.map((img) => (img.jobId === image.jobId ? { ...img, ...patch } : img)) }
+            : m
+        )
+      );
+
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3000));
+      let job: { status?: string; imageUrl?: string | null; error?: string | null } | undefined;
+      try {
+        const res = await fetch(`/api/handoff/ai/design-generation-job/${image.jobId}`, { credentials: 'include' });
+        if (!res.ok) throw new Error(String(res.status));
+        ({ job } = (await res.json()) as { job: typeof job });
+      } catch {
+        // A blip is not a failure — the job is still running server-side. Keep polling until the
+        // deadline; the only thing a transient error should cost is one interval.
+        continue;
+      }
+      if (!job || job.status === 'pending' || job.status === 'running') continue;
+
+      if (job.status !== 'done' || !job.imageUrl) {
+        setState({ state: 'failed', error: job.error ?? 'Generation failed.' });
+        return;
+      }
+
+      // Serialized against the other watchers. A turn commonly generates two or three images, and
+      // `bulkAddComponents` rewrites the whole page: two watchers that each read the canvas and then
+      // write it back would have the second silently undo the first's swap. Chaining means each one
+      // reads a canvas that already includes every swap before it.
+      const url = job.imageUrl;
+      swapQueue.current = swapQueue.current.then(async () => {
+        // Read *inside* the chain, not before it. Matching by value is also what makes this safe
+        // against the user: they may have deleted the block, set their own image, or started a new
+        // page in the minutes this took — the same reason edit operations carry `expect`. If the
+        // placeholder is gone the image is still in the asset library; it just has nowhere to go.
+        const page = currentPage();
+        if (!page.some((b) => containsImageSrc(b.args, image.placeholderSrc))) {
+          setState({ state: 'gone' });
+          return;
+        }
+        const swapped = page.map((b) => {
+          const { value } = swapImageSrc(b.args, image.placeholderSrc, url);
+          return { componentId: b.componentId, data: value };
+        });
+        await bulkAddComponents(swapped, true);
+        setState({ state: 'done' });
+      });
+      // A throw here would break the chain for every later swap, so it is absorbed.
+      swapQueue.current = swapQueue.current.catch((err) => {
+        console.error('[playground] image swap failed', err);
+      });
+      return;
+    }
+    setState({ state: 'failed', error: 'Timed out waiting for the image.' });
+  };
+
+  /**
    * Apply a changeset to the canvas.
    *
    * Verified again here, not just on the server: the canvas is the truth and it may have moved since
@@ -378,6 +481,44 @@ export default function AiChatPanel() {
                 <Bubble variant="ghost">
                   <BubbleContent className="whitespace-pre-wrap">{m.content}</BubbleContent>
                 </Bubble>
+              ) : null}
+
+              {m.role === 'assistant' && m.images?.length ? (
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs font-medium">
+                    {m.images.length === 1 ? 'Generating an image' : `Generating ${m.images.length} images`}
+                  </p>
+                  {/* The page is already on the canvas with placeholders; this is progress, not a
+                      gate. Saying so stops it reading as "the page is not ready yet". */}
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    The page is ready — these swap in as they finish, and land in your asset library.
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {m.images.map((img) => (
+                      <li key={img.jobId} className="flex items-center gap-1.5 text-xs">
+                        {img.state === 'generating' ? (
+                          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                        ) : img.state === 'done' ? (
+                          <span className="text-emerald-700 dark:text-emerald-400">✓</span>
+                        ) : (
+                          <span className="text-amber-700 dark:text-amber-400">!</span>
+                        )}
+                        <span className={img.state === 'done' ? '' : 'text-muted-foreground'}>{img.title}</span>
+                        {img.state === 'failed' ? (
+                          <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                            — {img.error ?? 'failed'}; the placeholder stays
+                          </span>
+                        ) : null}
+                        {/* Not an error: the image was made and saved, the slot just moved on. */}
+                        {img.state === 'gone' ? (
+                          <span className="text-[11px] text-muted-foreground">
+                            — that block changed, so it is in your library instead
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
 
               {m.role === 'assistant' && m.changeset ? (

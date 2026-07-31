@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { getPendingDesignGenerationJobs, getPendingSpecArtifactIds, reapStuckDesignArtifactJobs } from '@/lib/db/queries';
+import {
+  getPendingDesignGenerationJobs,
+  getPendingSpecArtifactIds,
+  reapStuckDesignArtifactJobs,
+  reapStuckGenerationJobs,
+} from '@/lib/db/queries';
 import { runDesignGenerationJob } from '@/lib/server/design-generation-worker';
+import { isAssetGenerationParams, runAssetGenerationJob } from '@/lib/server/asset-generation-worker';
 import { runQueuedSpecGeneration } from '@/lib/server/dev-handoff';
 
 // Long enough to process a small batch of image generations serially.
@@ -33,6 +39,7 @@ export async function GET(request: NextRequest) {
   // in `extracting`/`generating` with nothing left to finalize it. This sweep is the only thing
   // that guarantees those rows reach a terminal state. Never let a reap failure block the drain.
   let reaped: { extractions: number; specs: number } = { extractions: 0, specs: 0 };
+  let reapedJobs = 0;
   try {
     reaped = await reapStuckDesignArtifactJobs();
     if (reaped.extractions || reaped.specs) {
@@ -40,6 +47,14 @@ export async function GET(request: NextRequest) {
     }
   } catch (err) {
     console.error('[design-jobs/run] reaper failed', err);
+  }
+  try {
+    // Generation jobs stuck in `running` had no reaper at all until the playground became a second
+    // producer; a stranded row there is a placeholder that never fills in.
+    reapedJobs = await reapStuckGenerationJobs();
+    if (reapedJobs) console.warn('[design-jobs/run] reaped stuck generation jobs', reapedJobs);
+  } catch (err) {
+    console.error('[design-jobs/run] generation-job reaper failed', err);
   }
 
   const startedAt = Date.now();
@@ -50,7 +65,14 @@ export async function GET(request: NextRequest) {
   let processed = 0;
   for (const job of jobs) {
     try {
-      await runDesignGenerationJob(job.id, job.userId);
+      // One queue, two kinds of work. `intent: 'asset'` lands a library asset for the playground;
+      // anything else is the original design-artifact generation. Branching here rather than inside
+      // one worker keeps the design worker's artifact side effects away from playground turns.
+      if (isAssetGenerationParams(job.requestParams)) {
+        await runAssetGenerationJob(job.id);
+      } else {
+        await runDesignGenerationJob(job.id, job.userId);
+      }
       processed += 1;
     } catch (err) {
       console.error('[design-jobs/run] job failed', job.id, err);
@@ -76,5 +98,5 @@ export async function GET(request: NextRequest) {
     console.error('[design-jobs/run] spec drain failed', err);
   }
 
-  return NextResponse.json({ processed, specs, reaped });
+  return NextResponse.json({ processed, specs, reaped, reapedJobs });
 }

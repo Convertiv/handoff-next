@@ -5,6 +5,54 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-30 — Playground: targeted edits, and the asset loop (Phase 3)
+
+**The chat could not see the canvas.** `currentBlocks` had been in the client payload since
+composition awareness landed, but the route's body type was `{ messages, attachedAssetIds }` and it
+never parsed the field. Not a type error — reading a property that is not in the type fails to
+compile, *not reading* one the client sends is silent. Every turn summarised an empty canvas, so
+`## Already on the canvas` never reached the system prompt and the chat asked "which hero do you
+mean?" about a page with one hero. It also made the whole edit path unreachable: `propose_edits` had
+no indices to aim at. Parsing now lives in `parseCanvasBlocks` next to the summariser it feeds, with
+tests. **Lesson: a client→route field with no shared type is untested wiring.** Both ends of every
+such payload deserve a named function.
+
+`attachedAssetIds` is the exact mirror — the route parses it and no client sends it. Left alone
+pending a decision on which end is wrong.
+
+**Edit operations** (`lib/edit-operations.ts`, `docs/PLAYGROUND-EDITING.md`): update / replace /
+insert / remove instead of re-proposing the page. Every op names the index *and* the component it
+expects there, verified server-side and again client-side at apply time; a mismatch is rejected and
+reported rather than silently editing the wrong block. Applied descending by index. Partial
+application on purpose. Undo restores the pre-apply list. Reorder deliberately out.
+
+**Phase 3 — asset loop** (`docs/PLAYGROUND-ASSETS.md`). The constraint that shaped it: chat route
+budget is 120s, cron pickup is up to 60s, an image is 25s–4min. The turn cannot wait, so it does not:
+`request_image` enqueues and returns a labelled placeholder *immediately*, the page applies complete
+in seconds, and the client polls and swaps images in as they land. Placeholders are the fallback, not
+a failure state.
+
+- **`storeImageAsset`** is the piece that did not exist. `openAiImageEdit` returns a base64 data URL;
+  `insertAsset` writes a row and never touches bytes; the only re-hosting code was Figma-specific. It
+  composes what was already there (content-hash id, sharp thumbnail, S3-or-Postgres, `insertAsset`).
+  Takes bytes rather than a source so URL/attachment ingest is the same function later.
+- **Queue reused, worker not.** `requestParams.intent: 'asset'` branches the cron drain to
+  `runAssetGenerationJob`. The design worker builds foundation sheets and auto-creates a
+  `Draft — <date>` artifact, which from a playground turn would be a bug.
+- **Reaper added** for generation jobs stuck in `running` — there was none, and with a second
+  producer a stranded row is a placeholder that never fills in.
+- **Gotchas worth remembering:** the `seenAssetSrcs` guard strips any image src the model did not get
+  from a tool, so a generated placeholder has to be registered or the thing we just made gets thrown
+  away. And concurrent watchers each read-then-write the whole canvas via `bulkAddComponents`, so two
+  images finishing together had the second undo the first — swaps are serialized through a promise
+  chain, reading canvas state *inside* the chain.
+
+**Not yet run end-to-end.** No image has actually been generated, stored, or swapped in; migration
+`0025` has not executed against a real database. 260 unit tests pass and the build typechecks, which
+is not the same thing.
+
+---
+
 ## 2026-07-30 — Workspace guidance is writable over MCP (admin-gated)
 
 `handoff_update_brand_voice` (merges a subset of the seven fields) and

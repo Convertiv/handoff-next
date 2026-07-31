@@ -4,7 +4,7 @@ import { getDataProvider } from '@/lib/data';
 import { openAiChatTools, type OpenAiTool } from '@/lib/server/ai-client';
 import { formatBrandVoiceForPrompt, getDesignWorkspace } from '@/lib/server/design-workspace';
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
-import { blankContentValues, mergeBlockValues, summarizeFields } from '@/lib/merge-block-values';
+import { blankContentValues, mergeBlockValues, placeholderImageUrl, summarizeFields } from '@/lib/merge-block-values';
 import { formatExemplars } from '@/lib/page-exemplars';
 import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
@@ -42,6 +42,11 @@ export interface PlaygroundChatTurn {
   changeset?: { ops: EditOp[]; summary: string; rejected: { reason: string }[] };
   /** Tool names invoked this turn, in order. Surfaced for the UI to show its working. */
   toolsUsed: string[];
+  /**
+   * Images this turn kicked off. Each is already referenced in the page as a placeholder; the client
+   * polls these and swaps in the real src as they land.
+   */
+  queuedImages?: QueuedImage[];
 }
 
 export interface PlaygroundChatMessage {
@@ -65,6 +70,7 @@ export type PlaygroundChatEvent =
   | { type: 'reply'; content: string }
   | { type: 'proposal'; blocks: ProposedBlock[]; rationale: string }
   | { type: 'changeset'; ops: EditOp[]; summary: string; rejected: { reason: string }[] }
+  | { type: 'images'; queued: QueuedImage[] }
   | { type: 'error'; message: string };
 
 /** Human-readable narration for a tool call. Named for what the user cares about, not the function. */
@@ -79,6 +85,10 @@ function narrate(name: string, args: Record<string, unknown>): string {
     case 'search_icons': {
       const q = typeof args.query === 'string' ? args.query.trim() : '';
       return q ? `Finding a ${q} icon…` : 'Looking through the icon library…';
+    }
+    case 'request_image': {
+      const t = typeof args.title === 'string' ? args.title.trim() : '';
+      return t ? `Generating an image: ${t}…` : 'Generating an image…';
     }
     case 'propose_page':
       return 'Putting the page together…';
@@ -130,6 +140,37 @@ const TOOLS: OpenAiTool[] = [
       parameters: {
         type: 'object',
         properties: { query: { type: 'string', description: 'What the image should depict.' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'request_image',
+      description:
+        'Generate an image that the asset store does not have. Search first — this is the fallback, ' +
+        'not the default, and a real photo from the library beats a generated one. Returns a `src` to ' +
+        'put in the image arg immediately: it is a labelled placeholder that swaps itself for the real ' +
+        'image when generation finishes, a minute or two after the page appears. Say in your reply ' +
+        'which images are being generated. Capped per turn.',
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description:
+              'What to depict, as a photography or illustration brief. Describe the subject, setting ' +
+              'and mood. No text or logos — generated lettering renders as gibberish.',
+          },
+          title: { type: 'string', description: 'Short name for the asset library, e.g. "Nurse using a tablet".' },
+          altText: { type: 'string', description: 'Alt text for the image.' },
+          orientation: {
+            type: 'string',
+            enum: ['landscape', 'portrait', 'square'],
+            description: 'Shape the slot needs. Landscape for heroes and cards; square for avatars and logos.',
+          },
+        },
+        required: ['prompt', 'title'],
       },
     },
   },
@@ -273,12 +314,36 @@ async function buildBlocks(
   return { blocks, problems, gaps };
 }
 
+/**
+ * Ceiling on generated images per turn.
+ *
+ * An image is the most expensive thing in this loop by an order of magnitude, and "build me a product
+ * page" could plausibly justify one per section. Three covers a hero plus a couple of supporting
+ * shots; beyond that the honest answer is that the library is missing imagery, which is a thing to fix
+ * in the library rather than paper over per page.
+ */
+const MAX_GENERATED_IMAGES_PER_TURN = 3;
+
+/** A generation the turn kicked off. Carried back so the client knows what to poll for and swap. */
+export interface QueuedImage {
+  jobId: number;
+  title: string;
+  placeholderSrc: string;
+}
+
+interface ImageRequestContext {
+  /** FK to `user.id` — the job table requires it, so a turn with no user cannot generate. */
+  actorUserId: string | null;
+  queued: QueuedImage[];
+}
+
 async function runTool(
   name: string,
   args: Record<string, unknown>,
   preferredAssetIds: string[],
   /** Collects every src the store returned, so an invented URL can be told from a real one. */
-  seenAssetSrcs?: Set<string>
+  seenAssetSrcs?: Set<string>,
+  imageCtx?: ImageRequestContext
 ): Promise<unknown> {
   const provider = getDataProvider();
 
@@ -332,6 +397,54 @@ async function runTool(
     return out.slice(0, 25);
   }
 
+  if (name === 'request_image') {
+    if (!imageCtx?.actorUserId) {
+      return { error: 'Image generation is unavailable in this session. Leave the image empty.' };
+    }
+    if (imageCtx.queued.length >= MAX_GENERATED_IMAGES_PER_TURN) {
+      return {
+        error: `Already generating ${MAX_GENERATED_IMAGES_PER_TURN} images this turn, which is the cap. Use a library asset or leave the image empty.`,
+      };
+    }
+
+    const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
+    const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Generated image';
+    if (!prompt) return { error: 'A prompt is required.' };
+
+    const orientation = typeof args.orientation === 'string' ? args.orientation : 'landscape';
+    const [w, h] = orientation === 'portrait' ? [1024, 1536] : orientation === 'square' ? [1024, 1024] : [1536, 1024];
+
+    // The placeholder is returned *now* so the proposal is complete and applicable immediately. It is
+    // also registered as a known src, or `mergeBlockValues` would strip it as fabricated — the same
+    // guard that stops the model inventing asset URLs.
+    const placeholderSrc = placeholderImageUrl(w, h, title);
+    seenAssetSrcs?.add(placeholderSrc);
+
+    const { insertDesignGenerationJob } = await import('@/lib/db/queries');
+    const jobId = await insertDesignGenerationJob({
+      artifactId: null,
+      userId: imageCtx.actorUserId,
+      requestParams: {
+        intent: 'asset',
+        prompt,
+        title,
+        altText: typeof args.altText === 'string' ? args.altText : title,
+        size: `${w}x${h}`,
+        quality: 'medium',
+        tags: ['playground'],
+        placeholderSrc,
+      },
+    });
+
+    imageCtx.queued.push({ jobId, title, placeholderSrc });
+    return {
+      src: placeholderSrc,
+      alt: typeof args.altText === 'string' ? args.altText : title,
+      status: 'generating',
+      note: 'Use this src now. It becomes the real image when generation finishes.',
+    };
+  }
+
   if (name === 'search_icons') {
     const q = typeof args.query === 'string' ? args.query.toLowerCase().trim() : '';
     const catalog = await provider.getIconCatalog();
@@ -355,14 +468,15 @@ function systemPrompt(brandVoice: string, designMd: string, attachedCount: numbe
   const exemplars = formatExemplars();
   return `You compose landing pages in a design-system playground by assembling EXISTING blocks.
 
-You do not generate images or write CSS. You choose blocks from the catalog, write their copy, and fill
-their props with values shaped exactly as the scaffold tells you.
+You do not write CSS. You choose blocks from the catalog, write their copy, and fill their props with
+values shaped exactly as the scaffold tells you.
 
 ## How to work — this should take two or three tool calls, not ten
 1. Ask ONE round of clarifying questions if the request is genuinely vague. One round only.
 2. \`list_blocks\` ONCE, with no arguments. That is the entire catalog with every block's fields. Read
    it and choose. Do NOT call it repeatedly for different sections.
-3. \`search_assets\` / \`search_icons\` only if the page needs imagery or icons.
+3. \`search_assets\` / \`search_icons\` only if the page needs imagery or icons. If the library has
+   nothing for a slot that really needs a picture, \`request_image\`.
 4. \`propose_page\` with all the blocks and your copy.
 
 You do not need to inspect a block before using it — the fields listed by \`list_blocks\` are all you
@@ -377,8 +491,13 @@ need, and the server applies your values to the block's real shape. Write copy, 
   \`HTML, e.g. <h1>…\` means write that markup. \`{ url, text }\` means those keys, not \`label\`.
 - **\`array of { … } — write EVERY item\`** means every item, fully filled. Four stats means four
   entries each with its own numbers and copy. An array of empty objects is worse than no array.
-- Image fields already hold a correctly-proportioned placeholder. Replace \`src\` only with a real
-  asset from \`search_assets\`; otherwise leave the placeholder, which shows the intended size.
+- Image fields already hold a correctly-proportioned placeholder. Replace \`src\` only with a src a
+  tool gave you — \`search_assets\` or \`request_image\`. Never write an image path yourself.
+- **Search before you generate.** A real photo from the library beats a generated one, and generation
+  costs real money. Use \`request_image\` only where the page genuinely needs a picture the library
+  does not have — a hero, a main feature shot. Leave decorative slots on their placeholder.
+- \`request_image\` returns a src to use immediately; the real image replaces it a minute or two
+  later. Mention in your reply which images are being generated so the user knows to expect them.
 - A full page normally opens with the \`header\` block and closes with \`footer\`, both with empty
   values — they are site chrome with nothing to author. Omit them when asked for a single section.
 ${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. Use \`propose_edits\` to change them — the numbering above is 1-based for reading, so block 1 is index 0. Only use \`propose_page\` if the user wants to start over.\n` : ''}
@@ -423,6 +542,18 @@ export async function runPlaygroundChatTurn(args: {
 
   const toolsUsed: string[] = [];
   const seenAssetSrcs = new Set<string>();
+  const imageCtx: ImageRequestContext = { actorUserId: args.actorUserId ?? null, queued: [] };
+  /**
+   * Announce any generations this turn started, immediately before the turn ends.
+   *
+   * Every terminal path calls this rather than each remembering to: the images were enqueued during
+   * the tool loop and are already running, so a return that forgets to report them leaves the user
+   * with placeholders that silently become real, or never do.
+   */
+  const finish = <T extends PlaygroundChatTurn>(turn: T): T => {
+    if (imageCtx.queued.length) emit({ type: 'images', queued: imageCtx.queued });
+    return imageCtx.queued.length ? { ...turn, queuedImages: imageCtx.queued } : turn;
+  };
   // One retry only; see the gap handler below.
   let askedForGaps = false;
 
@@ -440,7 +571,7 @@ export async function runPlaygroundChatTurn(args: {
     if (!toolCalls.length) {
       const reply = content ?? '';
       emit({ type: 'reply', content: reply });
-      return { reply, toolsUsed };
+      return finish({ reply, toolsUsed });
     }
 
     convo.push({
@@ -517,11 +648,11 @@ export async function runPlaygroundChatTurn(args: {
         const reply = content ?? summary;
         emit({ type: 'reply', content: reply });
         emit({ type: 'changeset', ops: valid, summary, rejected: rejected.map((r) => ({ reason: r.reason })) });
-        return {
+        return finish({
           reply,
           changeset: { ops: valid, summary, rejected: rejected.map((r) => ({ reason: r.reason })) },
           toolsUsed,
-        };
+        });
       }
 
       // Terminal. No scaffolding check any more: the server scaffolds every block itself while
@@ -572,12 +703,12 @@ export async function runPlaygroundChatTurn(args: {
         const reply = content ?? rationale ?? 'Here is the page.';
         emit({ type: 'reply', content: reply });
         emit({ type: 'proposal', blocks, rationale });
-        return { reply, proposal: { blocks, rationale }, toolsUsed };
+        return finish({ reply, proposal: { blocks, rationale }, toolsUsed });
       }
 
       let result: unknown;
       try {
-        result = await runTool(call.name, parsed, attached, seenAssetSrcs);
+        result = await runTool(call.name, parsed, attached, seenAssetSrcs, imageCtx);
       } catch (e) {
         // Feed the failure back rather than aborting the turn — the model can pick another block or
         // explain itself, which is far more useful than a dead conversation.
@@ -595,7 +726,7 @@ export async function runPlaygroundChatTurn(args: {
     'That is a bug on our side rather than something wrong with your request. Try again, or describe the page in fewer sections.';
   emit({ type: 'reply', content: exhausted });
   console.warn('[playground-chat] round cap hit', { rounds: MAX_TOOL_ROUNDS, tools: toolsUsed });
-  return { reply: exhausted, toolsUsed };
+  return finish({ reply: exhausted, toolsUsed });
 }
 
 // ── Single-block refinement ───────────────────────────────────────────────────
