@@ -325,11 +325,22 @@ async function buildBlocks(
  */
 const MAX_GENERATED_IMAGES_PER_TURN = 3;
 
+/** The tools that actually change the page. Requesting an image is not one of them. */
+function isPlacementTool(name: string): boolean {
+  return name === 'propose_edits' || name === 'propose_page';
+}
+
 /** A generation the turn kicked off. Carried back so the client knows what to poll for and swap. */
 export interface QueuedImage {
   jobId: number;
   title: string;
   placeholderSrc: string;
+  /**
+   * Set when the request could not even be enqueued. Carried back rather than swallowed: a failure
+   * that only the model sees is a failure the user experiences as nothing happening at all, which is
+   * exactly how the first live run presented.
+   */
+  error?: string;
 }
 
 interface ImageRequestContext {
@@ -424,31 +435,44 @@ async function runTool(
     seenAssetSrcs?.add(placeholderSrc);
 
     const { insertDesignGenerationJob } = await import('@/lib/db/queries');
-    const jobId = await insertDesignGenerationJob({
-      artifactId: null,
-      userId: imageCtx.actorUserId,
-      requestParams: {
-        intent: 'asset',
-        // Same composition the block editor's Generate uses — the no-text rule and the house style
-        // matter identically from either entry point, and generated lettering is the failure most
-        // likely to be mistaken for a real word on a marketing page.
-        prompt: buildImagePrompt(prompt, imageCtx.styleGuidance),
-        title,
-        altText: typeof args.altText === 'string' ? args.altText : title,
-        size: `${w}x${h}`,
-        quality: 'medium',
-        tags: ['playground'],
-        brief: prompt,
-        placeholderSrc,
-      },
-    });
+    let jobId: number;
+    try {
+      jobId = await insertDesignGenerationJob({
+        artifactId: null,
+        userId: imageCtx.actorUserId,
+        requestParams: {
+          intent: 'asset',
+          // Same composition the block editor's Generate uses — the no-text rule and the house style
+          // matter identically from either entry point, and generated lettering is the failure most
+          // likely to be mistaken for a real word on a marketing page.
+          prompt: buildImagePrompt(prompt, imageCtx.styleGuidance),
+          title,
+          altText: typeof args.altText === 'string' ? args.altText : title,
+          size: `${w}x${h}`,
+          quality: 'medium',
+          tags: ['playground'],
+          brief: prompt,
+          placeholderSrc,
+        },
+      });
+    } catch (err) {
+      // Logged, and reported to the user via the images card — not just handed back to the model,
+      // which may narrate success regardless.
+      console.error('[playground-chat] could not enqueue image generation', err);
+      const message = err instanceof Error ? err.message : 'Could not start image generation.';
+      imageCtx.queued.push({ jobId: 0, title, placeholderSrc, error: message });
+      return { error: `Could not start image generation: ${message}. Use the placeholder src anyway.`, src: placeholderSrc };
+    }
 
+    console.log('[playground-chat] queued image generation', { jobId, title });
     imageCtx.queued.push({ jobId, title, placeholderSrc });
     return {
       src: placeholderSrc,
       alt: typeof args.altText === 'string' ? args.altText : title,
       status: 'generating',
-      note: 'Use this src now. It becomes the real image when generation finishes.',
+      note:
+        'Use this src now, in a propose_edits or propose_page call. Requesting the image does NOT put ' +
+        'it on the page — you still have to write it into the block.',
     };
   }
 
@@ -503,8 +527,10 @@ need, and the server applies your values to the block's real shape. Write copy, 
 - **Search before you generate.** A real photo from the library beats a generated one, and generation
   costs real money. Use \`request_image\` only where the page genuinely needs a picture the library
   does not have — a hero, a main feature shot. Leave decorative slots on their placeholder.
-- \`request_image\` returns a src to use immediately; the real image replaces it a minute or two
-  later. Mention in your reply which images are being generated so the user knows to expect them.
+- **\`request_image\` does not put anything on the page.** It returns a src; you must still write that
+  src into the block with \`propose_edits\` (or \`propose_page\`) in the same turn. Requesting an image
+  and then only describing it leaves the page unchanged — this is the most common way to get this
+  wrong. Mention the generation in your reply *as well as* making the edit, never instead of it.
 - A full page normally opens with the \`header\` block and closes with \`footer\`, both with empty
   values — they are site chrome with nothing to author. Omit them when asked for a single section.
 ${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. Use \`propose_edits\` to change them — the numbering above is 1-based for reading, so block 1 is index 0. Only use \`propose_page\` if the user wants to start over.\n` : ''}
@@ -567,6 +593,8 @@ export async function runPlaygroundChatTurn(args: {
   };
   // One retry only; see the gap handler below.
   let askedForGaps = false;
+  // Likewise: nudge once if images were requested but never written into a block.
+  let askedToPlaceImages = false;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     // Checked between rounds rather than mid-call: the in-flight request finishes either way, but we
@@ -580,6 +608,25 @@ export async function runPlaygroundChatTurn(args: {
     });
 
     if (!toolCalls.length) {
+      // Requesting an image and then only describing it leaves the page untouched — which is exactly
+      // how the first live run failed. The prompt says so; this is the check that the prompt worked.
+      // Once only, matching the unfilled-content gap: a model that ignores the second ask will ignore
+      // a third, and an honest reply beats a loop.
+      if (imageCtx.queued.length && !askedToPlaceImages && !toolsUsed.some(isPlacementTool)) {
+        askedToPlaceImages = true;
+        console.warn('[playground-chat] images requested but never placed; asking once', {
+          queued: imageCtx.queued.map((q) => q.jobId),
+        });
+        convo.push({
+          role: 'user',
+          content:
+            `You requested ${imageCtx.queued.length} image(s) but never put them on the page. Call ` +
+            'propose_edits now, writing each returned src into the right block. Do not request the ' +
+            'images again — they are already generating; reuse these placeholder srcs exactly: ' +
+            imageCtx.queued.map((q) => q.placeholderSrc).join(' , '),
+        });
+        continue;
+      }
       const reply = content ?? '';
       emit({ type: 'reply', content: reply });
       return finish({ reply, toolsUsed });

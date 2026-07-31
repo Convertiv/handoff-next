@@ -150,7 +150,7 @@ export default function AiChatPanel() {
             ops?: EditOp[];
             summary?: string;
             rejected?: { reason: string }[];
-            queued?: { jobId: number; title: string; placeholderSrc: string }[];
+            queued?: { jobId: number; title: string; placeholderSrc: string; error?: string }[];
           };
           try {
             event = JSON.parse(line);
@@ -163,23 +163,25 @@ export default function AiChatPanel() {
           else if (event.type === 'changeset')
             changeset = { ops: event.ops ?? [], summary: event.summary ?? '', rejected: event.rejected ?? [] };
           else if (event.type === 'images')
-            images = (event.queued ?? []).map((q) => ({ ...q, state: 'generating' as const }));
+            images = (event.queued ?? []).map((q) => ({
+              ...q,
+              state: q.error ? ('failed' as const) : ('generating' as const),
+            }));
           else if (event.type === 'error') throw new Error(event.message || 'The request failed.');
         }
       }
 
       if (reply || proposal || changeset || images?.length) {
-        // The index the poller needs to patch is this message's, which is only known once it is in
-        // the list — hence the functional update returning it rather than computing it from state.
-        let msgIndex = -1;
-        setMessages((cur) => {
-          msgIndex = cur.length;
-          return [...cur, { role: 'assistant', content: reply, proposal, changeset, images }];
-        });
+        // `next` is this turn's history including the user message, so the assistant message lands at
+        // exactly `next.length`. Reading the index out of a `setMessages` updater instead — which is
+        // what this did first — always yielded -1: React runs the updater during render, not at call
+        // time, so the value was read before it was ever assigned and no watcher started.
+        const msgIndex = next.length;
+        setMessages((cur) => [...cur, { role: 'assistant', content: reply, proposal, changeset, images }]);
         // Generation is already running server-side; these watchers only decide when the canvas
         // learns about it. Deliberately not awaited — the turn is over.
-        if (images?.length && msgIndex >= 0) {
-          for (const image of images) void watchImage(msgIndex, image);
+        for (const image of images ?? []) {
+          if (!image.error) void watchImage(msgIndex, image);
         }
       }
     } catch (e) {
