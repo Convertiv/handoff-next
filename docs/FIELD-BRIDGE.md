@@ -2,6 +2,15 @@
 
 **Status:** design note, 2026-07-31. Written after the third production bug from one cause.
 
+## Scope: React registries only
+
+**This is a React problem.** Handlebars components take plain serializable JSON as their template
+context, so the value's shape *is* the declared shape — there is no element-tree indirection to infer
+through and nothing for a lens to locate. Cynosure and SSC are Handlebars and need none of this.
+
+8x8 is React, which is where a prop typed `React.ReactNode` becomes a serialized element tree at
+runtime and the declared shape stops describing where the data lives. Everything below is about that.
+
 ## The bug class, stated once
 
 Three failures this month, all the same shape:
@@ -113,9 +122,9 @@ it on would break rendering, because nothing checked.
 
 ## Order to build it
 
-1. **The conformance test.** Derive lenses from previews, round-trip every slot, report the catalog's
-   failures. Ships no behaviour change and immediately tells us how big the problem actually is across
-   8x8, Cynosure and SSC — a number we do not currently have.
+1. **The conformance test.** Derive lenses from previews, check every slot, report the catalog's
+   failures. Ships no behaviour change and tells us how big the problem actually is — a number we do
+   not currently have.
 2. **One lens module**, replacing the three hand-rolled shape guesses (AI merge, block editor,
    placeholder swap) with shared accessors.
 3. **Type extraction** for enums and required-ness, which the observed value genuinely cannot give.
