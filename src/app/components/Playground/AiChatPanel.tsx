@@ -8,7 +8,7 @@ import { Message, MessageContent } from '@/components/ui/message';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 import { applyOps, describeOp, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
-import { containsImageSrc, swapImageSrc } from '@/lib/swap-image-src';
+import { applyResolvedImages, containsImageSrc, swapImageSrc, type ResolvedImage } from '@/lib/swap-image-src';
 import { pollGenerationJob } from '@/lib/client/poll-generation-job';
 import { usePlayground } from './PlaygroundContext';
 
@@ -49,7 +49,14 @@ interface PendingImage {
   jobId: number;
   title: string;
   placeholderSrc: string;
-  state: 'generating' | 'done' | 'failed' | 'gone';
+  /**
+   * `waiting` means generated but its placeholder is not on the canvas yet — usually because the
+   * changeset has not been applied. It is not a failure and not discarded: the next apply carries it
+   * in. `gone` is reserved for the placeholder having genuinely been removed.
+   */
+  state: 'generating' | 'done' | 'waiting' | 'failed' | 'gone';
+  /** The finished image, held until there is somewhere to put it. */
+  resolvedUrl?: string;
   error?: string;
 }
 
@@ -302,6 +309,38 @@ export default function AiChatPanel() {
     }
   };
 
+  /**
+   * Every finished image still looking for its slot.
+   *
+   * Read from messages at apply time rather than tracked separately — one source of truth, and it
+   * survives a message list that has grown since the generation started.
+   */
+  const heldImages = (msgs: Msg[]): ResolvedImage[] =>
+    msgs.flatMap((m) =>
+      m.role === 'assistant' && m.images
+        ? m.images
+            .filter((img) => img.state === 'waiting' && img.resolvedUrl)
+            .map((img) => ({ placeholderSrc: img.placeholderSrc, url: img.resolvedUrl! }))
+        : []
+    );
+
+  /** Mark held images as landed once an apply has carried them onto the canvas. */
+  const markImagesApplied = (applied: string[]) => {
+    if (!applied.length) return;
+    setMessages((cur) =>
+      cur.map((m) =>
+        m.role === 'assistant' && m.images
+          ? {
+              ...m,
+              images: m.images.map((img) =>
+                applied.includes(img.placeholderSrc) && img.state === 'waiting' ? { ...img, state: 'done' as const } : img
+              ),
+            }
+          : m
+      )
+    );
+  };
+
   const currentPage = (): PageBlock[] =>
     selectedComponents.map((c) => ({ componentId: c.id, args: (c.data ?? {}) as Record<string, unknown> }));
 
@@ -339,7 +378,10 @@ export default function AiChatPanel() {
         // placeholder is gone the image is still in the asset library; it just has nowhere to go.
         const page = currentPage();
         if (!page.some((b) => containsImageSrc(b.args, image.placeholderSrc))) {
-          setState({ state: 'gone' });
+          // Nothing to swap into *yet*. Hold the result: if the changeset has not been applied, the
+          // slot is about to exist, and `applyResolvedImages` folds it in at apply time. Throwing the
+          // image away here meant a user who took a moment to click Apply lost it silently.
+          setState({ state: 'waiting', resolvedUrl: url });
           return;
         }
         const swapped = page.map((b) => {
@@ -377,7 +419,11 @@ export default function AiChatPanel() {
     }
 
     const after = applyOps(before, valid);
-    await bulkAddComponents(after.map((b) => ({ componentId: b.componentId, data: b.args })), true);
+    // Any image that finished before this click is folded into the same write, so the order the two
+    // happened in does not matter and there is no second canvas write to race the first.
+    const { blocks: withImages, applied } = applyResolvedImages(after, heldImages(messages));
+    await bulkAddComponents(withImages.map((b) => ({ componentId: b.componentId, data: b.args })), true);
+    markImagesApplied(applied);
 
     setMessages((cur) =>
       cur.map((m, i) =>
@@ -402,10 +448,12 @@ export default function AiChatPanel() {
   };
 
   const apply = async (index: number, proposal: Proposal, replace: boolean) => {
+    const { blocks, applied } = applyResolvedImages(proposal.blocks, heldImages(messages));
     await bulkAddComponents(
-      proposal.blocks.map((b) => ({ componentId: b.componentId, data: b.args })),
+      blocks.map((b) => ({ componentId: b.componentId, data: b.args })),
       replace
     );
+    markImagesApplied(applied);
     setMessages((cur) =>
       cur.map((m, i) => (i === index && m.role === 'assistant' && m.proposal ? { ...m, proposal: { ...m.proposal, applied: true } } : m))
     );
@@ -483,6 +531,8 @@ export default function AiChatPanel() {
                           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
                         ) : img.state === 'done' ? (
                           <span className="text-emerald-700 dark:text-emerald-400">✓</span>
+                        ) : img.state === 'waiting' ? (
+                          <span className="text-muted-foreground">◷</span>
                         ) : (
                           <span className="text-amber-700 dark:text-amber-400">!</span>
                         )}
@@ -492,10 +542,17 @@ export default function AiChatPanel() {
                             — {img.error ?? 'failed'}; the placeholder stays
                           </span>
                         ) : null}
-                        {/* Not an error: the image was made and saved, the slot just moved on. */}
+                        {/* Says what is true — the slot is not on the page — rather than guessing why.
+                            The old wording claimed "that block changed", which sent a real debugging
+                            session after the wrong cause. */}
+                        {img.state === 'waiting' ? (
+                          <span className="text-[11px] text-muted-foreground">
+                            — ready; lands when you apply the change
+                          </span>
+                        ) : null}
                         {img.state === 'gone' ? (
                           <span className="text-[11px] text-muted-foreground">
-                            — that block changed, so it is in your library instead
+                            — its slot is no longer on the page; saved to your library
                           </span>
                         ) : null}
                       </li>

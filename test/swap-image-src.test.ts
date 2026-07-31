@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { containsImageSrc, swapImageSrc } from '../src/app/lib/swap-image-src';
+import { applyResolvedImages, containsImageSrc, swapImageSrc } from '../src/app/lib/swap-image-src';
 
 const PLACEHOLDER = 'https://placehold.co/1536x1024?text=Hero%20image';
 const REAL = '/api/handoff/assets/img_abc123def456/raw';
@@ -93,5 +93,61 @@ describe('containsImageSrc', () => {
 
   it('is false for an empty needle, so a missing placeholder never matches everything', () => {
     assert.equal(containsImageSrc({ src: '' }, ''), false);
+  });
+});
+
+/**
+ * The ordering fix: an image can finish before the user clicks Apply, so the apply carries finished
+ * images in rather than a swap racing it afterwards.
+ */
+describe('applyResolvedImages', () => {
+  const blocks = () => [
+    { componentId: 'hero-split', args: { imageSlot: { src: PLACEHOLDER } } },
+    { componentId: 'cta', args: { title: 'Book a demo' } },
+  ];
+
+  it('folds a finished image into the blocks being applied', () => {
+    const { blocks: out, applied } = applyResolvedImages(blocks(), [{ placeholderSrc: PLACEHOLDER, url: REAL }]);
+    assert.deepEqual(applied, [PLACEHOLDER]);
+    assert.equal((out[0]!.args.imageSlot as { src: string }).src, REAL);
+  });
+
+  it('reports an image that found no home, so it can keep waiting', () => {
+    const { applied } = applyResolvedImages(blocks(), [{ placeholderSrc: 'https://placehold.co/other', url: REAL }]);
+    assert.deepEqual(applied, []);
+  });
+
+  it('applies several images in one pass', () => {
+    const two = [
+      { componentId: 'a', args: { src: PLACEHOLDER } },
+      { componentId: 'b', args: { src: 'https://placehold.co/second' } },
+    ];
+    const { blocks: out, applied } = applyResolvedImages(two, [
+      { placeholderSrc: PLACEHOLDER, url: REAL },
+      { placeholderSrc: 'https://placehold.co/second', url: '/api/handoff/assets/img_two/raw' },
+    ]);
+    assert.equal(applied.length, 2);
+    assert.equal(out[0]!.args.src, REAL);
+    assert.equal(out[1]!.args.src, '/api/handoff/assets/img_two/raw');
+  });
+
+  it('keeps identity and does no work when there is nothing resolved', () => {
+    const input = blocks();
+    const { blocks: out, applied } = applyResolvedImages(input, []);
+    assert.equal(out, input);
+    assert.deepEqual(applied, []);
+  });
+
+  it('leaves untouched blocks identical, so unrelated edits are not rewritten', () => {
+    const input = blocks();
+    const { blocks: out } = applyResolvedImages(input, [{ placeholderSrc: PLACEHOLDER, url: REAL }]);
+    assert.equal(out[1], input[1]);
+    assert.notEqual(out[0], input[0]);
+  });
+
+  it('does not mutate the input blocks', () => {
+    const input = blocks();
+    applyResolvedImages(input, [{ placeholderSrc: PLACEHOLDER, url: REAL }]);
+    assert.equal((input[0]!.args.imageSlot as { src: string }).src, PLACEHOLDER);
   });
 });

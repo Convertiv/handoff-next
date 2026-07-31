@@ -282,10 +282,23 @@ const TOOLS: OpenAiTool[] = [
 async function buildBlocks(
   raw: { componentId?: unknown; values?: unknown }[],
   knownAssetSrcs?: Set<string>
-): Promise<{ blocks: ProposedBlock[]; problems: string[]; gaps: { componentId: string; fields: string[] }[] }> {
+): Promise<{
+  blocks: ProposedBlock[];
+  problems: string[];
+  gaps: { componentId: string; fields: string[] }[];
+  /**
+   * Per-block field names the model used that the component does not have, plus the names it does.
+   *
+   * Returned rather than only logged because `propose_edits` needs it: an update whose every named
+   * field was unknown produces an edit that changes nothing and still reports "Applied", which is how
+   * a mistyped field name reads to the user as a silent lie.
+   */
+  rejectedFields: { componentId: string; unknown: string[]; available: string[] }[];
+}> {
   const blocks: ProposedBlock[] = [];
   const problems: string[] = [];
   const gaps: { componentId: string; fields: string[] }[] = [];
+  const rejectedFields: { componentId: string; unknown: string[]; available: string[] }[] = [];
 
   for (const entry of raw) {
     const componentId = String(entry?.componentId ?? '').trim();
@@ -307,13 +320,14 @@ async function buildBlocks(
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
       console.warn('[playground-chat] unknown fields on', componentId, unknownKeys.join(', '));
+      rejectedFields.push({ componentId, unknown: unknownKeys, available: Object.keys(template) });
     }
     if (invalidValues.length) console.warn('[playground-chat] rejected values on', componentId, invalidValues.join('; '));
     if (unfilled.length) gaps.push({ componentId, fields: unfilled });
     blocks.push({ componentId, args });
   }
 
-  return { blocks, problems, gaps };
+  return { blocks, problems, gaps, rejectedFields };
 }
 
 /**
@@ -660,6 +674,8 @@ export async function runPlaygroundChatTurn(args: {
         // Build real args for anything carrying content, so an edit gets the same shape guarantees a
         // fresh proposal does — correct prop shapes, no invented images, no sample content.
         const ops: EditOp[] = [];
+        /** Edits dropped before verification — a bad field name, an unknown component. */
+        const preRejected: { reason: string }[] = [];
         for (const e of raw) {
           const op = String(e.op ?? '');
           const index = Number(e.index);
@@ -671,12 +687,29 @@ export async function runPlaygroundChatTurn(args: {
           const componentId = op === 'update' ? expect : String(e.componentId ?? '');
           const built = await buildBlocks([{ componentId, values: e.values }], seenAssetSrcs);
           const block = built.blocks[0];
-          if (!block) continue;
+          if (!block) {
+            preRejected.push({ reason: built.problems[0] ?? `Could not build ${componentId || 'that block'}.` });
+            continue;
+          }
           if (op === 'update') {
             // Only the fields the model actually named. Merging the whole rebuilt block would drag
             // blanked placeholders over content the user already has.
             const named = Object.keys((e.values ?? {}) as Record<string, unknown>);
             const values = Object.fromEntries(named.filter((k) => k in block.args).map((k) => [k, block.args[k]]));
+            // An update with nothing left in it is not an update. Every named field was unknown to the
+            // component — a mistyped or guessed field name — and emitting it anyway produced a
+            // changeset that said "Update block 2 — no fields" and then "Applied", having changed
+            // nothing at all. Rejecting it says so, and gives the model the real field names to retry
+            // with instead of leaving it to guess a second time.
+            if (!Object.keys(values).length) {
+              const detail = built.rejectedFields[0];
+              preRejected.push({
+                reason: detail
+                  ? `${componentId}: no such field${detail.unknown.length === 1 ? '' : 's'} ${detail.unknown.join(', ')}. Its fields are: ${detail.available.join(', ')}`
+                  : `${componentId}: that edit named no fields the block has.`,
+              });
+              continue;
+            }
             ops.push({ op: 'update', index, expect, values });
           } else if (op === 'replace') {
             ops.push({ op: 'replace', index, expect, componentId, values: block.args });
@@ -688,7 +721,8 @@ export async function runPlaygroundChatTurn(args: {
         // Verified here so the model can be told it mis-indexed; the client verifies again at apply
         // time, where the canvas is the actual truth.
         const { valid, rejected } = verifyOps(ops, current);
-        if (rejected.length) console.warn('[playground-chat] rejected edits', rejected.map((r) => r.reason).join('; '));
+        const allRejected = [...preRejected, ...rejected.map((r) => ({ reason: r.reason }))];
+        if (allRejected.length) console.warn('[playground-chat] rejected edits', allRejected.map((r) => r.reason).join('; '));
 
         if (!valid.length) {
           convo.push({
@@ -696,8 +730,10 @@ export async function runPlaygroundChatTurn(args: {
             tool_call_id: call.id,
             content: JSON.stringify({
               rejected: true,
-              reason: 'None of those edits matched the page. Re-read the numbered blocks and try again.',
-              problems: rejected.map((r) => r.reason),
+              reason:
+                'None of those edits could be applied. Fix them using the field names below and call ' +
+                'propose_edits again.',
+              problems: allRejected.map((r) => r.reason),
             }),
           });
           continue;
@@ -706,12 +742,8 @@ export async function runPlaygroundChatTurn(args: {
         const summary = String(parsed.summary ?? '');
         const reply = content ?? summary;
         emit({ type: 'reply', content: reply });
-        emit({ type: 'changeset', ops: valid, summary, rejected: rejected.map((r) => ({ reason: r.reason })) });
-        return finish({
-          reply,
-          changeset: { ops: valid, summary, rejected: rejected.map((r) => ({ reason: r.reason })) },
-          toolsUsed,
-        });
+        emit({ type: 'changeset', ops: valid, summary, rejected: allRejected });
+        return finish({ reply, changeset: { ops: valid, summary, rejected: allRejected }, toolsUsed });
       }
 
       // Terminal. No scaffolding check any more: the server scaffolds every block itself while
