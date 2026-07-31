@@ -18,22 +18,38 @@ export const maxDuration = 120;
  * serializable JSON, so the declared shape *is* the shape and there is nothing to locate; the response
  * reports the format split so a run against a Handlebars registry is not mistaken for a clean bill.
  *
- * Auth: `HANDOFF_SYNC_SECRET` as bearer, matching `/api/admin/migrate`. Not secret data, but it walks
- * the whole catalog and should not be free to trigger.
+ * **Auth: an admin session, or `HANDOFF_SYNC_SECRET` as bearer.**
  *
- *   curl -s "https://<registry>/api/admin/field-bridge-audit" -H "Authorization: Bearer $HANDOFF_SYNC_SECRET"
+ * Session first so this can be run from a logged-in browser console without anyone having to go and
+ * retrieve a deployment secret — fetching a shared secret to read a diagnostic is a bad trade, and the
+ * secret's blast radius (it also authorises `/api/admin/migrate`) is far larger than this endpoint's.
+ * The bearer path stays for CI and scripted runs.
+ *
+ * Admin rather than any signed-in user: the payload is component metadata, not secrets, but it walks the
+ * entire catalog and is not something a member account should be able to trigger.
  *
  * Query params: `?verdict=breaks-write` to filter, `?limit=50` (default 100) to cap findings,
  * `?component=hero-background` for one component.
  */
 export async function GET(request: NextRequest): Promise<Response> {
-  const secret = process.env.HANDOFF_SYNC_SECRET?.trim();
-  if (!secret) {
-    return NextResponse.json({ error: 'HANDOFF_SYNC_SECRET is not set on this deployment.' }, { status: 500 });
-  }
-  const auth = request.headers.get('authorization') ?? '';
-  if ((auth.startsWith('Bearer ') ? auth.slice(7).trim() : '') !== secret) {
-    return NextResponse.json({ error: 'Unauthorized — bearer token must match HANDOFF_SYNC_SECRET' }, { status: 401 });
+  const { auth } = await import('@/lib/auth');
+  const session = await auth();
+  const isAdmin = session?.user?.id ? session.user.role === 'admin' : false;
+
+  if (!isAdmin) {
+    const secret = process.env.HANDOFF_SYNC_SECRET?.trim();
+    const header = request.headers.get('authorization') ?? '';
+    const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+    if (!secret || token !== secret) {
+      return NextResponse.json(
+        {
+          error: session?.user?.id
+            ? 'Forbidden — this diagnostic is admin-only.'
+            : 'Unauthorized — sign in as an admin, or send HANDOFF_SYNC_SECRET as a bearer token.',
+        },
+        { status: session?.user?.id ? 403 : 401 }
+      );
+    }
   }
 
   const url = new URL(request.url);
