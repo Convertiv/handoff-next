@@ -69,6 +69,63 @@ this at the source rather than after three fix attempts in the wrong direction.
 
 Keep reading below for the original argument, but treat its direction as superseded.
 
+## Root cause, 2026-07-31 — previews contain shallow-rendered components
+
+Traced the write path. `previews` reaches the DB **verbatim** from the CLI push (`sync-queries.ts`
+takes `d.previews` with no transformation), and is read out of the component's declaration as
+`{ title, values }` (`component-build-worker.ts`). So the shape is whatever the workspace produced.
+
+**What is in there.** `stats.stats[].buttonSlot` and `hero-background.buttonSlots.children[0]` are
+byte-identical:
+
+```
+type: 'a'
+className: 'inline-flex font-bold transition-all duration-300 text-[19px] … bg-primary-dark-gray …'
+style: { color: '#ffffff', backgroundColor: '#1f1f21' }
+```
+
+Two things make this conclusive. The same forty-class string appears in two unrelated components, and
+the inline `style` holds **resolved token hex** — `#1f1f21` is a design token *after* resolution. Neither
+is something an author types into a preview declaration. That is one shared `Button` component that was
+**rendered**, and its output serialized.
+
+`type: 'a'` plus `_owner`/`_store` means a real React element from a dev build whose type is a DOM tag —
+so the component function was *invoked* and its return value captured, one level deep. Not
+`renderToStaticMarkup` (that yields an HTML string) and not JSX serialized as authored (that would drop
+`type`, since a component function is not JSON-serializable).
+
+**What survives intact:** plain scalars. `stats.stats[].bodySlot` is lorem text, `hero-background.overlineSlot`
+is `'Omnichannel routing'`. Both are correct and usable.
+
+So the rule is: **a preview value is trustworthy when it is plain data and worthless when it is a
+resolved element.** Contamination follows the *value*, not the component — hero-background has both in
+one preview — which is why "derive shapes from real preview values" fixed some bugs and caused others.
+
+### What this means for the three consumers
+
+All three learn from previews, so all three need the same guard: **if a preview value is a serialized
+React element, ignore it and fall back to the declared contract.**
+
+- `scaffoldArgsForComponent` — seeds `args` from previews. Should use `placeholderValue(meta)` instead
+  when the preview value is an element.
+- `summarizeFields` — describes shapes to the model from previews. Should describe from the declared
+  shape when the preview value is an element. Currently it teaches the model to author elements.
+- `blankContentValues` / `coerceToShape` — fixed for images in `f22a4318`; the same normalisation should
+  be general rather than one editor type.
+
+`isReactElementish` already exists and is the whole test.
+
+### Still unknown
+
+*Why* the workspace resolves components one level before serializing. That code is in 8x8's own repo,
+which is not checked out here — `data-preview-label` (an attribute on their preview image) appears
+nowhere in any Handoff repo, so it is theirs. Worth finding, because fixing it at source makes every
+consumer's guard unnecessary. Look for whatever builds the `.handoff.ts` preview `values` and why a
+`<Button>` becomes an `<a>` on the way in.
+
+**Until then the guard is the right move, not a preview re-capture:** the guard is a few lines in code we
+own, works for every registry, and does not need 8x8 to change anything.
+
 ## Measured, 2026-07-31 (8x8)
 
 `GET /api/admin/field-bridge-audit`, 65 components, 218 previews, 1878 field checks:
