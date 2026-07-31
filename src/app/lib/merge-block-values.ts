@@ -80,6 +80,74 @@ function isReactElementish(v: unknown): boolean {
   return ('props' in v && 'type' in v) || '_owner' in v || '$$typeof' in v;
 }
 
+
+/**
+ * The `img` node inside a serialized element tree.
+ *
+ * Preview values are serialized React elements for some components — `desktopImageSlot` on
+ * `hero-background` is `{ key, type: 'img', props: { src, alt, width, height }, _owner, _store }` —
+ * even though the field descriptor advertises the shape as `{ src, alt }`. The src lives at
+ * `props.src`, and anything written to a top-level `src` is invisible to the renderer.
+ */
+function findImageNode(node: unknown): Record<string, unknown> | null {
+  if (Array.isArray(node)) {
+    for (const n of node) {
+      const hit = findImageNode(n);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (!isPlainObject(node)) return null;
+  if (node.type === 'img') return node;
+  for (const v of Object.values(node)) {
+    const hit = findImageNode(v);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
+ * Write a src/alt into the first `img` in a serialized element tree, keeping it an element.
+ *
+ * This is the fix for a failure that reported success at every step: the merge wrote a top-level `src`
+ * onto the element, the renderer went on reading `props.src`, and the later placeholder swap found and
+ * replaced the key nobody renders. The changeset said "Applied", the image card said done, and the page
+ * never changed.
+ *
+ * First image only — a `picture` with several sources is one image, not several slots.
+ */
+function setElementImage(node: unknown, src: string, alt: string): { value: unknown; changed: boolean } {
+  let done = false;
+
+  const walk = (n: unknown): unknown => {
+    if (done) return n;
+    if (Array.isArray(n)) {
+      const next = n.map(walk);
+      return next.some((v, i) => v !== n[i]) ? next : n;
+    }
+    if (!isPlainObject(n)) return n;
+
+    if (n.type === 'img' && isPlainObject(n.props)) {
+      done = true;
+      const props: Record<string, unknown> = { ...n.props, src, alt };
+      // A stale srcset outranks the src it was written for, so the browser would serve the old image.
+      for (const k of ['srcSet', 'srcset']) if (k in props) props[k] = src;
+      return { ...n, props };
+    }
+
+    const out: Record<string, unknown> = {};
+    let dirty = false;
+    for (const [k, v] of Object.entries(n)) {
+      const w = walk(v);
+      out[k] = w;
+      if (w !== v) dirty = true;
+    }
+    return dirty ? out : n;
+  };
+
+  return { value: walk(node), changed: done };
+}
+
 /**
  * Workspace-relative asset paths baked into previews (`../../images/content/card-image-1.webp`).
  *
@@ -157,8 +225,18 @@ function coerceToShape(template: unknown, value: unknown): unknown {
   }
 
   if (isPlainObject(template)) {
-    // A rendered element cannot be merged into. Whatever the model authored replaces it outright.
-    if (isReactElementish(template)) return value ?? '';
+    if (isReactElementish(template)) {
+      // An authored image is the exception: map `{ src, alt }` onto the element's own img props rather
+      // than replacing the element with a bare object the component cannot render. The model is told
+      // the shape is `{ src, alt }` and that stays true — the adaptation belongs here, where the real
+      // shape is known, not in the prompt.
+      if (isPlainObject(value) && typeof value.src === 'string') {
+        const set = setElementImage(template, value.src, typeof value.alt === 'string' ? value.alt : '');
+        if (set.changed) return set.value;
+      }
+      // Otherwise a rendered element cannot be merged into, and whatever was authored replaces it.
+      return value ?? '';
+    }
 
     if (isPlainObject(value)) {
       const out: Record<string, unknown> = { ...template };
@@ -227,6 +305,16 @@ function blankValue(value: unknown, editor: string, name = ''): unknown {
   const label = name ? humanizeFieldName(name) : '';
 
   if (editor === 'image' || (isPlainObject(value) && 'src' in value)) {
+    // A serialized element stays one. Spreading it and adding a top-level `src` left `props.src`
+    // holding the preview's own `../../images/...` path — which 404s in registry mode — so the block
+    // rendered with no image at all and no placeholder either.
+    if (isReactElementish(value)) {
+      const img = findImageNode(value);
+      const dims = placeholderDimensions(isPlainObject(img?.props) ? (img!.props as Record<string, unknown>) : {});
+      const set = setElementImage(value, placeholderImageUrl(dims.w, dims.h, label), label);
+      if (set.changed) return set.value;
+    }
+
     const template = isPlainObject(value) ? value : {};
     const { w, h } = placeholderDimensions(template);
     // Keep the template's other keys (srcset, className) so the shape still matches the component.
@@ -378,7 +466,10 @@ export function mergeBlockValues(
     // Clear an unusable asset path outright. A broken image is worse than an absent one: it reads as
     // a bug in the page rather than a gap we can still fill.
     const current = args[key];
-    if (isPlainObject(current) && isUnusableAssetPath(current.src)) {
+    const elementImg = isReactElementish(current) ? findImageNode(current) : null;
+    if (elementImg && isPlainObject(elementImg.props) && isUnusableAssetPath(elementImg.props.src)) {
+      args[key] = setElementImage(current, '', '').value;
+    } else if (isPlainObject(current) && isUnusableAssetPath(current.src)) {
       args[key] = { ...current, src: '' };
     } else if (isUnusableAssetPath(current)) {
       args[key] = '';

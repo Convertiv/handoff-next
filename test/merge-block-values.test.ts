@@ -433,3 +433,114 @@ describe('summarizeFields', () => {
     assert.equal(summarizeFields(null), '');
   });
 });
+
+/**
+ * The real `desktopImageSlot` on `hero-background`: a serialized React element whose src lives at
+ * `props.src`, while the field descriptor advertises `{ src, alt }`.
+ *
+ * This shape produced a failure that reported success at every step — merged, "Applied", image card
+ * ticked — and never changed the page, because everything wrote a top-level `src` the renderer does
+ * not read. Third bug from the same root cause (after `<p>` in plain-text slots and `buttonSlots`
+ * declared as an array), so it gets tests pinned to the actual value.
+ */
+describe('image slots whose preview value is a React element', () => {
+  const heroImageSlot = () => ({
+    key: 'Desktop background preview image, 64:35 aspect ratio',
+    type: 'img',
+    props: {
+      alt: '',
+      src: '../../images/content/iframe-bg-img.jpeg',
+      role: 'presentation',
+      width: 2560,
+      height: 1400,
+      className: 'h-full w-full object-cover',
+      'aria-hidden': true,
+    },
+    _owner: null,
+    _store: {},
+  });
+
+  const fields = { desktopImageSlot: { editorType: 'image', shape: '{ src, alt, width?, height? }', fromBase: true } };
+
+  it('blanks to a placeholder inside props, not a top-level src', () => {
+    const blanked = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields) as {
+      desktopImageSlot: { type: string; props: Record<string, unknown> };
+    };
+    const slot = blanked.desktopImageSlot;
+    assert.equal(slot.type, 'img', 'must still be an element the component can render');
+    assert.match(String(slot.props.src), /placehold\.co/);
+    // The unresolvable preview path must be gone from where the renderer actually looks.
+    assert.ok(!String(slot.props.src).includes('../../images'));
+    assert.ok(!('src' in (slot as unknown as Record<string, unknown>)), 'a top-level src is invisible to the renderer');
+  });
+
+  it('keeps the slot aspect ratio from props.width/height', () => {
+    const blanked = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields) as {
+      desktopImageSlot: { props: { src: string } };
+    };
+    // 2560x1400 is 64:35 — a square placeholder in a wide hero makes a good layout look broken.
+    const [, w, h] = /(\d+)x(\d+)/.exec(blanked.desktopImageSlot.props.src) ?? [];
+    assert.ok(Number(w) > Number(h), `expected a landscape placeholder, got ${w}x${h}`);
+  });
+
+  it('writes an authored { src, alt } into props and keeps the element', () => {
+    const known = new Set(['/api/handoff/assets/img_abc/raw']);
+    const template = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields);
+    const { args } = mergeBlockValues(
+      template,
+      { desktopImageSlot: { src: '/api/handoff/assets/img_abc/raw', alt: 'Students on campus' } },
+      fields,
+      known
+    );
+    const slot = args.desktopImageSlot as { type: string; props: Record<string, unknown> };
+    assert.equal(slot.type, 'img');
+    assert.equal(slot.props.src, '/api/handoff/assets/img_abc/raw');
+    assert.equal(slot.props.alt, 'Students on campus');
+    // Layout props from the real component must survive the merge.
+    assert.equal(slot.props.className, 'h-full w-full object-cover');
+    assert.equal(slot.props.width, 2560);
+  });
+
+  it('still rejects an invented src inside props', () => {
+    const template = blankContentValues({ desktopImageSlot: heroImageSlot() }, fields);
+    const { args, invalidValues } = mergeBlockValues(
+      template,
+      { desktopImageSlot: { src: 'https://assets.8x8.com/images/made-up.jpg', alt: 'x' } },
+      fields,
+      new Set()
+    );
+    const slot = args.desktopImageSlot as { props: Record<string, unknown> };
+    assert.ok(!String(slot.props.src).includes('assets.8x8.com'));
+    assert.equal(invalidValues.length, 1);
+  });
+
+  it('replaces a stale srcset so the browser cannot serve the old image', () => {
+    const withSrcSet = heroImageSlot();
+    (withSrcSet.props as Record<string, unknown>).srcSet = '../../images/content/old.jpeg 2x';
+    const { args } = mergeBlockValues(
+      blankContentValues({ desktopImageSlot: withSrcSet }, fields),
+      { desktopImageSlot: { src: '/api/handoff/assets/img_abc/raw', alt: 'x' } },
+      fields,
+      new Set(['/api/handoff/assets/img_abc/raw'])
+    );
+    const slot = args.desktopImageSlot as { props: Record<string, unknown> };
+    assert.equal(slot.props.srcSet, '/api/handoff/assets/img_abc/raw');
+  });
+
+  it('finds the img inside a wrapper element, not just at the root', () => {
+    const picture = {
+      type: 'picture',
+      props: { children: [{ type: 'source', props: {} }, heroImageSlot()] },
+      _owner: null,
+      _store: {},
+    };
+    const { args } = mergeBlockValues(
+      blankContentValues({ desktopImageSlot: picture }, fields),
+      { desktopImageSlot: { src: '/api/handoff/assets/img_abc/raw', alt: 'x' } },
+      fields,
+      new Set(['/api/handoff/assets/img_abc/raw'])
+    );
+    const slot = args.desktopImageSlot as { props: { children: { type: string; props: Record<string, unknown> }[] } };
+    assert.equal(slot.props.children[1]!.props.src, '/api/handoff/assets/img_abc/raw');
+  });
+});

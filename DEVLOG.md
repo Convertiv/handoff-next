@@ -5,6 +5,45 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-31 — Image slots are React elements, and the declared shape lies
+
+**Third bug from one root cause, so writing the cause down properly.** Component preview values are
+serialized React element trees. `hero-background.desktopImageSlot` is really:
+
+```
+{ key: '…', type: 'img', props: { src: '../../images/content/iframe-bg-img.jpeg', width: 2560, … } }
+```
+
+while its field descriptor advertises `editorType: 'image'`, `shape: '{ src, alt }'`. **The descriptor
+is wrong for this component** — the src lives at `props.src`. Anything written to a top-level `src` is
+invisible to the renderer.
+
+Consequences, all of which reported success:
+- `blankValue` spread the element and set a top-level `src`, leaving `props.src` holding the preview's
+  `../../images/…` path, which 404s in registry mode. That is why generated pages arrived with **no
+  images and not even placeholders** — and the unusable-path cleanup missed it too, because it only
+  checked `current.src`.
+- `coerceToShape` replaced an element template with the model's bare `{ src, alt }`, producing args the
+  component cannot render.
+- `swapImageSrc` then found the placeholder at the top-level `src` and replaced it, so the changeset
+  said "Applied", the image card ticked green, and the page never changed.
+
+Fixed with `findImageNode` / `setElementImage`: the element stays an element and the src is written
+into `props`, first `img` only (a `picture` with several sources is one image). Aspect ratio now comes
+from `props.width/height`, so a 64:35 hero gets a 64:35 placeholder. Stale `srcSet` is rewritten with
+the new src or the browser serves the old image.
+
+**The model's interface stays `{ src, alt }`.** The adaptation belongs where the real shape is known,
+not in the prompt — same principle as the server owning scaffold shapes. Six tests pinned to the actual
+hero-background value, because guessing this shape has now cost three debugging sessions.
+
+Prior instances of the same cause, for the pattern: `<p>` wrapped around plain-text slots, and
+`buttonSlots` declared `array` while holding a single element (`toArrayItems`). **Never trust
+`editorType`/`shape` over the preview value.** `summarizeFields` already derives from real values for
+this reason; the image path was the last one still trusting the descriptor.
+
+---
+
 ## 2026-07-31 — Generated images are stored as WebP
 
 Measured on a 1536x1024 photographic PNG: **4.13 MB → 0.37 MB, 91% smaller**, and 5.51 MB → 0.49 MB
