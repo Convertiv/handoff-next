@@ -23,6 +23,42 @@ Three failures this month, all the same shape:
 
 Each was fixed at its call site. The cause was never fixed, so it came back twice.
 
+## Measured, 2026-07-31 (8x8)
+
+`GET /api/admin/field-bridge-audit`, 65 components, 218 previews, 1878 field checks:
+
+| Verdict | Count | Share |
+|---|---|---|
+| `ok` | 995 | 53% |
+| `no-preview` | 645 | 34% |
+| **`breaks-write`** | **176** | **9%** |
+| `misleads-author` | 62 | 3% |
+
+**Every `breaks-write` is a `*Slot` field.** The thirteen names reported sum to exactly 176; not one
+field outside that convention breaks:
+
+- **Buttons — 88 (50%)**: `buttonSlots` 56, `footerButtonSlot` 17, `buttonSlot` 11, `ctaSlot` 3,
+  `productInfoButtonsSlot` 1
+- **Images — 65 (37%)**: `imageSlot` 23, `mediaSlot` 10, `mobileImageSlot` 9, `desktopImageSlot` 9,
+  `backgroundImageSlot` 7, `logoSlot` 4, `metaImageSlot` 3
+- **Text — 23 (13%)**: `overlineSlot` 23
+
+`*Slot` is this design system's convention for a prop typed `React.ReactNode`. So the hypothesis above
+is confirmed by measurement rather than argument: **the bridge holds wherever the type is concrete and
+fails exactly where the type says "anything renderable".** That is the whole of it — one cause, not
+thirteen, and no non-slot field needs touching.
+
+Counts are per (component, preview, field), and components average 3.4 previews, so 176 findings is
+roughly **50 distinct component-field pairs** — bounded work, not a rewrite.
+
+`buttonSlots` at 56 is the single largest item. It was parked earlier as a curiosity about inconsistent
+shapes across components; it is in fact the biggest instance of the bug class.
+
+**`no-preview` at 645 is a different problem.** A third of declared fields are exercised by no preview
+at all, so their shape is unverifiable by any means — not a bridge defect, a coverage gap, and fixed by
+authoring previews rather than by code. Worth tracking separately; it is also the ceiling on how much
+the conformance check can ever prove.
+
 ## Why the bridge cannot currently be right
 
 `shapeNote` in `lib/mcp/scaffold-helpers.ts` is the bridge:
