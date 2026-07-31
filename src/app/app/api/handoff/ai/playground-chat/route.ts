@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
 import { isServerAiConfigured } from '@/lib/server/ai-client';
 import { runPlaygroundChatTurn, type PlaygroundChatEvent, type PlaygroundChatMessage } from '@/lib/server/playground-chat';
+import { parseCanvasBlocks } from '@/lib/composition-summary';
 
 /** Several tool round-trips per turn; stated so a slow one isn't surprising. */
 export const maxDuration = 120;
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Server AI is not configured (HANDOFF_AI_API_KEY).' }, { status: 503 });
   }
 
-  let body: { messages?: unknown; attachedAssetIds?: unknown };
+  let body: { messages?: unknown; attachedAssetIds?: unknown; currentBlocks?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -41,6 +42,12 @@ export async function POST(request: NextRequest) {
     ? (body.attachedAssetIds as unknown[]).filter((v): v is string => typeof v === 'string')
     : [];
 
+  /**
+   * What is on the canvas right now. Without it the chat is blind to the page it is being asked to
+   * edit, and asks which hero you mean about the only hero on screen.
+   */
+  const currentBlocks = parseCanvasBlocks(body.currentBlocks);
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -56,6 +63,7 @@ export async function POST(request: NextRequest) {
         await runPlaygroundChatTurn({
           messages,
           attachedAssetIds,
+          currentBlocks,
           actorUserId: session.user!.id,
           onEvent: send,
           signal: request.signal,

@@ -6,6 +6,32 @@
  * than weakening the marker.
  */
 
+export interface CanvasBlock {
+  componentId: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * Read the canvas out of a request body.
+ *
+ * Lives here, beside the summariser it feeds, because the route had this field in the client payload
+ * and nowhere in its parsing for a full release — the body type was `{ messages, attachedAssetIds }`,
+ * so nothing failed to compile and the chat simply could not see the page it was editing. A named,
+ * tested function is harder to forget than a property.
+ *
+ * Validating rather than casting: this is browser input that goes straight into a system prompt.
+ */
+export function parseCanvasBlocks(raw: unknown): CanvasBlock[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((b) => {
+    if (!b || typeof b !== 'object') return [];
+    const { componentId, args } = b as { componentId?: unknown; args?: unknown };
+    if (typeof componentId !== 'string' || !componentId) return [];
+    const safeArgs = args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+    return [{ componentId, args: safeArgs }];
+  });
+}
+
 /**
  * One line per block on the canvas: what it is, and the first bit of copy in it.
  *
