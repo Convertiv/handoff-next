@@ -2,6 +2,51 @@
 
 **Status:** design, 2026-07-31. Supersedes the lens approach in `FIELD-BRIDGE.md`.
 
+## Probed for real, 2026-07-31 — hero-background
+
+Ran it against the live module. Seven slots, seven candidate encodings, ~60 renders.
+
+| slot | accepts | threw on |
+|---|---|---|
+| `overlineSlot` | `plain-text` | 0 |
+| `titleSlot` | `plain-text`, `html-string` | 0 |
+| `bodySlot` | `plain-text`, `html-string` | 0 |
+| `desktopImageSlot` | `image-object` | 0 |
+| `mobileImageSlot` | `image-object` | 0 |
+| `buttonSlots` | `array-of-urltext` | 5 |
+| `breadcrumbSlot` | `plain-text` | 0 |
+
+**Every slot editable, and every row matches what it took four wrong turns and a source dive to
+establish.** `desktopImageSlot: image-object` is the exact fact that broke three times. **No encoding
+anywhere accepts `serialized-element`** — the whole month's bug, found mechanically, with no knowledge of
+8x8's conventions, config, or template layer.
+
+`threw: 5` on `buttonSlots` is signal rather than noise: a slot that rejects five encodings and accepts
+one is strongly typed, and worth surfacing as confidence.
+
+### Three corrections the run forced
+
+**1. Batching is a correctness hazard, not an optimisation.** Setting every slot at once made
+`buttonSlots` report `false` for an encoding it demonstrably accepts — interference between slots, since
+probing it alone returns `true`. The cost model must be *slots × candidates*, not *candidates*. Batch
+only as a fast path whose positives are trusted and whose negatives are re-probed individually.
+
+**2. Cost is ~4x my estimate.** A render is ~600ms, not the ~150ms assumed. 7 slots × 7 candidates ≈ 30s
+per component, ≈ 30 minutes for a 65-component catalog. That is a build-time job, not an interactive one.
+Fine, but it must be scheduled and cached per component version, never done on demand.
+
+**3. A truncated probe must not read as a rejection.** The first run was cut off by a 30s limit partway
+through a candidate; unprobed slots defaulted to `false` and produced a record claiming
+`desktopImageSlot` accepts nothing — confidently wrong, in the same way as every other failure this
+month. `not-probed` must be a distinct state from `rejected`, and a partial run must refuse to emit a
+record.
+
+### What this validates
+
+The approach works, and it is the only thing tried that got the right answer without being told. It
+also self-corrected: the two wrong rows in the first run were both *my* measurement bugs, and both were
+visible as inconsistencies rather than silent.
+
 ## Constraints, taken as given
 
 - Components are **arbitrary and unknown**. We do not get to require a convention.
