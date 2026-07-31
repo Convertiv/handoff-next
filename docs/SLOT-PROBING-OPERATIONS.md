@@ -1,0 +1,109 @@
+# Probing in practice — rollout, remediation, and a new registry
+
+**Status:** design, 2026-07-31. Companion to `SLOT-PROBING.md`, which argues the approach; this is what
+you actually do with it.
+
+## Where it runs: the workspace build, not the registry
+
+The workspace already builds `-client.mjs` for every component. Probing belongs immediately after that,
+in the CLI, for three reasons: the artifact is already in hand, the author gets the answer while they are
+still looking at the component, and the capability record can be pushed alongside `properties` so it
+travels with the thing it describes.
+
+Probing in the registry after push means the answer arrives too late to stop a bad push, and probing on
+demand in the app means paying for it forever.
+
+**The browser dependency is probably avoidable.** The 600ms per render measured in the browser pane is
+mostly browser and scheduler overhead, not React. `-client.mjs` is self-contained ESM bundling its own
+React, and `render(container, props)` needs only a DOM — **jsdom in Node should serve**, at single-digit
+milliseconds per render. That collapses the cost model: 49 renders per component becomes under a second,
+and the whole 65-component catalog under a minute. Cheap enough to run on **every** build rather than as
+a scheduled job.
+
+That is the single most valuable thing to verify before building anything, because it decides whether
+this is a background job with cached results or simply part of `handoff build`.
+
+## Where candidates come from
+
+A fixed list of encodings is a small opinion, and we can mostly avoid having one. Three sources, in
+order:
+
+1. **The TypeScript type**, when it is concrete. A prop typed `{ src: string; alt?: string }` yields
+   exactly that candidate. No guessing, and it covers the JSON-native population outright.
+2. **Existing preview values.** Previews are useless as a *contract* — that is the whole lesson — but
+   they are an excellent *candidate generator*. A preview holding `{ url, text }` proposes that shape;
+   the probe then decides whether it is true. This is how you learn `{url,text}` versus `{label,href}`
+   without hardcoding both, and it is why the day's contaminated data still has value.
+3. **A universal fallback set** for `ReactNode` with no better source: text, HTML string, image object,
+   link object, arrays of each, serialized element.
+
+Only (3) is opinionated, it is small, and it shrinks as (1) and (2) improve.
+
+## Validating as far as possible
+
+Four layers, cheapest first.
+
+**1. The probe itself.** Self-validating: a capability record only ever contains encodings observed to
+render. `not-probed` stays distinct from `rejected`, and a partial run emits no record.
+
+**2. Exact round-trip, not presence.** Assert the value comes back *identical* — `img.src` equals what
+was written, not merely contains the sentinel. Catches a component that mangles, truncates or
+re-encodes, which "the sentinel appeared somewhere" would pass.
+
+**3. Coverage.** Every declared prop must land in one of three buckets: JSON-native (no probe needed),
+has a capability record, or **unknown**. Unknown is reported, never silently treated as fine. The count
+of unknowns is the honest measure of how much of a catalog is actually editable, and it is the number to
+drive to zero.
+
+**4. Change detection.** Capability records are stored per component version. A push whose capabilities
+*changed* is a breaking change for content already saved against the old ones — the component author
+almost never knows this, and today nothing tells them. This is the highest-value output of the whole
+exercise and it falls out for free.
+
+## Remediating the rest of 8x8
+
+Sequenced so each step is useful alone and nothing is destructive:
+
+1. **Probe all 65** → capability records. Read-only, changes nothing.
+2. **Diff against what the app currently believes** (`editorType` + `shapeNote`). Produces the real
+   version of the "176 findings" number, this time meaning something.
+3. **Stop scaffolding from preview values.** `scaffoldArgsForComponent` should build from `accepts[0]`
+   plus a placeholder. Previews stay as sample *content*, used only where the value is already in an
+   accepted encoding. This alone fixes the generated-page problems without touching a single component.
+4. **Audit stored content.** Check every saved pattern's block args against the capability records. That
+   finds the pages rendering a wrong image today, rather than waiting for someone to notice.
+5. **Mechanically migrate what can be.** A stored serialized element containing an `img` converts to
+   `{ src, alt }` safely, *because the record says that is the accepted encoding.* Migration is only
+   safe once you know the target, which is precisely what has been missing.
+6. **Delete `shapeNote`.**
+
+Steps 1–2 are read-only. Step 3 is the behaviour change and the one worth deploying on its own.
+
+## Standing it up on a new registry (Resolvet)
+
+The point is that there is almost nothing to do.
+
+1. Push components as normal. No annotations, no `template.tsx` adapters, no naming convention.
+2. The build probes each component and reports: *"58 of 61 components fully editable; 3 slots unknown."*
+3. **Only the unknowns need a human**, and the report says exactly which.
+
+An unknown has two causes, and they want different answers:
+
+- **A missing candidate encoding** — the component takes a shape nobody has tried. Add it to the probe
+  set; it then benefits every registry.
+- **A slot that will not render without sibling props** — a tab panel dead until `activeTab` is set. This
+  is where the minimal declarative escape hatch lives: a per-component **probe context**, e.g.
+  `{ activeTab: 0 }`, so the probe can reach the slot.
+
+That is the whole declarative surface, and it matters that it is **earned rather than default**. You
+write it only where probing failed, probing tells you exactly where, and the amount of it is a measured
+number that can be driven down. Compare 8x8, where a `template.tsx` was hand-written for every component
+whether it needed one or not — and only 12 of 59 got done.
+
+## What I would verify before building any of it
+
+1. **jsdom renders these modules.** Decides cheap-and-always versus expensive-and-cached. Half a day.
+2. **A component that needs context to render.** The failure mode flagged as "fails safe but wrong". 8x8
+   has tabs and accordions; find one and see whether the probe reports it honestly.
+3. **One non-8x8 React component**, ideally Resolvet's, to confirm nothing here quietly depends on 8x8's
+   conventions. The whole claim is that it does not.
