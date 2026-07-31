@@ -4,6 +4,7 @@ import { getDesignGenerationJob, updateDesignGenerationJob } from '@/lib/db/quer
 import { openAiImageEdit, type ImageEditQuality, type ImageEditSize } from '@/lib/server/ai-client';
 import { decodeImageDataUrl } from '@/lib/image-bytes';
 import { storeImageAsset } from '@/lib/server/store-image-asset';
+import { summarizeError } from '@/lib/error-summary';
 
 /**
  * Generate one content image and put it in the asset library.
@@ -122,10 +123,11 @@ export async function runAssetGenerationJob(jobId: number): Promise<void> {
     // table on any deployment where the migration had not landed yet — see the DEVLOG.
     await updateDesignGenerationJob(jobId, { status: 'done', stage: 'done', imageUrl: stored.storageUrl });
   } catch (err) {
-    await updateDesignGenerationJob(jobId, {
-      status: 'failed',
-      stage: 'done',
-      error: (err instanceof Error ? err.message : String(err)).slice(0, 2000),
-    });
+    // `summarizeError`, not `err.message.slice()`. A Drizzle failure inlines every bound parameter —
+    // here a multi-megabyte base64 image — so clipping the message kept the payload and threw away the
+    // `[cause]` that named the actual constraint. The stored error was unreadable and the log too.
+    const summary = summarizeError(err);
+    console.error('[asset-generation] job failed', { jobId, error: summary });
+    await updateDesignGenerationJob(jobId, { status: 'failed', stage: 'done', error: summary });
   }
 }

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getAsset, insertAsset, upsertAssetBlob } from '@/lib/db/queries';
+import { deleteAsset, getAsset, insertAsset, upsertAssetBlob } from '@/lib/db/queries';
 import {
   assetIdForBytes,
   contentHashForBytes,
@@ -64,7 +64,8 @@ export async function storeImageAsset(input: StoreImageAssetInput): Promise<Stor
   let storageKey: string | null = null;
   let thumbnailUrl: string | null = null;
 
-  if (isS3Configured()) {
+  const s3 = isS3Configured();
+  if (s3) {
     // sharp is a native module — dynamic import avoids bundler issues. Same recipe as the Figma ingest.
     const sharp = (await import('sharp')).default;
     const thumbnail = await sharp(bytes)
@@ -80,9 +81,9 @@ export async function storeImageAsset(input: StoreImageAssetInput): Promise<Stor
     storageUrl = uploaded;
     thumbnailUrl = thumb;
   } else {
-    // No S3: bytes live in Postgres and are served by /api/handoff/assets/[id]/raw. Storage follows
-    // whatever the deployment already does — this is not a new decision.
-    await upsertAssetBlob({ assetId, data: bytes.toString('base64'), contentType: mimeType, contentHash });
+    // No S3: bytes live in Postgres and are served by /api/handoff/assets/[id]/raw. The URL is
+    // derivable from the id, so it can be known before the bytes are written — which matters, see
+    // the ordering note below. Storage follows whatever the deployment already does.
     storageUrl = `/api/handoff/assets/${assetId}/raw`;
   }
 
@@ -109,6 +110,21 @@ export async function storeImageAsset(input: StoreImageAssetInput): Promise<Stor
     status: 'active',
     createdBy: input.createdBy ?? null,
   });
+
+  // **The asset row first, then its bytes.** `handoff_asset_blob.asset_id` is a foreign key to
+  // `handoff_asset.id`, so writing the blob first fails the constraint — which is exactly what it did
+  // on the first successful generation. `ingestReferencedImageAsset` has always done it in this order;
+  // this was simply backwards.
+  if (!s3) {
+    try {
+      await upsertAssetBlob({ assetId, data: bytes.toString('base64'), contentType: mimeType, contentHash });
+    } catch (err) {
+      // The row is already in, pointing at a `/raw` URL that would 404. A broken library entry is
+      // worse than no entry, so take it back out before surfacing the failure.
+      await deleteAsset(assetId).catch(() => {});
+      throw err;
+    }
+  }
 
   return { assetId, storageUrl, deduped: false };
 }

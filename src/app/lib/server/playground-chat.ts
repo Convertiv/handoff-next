@@ -7,6 +7,7 @@ import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { blankContentValues, mergeBlockValues, placeholderImageUrl, summarizeFields } from '@/lib/merge-block-values';
 import { formatExemplars } from '@/lib/page-exemplars';
 import { buildImagePrompt } from '@/lib/image-generation-request';
+import { summarizeError } from '@/lib/error-summary';
 import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
 
@@ -458,8 +459,8 @@ async function runTool(
     } catch (err) {
       // Logged, and reported to the user via the images card — not just handed back to the model,
       // which may narrate success regardless.
-      console.error('[playground-chat] could not enqueue image generation', err);
-      const message = err instanceof Error ? err.message : 'Could not start image generation.';
+      const message = summarizeError(err);
+      console.error('[playground-chat] could not enqueue image generation', message);
       imageCtx.queued.push({ jobId: 0, title, placeholderSrc, error: message });
       return { error: `Could not start image generation: ${message}. Use the placeholder src anyway.`, src: placeholderSrc };
     }
