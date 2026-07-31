@@ -176,13 +176,6 @@
       "when": 1783200000000,
       "tag": "0024_phase_b_visibility",
       "breakpoints": true
-    },
-    {
-      "idx": 25,
-      "version": "7",
-      "when": 1783300000000,
-      "tag": "0025_asset_generation_jobs",
-      "breakpoints": true
     }
   ]
 }

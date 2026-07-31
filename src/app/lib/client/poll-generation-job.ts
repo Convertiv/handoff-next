@@ -15,8 +15,6 @@ export interface GenerationJobResult {
   status: 'done' | 'failed';
   /** Where the finished image lives. Present only on `done`. */
   imageUrl?: string;
-  /** The library asset it landed in. Present only on `done` for `intent: 'asset'` jobs. */
-  assetId?: string;
   error?: string;
 }
 
@@ -36,7 +34,7 @@ export async function pollGenerationJob(jobId: number, options: PollOptions = {}
     await sleep(intervalMs, signal);
     if (signal?.aborted) return { status: 'failed', error: 'Cancelled.' };
 
-    let job: { status?: string; imageUrl?: string | null; assetId?: string | null; error?: string | null } | undefined;
+    let job: { status?: string; imageUrl?: string | null; error?: string | null } | undefined;
     try {
       const res = await fetch(`/api/handoff/ai/design-generation-job/${jobId}`, { credentials: 'include', signal });
       if (!res.ok) throw new Error(String(res.status));
@@ -50,7 +48,7 @@ export async function pollGenerationJob(jobId: number, options: PollOptions = {}
 
     if (!job || job.status === 'pending' || job.status === 'running') continue;
     if (job.status === 'done' && job.imageUrl) {
-      return { status: 'done', imageUrl: job.imageUrl, assetId: job.assetId ?? undefined };
+      return { status: 'done', imageUrl: job.imageUrl };
     }
     return { status: 'failed', error: job.error ?? 'Generation failed.' };
   }

@@ -5,6 +5,41 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-07-31 — Adding a column took down the generation queue
+
+**Rule, learned the expensive way: a new column in `schema-pg.ts` breaks every read of that table
+until its migration lands, and on Vercel the migration is not guaranteed to land first.** Drizzle
+generates `SELECT` with an explicit column list, so one unapplied `ALTER TABLE` turns every query on
+that table into `42703 column does not exist`.
+
+The `asset_id` column added for playground image jobs did exactly that on 8x8. Blast radius was not
+the playground — it was `getPendingDesignGenerationJobs`, i.e. the **cron drain**, plus the design
+workbench's own generation, neither of which had anything to do with the feature. Auto-migrate logged
+`connecting (pooler=true)…` and then neither success nor failure, so the process was frozen or killed
+mid-connect at cold start; `instrumentation.register()` does await `autoMigrate()`, but that only
+helps if the invocation survives.
+
+Fixed by **deleting the column rather than the migration failure**. Nothing consumed `assetId` — both
+consumers (chat swap, block-editor field write) use `imageUrl`, which is the asset's storage URL. It
+was a migration, an index and a schema change for a field with no reader. The asset still lands in
+the library; it is just not cross-referenced from the job row.
+
+Worth keeping in mind for other registries: this code is deployed to Cynosure and SSC too, so a
+schema/migration ordering hazard is multi-tenant, not local. If a column is genuinely needed on a
+hot-path table, either ship the migration in its own deploy first, or put the value in an existing
+jsonb column. `/api/admin/migrate` (bearer `HANDOFF_SYNC_SECRET`) is the manual escape hatch.
+
+**Three other defects from the same first live run**, all in the "generate an image" path:
+- Client read the new message index out of a `setMessages` updater and used it synchronously. React
+  runs updaters during render, so it always read -1 and **no watcher ever started**.
+- The model treated `request_image` as terminal — described the pending image instead of writing the
+  src into the block. The prompt actively invited it ("say in your reply which images are being
+  generated"). Now stated as non-terminal, plus a one-shot retry when images are queued and no
+  `propose_edits`/`propose_page` was called.
+- A failed enqueue was invisible: handed to the model, never logged, never shown. Now both.
+
+---
+
 ## 2026-07-30 — Playground: targeted edits, and the asset loop (Phase 3)
 
 **The chat could not see the canvas.** `currentBlocks` had been in the client payload since

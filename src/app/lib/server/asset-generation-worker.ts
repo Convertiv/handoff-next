@@ -117,12 +117,10 @@ export async function runAssetGenerationJob(jobId: number): Promise<void> {
       createdBy: job.userId,
     });
 
-    await updateDesignGenerationJob(jobId, {
-      status: 'done',
-      stage: 'done',
-      imageUrl: stored.storageUrl,
-      assetId: stored.assetId,
-    });
+    // `imageUrl` is the asset's storage URL, which is all any consumer needs. The asset id is
+    // deliberately not recorded on the job: adding a column for it took down every read of this
+    // table on any deployment where the migration had not landed yet — see the DEVLOG.
+    await updateDesignGenerationJob(jobId, { status: 'done', stage: 'done', imageUrl: stored.storageUrl });
   } catch (err) {
     await updateDesignGenerationJob(jobId, {
       status: 'failed',

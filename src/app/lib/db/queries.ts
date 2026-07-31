@@ -1225,7 +1225,7 @@ export async function getDesignGenerationJob(id: number): Promise<DesignGenerati
 
 export async function updateDesignGenerationJob(
   id: number,
-  patch: Partial<Pick<DesignGenerationJobRow, 'status' | 'stage' | 'imageUrl' | 'error' | 'artifactId' | 'assetId'>>
+  patch: Partial<Pick<DesignGenerationJobRow, 'status' | 'stage' | 'imageUrl' | 'error' | 'artifactId'>>
 ): Promise<void> {
   const db = getDb();
   const values: Partial<typeof handoffDesignGenerationJobs.$inferInsert> = { updatedAt: new Date() };
@@ -1234,7 +1234,6 @@ export async function updateDesignGenerationJob(
   if (patch.imageUrl !== undefined) values.imageUrl = patch.imageUrl;
   if (patch.error !== undefined) values.error = patch.error;
   if (patch.artifactId !== undefined) values.artifactId = patch.artifactId;
-  if (patch.assetId !== undefined) values.assetId = patch.assetId;
   await db.update(handoffDesignGenerationJobs).set(values).where(eq(handoffDesignGenerationJobs.id, id));
 }
 
