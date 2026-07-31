@@ -180,6 +180,71 @@ Sequenced so each step is useful alone and nothing is destructive:
 
 Steps 1–2 are read-only. Step 3 is the behaviour change and the one worth deploying on its own.
 
+## What 8x8 would actually have to change
+
+**Almost nothing — and they could probably delete more than they add.**
+
+### Delete: `reviveSerializedReactNode`
+
+The hydration-time reviver in `handoff.config.js` solves a problem that does not exist. **Zero of 135
+slots accept a serialized React element**, so there is nothing to revive into. It also never reached the
+bundle: it is injected by an exact-string `.replace` on generated source, and `grep` finds it in neither
+the local build nor the deployed one. Dead code guarding a format nothing wants.
+
+### Probably delete: the `renderPreview` adapters
+
+40 of the 50 probed components route their props through `renderPreviewImageSlot` /
+`renderPreviewButtonSlots` and friends. Resolution rate:
+
+```
+WITH  an adapter:  40 components   91/107 slots resolved (85%)
+WITHOUT:           10 components   24/28  slots resolved (85%)
+```
+
+**Identical.** The adapters buy nothing measurable for editability — the underlying slots already accept
+plain JSON. That is a meaningful amount of hand-written per-component code doing no work.
+
+Do not delete blind. Probe, delete the adapter, probe again, and keep the deletion only where the
+capability record is unchanged. The probe makes that safe, which is exactly the point: you can now
+remove code and *prove* nothing broke.
+
+(Two different counts are in play and both are right: 12 components use the typed `…PreviewFields`
+pattern; 40 call the `renderPreview*` helpers at all.)
+
+### Keep: the intent regexes in `handoff.config.js`
+
+`MEDIA_FIELD_PATTERN` and `extractDimensionRule` produce real, useful information — which editor to show,
+and dimension guidance mined from the prose description. That belongs to 8x8 and should stay. **The
+change is on our side:** handoff-app must stop reading that hint as a statement about shape. It never
+was one.
+
+### Keep unchanged: `schema.ts`
+
+Generated from TypeScript, accurate, and the source of the JSON-native props that make probing work at
+all.
+
+### Write: ~20 probe contexts
+
+The only genuinely new thing, and the entire declarative surface:
+
+- **16 slots** that render but never appear — carousels and tabbed components mostly. A context like
+  `{ activeTab: 0 }`.
+- **2 components** that still will not render with empty-array base props.
+- **2 button slots** wanting an encoding not yet in the candidate set — which is a fix in *our* probe
+  set, benefiting every registry, not an 8x8 change at all.
+
+### Optional: re-push previews as plain data
+
+Nice but not required, because handoff-app stops treating previews as contracts either way. Worth doing
+eventually so previews are usable as *sample content*; not a blocker for anything.
+
+### The asymmetry worth noticing
+
+8x8's side is one deletion, one probable larger deletion, and about twenty small context entries. The
+real work is all on ours: probe at build, store capability records, scaffold from `accepts[0]`, delete
+`shapeNote`, audit and migrate stored content. That is the correct distribution — a client should not be
+writing adapters so that our editor can function.
+
 ## Standing it up on a new registry (Resolvet)
 
 The point is that there is almost nothing to do.
