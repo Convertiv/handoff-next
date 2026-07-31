@@ -53,6 +53,77 @@ media query could hide a slot from the probe under a fixed synthetic viewport. T
 "fails safe but wrong" case, now concrete and worth a second probe pass at a different simulated width
 if it ever shows up.
 
+## Whole-catalog probe, 2026-07-31 (8x8)
+
+50 components, 135 slots, **5.8 seconds** in jsdom.
+
+| | |
+|---|---|
+| slots resolved | **115 (85%)** |
+| slots with empty `accepts` | 20 (15%) |
+| components fully resolved | **36 of 50** |
+| slots accepting `serialized-element` | **0 of 135** |
+| components skipped (schema parser) | 13 |
+
+**Zero slots in the entire catalog accept a serialized React element.** The month's bug, confirmed
+catalog-wide rather than on one component, and the strongest possible argument for step 3 of the
+remediation: previews are seeded with a form nothing accepts.
+
+### The harness was two-thirds of the "unprobeable"
+
+The first run reported **58 empty slots (42%)**. Almost all of it was my own base-prop generation: every
+non-slot prop was stubbed as `'x'`, so a component with `questions: FaqQuestion[]` crashed on `.map`
+before any slot could render, and 21 slots across 14 components looked unprobeable when the component had
+simply never rendered.
+
+Deriving base props from the declared type instead — `kind: 'array'` → `[]`, `kind: 'object'` → `{}`,
+literal unions → the first literal — dropped it to **20 (15%)**.
+
+That is the "infer as far as possible" principle earning its place: the JSON-native props are exactly
+what makes probing the non-JSON ones possible, and getting them wrong reads as a component limitation
+rather than a harness bug.
+
+### What the remaining 20 actually are
+
+- **16 — rendered fine, slot never appeared.** The genuine escape-hatch population: `bodySlot` on
+  carousels and tabbed components, `tocSlot`/`mobileTocSlot`, `hero-featured.audioSlot`/`shareSlot`.
+  These want a probe context (`{ activeTab: 0 }`) or a candidate encoding not yet tried.
+- **2 — component still will not render** (`job-table`, `product-feature-index`). Needs a richer base
+  prop than an empty array.
+- **2 — mixed** (`auto-tag-cards.footerButtonSlot`, `card-rows.buttonSlot`): threw on 5 of 9, accepted
+  none. Button slots wanting a shape not in the set.
+
+So the real declarative surface for 8x8 is **~20 slots in 14 components — 15%**, and the report names
+every one. Compare the alternative already attempted there: a hand-written `template.tsx` per component,
+of which 12 of 59 got done.
+
+### One correction to the design: order candidates by specificity
+
+Acceptance counts across the catalog:
+
+```
+plain-text 80 · array-of-text 77 · html-string 33 · image-object 16
+array-of-link 15 · array-of-urltext 14 · link-object 8 · serialized-element 0
+```
+
+`plain-text` and `array-of-text` are near-universal because a `ReactNode` slot renders a string, and an
+array of strings, almost by definition. They are true and nearly information-free.
+
+**So `accepts[0]` must be the most *specific* accepted encoding, not the first probed.** Rank structured
+encodings (image-object, link-object, array-of-*) above `html-string` above `plain-text`. Without that
+ordering every slot types as "text" and the image and button distinctions — the ones that matter — are
+lost.
+
+### Two findings about running probes at all
+
+**React 18 render errors are asynchronous and escape a synchronous `try/catch`.** They arrive as an
+uncaught exception and, untrapped, kill the run mid-catalog. A probe harness must trap at the process
+level and attribute the error to whichever candidate is in flight. This is not incidental: "did it
+throw" is half the signal.
+
+**jsdom's virtual console writes React errors to stderr regardless.** Noisy, and easy to mistake for a
+crashed run — the first version of this looked dead and had in fact completed.
+
 ## Where candidates come from
 
 A fixed list of encodings is a small opinion, and we can mostly avoid having one. Three sources, in
