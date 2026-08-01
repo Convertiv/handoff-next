@@ -7,6 +7,7 @@ import ReactDOMServer from 'react-dom/server';
 import { Plugin, normalizePath } from 'vite';
 import Handoff from '@handoff/index';
 import { Logger } from '@handoff/utils/logger';
+import { probeComponent } from './slot-probe';
 import {
     enrichPropertiesWithDocgen,
     generateDocsArtifact,
@@ -358,6 +359,39 @@ export function ssrRenderPlugin(
           fileName: `${componentId}-client.mjs`,
           source: clientBundleJs,
         });
+
+        // Probe the freshly-built bundle for what its ReactNode slots actually accept.
+        //
+        // Here rather than in the registry because the artifact is already in hand, the author gets the
+        // answer while they are still looking at the component, and the record can travel with the push
+        // beside `properties`. A ReactNode prop is opaque to type extraction, so this is the only thing
+        // that answers "what shape does an editor write into this slot" without guessing.
+        //
+        // Deliberately never fatal: a component that cannot be probed reports unresolved slots and the
+        // build continues. See docs/SLOT-PROBING.md.
+        try {
+          const capabilities = await probeComponent({
+            componentId,
+            bundleSource: clientBundleJs,
+            properties: (componentData.properties ?? {}) as Record<string, never>,
+            context: (componentData as { probeContext?: Record<string, unknown> }).probeContext,
+          });
+          componentData.capabilities = capabilities;
+          this.emitFile({
+            type: 'asset',
+            fileName: `${componentId}-capabilities.json`,
+            source: JSON.stringify(capabilities, null, 2),
+          });
+          if (capabilities.error) {
+            Logger.warn(`[probe] ${componentId}: ${capabilities.error}`);
+          } else if (capabilities.unresolved.length) {
+            Logger.warn(
+              `[probe] ${componentId}: ${capabilities.unresolved.length} slot(s) not editable — ${capabilities.unresolved.join(', ')}`
+            );
+          }
+        } catch (error: any) {
+          Logger.warn(`[probe] ${componentId}: probe failed — ${error?.message ?? error}`);
+        }
       }
 
       let finalHtml = '';

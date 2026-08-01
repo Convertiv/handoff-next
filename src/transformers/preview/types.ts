@@ -5,6 +5,7 @@ import type { FigmaComponentLinkData, FigmaImageAsset, FigmaMatchedBy, FigmaMatc
 import { ValidationResult } from '@handoff/types/preview';
 import { Filter } from '@handoff/utils/filter';
 import { SlotMetadata } from './slots';
+import type { ComponentCapabilities } from '../plugins/slot-probe-candidates';
 
 export enum ComponentType {
   Element = 'element',
@@ -128,6 +129,19 @@ export type ComponentObject = {
   renderer?: RendererKind;
   /** Schema describing the expected properties (props/slots) for the component */
   properties: { [key: string]: SlotMetadata };
+  /**
+   * What each `ReactNode` slot was measured to accept, written by the build-time probe.
+   *
+   * Not authored — derived by rendering the built bundle with sentinel values. A slot's declared type is
+   * `React.ReactNode`, which says nothing about the shape an editor must write, so this is the only
+   * non-guessed answer. See `transformers/plugins/slot-probe.ts` and `docs/SLOT-PROBING.md`.
+   */
+  capabilities?: ComponentCapabilities;
+  /**
+   * Extra props the probe must set before a slot renders at all — a carousel's body needs a slide to
+   * exist. The one declarative escape hatch, written only for slots a probe reported unresolved.
+   */
+  probeContext?: { [key: string]: unknown };
   /** Mapping of preview variations with values and titles for each (used to render sample states) */
   previews: { [key: string]: OptionalPreviewRender };
   /** Internal previews generated only for pattern composition, not public docs */
@@ -159,6 +173,19 @@ export type ComponentListObject = {
 
 export type TransformComponentTokensResult = {
   id: string;
+  /**
+   * What each `ReactNode` slot was measured to accept, written by the build-time probe.
+   *
+   * Not authored — derived by rendering the built bundle with sentinel values, because a slot's declared
+   * type is `React.ReactNode` and says nothing about the shape an editor must write. See
+   * `transformers/plugins/slot-probe.ts` and `docs/SLOT-PROBING.md`.
+   */
+  capabilities?: ComponentCapabilities;
+  /**
+   * Extra props the probe must set before a slot renders at all — a carousel's body needs a slide to
+   * exist. The one declarative escape hatch, written only for slots a probe reported unresolved.
+   */
+  probeContext?: { [key: string]: unknown };
   type?: ComponentType;
   image?: string;
   group?: string;
