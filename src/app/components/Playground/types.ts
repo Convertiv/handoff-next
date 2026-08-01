@@ -19,6 +19,12 @@ export interface PlaygroundComponent {
   format: string;
   code: string;
   html: string;
+  /**
+   * What each `ReactNode` slot was measured to accept, from the build-time probe. Arrives in the
+   * component's built `<id>.json`. Drives which editor a slot gets — see `lib/slot-capabilities.ts`.
+   */
+  capabilities?: Record<string, any>;
+  /** The block's authored args — NOT the component row's `data` column. */
   data?: Record<string, any>;
   rendered?: string;
   options?: {

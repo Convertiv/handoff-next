@@ -3,6 +3,7 @@
 import { createContext, ReactNode, RefObject, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { renderHandlebarsPreview, renderPreview, renderReactPreview } from './Preview';
 import { SelectedPlaygroundComponent } from './types';
+import { applyCapabilitiesToProperties, readCapabilities } from '@/lib/slot-capabilities';
 
 interface ImageDimensionRules {
   min?: { width: number; height: number };
@@ -64,7 +65,15 @@ export function EditContextProvider({
   useEffect(() => {
     if (component) {
       setData(component.data);
-      setProperties(component.properties);
+      // Overlay what the component's slots were measured to accept. Without this the editor renders
+      // from the declared schema alone — a slot the component takes as `{ src, alt }` gets a slot
+      // editor, while MCP and the chat correctly show an image field. See `lib/slot-capabilities.ts`.
+      // Read the record explicitly rather than passing `component`: here `data` holds the block's
+      // authored args, not the component row, so the reader's `data.capabilities` fallback would be
+      // looking in the wrong place.
+      setProperties(
+        applyCapabilitiesToProperties(component.properties, readCapabilities({ capabilities: component.capabilities }))
+      );
       initialRenderDone.current = false;
 
       if (isReact) {

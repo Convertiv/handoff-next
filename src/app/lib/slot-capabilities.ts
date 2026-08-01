@@ -186,3 +186,53 @@ export function widgetForEncoding(encoding: string | null): 'text' | 'richtext' 
       return null;
   }
 }
+
+/**
+ * Overlay measured encodings onto a component's declared properties, for the block editor.
+ *
+ * The editor renders from `properties` (the raw schema) while the scaffold renders from the capability
+ * record — so wiring only the scaffold left MCP and the chat showing measured shapes while the editor
+ * still showed a slot editor for a field the component takes as `{ src, alt }`. Two consumers
+ * disagreeing about one field is the failure mode that has cost the most time on this work; this closes
+ * the last instance of it.
+ *
+ * Declared metadata is preserved except for `editorType` — dimension rules, descriptions and enum
+ * options are intent, authored per registry, and remain useful.
+ */
+export function applyCapabilitiesToProperties<T extends Record<string, unknown>>(
+  properties: T,
+  caps: ComponentCapabilities | null
+): T {
+  if (!caps || !properties) return properties;
+
+  let changed = false;
+  const out: Record<string, unknown> = {};
+
+  for (const [name, meta] of Object.entries(properties)) {
+    const slot = caps.slots?.[name];
+    if (!slot || !isRecord(meta)) {
+      out[name] = meta;
+      continue;
+    }
+
+    // Nothing accepted: the slot is not editable. Flagged rather than silently re-typed — a form that
+    // reports success and changes nothing is the thing this whole mechanism exists to stop. Left on its
+    // declared editor for now so nothing regresses; the UI can act on the flag.
+    if (slot.unresolved) {
+      out[name] = { ...meta, measured: true, editable: false };
+      changed = true;
+      continue;
+    }
+
+    const widget = widgetForEncoding(slot.accepts[0] ?? null);
+    if (!widget) {
+      out[name] = meta;
+      continue;
+    }
+
+    out[name] = { ...meta, editorType: widget, encoding: slot.accepts[0], measured: true };
+    changed = true;
+  }
+
+  return changed ? (out as T) : properties;
+}
