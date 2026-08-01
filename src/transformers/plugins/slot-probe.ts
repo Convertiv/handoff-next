@@ -62,15 +62,29 @@ export async function setupProbeEnvironment(): Promise<ProbeEnvironment | null> 
   if (cachedEnv) return cachedEnv;
 
   let JSDOM: typeof import('jsdom').JSDOM;
+  let VirtualConsole: typeof import('jsdom').VirtualConsole;
   try {
-    ({ JSDOM } = await import('jsdom'));
+    ({ JSDOM, VirtualConsole } = await import('jsdom'));
   } catch {
     return null;
   }
 
+  /**
+   * A silent console, deliberately.
+   *
+   * Rejection is the probe's normal output: most candidates are *meant* to fail, and React logs a
+   * stack trace for every one. jsdom forwards those to stderr by default, so a healthy probe of a
+   * 60-component catalog printed hundreds of "Minified React error #31" traces during `push:all` and
+   * buried whatever the push actually reported. Errors are not being discarded — the trap below
+   * captures them and attributes each to the candidate in flight, which is the only place the
+   * information is useful.
+   */
+  const virtualConsole = new VirtualConsole();
+
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     pretendToBeVisual: true,
     url: 'https://probe.invalid/',
+    virtualConsole,
   });
   const w = dom.window as unknown as Record<string, unknown>;
 
@@ -235,12 +249,28 @@ export async function probeComponent(input: {
         doc.body.appendChild(host);
         env.takeError();
 
+        // Silence the console for the render window only.
+        //
+        // Rejection is the probe's normal output — most candidates are *meant* to fail — and React logs
+        // a full stack trace for each. The bundled React writes to Node's global console rather than
+        // jsdom's, so a `VirtualConsole` does not stop it, and a healthy probe of a 60-component catalog
+        // printed hundreds of "Minified React error #31" traces during `push:all` and buried what the
+        // push actually reported. Nothing is lost: the trap already captures these and attributes each
+        // to the candidate in flight. Restored immediately so genuine build output is never hidden.
+        const realError = console.error;
+        const realWarn = console.warn;
+        console.error = () => {};
+        console.warn = () => {};
+
         let threw = false;
         try {
           mod.render(host, { ...base, [slot]: candidate.make(sentinel) });
           await new Promise((r) => setTimeout(r, SETTLE_MS));
         } catch {
           threw = true;
+        } finally {
+          console.error = realError;
+          console.warn = realWarn;
         }
         if (env.takeError()) threw = true;
 
