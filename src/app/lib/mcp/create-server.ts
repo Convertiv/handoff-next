@@ -10,6 +10,7 @@ import { getReferenceMaterialById, listReferenceMaterials } from '@/lib/db/queri
 import { editorOf, isVisualSlot, placeholderValue, shapeNote } from '@/lib/mcp/scaffold-helpers';
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
 import { getDataProvider } from '@/lib/data';
+import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
 import { usePostgres } from '@/lib/db/dialect';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
@@ -1610,41 +1611,14 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     },
     async ({ componentId, fromPreview }) => {
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
-      const comp = await getDataProvider().getComponent(componentId.trim());
-      if (!comp) return textResult({ error: 'Not found' });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const props = (comp as any)?.properties ?? {};
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const previews = (comp as any)?.previews ?? {};
-      const keys = Object.keys(previews);
-      const baseKey =
-        fromPreview && keys.includes(fromPreview) ? fromPreview : keys.includes('generic') ? 'generic' : keys[0] ?? null;
-      // A preview entry is `{ values, … }`; tolerate a bare values object too.
-      const baseValues: Record<string, unknown> = baseKey
-        ? (previews[baseKey]?.values ?? previews[baseKey] ?? {})
-        : {};
-      const args: Record<string, unknown> = {};
-      const fields: Record<string, unknown> = {};
-      for (const [k, m] of Object.entries(props)) {
-        const hasBase = k in baseValues;
-        args[k] = hasBase ? baseValues[k] : placeholderValue(m);
-        fields[k] = {
-          editorType: editorOf(m),
-          shape: shapeNote(m),
-          fromBase: hasBase,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ...((m as any)?.options ? { options: (m as any).options } : {}),
-        };
-      }
-      return textResult({
-        componentId: componentId.trim(),
-        basePreview: baseKey,
-        note: baseKey
-          ? `args seeded from preview "${baseKey}" (real values) — tweak and dispatch.`
-          : 'no base preview available — args are typed placeholders; fill them in.',
-        args,
-        fields,
-      });
+      // Delegates rather than duplicating. This handler used to carry its own copy of the scaffold
+      // loop, so when `scaffoldArgsForComponent` learned to build args from a component's measured
+      // capability record, MCP silently kept emitting the old preview-seeded shapes — and since MCP is
+      // how the work was being verified, the change looked broken when it was simply not on this path.
+      // The shared module's own header warns about exactly this: two callers deciding independently
+      // what an image field looks like is how they drift.
+      const result = await scaffoldArgsForComponent(componentId.trim(), fromPreview);
+      return textResult(result);
     }
   );
 
