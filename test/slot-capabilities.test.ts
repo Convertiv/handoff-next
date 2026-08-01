@@ -1,6 +1,13 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { encodingForSlot, isSlotEditable, readCapabilities } from '../src/app/lib/slot-capabilities';
+import {
+  describeEncoding,
+  encodingForSlot,
+  isSlotEditable,
+  placeholderForEncoding,
+  readCapabilities,
+  widgetForEncoding,
+} from '../src/app/lib/slot-capabilities';
 
 /** Exactly what the build writes and the push carries — the shape verified against 8x8's catalog. */
 const record = {
@@ -69,5 +76,65 @@ describe('isSlotEditable', () => {
     assert.ok(isSlotEditable(caps, 'desktopImageSlot'));
     assert.equal(isSlotEditable(caps, 'audioSlot'), false);
     assert.equal(isSlotEditable(null, 'desktopImageSlot'), false);
+  });
+});
+
+/**
+ * The other half of the bridge: probing says which encoding a slot takes, this says what a value in
+ * that encoding looks like. A fixed shared set, not written per client.
+ */
+describe('placeholderForEncoding', () => {
+  it('gives an image a dimensioned placeholder so the slot keeps its proportions', () => {
+    const v = placeholderForEncoding('image-object', { label: 'Hero image', width: 2560, height: 1400 }) as {
+      src: string;
+      alt: string;
+    };
+    assert.match(v.src, /2560x1400/);
+    assert.match(v.src, /Hero%20image/);
+    assert.equal(v.alt, 'Hero image');
+  });
+
+  it('leaves text empty rather than seeding sample copy', () => {
+    // A scaffold carrying somebody's sample renders as finished when it is not — the lorem-ipsum-in-
+    // the-stats-block failure.
+    assert.equal(placeholderForEncoding('plain-text'), '');
+    assert.equal(placeholderForEncoding('html-string'), '');
+    assert.deepEqual(placeholderForEncoding('array-of-urltext'), []);
+  });
+
+  it('returns undefined for an unknown encoding rather than guessing', () => {
+    assert.equal(placeholderForEncoding(null), undefined);
+    assert.equal(placeholderForEncoding('something-new'), undefined);
+  });
+
+  it('offers no placeholder for serialized-element, which nothing accepts and nobody can author', () => {
+    assert.equal(placeholderForEncoding('serialized-element'), undefined);
+  });
+});
+
+describe('describeEncoding', () => {
+  it('describes an encoding the component was observed to accept', () => {
+    assert.match(describeEncoding('image-object')!, /\{ src, alt \}/);
+    assert.match(describeEncoding('array-of-urltext')!, /url, text/);
+    assert.equal(describeEncoding('plain-text'), 'plain text, no markup');
+  });
+
+  it('is null for an unknown encoding, so a caller says nothing rather than something wrong', () => {
+    assert.equal(describeEncoding(null), null);
+    assert.equal(describeEncoding('serialized-element'), null);
+  });
+});
+
+describe('widgetForEncoding', () => {
+  it('maps encodings to editors', () => {
+    assert.equal(widgetForEncoding('image-object'), 'image');
+    assert.equal(widgetForEncoding('html-string'), 'richtext');
+    assert.equal(widgetForEncoding('plain-text'), 'text');
+    assert.equal(widgetForEncoding('array-of-urltext'), 'list');
+  });
+
+  it('is null where no widget is safe — raw JSON with a warning beats a form that lies', () => {
+    assert.equal(widgetForEncoding(null), null);
+    assert.equal(widgetForEncoding('serialized-element'), null);
   });
 });

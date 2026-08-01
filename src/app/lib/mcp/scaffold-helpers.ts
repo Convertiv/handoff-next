@@ -19,7 +19,17 @@ export const editorOf = (m: any): string => m?.editorType ?? m?.type ?? m?.kind 
 export const isVisualSlot = (m: any): boolean =>
   ['richtext', 'text', 'image', 'slot'].includes(m?.editorType) || m?.type === 'React.ReactNode' || m?.kind === 'slot';
 
-/** Human-readable description of the JS shape a field expects — what an authoring model needs to get right. */
+/**
+ * Human-readable description of the JS shape a field expects.
+ *
+ * ⚠️ **Fallback only, and a guess by construction.** It maps a *declared* editor type to a prose shape,
+ * so it asserts `{ src, alt }` for every field whose name matched /image/ in every component of every
+ * registry — a claim about components nobody checked, and wrong often enough to cost a month of bugs.
+ *
+ * The real answer is the build-time probe: `scaffoldArgsForComponent` prefers a measured encoding from
+ * the component's capability record and only reaches here when there is none. Delete this once probe
+ * coverage is universal; until then it is what an unprobed component falls back to.
+ */
 export const shapeNote = (m: any): string => {
   switch (editorOf(m)) {
     case 'richtext': return 'HTML string, e.g. "<p>Copy with <b>bold</b></p>"';

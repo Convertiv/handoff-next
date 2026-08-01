@@ -81,3 +81,108 @@ export function encodingForSlot(caps: ComponentCapabilities | null, slot: string
 export function isSlotEditable(caps: ComponentCapabilities | null, slot: string): boolean {
   return !!encodingForSlot(caps, slot);
 }
+
+// ── The encoding library ─────────────────────────────────────────────────────
+//
+// The other half of the bridge. Probing says *which* encoding a slot takes; this says what a value in
+// that encoding looks like. Together they are the whole thing — a fixed, shared set of encodings plus a
+// measured per-slot lookup. Neither half is written per client.
+
+/** Placeholder dimensions, so a slot keeps its proportions before real content arrives. */
+export interface PlaceholderHints {
+  label?: string;
+  width?: number;
+  height?: number;
+}
+
+const placeholderImage = (w: number, h: number, label?: string) =>
+  `https://placehold.co/${w}x${h}${label ? `?text=${encodeURIComponent(label.slice(0, 40))}` : ''}`;
+
+/**
+ * A shape-correct empty value for an encoding.
+ *
+ * Empty rather than sample: a scaffold seeded with somebody's sample copy renders as finished when it is
+ * not, which is how pages shipped with lorem ipsum in the stats block. Images are the exception — a
+ * dimensioned placeholder shows the page's proportions, where nothing at all collapses the layout.
+ *
+ * Returns `undefined` for an unknown encoding rather than guessing. A caller with no answer must leave
+ * the field alone, not invent one.
+ */
+export function placeholderForEncoding(encoding: string | null, hints: PlaceholderHints = {}): unknown {
+  const { label = '', width = 1200, height = 800 } = hints;
+  switch (encoding) {
+    case 'plain-text':
+      return '';
+    case 'html-string':
+      return '';
+    case 'array-of-text':
+      return [];
+    case 'image-object':
+      return { src: placeholderImage(width, height, label), alt: label };
+    case 'array-of-image-object':
+      return [];
+    case 'link-object':
+      return { label: '', url: '' };
+    case 'array-of-urltext':
+      return [];
+    case 'array-of-labelhref':
+      return [];
+    case 'serialized-element':
+      // Measured as accepted by nothing across 8x8's catalog. If a component ever does accept it, an
+      // editor still has no sane way to author one, so it is not offered as a placeholder.
+      return undefined;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * What to tell an authoring model to write for this encoding.
+ *
+ * Replaces `shapeNote`, which mapped a *declared* editor type to a prose shape and asserted
+ * `{ src, alt }` for anything whose field name matched /image/. The difference is not the wording — it
+ * is that this describes an encoding the component was observed to accept.
+ */
+export function describeEncoding(encoding: string | null): string | null {
+  switch (encoding) {
+    case 'plain-text':
+      return 'plain text, no markup';
+    case 'html-string':
+      return 'HTML string, e.g. "<p>Copy with <b>bold</b></p>"';
+    case 'array-of-text':
+      return 'array of plain strings';
+    case 'image-object':
+      return '{ src, alt } — src must come from the asset store';
+    case 'array-of-image-object':
+      return 'array of { src, alt } — every src from the asset store';
+    case 'link-object':
+      return '{ label, url }';
+    case 'array-of-urltext':
+      return 'array of { url, text } — write every item';
+    case 'array-of-labelhref':
+      return 'array of { label, href } — write every item';
+    default:
+      return null;
+  }
+}
+
+/** Which editor widget suits an encoding. Null means no widget is safe — show raw JSON with a warning. */
+export function widgetForEncoding(encoding: string | null): 'text' | 'richtext' | 'image' | 'link' | 'list' | null {
+  switch (encoding) {
+    case 'plain-text':
+      return 'text';
+    case 'html-string':
+      return 'richtext';
+    case 'image-object':
+      return 'image';
+    case 'link-object':
+      return 'link';
+    case 'array-of-text':
+    case 'array-of-image-object':
+    case 'array-of-urltext':
+    case 'array-of-labelhref':
+      return 'list';
+    default:
+      return null;
+  }
+}
