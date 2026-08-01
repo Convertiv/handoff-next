@@ -229,6 +229,9 @@ export function ssrRenderPlugin(
   documentationComponents: CoreTypes.IDocumentationObject['components'],
   handoff: Handoff
 ): Plugin {
+  /** Capability record produced during `generateBundle`, written to disk in `writeBundle`. */
+  let pendingCapabilities: Awaited<ReturnType<typeof probeComponent>> | null = null;
+
   return {
     name: PLUGIN_CONSTANTS.PLUGIN_NAME,
     apply: 'build',
@@ -377,11 +380,11 @@ export function ssrRenderPlugin(
             context: (componentData as { probeContext?: Record<string, unknown> }).probeContext,
           });
           componentData.capabilities = capabilities;
-          this.emitFile({
-            type: 'asset',
-            fileName: `${componentId}-capabilities.json`,
-            source: JSON.stringify(capabilities, null, 2),
-          });
+          // Written in `writeBundle`, not emitted here. `this.emitFile` in `generateBundle` silently
+          // produced nothing — Rollup had already sealed the emitted-file set by the time the probe's
+          // await resolved. The same reason the CSS patching below runs in `writeBundle`: once Vite has
+          // written the directory, writing to it directly is the thing that actually works.
+          pendingCapabilities = capabilities;
           if (capabilities.error) {
             Logger.warn(`[probe] ${componentId}: ${capabilities.error}`);
           } else if (capabilities.unresolved.length) {
@@ -483,6 +486,19 @@ export function ssrRenderPlugin(
     async writeBundle(opts) {
       const outDir = opts.dir;
       if (!outDir) return;
+
+      // The capability record, now that Vite has finished writing the directory.
+      if (pendingCapabilities) {
+        try {
+          await fs.writeFile(
+            path.join(outDir, `${componentData.id}-capabilities.json`),
+            JSON.stringify(pendingCapabilities, null, 2)
+          );
+        } catch (error: any) {
+          Logger.warn(`[probe] ${componentData.id}: could not write capabilities — ${error?.message ?? error}`);
+        }
+        pendingCapabilities = null;
+      }
 
       const componentId = componentData.id;
       const expectedCssName = `${componentId}.css`;
