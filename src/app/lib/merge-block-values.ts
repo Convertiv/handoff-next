@@ -20,6 +20,8 @@
  * Pure, so the merge rules are testable without a model or a database.
  */
 
+import { describeJsonShape } from './json-shape';
+
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -546,7 +548,12 @@ export function summarizeFields(
     if (opts.length) return `${name}: one of ${opts.slice(0, 14).join(' | ')}`;
 
     const seeded = values?.[name];
-    if (seeded !== undefined) return `${name}: ${describeValue(seeded)}`;
+    if (seeded !== undefined) {
+      // Examples where the value carries them. `{ stat, sub }` is ambiguous and got authored backwards;
+      // `{ stat: "100", sub: "Countries" }` is not.
+      const withExamples = describeJsonShape(seeded);
+      return `${name}: ${withExamples ?? describeValue(seeded)}`;
+    }
     const editor = isPlainObject(meta) && typeof meta.editorType === 'string' ? meta.editorType : 'any';
     return `${name}: ${editor}`;
   });

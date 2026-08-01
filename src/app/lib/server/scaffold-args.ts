@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getDataProvider } from '@/lib/data';
 import { editorOf, placeholderValue, shapeNote } from '@/lib/mcp/scaffold-helpers';
+import { describeJsonShape } from '@/lib/json-shape';
 import {
   describeEncoding,
   encodingForSlot,
@@ -125,9 +126,15 @@ export async function scaffoldArgsForComponent(
     }
 
     args[k] = hasBase ? baseValues[k] : placeholderValue(m);
+    // A JSON-native array or object: describe it from the value a real preview holds, with examples.
+    // `shapeNote` says "array of object", which names no keys — the model wrote gallery images into an
+    // unreadable shape and inverted `stat`/`sub` on the stats block for exactly that reason. Only
+    // applied where a preview value exists, and only where it teaches something.
+    const jsonShape = hasBase ? describeJsonShape(baseValues[k]) : null;
     fields[k] = {
       editorType: editorOf(m),
-      shape: shapeNote(m),
+      shape: jsonShape ?? shapeNote(m),
+      ...(jsonShape ? { fromValue: true } : {}),
       fromBase: hasBase,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ...((m as any)?.options ? { options: (m as any).options } : {}),

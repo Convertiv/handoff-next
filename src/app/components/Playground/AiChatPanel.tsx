@@ -409,6 +409,22 @@ export default function AiChatPanel() {
    * The whole list is rebuilt in one call rather than surgically patched. Simpler, atomic, and it makes
    * undo a single restore.
    */
+  /**
+   * Should this changeset wait for its images before offering Apply?
+   *
+   * Whole-page generation applies immediately and lets pictures arrive behind it — twelve blocks now
+   * beats twelve blocks in four minutes. But "change this one image" has nothing else to look at, so an
+   * Apply button that appears before the image does only reads as "the work is finished". Same
+   * mechanism underneath either way: `applyResolvedImages` folds a finished image in whenever it lands,
+   * so this is about what the card *says*, not what it can do.
+   */
+  const shouldWaitForImages = (changeset: Changeset, images?: PendingImage[]): boolean => {
+    if (!images?.length) return false;
+    if (changeset.ops.length !== 1) return false;
+    const generating = images.some((i) => i.state === 'generating');
+    return generating;
+  };
+
   const applyChangeset = async (msgIndex: number, changeset: Changeset) => {
     const before = currentPage();
     const { valid, rejected } = verifyOps(changeset.ops, before);
@@ -587,7 +603,12 @@ export default function AiChatPanel() {
                   ) : null}
 
                   <div className="mt-2.5 flex items-center gap-2">
-                    {m.changeset.applied ? (
+                    {!m.changeset.applied && shouldWaitForImages(m.changeset, m.images) ? (
+                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Waiting for the image…
+                      </span>
+                    ) : m.changeset.applied ? (
                       <>
                         <span className="text-xs text-emerald-700 dark:text-emerald-400">Applied.</span>
                         {m.changeset.undo ? (

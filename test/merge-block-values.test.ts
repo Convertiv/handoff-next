@@ -213,7 +213,7 @@ describe('field shapes come from real preview values', () => {
   it('names the real keys of an object field', () => {
     // buttonSlots is { url, text } on one block and { label, href } on another; only the value knows.
     const out = summarizeFields({ buttonSlots: { editorType: 'array' } }, { buttonSlots: [{ url: '#', text: 'Go' }] });
-    assert.match(out, /\{ url, text \}/);
+    assert.match(out, /\{ url: "#", text: "Go" \}/);
   });
 
   it('says what an array ITEM contains, which is what was missing', () => {
@@ -221,7 +221,7 @@ describe('field shapes come from real preview values', () => {
       { stats: { editorType: 'array' } },
       { stats: [{ stat: '2M+', eyebrow: 'Users', sub: '', bodySlot: '' }] }
     );
-    assert.match(out, /array of \{ stat, eyebrow, sub, bodySlot \} — write EVERY item/);
+    assert.match(out, /array of \{ stat: "2M\+", eyebrow: "Users", sub, bodySlot \} — write EVERY item/);
   });
 
   it('hides bookkeeping keys from the shape', () => {
