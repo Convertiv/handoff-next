@@ -137,6 +137,54 @@ right compromise.
 
 ---
 
+## Status, 2026-08-01 — what works and what is open
+
+Phase 3 is functional end to end: describe a page, get blocks; ask for an image, it generates, lands in
+the asset library and renders. The field bridge underneath it is now *measured* rather than declared —
+see `SLOT-PROBING.md`.
+
+**Working:** page generation from the catalog · targeted edits (`propose_edits`) · image generation from
+the chat and from the block editor's field control · assets stored as WebP · slot shapes probed at build
+and consumed by the scaffold.
+
+### Open, in the order I would take them
+
+**A. The initial page build does not reach for images at all.** A full-page prompt asking for "good
+images of students" produced no images and no placeholders, and the reply *claimed* "real student
+imagery". Two faults in one: the model does not call `search_assets` / `request_image` during a
+whole-page build, and it asserted content it had not created. The single-slot path works first time
+every time, so this is about when images get considered during composition — not about the mechanism.
+The false claim is worth treating separately; a model that reports work it did not do is worse than one
+that leaves a gap.
+
+**B. Old pages carry pre-measurement args.** Blocks saved before the capability record existed still
+hold serialized elements, so the component ignores them and renders its own default — which is why an
+edited page can look unchanged while the editor shows the new value. Needs a migration that rewrites
+stored block args into the measured encoding. Safe to do mechanically *because* the record names the
+target; that was step 5 of the remediation and is not built.
+
+**C. Image gallery and stats content.** Fixed 2026-08-01 by describing JSON-native array/object props
+from their preview values with examples — `{ stat: "100", sub: "Countries" }` rather than
+"array of object". Unverified against a live run.
+
+**D. Apply card, remainder of the smoother flow.** The intent split shipped: a single-slot image edit
+waits rather than offering Apply. Still wanted — show the finished image *in* the card, and collapse the
+separate "generating" and "changeset" cards into one response that reads as a single action.
+
+**E. Skeleton in the target slot while generating.** When the chat proposes an image edit, write the
+placeholder into the slot before apply, so it is visible *where* the image will land. Most of this
+exists — the placeholder is already in the changeset — it is simply not shown until apply.
+
+**F. 21 unresolved slots** across 14 components (carousel/tab `bodySlot`s, two `renderLink` function
+props). Each needs a probe context or a candidate encoding. Named in the build output.
+
+**G. Phase 3.5 still stands** — the exemplars in `lib/page-exemplars.ts` are 8x8's and should be
+per-workspace data.
+
+D and E are polish on a flow that now works. A is the product goal — "stop people designing new, start
+them composing from what exists" is not met if a whole-page build silently skips imagery. B is the one
+that makes existing work look broken.
+
 ## Cost discipline (applies from phase 1 on)
 
 Agentic loops are **input-heavy and superlinear** — the opposite of chat. Every round re-sends the
