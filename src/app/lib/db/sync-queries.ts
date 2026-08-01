@@ -165,6 +165,13 @@ export async function applyUploadedChange(input: {
     if (d.handoffConfig && typeof d.handoffConfig === 'object') {
       dataPayload.handoffConfig = d.handoffConfig;
     }
+    // Slot capability record from the build-time probe: which encodings each ReactNode slot was
+    // measured to accept. Carried in `data` rather than its own column deliberately — adding a column
+    // to a hot table breaks every read of it on any deployment where the migration has not landed yet,
+    // which took the generation queue down earlier today. `data` already carries build output.
+    if (d.capabilities && typeof d.capabilities === 'object') {
+      dataPayload.capabilities = d.capabilities;
+    }
     const row = {
       id: String(d.id ?? entityId),
       path: d.path != null ? String(d.path) : null,

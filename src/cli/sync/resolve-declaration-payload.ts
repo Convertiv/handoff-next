@@ -85,6 +85,26 @@ function loadDeclarationRaw(filePath: string, modulePath: string): Record<string
   return raw as Record<string, unknown>;
 }
 
+/**
+ * The slot capability record written by the build-time probe.
+ *
+ * A sibling of the built component JSON rather than part of it: the probe runs in a Vite plugin after
+ * the client bundle is produced, which is later than `dist/<id>.json` is assembled. Read here so the
+ * record reaches the component row — without this it only ever arrives as a static file artifact, and
+ * `getComponent(id).capabilities` stays undefined, which is where every consumer looks.
+ */
+async function readCapabilities(workPath: string, id: string): Promise<Record<string, unknown> | null> {
+  const capPath = path.join(workPath, 'components', id, 'dist', `${id}-capabilities.json`);
+  if (!(await fs.pathExists(capPath))) return null;
+  try {
+    return (await fs.readJson(capPath)) as Record<string, unknown>;
+  } catch {
+    // A malformed record is the same as none: consumers fall back to treating slots as unresolved,
+    // which is the honest answer rather than a guessed shape.
+    return null;
+  }
+}
+
 async function readBuiltComponentJson(workPath: string, id: string): Promise<Record<string, unknown> | null> {
   const builtPath = path.join(workPath, 'components', id, 'dist', `${id}.json`);
   if (!(await fs.pathExists(builtPath))) return null;
@@ -141,6 +161,7 @@ export async function resolveComponentDeclarationForSync(
 
   const handoffConfig = rawToHandoffConfig(raw, absPath);
   const built = await readBuiltComponentJson(handoff.workingPath, id);
+  const capabilities = await readCapabilities(handoff.workingPath, id);
   const data: Record<string, unknown> = {
     ...(built ?? {}),
     ...JSON.parse(JSON.stringify(normalized)) as Record<string, unknown>,
@@ -161,6 +182,9 @@ export async function resolveComponentDeclarationForSync(
     image: normalized.image,
     properties: normalized.properties,
     previews: normalized.previews,
+    // Measured, not declared — see `transformers/plugins/slot-probe.ts`. Omitted entirely when the
+    // component has not been probed, so "no record" is distinguishable from "probed and found nothing".
+    ...(capabilities ? { capabilities } : {}),
     handoffConfig,
     data,
   };
