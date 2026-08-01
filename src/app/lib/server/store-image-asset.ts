@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { deleteAsset, getAsset, insertAsset, upsertAssetBlob } from '@/lib/db/queries';
+import { deleteAsset, getAsset, getAssetBlob, insertAsset, upsertAssetBlob } from '@/lib/db/queries';
 import {
   assetIdForBytes,
   contentHashForBytes,
@@ -50,8 +50,10 @@ export interface StoredImageAsset {
   assetId: string;
   /** What a block's image field should be set to. */
   storageUrl: string;
-  /** True when these bytes were already in the library and nothing was written. */
+  /** True when these bytes were already in the library and nothing new was inserted. */
   deduped: boolean;
+  /** True when an existing row was found with its bytes missing and they were written back. */
+  repaired?: boolean;
 }
 
 export async function storeImageAsset(input: StoreImageAssetInput): Promise<StoredImageAsset> {
@@ -65,18 +67,37 @@ export async function storeImageAsset(input: StoreImageAssetInput): Promise<Stor
   const contentHash = contentHashForBytes(bytes);
   const assetId = assetIdForBytes(bytes);
 
+  const s3 = isS3Configured();
+
   // Content-addressed, so this is the dedupe: the same image generated twice, or a retried job, is one
   // row. Checked by id rather than by blob content-hash because the S3 path writes no blob row, and
   // `findAssetIdByContentHash` only sees DB-backed bytes — it would miss every S3 asset.
   const existing = await getAsset(assetId);
-  if (existing) return { assetId, storageUrl: existing.storageUrl, deduped: true };
+  if (existing) {
+    // **A row is not proof of bytes.** On the DB-backed path the row's `storageUrl` points at
+    // `/api/handoff/assets/<id>/raw`, which reads the blob table — so a row whose blob is missing
+    // returns a 404 image *and* dedupe keeps handing that URL out forever, on every future generation
+    // of the same content. Exactly what happened: an image generated, inserted, and 404'd.
+    //
+    // Rows can outlive their bytes for several dull reasons — an interrupted write, a blob pruned
+    // separately, a row created by an ingest path that stored elsewhere. Repairing is cheap and we are
+    // holding the bytes right now, so verify rather than assume.
+    if (!s3) {
+      const blob = await getAssetBlob(assetId).catch(() => null);
+      if (!blob) {
+        await upsertAssetBlob({ assetId, data: bytes.toString('base64'), contentType: mimeType, contentHash });
+        const repairedUrl = existing.storageUrl || `/api/handoff/assets/${assetId}/raw`;
+        return { assetId, storageUrl: repairedUrl, deduped: true, repaired: true };
+      }
+    }
+    return { assetId, storageUrl: existing.storageUrl, deduped: true };
+  }
 
   const filename = `${assetId}.${extensionForMimeType(mimeType)}`;
   let storageUrl: string;
   let storageKey: string | null = null;
   let thumbnailUrl: string | null = null;
 
-  const s3 = isS3Configured();
   if (s3) {
     // sharp is a native module — dynamic import avoids bundler issues. Same recipe as the Figma ingest.
     const sharp = (await import('sharp')).default;

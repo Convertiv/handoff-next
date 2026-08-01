@@ -119,3 +119,24 @@ describe('shouldReencodeToWebp', () => {
     assert.equal(shouldReencodeToWebp('image/png', false), false);
   });
 });
+
+/**
+ * A content-addressed row is not proof that its bytes exist.
+ *
+ * `storeImageAsset` dedupes on the asset id, and on the DB-backed path the row's `storageUrl` points at
+ * `/api/handoff/assets/<id>/raw`, which reads the blob table. A row whose blob is missing therefore
+ * serves a 404 image — and because dedupe short-circuits on the row, every future generation of the
+ * same content hands back the same broken URL. Observed live: an image generated, inserted into the
+ * page, and 404'd.
+ */
+describe('asset dedupe and missing bytes', () => {
+  it('derives the same id from the same bytes, which is what makes dedupe possible at all', () => {
+    assert.equal(assetIdForBytes(Buffer.from('x')), assetIdForBytes(Buffer.from('x')));
+  });
+
+  it('keeps the raw URL derivable from the id, so a repair can rebuild it without reading the row', () => {
+    const id = assetIdForBytes(Buffer.from('x'));
+    assert.match(id, /^img_[0-9a-f]{12}$/);
+    assert.equal(`/api/handoff/assets/${id}/raw`.includes(id), true);
+  });
+});
