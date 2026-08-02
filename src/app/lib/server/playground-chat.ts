@@ -693,7 +693,19 @@ export async function runPlaygroundChatTurn(args: {
         });
         continue;
       }
-      const reply = content ?? '';
+      // A turn that ends with prose and no proposal produced nothing the user can apply — and the model
+      // will happily narrate the page it intended ("Hero section uses a strong image…") as though it
+      // exists. Same principle as the imagery note: state the truth alongside the claim rather than try
+      // to police the wording.
+      const nothingProposed = !toolsUsed.some(isPlacementTool) && toolsUsed.includes('list_blocks');
+      const reply = [
+        content ?? '',
+        nothingProposed
+          ? '⚠️ Nothing was actually proposed — there are no blocks to apply. Ask me to try again.'
+          : null,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
       emit({ type: 'reply', content: reply });
       return finish({ reply, toolsUsed });
     }
@@ -843,7 +855,11 @@ export async function runPlaygroundChatTurn(args: {
         // is not a thing you can do for an image — so a page asking for "good images of students" came
         // back with none, and the model reported "real student imagery" anyway.
         const placeholders = findPlaceholderImages(blocks);
-        if (placeholders.length && !askedForImages) {
+        // Only chase imagery on a page that already exists. Composing a fresh one, placeholders are the
+        // *intended* outcome — and this retry told the model to call `request_image`, which is gated off
+        // in that case. It read the contradiction, burned rounds on it, and ended the turn with prose
+        // and no proposal at all.
+        if (imageCtx.hasCanvas && placeholders.length && !askedForImages) {
           askedForImages = true;
           console.log('[playground-chat] asking for imagery', JSON.stringify(placeholders));
           convo.push({
