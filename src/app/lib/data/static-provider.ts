@@ -1,7 +1,9 @@
 import type { ComponentListObject, ComponentObject, PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
 import type { ClientConfig } from '@handoff/types/config';
 import type { Types as CoreTypes } from 'handoff-core';
-import * as fs from 'fs-extra';
+// Default import, not `* as`: fs-extra is CJS and Node's ESM lexer does not surface its named exports,
+// so a namespace import leaves `fs.existsSync` undefined outside a bundler. Same trap as lodash below.
+import fs from 'fs-extra';
 import path from 'path';
 import { fetchDocPageMetadataAndContent, getClientRuntimeConfig, getTokens, staticBuildMenu } from '../../components/util';
 import type { DataProvider, DocPageContent, DtcgManifest, DtcgTokenStrings, DtcgTokenType } from './types';

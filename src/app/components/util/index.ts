@@ -2,7 +2,8 @@ import { ComponentListObject, ComponentType, PatternListObject } from '@handoff/
 import { ClientConfig, RuntimeConfig } from '@handoff/types/config';
 import { ComponentDocumentationOptions, PreviewObject } from '@handoff/types/preview';
 import { desc } from 'drizzle-orm';
-import * as fs from 'fs-extra';
+// Default import, not `* as` — see the lodash note below; fs-extra is CJS too.
+import fs from 'fs-extra';
 import matter from 'gray-matter';
 import { Types as CoreTypes } from 'handoff-core';
 // Per-path rather than named: lodash is CJS and Node's ESM lexer does not detect its named exports, so
