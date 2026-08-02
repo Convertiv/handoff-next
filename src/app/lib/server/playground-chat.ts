@@ -15,6 +15,8 @@ import {
   unplacedImageInstruction,
 } from '@/lib/placeholder-audit';
 import { summarizeError } from '@/lib/error-summary';
+import { describeTurn, flagsFor, type TurnFacts, type TurnRetry } from '@/lib/turn-log';
+import { logAiEvent } from '@/lib/server/event-log';
 import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
 
@@ -646,16 +648,56 @@ export async function runPlaygroundChatTurn(args: {
    */
   const finish = <T extends PlaygroundChatTurn>(turn: T): T => {
     if (imageCtx.queued.length) emit({ type: 'images', queued: imageCtx.queued });
+
+    // Record what the turn *did*, not what it said. Prose is exactly what goes wrong — a page was
+    // narrated in detail that had never been proposed — so the tool sequence and every retry reason go
+    // to the log where one run can be diagnosed instead of inferred.
+    const proposedBlocks = turn.proposal?.blocks ?? [];
+    const facts: TurnFacts = {
+      prompt: (args.messages.filter((m) => m.role === 'user').pop()?.content ?? '').slice(0, 500),
+      rounds: roundsUsed,
+      toolsUsed,
+      retries,
+      outcome: turn.proposal ? 'proposal' : turn.changeset ? 'changeset' : exhaustedTurn ? 'exhausted' : 'reply-only',
+      hasCanvas: imageCtx.hasCanvas,
+      blocks: proposedBlocks.length,
+      queuedImages: imageCtx.queued.length,
+      placeholderImages: findPlaceholderImages(proposedBlocks).length,
+      unplacedImages: findUnplacedImages(proposedBlocks, imageCtx.queued).length,
+      durationMs: Date.now() - startedAt,
+    };
+    console.log('[playground-chat]', describeTurn(facts));
+    void logAiEvent({
+      eventType: 'ai.playground_turn',
+      // Not a model call — a summary of the whole turn, which may span several. The model column is
+      // required, so it names the loop rather than pretending to be one request.
+      model: 'playground-chat-turn',
+      actorUserId: args.actorUserId ?? undefined,
+      route: '/api/handoff/ai/playground-chat',
+      durationMs: facts.durationMs,
+      status: Object.values(flagsFor(facts)).some(Boolean) ? 'error' : 'success',
+      metadata: { ...facts, flags: flagsFor(facts) },
+    }).catch(() => {});
+
     return imageCtx.queued.length ? { ...turn, queuedImages: imageCtx.queued } : turn;
   };
   // One retry only; see the gap handler below.
+  const startedAt = Date.now();
+  const retries: TurnRetry[] = [];
+  /** Every guard that fired, so a failed turn can be read from the log instead of inferred from prose. */
+  const noteRetry = (kind: string, detail?: string) => retries.push({ kind, ...(detail ? { detail } : {}) });
+
   let askedForGaps = false;
   // Likewise one-shot: ask once for imagery the composition left on placeholders.
   let askedForImages = false;
   // Likewise: nudge once if images were requested but never written into a block.
   let askedToPlaceImages = false;
 
+  let roundsUsed = 0;
+  let exhaustedTurn = false;
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
+    roundsUsed = round + 1;
     // Checked between rounds rather than mid-call: the in-flight request finishes either way, but we
     // stop paying for the next one.
     if (args.signal?.aborted) return { reply: '', toolsUsed };
@@ -677,6 +719,7 @@ export async function runPlaygroundChatTurn(args: {
       const composedNothing = !toolsUsed.some(isPlacementTool) && (imageCtx.queued.length > 0 || toolsUsed.includes('list_blocks'));
       if (composedNothing && !askedToPlaceImages) {
         askedToPlaceImages = true;
+        noteRetry('no-proposal');
         console.warn('[playground-chat] images requested but never placed; asking once', {
           queued: imageCtx.queued.map((q) => q.jobId),
         });
@@ -789,6 +832,7 @@ export async function runPlaygroundChatTurn(args: {
         const unplacedEdits = findUnplacedImages(editBlocks, imageCtx.queued);
         if (unplacedEdits.length && !askedToPlaceImages) {
           askedToPlaceImages = true;
+          noteRetry('unplaced-edits');
           console.warn('[playground-chat] generated images not placed in edits', unplacedEdits.map((u) => u.placeholderSrc));
           convo.push({
             role: 'tool',
@@ -842,6 +886,7 @@ export async function runPlaygroundChatTurn(args: {
         const unplaced = findUnplacedImages(blocks, imageCtx.queued);
         if (unplaced.length && !askedToPlaceImages) {
           askedToPlaceImages = true;
+          noteRetry('unplaced-images');
           console.warn('[playground-chat] generated images not placed', unplaced.map((u) => u.placeholderSrc));
           convo.push({
             role: 'tool',
@@ -861,6 +906,7 @@ export async function runPlaygroundChatTurn(args: {
         // and no proposal at all.
         if (imageCtx.hasCanvas && placeholders.length && !askedForImages) {
           askedForImages = true;
+          noteRetry('imagery');
           console.log('[playground-chat] asking for imagery', JSON.stringify(placeholders));
           convo.push({
             role: 'tool',
@@ -872,6 +918,7 @@ export async function runPlaygroundChatTurn(args: {
 
         if (gaps.length && !askedForGaps) {
           askedForGaps = true;
+          noteRetry('content-gaps');
           console.log('[playground-chat] asking for unfilled content', JSON.stringify(gaps));
           convo.push({
             role: 'tool',
@@ -931,6 +978,7 @@ export async function runPlaygroundChatTurn(args: {
   const exhausted =
     `I got stuck working out the page — I made ${toolsUsed.length} attempts without settling on one. ` +
     'That is a bug on our side rather than something wrong with your request. Try again, or describe the page in fewer sections.';
+  exhaustedTurn = true;
   emit({ type: 'reply', content: exhausted });
   console.warn('[playground-chat] round cap hit', { rounds: MAX_TOOL_ROUNDS, tools: toolsUsed });
   return finish({ reply: exhausted, toolsUsed });
