@@ -1,0 +1,59 @@
+[
+  {
+    "caseId": "fresh-page-with-imagery",
+    "runs": 2,
+    "passed": 0,
+    "failures": {
+      "page-has-real-imagery: all 4 image src(s) are placeholders": 1,
+      "page-has-real-imagery: all 5 image src(s) are placeholders": 1
+    },
+    "signals": {
+      "left-placeholders": 2
+    },
+    "medianSeconds": 25.492
+  },
+  {
+    "caseId": "fresh-page-plain",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2
+    },
+    "medianSeconds": 18.38
+  },
+  {
+    "caseId": "fill-the-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 4.607
+  },
+  {
+    "caseId": "edit-the-headline",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 2.944
+  },
+  {
+    "caseId": "gallery-four-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 3.981
+  },
+  {
+    "caseId": "stats-not-inverted",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 1
+    },
+    "medianSeconds": 6.08
+  }
+]

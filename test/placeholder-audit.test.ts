@@ -143,3 +143,24 @@ describe('unplacedImageInstruction', () => {
     assert.match(msg, /Do NOT request them again/);
   });
 });
+
+/**
+ * A generated image can land in an edit op as legitimately as in a proposed block.
+ *
+ * `unplacedImages` was computed against proposal blocks only, so every changeset that generated an
+ * image was logged as stranding it however correctly it was placed — `strandedImages` in production
+ * logs, on a working path. Found by the eval suite: after the placement fix one image case went green
+ * while the other stayed red on the invariant alone, with its own placement check passing.
+ */
+describe('findUnplacedImages over edit ops', () => {
+  const queued = [{ placeholderSrc: 'https://placehold.co/a' }, { placeholderSrc: 'https://placehold.co/b' }];
+
+  it('counts an image written into an op’s values as placed', () => {
+    const ops = [{ args: { desktopImageSlot: { src: 'https://placehold.co/a' } } }];
+    assert.deepEqual(findUnplacedImages(ops, queued).map((q) => q.placeholderSrc), ['https://placehold.co/b']);
+  });
+
+  it('still catches one that reached nothing', () => {
+    assert.equal(findUnplacedImages([{ args: {} }], queued).length, 2);
+  });
+});

@@ -7,6 +7,7 @@ import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { blankContentValues, mergeBlockValues, placeholderImageUrl, summarizeFields } from '@/lib/merge-block-values';
 import { formatExemplars } from '@/lib/page-exemplars';
 import { buildImagePrompt } from '@/lib/image-generation-request';
+import { describeImagePlacement, imageFieldsFor, resolveImageTarget, valueForImageTarget } from '@/lib/image-target';
 import {
   describeMissingImagery,
   findPlaceholderImages,
@@ -168,14 +169,27 @@ const TOOLS: OpenAiTool[] = [
     function: {
       name: 'request_image',
       description:
-        'Generate an image that the asset store does not have. Search first — this is the fallback, ' +
-        'not the default, and a real photo from the library beats a generated one. Returns a `src` to ' +
-        'put in the image arg immediately: it is a labelled placeholder that swaps itself for the real ' +
-        'image when generation finishes, a minute or two after the page appears. Say in your reply ' +
+        'Generate an image that the asset store does not have, for ONE named slot on ONE block that is ' +
+        'already on the canvas. Search first — this is the fallback, not the default, and a real photo ' +
+        'from the library beats a generated one. Returns `value`, already in the shape that slot ' +
+        'accepts: a labelled placeholder that swaps itself for the real image a minute or two later. ' +
+        'You must still write it in with propose_edits — requesting does not place. Say in your reply ' +
         'which images are being generated. Capped per turn.',
       parameters: {
         type: 'object',
         properties: {
+          block: {
+            type: 'integer',
+            description:
+              'Which block on the canvas, numbered as in the composition (1 = first). Required — an ' +
+              'image with no destination is generated, paid for, and lands nowhere.',
+          },
+          field: {
+            type: 'string',
+            description:
+              'The exact image field on that block, e.g. "desktopImageSlot". Not "src" and not ' +
+              '"image" — those are not field names. Get it wrong and the reply lists the real ones.',
+          },
           prompt: {
             type: 'string',
             description:
@@ -190,7 +204,7 @@ const TOOLS: OpenAiTool[] = [
             description: 'Shape the slot needs. Landscape for heroes and cards; square for avatars and logos.',
           },
         },
-        required: ['prompt', 'title'],
+        required: ['block', 'field', 'prompt', 'title'],
       },
     },
   },
@@ -393,6 +407,13 @@ interface ImageRequestContext {
   actorUserId: string | null;
   /** Whether blocks are already on the canvas. Generation needs a slot that exists to swap into. */
   hasCanvas: boolean;
+  /**
+   * The canvas itself, so `request_image` can check where the picture is going *before* generating it.
+   *
+   * Only `hasCanvas` was here, which is why the target could not be validated: the tool knew a page
+   * existed but not what was on it, so it could only hand back a src and hope.
+   */
+  blocks: { componentId: string }[];
   /** The workspace's design guidance, so generated imagery matches the system it is going into. */
   styleGuidance: string;
   queued: QueuedImage[];
@@ -489,6 +510,21 @@ async function runTool(
     const title = typeof args.title === 'string' && args.title.trim() ? args.title.trim() : 'Generated image';
     if (!prompt) return { error: 'A prompt is required.' };
 
+    // **Resolve the destination before spending anything.** Generation costs real money and a minute of
+    // compute; a target that turns out not to exist afterwards is a paid-for image with nowhere to go,
+    // which is precisely what shipped. Rejecting here is free, and the error names the real fields so
+    // the retry is informed rather than a second guess.
+    const scaffold = await scaffoldArgsForComponent(
+      imageCtx.blocks[Number(args.block) - 1]?.componentId ?? ''
+    ).catch(() => null);
+    const target = resolveImageTarget({
+      blocks: imageCtx.blocks,
+      block: args.block,
+      field: args.field,
+      fields: scaffold && !('error' in scaffold) ? scaffold.fields : undefined,
+    });
+    if (!target.ok) return { error: target.error };
+
     const orientation = typeof args.orientation === 'string' ? args.orientation : 'landscape';
     const [w, h] = orientation === 'portrait' ? [1024, 1536] : orientation === 'square' ? [1024, 1024] : [1536, 1024];
 
@@ -528,15 +564,18 @@ async function runTool(
       return { error: `Could not start image generation: ${message}. Use the placeholder src anyway.`, src: placeholderSrc };
     }
 
-    console.log('[playground-chat] queued image generation', { jobId, title });
+    console.log('[playground-chat] queued image generation', { jobId, title, target: `${target.index}.${target.field}` });
     imageCtx.queued.push({ jobId, title, placeholderSrc });
+    // The value, already in the encoding this slot was measured to accept — not a src for the model to
+    // wrap however it guesses. `array-of-image-object` needs a one-item array, and an object there is
+    // the same silent no-op in a different costume.
     return {
-      src: placeholderSrc,
-      alt: typeof args.altText === 'string' ? args.altText : title,
+      value: valueForImageTarget(target.encoding, {
+        src: placeholderSrc,
+        alt: typeof args.altText === 'string' ? args.altText : title,
+      }),
       status: 'generating',
-      note:
-        'Use this src now, in a propose_edits or propose_page call. Requesting the image does NOT put ' +
-        'it on the page — you still have to write it into the block.',
+      note: describeImagePlacement(target),
     };
   }
 
@@ -651,7 +690,21 @@ export async function runPlaygroundChatTurn(args: {
   const workspace = await getDesignWorkspace().catch(() => null);
   const brandVoice = workspace ? formatBrandVoiceForPrompt(workspace.brandVoice).trim() : '';
 
-  const composition = summarizeComposition(args.currentBlocks ?? []);
+  // Annotated with each block's image fields, resolved from its measured capabilities. One scaffold
+  // lookup per block, once per turn — cheap against the alternative, which was the model guessing a
+  // field name and stranding an image it had already paid for.
+  const canvas = args.currentBlocks ?? [];
+  const composition = summarizeComposition(
+    await Promise.all(
+      canvas.map(async (b) => {
+        const scaffold = await scaffoldArgsForComponent(b.componentId).catch(() => null);
+        return {
+          ...b,
+          imageFields: scaffold && !('error' in scaffold) ? imageFieldsFor(scaffold.fields) : [],
+        };
+      })
+    )
+  );
   const convo: unknown[] = [
     { role: 'system', content: systemPrompt(brandVoice, workspace?.designMd ?? '', attached.length, composition) },
     ...args.messages.map((m) => ({ role: m.role, content: m.content })),
@@ -662,6 +715,7 @@ export async function runPlaygroundChatTurn(args: {
   const imageCtx: ImageRequestContext = {
     actorUserId: args.actorUserId ?? null,
     hasCanvas: (args.currentBlocks ?? []).length > 0,
+    blocks: (args.currentBlocks ?? []).map((b) => ({ componentId: b.componentId })),
     styleGuidance: workspace?.designMd ?? '',
     queued: [],
   };
@@ -679,6 +733,20 @@ export async function runPlaygroundChatTurn(args: {
     // narrated in detail that had never been proposed — so the tool sequence and every retry reason go
     // to the log where one run can be diagnosed instead of inferred.
     const proposedBlocks = turn.proposal?.blocks ?? [];
+    /**
+     * Where a generated image could have landed — a proposed block, or an edit op's values.
+     *
+     * `unplacedImages` counted only proposal blocks, so **every changeset that generated an image was
+     * logged as stranding it**, however correctly it was placed. Caught by the eval suite: after the
+     * placement fix `gallery-four-images` went green while `fill-the-images` stayed red on the
+     * invariant alone, with its own placement check passing — the two disagreeing is what exposed it.
+     * A metric that cries wolf on a working path is worse than no metric; this was in production logs.
+     */
+    const placedIn = proposedBlocks.length
+      ? proposedBlocks
+      : (turn.changeset?.ops ?? []).map((op) => ({
+          args: ('values' in op ? op.values : {}) as Record<string, unknown>,
+        }));
     const facts: TurnFacts = {
       prompt: (args.messages.filter((m) => m.role === 'user').pop()?.content ?? '').slice(0, 500),
       rounds: roundsUsed,
@@ -689,7 +757,7 @@ export async function runPlaygroundChatTurn(args: {
       blocks: proposedBlocks.length,
       queuedImages: imageCtx.queued.length,
       placeholderImages: findPlaceholderImages(proposedBlocks).length,
-      unplacedImages: findUnplacedImages(proposedBlocks, imageCtx.queued).length,
+      unplacedImages: findUnplacedImages(placedIn, imageCtx.queued).length,
       durationMs: Date.now() - startedAt,
     };
     console.log('[playground-chat]', describeTurn(facts));

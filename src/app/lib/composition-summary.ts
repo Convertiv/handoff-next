@@ -40,7 +40,9 @@ export function parseCanvasBlocks(raw: unknown): CanvasBlock[] {
  * repeatedly, not once. Component id plus the leading text is enough for "make the hero shorter" or
  * "drop the pricing section" to resolve to the right block.
  */
-export function summarizeComposition(blocks: { componentId: string; args?: Record<string, unknown> }[]): string {
+export function summarizeComposition(
+  blocks: { componentId: string; args?: Record<string, unknown>; imageFields?: string[] }[]
+): string {
   if (!blocks.length) return '';
   const firstText = (args: Record<string, unknown> | undefined): string => {
     for (const v of Object.values(args ?? {})) {
@@ -55,7 +57,11 @@ export function summarizeComposition(blocks: { componentId: string; args?: Recor
   return blocks
     .map((b, i) => {
       const text = firstText(b.args);
-      return `${i + 1}. ${b.componentId}${text ? ` — "${text}"` : ''}`;
+      // The image fields, named. Without them the model knew a block could hold a picture but not what
+      // to call the slot, so it wrote `src` — which the component does not have — and the generated
+      // image reached nothing. Measured 4 of 4 before this line existed.
+      const slots = b.imageFields?.length ? `  [image fields: ${b.imageFields.join(', ')}]` : '';
+      return `${i + 1}. ${b.componentId}${text ? ` — "${text}"` : ''}${slots}`;
     })
     .join('\n');
 }

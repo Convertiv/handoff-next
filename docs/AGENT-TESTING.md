@@ -147,6 +147,50 @@ check that always fails, and the response to that is to delete it. It is now a *
 printed per case, never a failure. `first-pass-incomplete` is currently 2/2 on plain pages, and if that
 holds while a prompt change is made, nothing red will tell you it got worse.
 
+### First measured fix, same day
+
+The stranding bug, with a before and after instead of an anecdote:
+
+| Case | before | after |
+|---|---|---|
+| fill-the-images | 0/2 | **2/2** |
+| gallery-four-images | 0/2 | **2/2** |
+| overall | 7/12 | **10/12** |
+
+`request_image` used to return a bare `{ src, alt }` and a note saying "write it into the block". The
+model guessed the field — `src` on a `hero-background` — the edit was rejected for naming no field the
+component has, and the image it had already paid for reached nothing. The fix is not a better note: the
+target is now an **argument**. Name the block and the field, get told the real field names if it is
+wrong, and get back a value already shaped by the encoding that slot was *measured* to accept. A wrong
+target is rejected before a penny is spent, and the canvas summary now names each block's image fields
+so there is nothing to guess.
+
+**The suite also caught a bug in its own instrumentation.** After the fix one case went green while the
+other stayed red on `no-stranded-images` alone — with its own placement check passing. Two measurements
+of the same property disagreeing is a fact about the measurements: `unplacedImages` was computed against
+proposal blocks only, so *every changeset that generated an image had been logged as stranding it*,
+however correctly it was placed. That was in production logs. A metric that cries wolf on a working path
+is worse than no metric.
+
+### And a real one it will not let us ignore
+
+`fresh-page-with-imagery` reads 0/4 on resampling. It is not a regression from the fix — the identical
+failure is in the baseline, at 1× of 2 runs, and on a fresh page `request_image` is unreachable, so the
+change cannot touch that path. **n=2 was simply too thin to see a case that was already broken**, which
+is the argument for sampling made concrete on the first day of having it.
+
+The cause is in the log every time:
+
+```
+rejected values on hero-background desktopImageSlot
+  image src was not from the asset library — replaced
+retries=[rejected-values]
+```
+
+Six `search_assets` calls, then an invented src, replaced with a placeholder by the guard — and the
+retry does not recover. The page ships looking finished and is entirely `placehold.co`. That is the next
+one to take.
+
 ## What this means for the nested-slot work
 
 Build Stage 1 first. It is an hour, and it means the nested-slot probe — and every prompt change after
