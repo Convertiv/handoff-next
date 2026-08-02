@@ -78,3 +78,43 @@ export function imageGapInstruction(placeholders: PlaceholderImage[]): string {
     'leave the placeholder and say so plainly in your reply — do not describe imagery you did not add.'
   );
 }
+
+/** Does this block list reference the given src anywhere inside it? */
+function referencesSrc(blocks: { args: Record<string, unknown> }[], src: string): boolean {
+  const walk = (v: unknown): boolean => {
+    if (typeof v === 'string') return v === src;
+    if (Array.isArray(v)) return v.some(walk);
+    if (isRecord(v)) return Object.values(v).some(walk);
+    return false;
+  };
+  return blocks.some((b) => walk(b.args));
+}
+
+/**
+ * Images the model asked for and then failed to put anywhere.
+ *
+ * The existing placement guard only fires when a turn ends *without* calling a placement tool. A turn
+ * that calls `propose_page` but leaves the returned srcs out of the blocks slips straight past it — and
+ * that is the common shape, not an edge case: three images generated, a page proposed, and the pictures
+ * waiting forever for a placeholder that is not on the canvas.
+ *
+ * Checked against the built blocks rather than against the model's intent, because the intent is what
+ * was wrong.
+ */
+export function findUnplacedImages<T extends { placeholderSrc: string }>(
+  blocks: { args: Record<string, unknown> }[],
+  queued: T[]
+): T[] {
+  return queued.filter((q) => q.placeholderSrc && !referencesSrc(blocks, q.placeholderSrc));
+}
+
+/** Retry instruction naming the exact srcs, so the model reuses them rather than generating again. */
+export function unplacedImageInstruction(unplaced: { title: string; placeholderSrc: string }[]): string {
+  const list = unplaced.map((u) => `"${u.title}" → ${u.placeholderSrc}`).join('\n');
+  return (
+    `You generated ${unplaced.length} image(s) but did not put ${unplaced.length === 1 ? 'it' : 'them'} ` +
+    `on the page. Requesting an image does not place it. Call the proposal again with these exact srcs ` +
+    `written into the image fields they were meant for:\n${list}\n` +
+    'Do NOT request them again — they are already generating and re-requesting wastes the per-turn cap.'
+  );
+}

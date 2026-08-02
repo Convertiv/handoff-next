@@ -1,6 +1,12 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { describeMissingImagery, findPlaceholderImages, imageGapInstruction } from '../src/app/lib/placeholder-audit';
+import {
+  describeMissingImagery,
+  findPlaceholderImages,
+  findUnplacedImages,
+  imageGapInstruction,
+  unplacedImageInstruction,
+} from '../src/app/lib/placeholder-audit';
 
 const ph = (label: string) => `https://placehold.co/1536x1024?text=${label}`;
 
@@ -82,5 +88,53 @@ describe('imageGapInstruction', () => {
 
   it('tells it to admit a gap rather than describe imagery it did not add', () => {
     assert.match(imageGapInstruction([{ block: 1, componentId: 'h', field: 'i' }]), /do not describe imagery you did not add/);
+  });
+});
+
+/**
+ * The gap that let three generated images sit waiting forever: the old placement guard only fired when
+ * a turn ended *without* a placement tool, so `propose_page` that omits the srcs slipped past it.
+ */
+describe('findUnplacedImages', () => {
+  const queued = [
+    { title: 'Students studying', placeholderSrc: 'https://placehold.co/1536x1024?text=Students' },
+    { title: 'Campus quad', placeholderSrc: 'https://placehold.co/1536x1024?text=Quad' },
+  ];
+
+  it('flags an image whose src never made it into the blocks', () => {
+    const blocks = [{ args: { titleSlot: 'Hello' } }];
+    assert.equal(findUnplacedImages(blocks, queued).length, 2);
+  });
+
+  it('accepts one placed at any depth', () => {
+    const blocks = [
+      { args: { imageSlot: { src: queued[0]!.placeholderSrc, alt: 'x' } } },
+      { args: { cards: [{ image: { src: queued[1]!.placeholderSrc } }] } },
+    ];
+    assert.deepEqual(findUnplacedImages(blocks, queued), []);
+  });
+
+  it('reports only the ones actually missing', () => {
+    const blocks = [{ args: { imageSlot: { src: queued[0]!.placeholderSrc } } }];
+    const unplaced = findUnplacedImages(blocks, queued);
+    assert.equal(unplaced.length, 1);
+    assert.equal(unplaced[0]!.title, 'Campus quad');
+  });
+
+  it('matches the whole src, not a prefix', () => {
+    const blocks = [{ args: { src: `${queued[0]!.placeholderSrc}&extra=1` } }];
+    assert.equal(findUnplacedImages(blocks, queued).length, 2);
+  });
+
+  it('ignores a queued entry with no placeholder — a failed enqueue', () => {
+    assert.deepEqual(findUnplacedImages([{ args: {} }], [{ title: 'x', placeholderSrc: '' }]), []);
+  });
+});
+
+describe('unplacedImageInstruction', () => {
+  it('gives the exact srcs and forbids regenerating', () => {
+    const msg = unplacedImageInstruction([{ title: 'Quad', placeholderSrc: 'https://placehold.co/a' }]);
+    assert.match(msg, /https:\/\/placehold\.co\/a/);
+    assert.match(msg, /Do NOT request them again/);
   });
 });

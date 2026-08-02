@@ -7,7 +7,13 @@ import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { blankContentValues, mergeBlockValues, placeholderImageUrl, summarizeFields } from '@/lib/merge-block-values';
 import { formatExemplars } from '@/lib/page-exemplars';
 import { buildImagePrompt } from '@/lib/image-generation-request';
-import { describeMissingImagery, findPlaceholderImages, imageGapInstruction } from '@/lib/placeholder-audit';
+import {
+  describeMissingImagery,
+  findPlaceholderImages,
+  findUnplacedImages,
+  imageGapInstruction,
+  unplacedImageInstruction,
+} from '@/lib/placeholder-audit';
 import { summarizeError } from '@/lib/error-summary';
 import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
@@ -730,6 +736,21 @@ export async function runPlaygroundChatTurn(args: {
 
         // Verified here so the model can be told it mis-indexed; the client verifies again at apply
         // time, where the canvas is the actual truth.
+        // Same placement check for a targeted edit — an op that does not carry the generated src leaves
+        // the image with nowhere to land.
+        const editBlocks = ops.map((o) => ({ args: ('values' in o ? o.values : {}) as Record<string, unknown> }));
+        const unplacedEdits = findUnplacedImages(editBlocks, imageCtx.queued);
+        if (unplacedEdits.length && !askedToPlaceImages) {
+          askedToPlaceImages = true;
+          console.warn('[playground-chat] generated images not placed in edits', unplacedEdits.map((u) => u.placeholderSrc));
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ incomplete: true, reason: unplacedImageInstruction(unplacedEdits) }),
+          });
+          continue;
+        }
+
         const { valid, rejected } = verifyOps(ops, current);
         const allRejected = [...preRejected, ...rejected.map((r) => ({ reason: r.reason }))];
         if (allRejected.length) console.warn('[playground-chat] rejected edits', allRejected.map((r) => r.reason).join('; '));
@@ -767,6 +788,22 @@ export async function runPlaygroundChatTurn(args: {
         // unfilled field is not empty — it is somebody's sample copy, and shipping that produces a
         // page that looks finished and is not. Once only: a second ask rarely helps and the honest
         // fallback is a visibly incomplete page rather than a plausible fake one.
+        // Images this turn generated that never made it into a block. The other placement guard only
+        // fires when a turn ends without a placement tool, so a `propose_page` that omits the returned
+        // srcs walks straight past it — which is how three generated images ended up waiting forever
+        // for a placeholder that was never on the canvas.
+        const unplaced = findUnplacedImages(blocks, imageCtx.queued);
+        if (unplaced.length && !askedToPlaceImages) {
+          askedToPlaceImages = true;
+          console.warn('[playground-chat] generated images not placed', unplaced.map((u) => u.placeholderSrc));
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ incomplete: true, reason: unplacedImageInstruction(unplaced) }),
+          });
+          continue;
+        }
+
         // Imagery first, and phrased for imagery. The generic gap retry says "write real values", which
         // is not a thing you can do for an image — so a page asking for "good images of students" came
         // back with none, and the model reported "real student imagery" anyway.
