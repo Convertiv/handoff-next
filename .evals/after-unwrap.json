@@ -1,0 +1,58 @@
+[
+  {
+    "caseId": "fresh-page-with-imagery",
+    "runs": 3,
+    "passed": 2,
+    "failures": {
+      "page-has-real-imagery: no image src anywhere in the proposal": 1
+    },
+    "signals": {
+      "first-pass-incomplete": 3
+    },
+    "medianSeconds": 21.862
+  },
+  {
+    "caseId": "fresh-page-plain",
+    "runs": 3,
+    "passed": 3,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 3
+    },
+    "medianSeconds": 14.481
+  },
+  {
+    "caseId": "fill-the-images",
+    "runs": 3,
+    "passed": 3,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 5.255
+  },
+  {
+    "caseId": "edit-the-headline",
+    "runs": 3,
+    "passed": 3,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 2.491
+  },
+  {
+    "caseId": "gallery-four-images",
+    "runs": 3,
+    "passed": 3,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 2.908
+  },
+  {
+    "caseId": "stats-not-inverted",
+    "runs": 3,
+    "passed": 3,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 1
+    },
+    "medianSeconds": 4.482
+  }
+]

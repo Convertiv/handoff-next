@@ -172,24 +172,55 @@ proposal blocks only, so *every changeset that generated an image had been logge
 however correctly it was placed. That was in production logs. A metric that cries wolf on a working path
 is worse than no metric.
 
-### And a real one it will not let us ignore
+### The invented-src bug was not an invented src
 
-`fresh-page-with-imagery` reads 0/4 on resampling. It is not a regression from the fix — the identical
-failure is in the baseline, at 1× of 2 runs, and on a fresh page `request_image` is unreachable, so the
-change cannot touch that path. **n=2 was simply too thin to see a case that was already broken**, which
-is the argument for sampling made concrete on the first day of having it.
-
-The cause is in the log every time:
+`fresh-page-with-imagery` at 0/4, with the same line in every log:
 
 ```
 rejected values on hero-background desktopImageSlot
   image src was not from the asset library — replaced
-retries=[rejected-values]
 ```
 
-Six `search_assets` calls, then an invented src, replaced with a placeholder by the guard — and the
-retry does not recover. The page ships looking finished and is entirely `placehold.co`. That is the next
-one to take.
+The message never said *what* had been rejected — the same mistake the unknown-key path made, and for
+the same cost: a model told it is wrong, with no idea what was wrong, produces the identical thing on
+retry. Adding the value to the message answered the question immediately, and the answer was not what
+anyone had assumed:
+
+```
+src: "<img src=\"/api/handoff/assets/img_aeb067be0406/raw\" alt=\"Students on campus\" />"
+```
+
+`img_aeb067be0406` is a **real asset in the library**. Thirteen searches, the right image found, and
+then the whole tag written into the src — understandable, since most slots on these components take an
+HTML string and this one takes `{ src, alt }`. The object shape was right. Only the packaging was wrong.
+
+So the guard was rejecting a correct answer to punish formatting, and the page shipped entirely on
+`placehold.co` while the reply claimed every field was authored. The fix unwraps a wrapped src before
+judging it, and **extraction is not a relaxation**: what comes out is checked against the same allowlist,
+so a tag pointing at `https://evil.example.com` or a `javascript:` URL is still replaced.
+
+**0/4 → 3/4**, and the suite overall:
+
+| | baseline | after |
+|---|---|---|
+| overall | 7/12 (58%) | **17/18 (94%)** |
+
+Two lessons worth keeping. The first is that *a rejection must name what it rejected* — this is now the
+third bug of that exact shape (unknown keys, invalid values, invented srcs), and each one hid a
+different real cause behind an unactionable message. The second is that the failure had been described
+in prose for a week as "the images land in the library but not on the page", which is a true sentence
+that points at the wrong subsystem.
+
+### And a real one it will not let us ignore
+
+`fresh-page-with-imagery` read 0/4 on resampling — after the placement fix had apparently *dropped* it
+from 1/2 to 0/2. It was not a regression: the identical failure is in the baseline, and on a fresh page
+`request_image` is unreachable, so that change could not touch the path. **n=2 was simply too thin to
+see a case that was already broken**, which is the argument for sampling made concrete on the first day
+of having it. Resampling before reporting is the discipline; the case is diagnosed above.
+
+What is left at 17/18 is one run in three where the model proposes a page with no image field filled at
+all — a different mechanism from the wrapped src, and not yet diagnosed.
 
 ## What this means for the nested-slot work
 

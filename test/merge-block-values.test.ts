@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { blankContentValues, humanizeFieldName, mergeBlockValues, summarizeFields } from '../src/app/lib/merge-block-values';
+import { blankContentValues, extractImageSrc, humanizeFieldName, mergeBlockValues, summarizeFields } from '../src/app/lib/merge-block-values';
 
 /**
  * The template owns the shape; the model owns the content. These rules are what make it impossible for
@@ -531,5 +531,98 @@ describe('image slots whose preview value is a React element', () => {
     ) as { imageSlot: Record<string, unknown> };
     assert.match(String(blanked.imageSlot.src), /placehold\.co/);
     assert.equal(blanked.imageSlot.width, 800);
+  });
+});
+
+/**
+ * Misread for a week as the model *inventing* image URLs. It was not: it searched the library, found
+ * the right asset, and wrote the whole tag into the src. The object shape was right and the asset was
+ * real — only the packaging was wrong, and rejecting it shipped a page entirely on placeholders while
+ * the reply said every field was authored. Measured 0 of 4.
+ */
+describe('extractImageSrc', () => {
+  it('pulls the url out of an img tag, which is what the model actually wrote', () => {
+    assert.equal(
+      extractImageSrc('<img src="/api/handoff/assets/img_aeb067be0406/raw" alt="Students on campus" />'),
+      '/api/handoff/assets/img_aeb067be0406/raw'
+    );
+  });
+
+  it('handles single quotes and extra attributes', () => {
+    assert.equal(extractImageSrc("<img class='w-full' src='/api/x/raw' width='800'>"), '/api/x/raw');
+  });
+
+  it('handles markdown image notation — the same mistake, different notation', () => {
+    assert.equal(extractImageSrc('![Students](/api/x/raw)'), '/api/x/raw');
+  });
+
+  it('leaves a bare url completely alone, including one with a query string', () => {
+    assert.equal(extractImageSrc('/api/x/raw'), '/api/x/raw');
+    assert.equal(extractImageSrc('https://placehold.co/800x600?text=A%20B'), 'https://placehold.co/800x600?text=A%20B');
+  });
+
+  it('returns the input when there is nothing to unwrap', () => {
+    assert.equal(extractImageSrc('<span>not an image</span>'), '<span>not an image</span>');
+    assert.equal(extractImageSrc(''), '');
+  });
+});
+
+describe('mergeBlockValues unwrapping a wrapped src', () => {
+  const template = { imageSlot: { src: 'https://placehold.co/1200x800', alt: '' } };
+  const known = new Set(['/api/handoff/assets/img_real/raw']);
+
+  it('recovers a real asset from a tag rather than throwing it away', () => {
+    const r = mergeBlockValues(
+      template,
+      { imageSlot: { src: '<img src="/api/handoff/assets/img_real/raw" alt="Campus" />' } },
+      { imageSlot: { editorType: 'image' } },
+      known
+    );
+    assert.deepEqual(r.args.imageSlot, { src: '/api/handoff/assets/img_real/raw', alt: 'Campus' });
+    assert.deepEqual(r.invalidValues, [], 'a recovered asset is not an invalid value');
+  });
+
+  it('does not let a tag smuggle in a src the guard would otherwise refuse', () => {
+    // Extraction is not a relaxation. Whatever comes out is checked the same way a bare string is.
+    const r = mergeBlockValues(
+      template,
+      { imageSlot: { src: '<img src="https://evil.example.com/x.png" />' } },
+      { imageSlot: { editorType: 'image' } },
+      known
+    );
+    assert.match(String((r.args.imageSlot as { src: string }).src), /placehold\.co/);
+    assert.equal(r.invalidValues.length, 1);
+  });
+
+  it('refuses a javascript: url wrapped in a tag', () => {
+    const r = mergeBlockValues(
+      template,
+      { imageSlot: { src: `<img src="javascript:alert(1)" />` } },
+      { imageSlot: { editorType: 'image' } },
+      known
+    );
+    assert.match(String((r.args.imageSlot as { src: string }).src), /placehold\.co/);
+  });
+
+  it('keeps an alt the model supplied rather than overwriting it from the tag', () => {
+    const r = mergeBlockValues(
+      template,
+      { imageSlot: { src: '<img src="/api/handoff/assets/img_real/raw" alt="From tag" />', alt: 'Authored' } },
+      { imageSlot: { editorType: 'image' } },
+      known
+    );
+    assert.equal((r.args.imageSlot as { alt: string }).alt, 'Authored');
+  });
+
+  it('names the offending value when it really is unusable', () => {
+    // "not from the asset library" alone is the unknown-key mistake again: told it is wrong, with no
+    // idea what was wrong, the model produces the same thing on retry.
+    const r = mergeBlockValues(
+      template,
+      { imageSlot: { src: 'https://cdn.made-up.com/hero.jpg' } },
+      { imageSlot: { editorType: 'image' } },
+      known
+    );
+    assert.match(r.invalidValues[0]!, /cdn\.made-up\.com/);
   });
 });

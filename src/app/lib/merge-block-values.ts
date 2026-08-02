@@ -36,6 +36,42 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 const STRING_TARGET = ['text', 'label', 'title', 'src', 'value'];
 
 /**
+ * Pull the URL out of an `src` the model wrapped in markup.
+ *
+ * The failure this exists for was misread for a week as the model *inventing* image URLs. It was not.
+ * It searched the library, found the right asset, and then wrote the whole tag into the src:
+ *
+ *     src: "<img src=\"/api/handoff/assets/img_aeb067be0406/raw\" alt=\"Students on campus\" />"
+ *
+ * Understandable — most slots on these components take an HTML string, and this one takes `{ src, alt }`.
+ * The object shape was right and the asset was real; only the packaging was wrong. Rejecting that
+ * throws away a correct answer to punish formatting, and the page ships entirely on placeholders while
+ * the reply says every field is authored. Measured 0 of 4.
+ *
+ * Extraction is **not** a relaxation of the guard: whatever comes out is checked against the same
+ * allowlist as a bare string, so a tag pointing somewhere we cannot serve is still replaced.
+ */
+export function extractImageSrc(src: string): string {
+  const trimmed = src.trim();
+  if (!trimmed.startsWith('<') && !trimmed.startsWith('![')) return trimmed;
+
+  const tag = trimmed.match(/<img\b[^>]*?\ssrc\s*=\s*("([^"]*)"|'([^']*)')/i);
+  if (tag) return (tag[2] ?? tag[3] ?? '').trim();
+
+  // `![alt](url)` — rarer, same mistake in a different notation.
+  const markdown = trimmed.match(/^!\[[^\]]*\]\(([^)\s]+)/);
+  if (markdown) return markdown[1]!.trim();
+
+  return trimmed;
+}
+
+/** The alt text a wrapped tag carried, so recovering the src does not silently drop it. */
+function extractImageAlt(src: string): string {
+  const alt = src.trim().match(/<img\b[^>]*?\salt\s*=\s*("([^"]*)"|'([^']*)')/i);
+  return (alt?.[2] ?? alt?.[3] ?? '').trim();
+}
+
+/**
  * Swap any image source we cannot serve back to the template's placeholder.
  *
  * Reported, not silent: the model needs to learn that inventing a CDN path does not work, and a
@@ -45,16 +81,37 @@ function rejectInventedImages(
   value: unknown,
   template: unknown,
   allowed: Set<string>
-): { value: unknown; changed: boolean } {
+): { value: unknown; changed: boolean; rejectedSrcs: string[] } {
   let changed = false;
+  /**
+   * What was actually thrown away.
+   *
+   * The message said only "image src was not from the asset library", which is the same mistake the
+   * unknown-key path made: a model told *that* it was wrong, with no idea *what* was wrong, guesses
+   * again. A live run searched the library thirteen times, invented a src anyway, was asked to retry,
+   * and produced the same thing. It is also the only way to see the offending value at all — nothing
+   * logged it.
+   */
+  const rejectedSrcs: string[] = [];
 
   const walk = (v: unknown, t: unknown): unknown => {
     if (Array.isArray(v)) return v.map((item, i) => walk(item, Array.isArray(t) ? t[0] : undefined));
     if (!isPlainObject(v)) return v;
 
     const out: Record<string, unknown> = { ...v };
+    if (typeof out.src === 'string') {
+      // Unwrap before judging. A correct asset in the wrong packaging is a formatting mistake, not an
+      // invented URL, and the two deserve opposite treatment.
+      const unwrapped = extractImageSrc(out.src);
+      if (unwrapped !== out.src && isAllowedImageSrc(unwrapped, allowed)) {
+        const alt = extractImageAlt(out.src);
+        if (alt && !String(out.alt ?? '').trim()) out.alt = alt;
+        out.src = unwrapped;
+      }
+    }
     if (typeof out.src === 'string' && !isAllowedImageSrc(out.src, allowed)) {
       const fallback = isPlainObject(t) && typeof t.src === 'string' ? t.src : '';
+      rejectedSrcs.push(out.src);
       out.src = fallback.includes('placehold.co') ? fallback : placeholderImageUrl(1200, 800);
       changed = true;
     }
@@ -65,7 +122,7 @@ function rejectInventedImages(
     return out;
   };
 
-  return { value: walk(value, template), changed };
+  return { value: walk(value, template), changed, rejectedSrcs };
 }
 
 /** Editor types that hold content a person reads. Everything else is configuration. */
@@ -456,7 +513,13 @@ export function mergeBlockValues(
 
     const merged = coerceToShape(scaffoldArgs[key], value);
     const rejected = rejectInventedImages(merged, scaffoldArgs[key], knownAssetSrcs ?? new Set());
-    if (rejected.changed) invalidValues.push(`${key} image src was not from the asset library — replaced`);
+    if (rejected.changed) {
+      const shown = rejected.rejectedSrcs.slice(0, 2).map((s) => `"${s.slice(0, 80)}"`).join(', ');
+      invalidValues.push(
+        `${key}: ${shown} is not an asset-store src — replaced with a placeholder. Use the exact \`src\` ` +
+          `string a search_assets result gave you, verbatim.`
+      );
+    }
     args[key] = rejected.value;
   }
 
