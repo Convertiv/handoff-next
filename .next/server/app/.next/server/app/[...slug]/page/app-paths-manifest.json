@@ -1,0 +1,3 @@
+{
+  "/.next/server/app/[...slug]/page": "app/.next/server/app/[...slug]/page.js"
+}

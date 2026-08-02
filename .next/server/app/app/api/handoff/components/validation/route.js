@@ -1,0 +1,10 @@
+var R=require("../../../../../../chunks/[turbopack]_runtime.js")("server/app/app/api/handoff/components/validation/route.js")
+R.c("server/chunks/node_modules_next_dist_compiled_@opentelemetry_api_index_0uix5xn.js")
+R.c("server/chunks/node_modules_drizzle-orm_07l6uk4._.js")
+R.c("server/chunks/[root-of-the-server]__0wcme55._.js")
+R.c("server/chunks/node_modules_next_0fdpe18._.js")
+R.c("server/chunks/node_modules_next_dist_0k~eexk._.js")
+R.c("server/chunks/[root-of-the-server]__0fygnm6._.js")
+R.c("server/chunks/0zjb_server_app_app_api_handoff_components_validation_route_actions_0aq5j4b.js")
+R.m(256295)
+module.exports=R.m(256295).exports

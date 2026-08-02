@@ -1,0 +1,3 @@
+{
+  "/app/system/component/[component]/page": "app/app/system/component/[component]/page.js"
+}

@@ -528,12 +528,16 @@ values shaped exactly as the scaffold tells you.
 1. Ask ONE round of clarifying questions if the request is genuinely vague. One round only.
 2. \`list_blocks\` ONCE, with no arguments. That is the entire catalog with every block's fields. Read
    it and choose. Do NOT call it repeatedly for different sections.
-3. **Fill the imagery before you propose.** Any block you picked with an image field needs a real
-   picture: \`search_assets\` for it, and \`request_image\` where the store has nothing suitable. Do this
-   as its own step — leaving it until \`propose_page\` means it does not happen, and a page of grey
-   boxes is the most common way a generated page looks unfinished.
-4. \`search_icons\` if the page needs icons.
+3. **Decide the whole page first** — every block, in order, with its copy written. Do this before you
+   touch imagery. Requesting pictures first makes it easy to mistake "images generated" for "page
+   built", and a turn that ends with images and no page gives the user nothing to apply.
+4. \`search_assets\` for each image field in the blocks you chose, and \`request_image\` only where the
+   store has nothing suitable. \`search_icons\` if the page needs icons.
 5. \`propose_page\` with all the blocks, your copy, and the srcs those tools returned.
+
+**The turn is not finished until \`propose_page\` runs.** Generating images is not proposing a page. If
+you run low on room, propose the page with placeholders in the image fields and say which ones are
+unfilled — a page the user can apply beats pictures with nowhere to go.
 
 You do not need to inspect a block before using it — the fields listed by \`list_blocks\` are all you
 need, and the server applies your values to the block's real shape. Write copy, not structure.
@@ -643,7 +647,11 @@ export async function runPlaygroundChatTurn(args: {
       // how the first live run failed. The prompt says so; this is the check that the prompt worked.
       // Once only, matching the unfilled-content gap: a model that ignores the second ask will ignore
       // a third, and an honest reply beats a loop.
-      if (imageCtx.queued.length && !askedToPlaceImages && !toolsUsed.some(isPlacementTool)) {
+      // Ending with prose and no proposal is a dead turn: the user gets a paragraph and nothing to
+      // apply. Fires when images were generated but nothing was composed, and also when the catalog was
+      // read and nothing came of it — both are "you did the setup and stopped".
+      const composedNothing = !toolsUsed.some(isPlacementTool) && (imageCtx.queued.length > 0 || toolsUsed.includes('list_blocks'));
+      if (composedNothing && !askedToPlaceImages) {
         askedToPlaceImages = true;
         console.warn('[playground-chat] images requested but never placed; asking once', {
           queued: imageCtx.queued.map((q) => q.jobId),
@@ -651,10 +659,13 @@ export async function runPlaygroundChatTurn(args: {
         convo.push({
           role: 'user',
           content:
-            `You requested ${imageCtx.queued.length} image(s) but never put them on the page. Call ` +
-            'propose_edits now, writing each returned src into the right block. Do not request the ' +
-            'images again — they are already generating; reuse these placeholder srcs exactly: ' +
-            imageCtx.queued.map((q) => q.placeholderSrc).join(' , '),
+            'You have not proposed a page or an edit, so there is nothing for me to apply — the turn is ' +
+            'incomplete. Call `propose_page` (or `propose_edits` if changing an existing page) now, with ' +
+            'every block and its copy.' +
+            (imageCtx.queued.length
+              ? ' Reuse these exact placeholder srcs in the image fields they were meant for; do NOT ' +
+                `request them again, they are already generating: ${imageCtx.queued.map((q) => q.placeholderSrc).join(' , ')}`
+              : ''),
         });
         continue;
       }

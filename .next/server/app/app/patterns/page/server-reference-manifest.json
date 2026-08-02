@@ -1,0 +1,17 @@
+{
+  "node": {
+    "409d55050c749839e63ca3db3d527ed4f5579c9a46": {
+      "workers": {
+        "app/app/patterns/page": {
+          "moduleId": 462322,
+          "async": false,
+          "exportedName": "deletePattern",
+          "filename": "src/app/app/actions/patterns.ts"
+        }
+      },
+      "exportedName": "deletePattern",
+      "filename": "src/app/app/actions/patterns.ts"
+    }
+  },
+  "edge": {}
+}

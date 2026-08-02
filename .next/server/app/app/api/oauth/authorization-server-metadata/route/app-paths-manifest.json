@@ -1,0 +1,3 @@
+{
+  "/app/api/oauth/authorization-server-metadata/route": "app/app/api/oauth/authorization-server-metadata/route.js"
+}

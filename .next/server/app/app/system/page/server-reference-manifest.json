@@ -1,0 +1,17 @@
+{
+  "node": {
+    "403679f4664c8fdfcb741602d373263eda36611157": {
+      "workers": {
+        "app/app/system/page": {
+          "moduleId": 111459,
+          "async": false,
+          "exportedName": "createComponent",
+          "filename": "src/app/app/actions/components.ts"
+        }
+      },
+      "exportedName": "createComponent",
+      "filename": "src/app/app/actions/components.ts"
+    }
+  },
+  "edge": {}
+}

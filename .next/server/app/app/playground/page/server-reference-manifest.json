@@ -1,0 +1,53 @@
+{
+  "node": {
+    "6038f0c5ecf7d13a37f8415184e39ced46b86e8e02": {
+      "workers": {
+        "app/app/playground/page": {
+          "moduleId": 166785,
+          "async": false,
+          "exportedName": "setPatternMeta",
+          "filename": "src/app/app/actions/patterns.ts"
+        }
+      },
+      "exportedName": "setPatternMeta",
+      "filename": "src/app/app/actions/patterns.ts"
+    },
+    "40c494c27f6185c3ad6277f6f1c0c623825ad41401": {
+      "workers": {
+        "app/app/playground/page": {
+          "moduleId": 166785,
+          "async": false,
+          "exportedName": "createPattern",
+          "filename": "src/app/app/actions/patterns.ts"
+        }
+      },
+      "exportedName": "createPattern",
+      "filename": "src/app/app/actions/patterns.ts"
+    },
+    "6018de142e864c30dbb70b7ea4192d01e19567ae40": {
+      "workers": {
+        "app/app/playground/page": {
+          "moduleId": 166785,
+          "async": false,
+          "exportedName": "updatePattern",
+          "filename": "src/app/app/actions/patterns.ts"
+        }
+      },
+      "exportedName": "updatePattern",
+      "filename": "src/app/app/actions/patterns.ts"
+    },
+    "409d55050c749839e63ca3db3d527ed4f5579c9a46": {
+      "workers": {
+        "app/app/playground/page": {
+          "moduleId": 166785,
+          "async": false,
+          "exportedName": "deletePattern",
+          "filename": "src/app/app/actions/patterns.ts"
+        }
+      },
+      "exportedName": "deletePattern",
+      "filename": "src/app/app/actions/patterns.ts"
+    }
+  },
+  "edge": {}
+}

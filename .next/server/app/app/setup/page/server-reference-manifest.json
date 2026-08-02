@@ -1,0 +1,17 @@
+{
+  "node": {
+    "60c7bda3f03d69229d7617b46e90732397b3aecf7b": {
+      "workers": {
+        "app/app/setup/page": {
+          "moduleId": 645185,
+          "async": false,
+          "exportedName": "createFirstAdmin",
+          "filename": "src/app/app/setup/actions.ts"
+        }
+      },
+      "exportedName": "createFirstAdmin",
+      "filename": "src/app/app/setup/actions.ts"
+    }
+  },
+  "edge": {}
+}

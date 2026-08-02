@@ -1,0 +1,3 @@
+{
+  "/.next/server/app/api/component/[...path]/route": "app/.next/server/app/api/component/[...path]/route.js"
+}

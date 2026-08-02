@@ -1,0 +1,3 @@
+module.exports=[614844,a=>{"use strict";var b=a.i(187924),c=a.i(572131);a.s(["default",0,function({error:a,reset:d}){return(0,c.useEffect)(()=>{console.error("[foundations]",a)},[a]),(0,b.jsxs)("div",{className:"flex flex-col items-start gap-4 p-8",children:[(0,b.jsx)("h2",{className:"text-lg font-semibold",children:"Something went wrong loading this page."}),(0,b.jsx)("p",{className:"text-sm text-gray-500",children:a.message||"An unexpected error occurred."}),(0,b.jsx)("button",{onClick:d,className:"rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700",children:"Try again"})]})}])}];
+
+//# sourceMappingURL=src_app_app_foundations_error_tsx_0ew~hn3._.js.map

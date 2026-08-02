@@ -1,0 +1,3 @@
+module.exports=[656828,e=>{"use strict";var t=e.i(981746);let n="default",l="brand",r="scheme";function o(e,t){return e?e.axes?.find(e=>e.name===t)?.values??[]:[]}e.s(["asDtcgSource",0,function(e){if(!e||"object"!=typeof e)return null;let t=Array.isArray(e.axes)&&e.axes.length>0,n=null!=e.tokens&&"object"==typeof e.tokens&&Object.keys(e.tokens).length>0;return t||n?e:null},"buildResolvedBrandsCache",0,function(e){let s,u=o(e,l),c=(s=o(e,r)).length?s:[n],a=u.length?u:[n],f=u.length>0,i={};for(let n of a){for(let o of(i[n]={},c)){let s={[r]:o};f&&(s[l]=n);let u=function(e,n){try{return t.Dtcg.resolveTokens(e,n)}catch{return null}}(e,s);u&&(i[n][o]=u)}0===Object.keys(i[n]).length&&delete i[n]}return i}])}];
+
+//# sourceMappingURL=src_app_lib_dtcg-axes_ts_0~4cj4i._.js.map

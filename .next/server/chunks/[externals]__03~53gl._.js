@@ -1,0 +1,3 @@
+module.exports=[522734,(e,r,s)=>{r.exports=e.x("fs",()=>require("fs"))},688947,(e,r,s)=>{r.exports=e.x("stream",()=>require("stream"))},446786,(e,r,s)=>{r.exports=e.x("os",()=>require("os"))},254799,(e,r,s)=>{r.exports=e.x("crypto",()=>require("crypto"))},504446,(e,r,s)=>{r.exports=e.x("net",()=>require("net"))},755004,(e,r,s)=>{r.exports=e.x("tls",()=>require("tls"))},60438,(e,r,s)=>{r.exports=e.x("perf_hooks",()=>require("perf_hooks"))}];
+
+//# sourceMappingURL=%5Bexternals%5D__03~53gl._.js.map
