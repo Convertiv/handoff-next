@@ -59,6 +59,14 @@ export interface PlaygroundChatTurn {
    * polls these and swaps in the real src as they land.
    */
   queuedImages?: QueuedImage[];
+  /**
+   * What the turn did, as recorded in the log.
+   *
+   * Returned rather than only logged so an eval asserts on the *same numbers production reports*. Two
+   * definitions of "did it work" drifting apart is the failure this whole line of work keeps hitting;
+   * one is cheap to avoid here.
+   */
+  facts?: TurnFacts;
 }
 
 export interface PlaygroundChatMessage {
@@ -697,7 +705,7 @@ export async function runPlaygroundChatTurn(args: {
       metadata: { ...facts, flags: flagsFor(facts) },
     }).catch(() => {});
 
-    return imageCtx.queued.length ? { ...turn, queuedImages: imageCtx.queued } : turn;
+    return { ...turn, facts, ...(imageCtx.queued.length ? { queuedImages: imageCtx.queued } : {}) };
   };
   // One retry only; see the gap handler below.
   const startedAt = Date.now();

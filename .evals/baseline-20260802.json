@@ -1,0 +1,65 @@
+[
+  {
+    "caseId": "fresh-page-with-imagery",
+    "runs": 2,
+    "passed": 1,
+    "failures": {
+      "page-has-real-imagery: all 4 image src(s) are placeholders": 1
+    },
+    "signals": {
+      "left-placeholders": 1,
+      "first-pass-incomplete": 1
+    },
+    "medianSeconds": 18.156
+  },
+  {
+    "caseId": "fresh-page-plain",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2
+    },
+    "medianSeconds": 19.309
+  },
+  {
+    "caseId": "fill-the-images",
+    "runs": 2,
+    "passed": 0,
+    "failures": {
+      "queued-images-are-placed: 2 of 2 queued image(s) not referenced": 2,
+      "no-stranded-images: 2 generated image(s) reached no block": 2
+    },
+    "signals": {
+      "rejected-values": 2
+    },
+    "medianSeconds": 5.598
+  },
+  {
+    "caseId": "edit-the-headline",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 4.139
+  },
+  {
+    "caseId": "gallery-four-images",
+    "runs": 2,
+    "passed": 0,
+    "failures": {
+      "queued-images-are-placed: 3 of 3 queued image(s) not referenced": 2,
+      "no-stranded-images: 3 generated image(s) reached no block": 2
+    },
+    "signals": {},
+    "medianSeconds": 9.573
+  },
+  {
+    "caseId": "stats-not-inverted",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 4.282
+  }
+]

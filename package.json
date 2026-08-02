@@ -70,7 +70,9 @@
     "db:seed": "tsx src/app/lib/db/seed.ts",
     "db:bootstrap": "tsx src/app/lib/db/bootstrap-admin.ts",
     "design-asset-worker": "tsx src/app/lib/server/design-asset-worker.ts",
-    "cdk:deploy": "cd infrastructure/assets && npx cdk deploy"
+    "cdk:deploy": "cd infrastructure/assets && npx cdk deploy",
+    "eval": "NODE_OPTIONS=--conditions=react-server tsx scripts/run-evals.ts",
+    "eval:smoke": "NODE_OPTIONS=--conditions=react-server tsx scripts/run-evals.ts --runs 3"
   },
   "prettier": {
     "printWidth": 140,

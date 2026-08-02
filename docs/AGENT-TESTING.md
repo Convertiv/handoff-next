@@ -101,6 +101,52 @@ rates you will not see the drop.
 - **Record/replay** — cache model responses so the deterministic parts of a turn can be tested for free.
   Useful later; premature now, because the stochastic part is what we are testing.
 
+## Where it actually landed, 2026-08-02
+
+Stages 1–3 are built. `npm run eval:smoke` (3 cases × 3 runs) before a prompt change, `npm run eval
+-- --all` for the full set. `--save` writes a result file; `--baseline` diffs against one and prints the
+delta per case, because a prompt change that lifts one case and drops another is the normal shape.
+
+First full baseline, 6 cases × 2 runs:
+
+| Case | | Notes |
+|---|---|---|
+| fresh-page-with-imagery | 1/2 | one run came back all `placehold.co` |
+| fresh-page-plain | 2/2 | |
+| fill-the-images | **0/2** | both generated images stranded |
+| edit-the-headline | 2/2 | |
+| gallery-four-images | **0/2** | three generated images stranded |
+| stats-not-inverted | 2/2 | |
+
+**Overall 7/12.** The two reds are one bug, and the log named it in the first run:
+
+```
+rejected edits hero-background: no such field src.
+  Its fields are: theme, anchor, overlay, bodySlot, direction, titleSlot,
+                  buttonSlots, overlineSlot, mobileImageSlot, desktopImageSlot
+```
+
+The model invents `src` / `image` when placing a generated image into an existing block, the edit is
+rejected, and the image it already paid for reaches nothing. Reproducible 4 of 4 across two cases —
+which is the whole point of the exercise: this was previously a paragraph of prose saying the images
+"landed in the library but not on the page".
+
+### Two things the first run taught about the harness itself
+
+**A vacuous pass is worse than a red.** `fill-the-images` scored 3/3 on its very first run while doing
+no work at all: `request_image` is gated on a user id, the local runner passed `null`, the tool returned
+"unavailable", nothing was queued, and every imagery check returned null because there was nothing to
+judge. Two fixes — a `turn-did-work` check that fails an outcome of nothing, and cases that declare
+`requiresUser` are **skipped** rather than run when no user id resolves. A skip is reported as a gap and
+never contributes a green.
+
+**Some properties are signals, not verdicts.** The first draft asserted zero retries on a plain page
+request, straight from the table above, and it failed 3/3 — because `content-gaps` firing means the
+guard caught an incomplete first pass, which is the system working. Asserting on it would have been a
+check that always fails, and the response to that is to delete it. It is now a *signal*: counted and
+printed per case, never a failure. `first-pass-incomplete` is currently 2/2 on plain pages, and if that
+holds while a prompt change is made, nothing red will tell you it got worse.
+
 ## What this means for the nested-slot work
 
 Build Stage 1 first. It is an hour, and it means the nested-slot probe — and every prompt change after
