@@ -15,9 +15,19 @@
  * eval runner is a loop over it with assertions attached.
  */
 
+// Default import: `@next/env` is CJS, and Node's ESM lexer does not surface its named exports — the
+// same trap that blocked lodash in the data layer.
+import nextEnv from '@next/env';
 import fs from 'fs-extra';
 import path from 'path';
-import { runPlaygroundChatTurn, type PlaygroundChatEvent } from '../src/app/lib/server/playground-chat';
+
+// Load `.env` the way Next does — same files, same precedence — before anything reads `process.env`.
+// A plain tsx script gets none of that for free, which is why the key "being set" and the script seeing
+// it are two different things. Must run before the imports below touch config at module scope.
+nextEnv.loadEnvConfig(process.cwd(), true, { info: () => {}, error: console.error });
+
+const { runPlaygroundChatTurn } = await import('../src/app/lib/server/playground-chat');
+type PlaygroundChatEvent = Parameters<NonNullable<Parameters<typeof runPlaygroundChatTurn>[0]['onEvent']>>[0];
 
 interface Args {
   prompt: string;
