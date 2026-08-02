@@ -53,6 +53,11 @@ describe('findPlaceholderImages', () => {
  * visible gap. The note is deterministic and does not depend on the model's wording.
  */
 describe('describeMissingImagery', () => {
+  it('reads as a call to action, since filling happens after the page is applied', () => {
+    const note = describeMissingImagery([{ block: 1, componentId: 'hero', field: 'image' }]);
+    assert.match(note!, /Apply the page and ask me to fill them/);
+  });
+
   it('states the count and where, so the claim cannot stand unchallenged', () => {
     const note = describeMissingImagery([
       { block: 1, componentId: 'hero-background', field: 'desktopImageSlot' },

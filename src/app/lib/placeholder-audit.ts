@@ -64,7 +64,7 @@ export function describeMissingImagery(placeholders: PlaceholderImage[]): string
   return (
     `⚠️ ${placeholders.length} image slot${placeholders.length === 1 ? '' : 's'} still ` +
     `${placeholders.length === 1 ? 'holds a placeholder' : 'hold placeholders'} — ${fields.join(', ')}${more}. ` +
-    'Ask me to generate or find images for them, or set them in the block editor.'
+    'Apply the page and ask me to fill them, or set them yourself in the block editor.'
   );
 }
 

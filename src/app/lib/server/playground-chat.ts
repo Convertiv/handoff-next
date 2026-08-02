@@ -368,6 +368,8 @@ export interface QueuedImage {
 interface ImageRequestContext {
   /** FK to `user.id` — the job table requires it, so a turn with no user cannot generate. */
   actorUserId: string | null;
+  /** Whether blocks are already on the canvas. Generation needs a slot that exists to swap into. */
+  hasCanvas: boolean;
   /** The workspace's design guidance, so generated imagery matches the system it is going into. */
   styleGuidance: string;
   queued: QueuedImage[];
@@ -436,6 +438,18 @@ async function runTool(
   if (name === 'request_image') {
     if (!imageCtx?.actorUserId) {
       return { error: 'Image generation is unavailable in this session. Leave the image empty.' };
+    }
+    // **No canvas, no generation.** A picture made while composing a page that has not been applied has
+    // nowhere to land: the slot does not exist yet, so the swap finds nothing and the image waits
+    // forever. Two live runs died exactly there. Propose the page with placeholders, let the user apply
+    // it, then fill — by which point every slot is real and the swap always has a target.
+    if (!imageCtx.hasCanvas) {
+      return {
+        error:
+          'No page is on the canvas yet, so a generated image would have nowhere to go. Propose the page ' +
+          'with placeholders in the image fields, tell the user which slots are unfilled, and offer to ' +
+          'fill them once they apply it.',
+      };
     }
     if (imageCtx.queued.length >= MAX_GENERATED_IMAGES_PER_TURN) {
       return {
@@ -528,16 +542,24 @@ values shaped exactly as the scaffold tells you.
 1. Ask ONE round of clarifying questions if the request is genuinely vague. One round only.
 2. \`list_blocks\` ONCE, with no arguments. That is the entire catalog with every block's fields. Read
    it and choose. Do NOT call it repeatedly for different sections.
-3. **Decide the whole page first** — every block, in order, with its copy written. Do this before you
-   touch imagery. Requesting pictures first makes it easy to mistake "images generated" for "page
-   built", and a turn that ends with images and no page gives the user nothing to apply.
-4. \`search_assets\` for each image field in the blocks you chose, and \`request_image\` only where the
-   store has nothing suitable. \`search_icons\` if the page needs icons.
-5. \`propose_page\` with all the blocks, your copy, and the srcs those tools returned.
+3. **Decide the whole page** — every block, in order, with its copy written.
+4. \`search_assets\` for the image fields, and \`search_icons\` if the page needs icons. Use whatever the
+   store already has.
+5. \`propose_page\` with all the blocks, your copy, and any srcs those searches returned.
 
-**The turn is not finished until \`propose_page\` runs.** Generating images is not proposing a page. If
-you run low on room, propose the page with placeholders in the image fields and say which ones are
-unfilled — a page the user can apply beats pictures with nowhere to go.
+**The turn is not finished until \`propose_page\` runs.** A page the user can apply is the deliverable.
+
+## Imagery comes after the page, not during it
+Building a page and generating pictures are two turns, deliberately:
+
+- **Composing a new page:** leave image fields on their placeholders. \`request_image\` is unavailable —
+  a picture generated now has nowhere to land, because the slot does not exist until the page is
+  applied. Propose the page, name the slots you left empty, and offer to fill them once it is applied.
+- **A page already on the canvas:** \`request_image\` works normally, and generated pictures swap into
+  their slots as they finish.
+
+This also means the user sees the page before paying for images, and can say which ones they actually
+want.
 
 You do not need to inspect a block before using it — the fields listed by \`list_blocks\` are all you
 need, and the server applies your values to the block's real shape. Write copy, not structure.
@@ -555,7 +577,8 @@ need, and the server applies your values to the block's real shape. Write copy, 
   tool gave you — \`search_assets\` or \`request_image\`. Never write an image path yourself.
 - **Search before you generate.** A real photo from the library beats a generated one, and generation
   costs real money. Use \`request_image\` only where the page genuinely needs a picture the library
-  does not have — a hero, a main feature shot. Leave decorative slots on their placeholder.
+  does not have — a hero, a main feature shot. Leave decorative slots on their placeholder. It is only
+  available once a page is on the canvas; see above.
 - **\`request_image\` does not put anything on the page.** It returns a src; you must still write that
   src into the block with \`propose_edits\` (or \`propose_page\`) in the same turn. Requesting an image
   and then only describing it leaves the page unchanged — this is the most common way to get this
@@ -610,6 +633,7 @@ export async function runPlaygroundChatTurn(args: {
   const seenAssetSrcs = new Set<string>();
   const imageCtx: ImageRequestContext = {
     actorUserId: args.actorUserId ?? null,
+    hasCanvas: (args.currentBlocks ?? []).length > 0,
     styleGuidance: workspace?.designMd ?? '',
     queued: [],
   };
