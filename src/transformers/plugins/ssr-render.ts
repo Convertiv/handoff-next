@@ -378,6 +378,10 @@ export function ssrRenderPlugin(
             bundleSource: clientBundleJs,
             properties: (componentData.properties ?? {}) as Record<string, never>,
             context: (componentData as { probeContext?: Record<string, unknown> }).probeContext,
+            // The first preview, for nested slots. Chosen the same way the usage snippet below chooses
+            // one: variants of a component share their container shapes, so the first is representative
+            // and probing all of them would multiply the render count for no new information.
+            previewValues: Object.values(componentData.previews ?? {})[0]?.values ?? {},
           });
           componentData.capabilities = capabilities;
           // Written in `writeBundle`, not emitted here. `this.emitFile` in `generateBundle` silently

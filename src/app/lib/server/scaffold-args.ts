@@ -6,6 +6,7 @@ import { describeJsonShape } from '@/lib/json-shape';
 import {
   describeEncoding,
   encodingForSlot,
+  nestedEncodingLookup,
   placeholderForEncoding,
   readCapabilities,
   widgetForEncoding,
@@ -130,7 +131,11 @@ export async function scaffoldArgsForComponent(
     // `shapeNote` says "array of object", which names no keys — the model wrote gallery images into an
     // unreadable shape and inverted `stat`/`sub` on the stats block for exactly that reason. Only
     // applied where a preview value exists, and only where it teaches something.
-    const jsonShape = hasBase ? describeJsonShape(baseValues[k]) : null;
+    // Slots *inside* the container get their measured encodings too. Without this the item shape said
+    // `thumbnailSlot: HTML string` — a guess, and the wrong one — while the top-level slots beside it
+    // were measured. Two halves of one component disagreeing is the failure mode that has cost the most
+    // time on this work.
+    const jsonShape = hasBase ? describeJsonShape(baseValues[k], nestedEncodingLookup(caps, k)) : null;
     fields[k] = {
       editorType: editorOf(m),
       shape: jsonShape ?? shapeNote(m),

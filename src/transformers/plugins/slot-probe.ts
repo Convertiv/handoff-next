@@ -21,7 +21,10 @@ import { pathToFileURL } from 'url';
 import {
   PROBE_CANDIDATES,
   baseProps,
+  buildNestedProbeValue,
   buildSlotCapability,
+  containerAnswerIsUsable,
+  enumerateNestedSlots,
   isSlotProp,
   sentinelFor,
   type ComponentCapabilities,
@@ -200,6 +203,16 @@ export async function probeComponent(input: {
    * declarative escape hatch, and only ever written for slots a probe reported unresolved.
    */
   context?: Record<string, unknown>;
+  /**
+   * A real preview's values, used only to find nested slots and to supply the surrounding data of the
+   * container item they sit in.
+   *
+   * Values are the right source here for the same reason they are wrong for shapes: the item type of
+   * `cards: CardProps[]` is a named interface the registry never ships, while the preview holds an
+   * actual card with an actual element in it. Nothing is inferred about *what* the slot accepts — that
+   * still comes from rendering.
+   */
+  previewValues?: Record<string, unknown>;
   candidates?: ProbeCandidate[];
 }): Promise<ComponentCapabilities> {
   const { componentId, bundleSource, properties, context } = input;
@@ -211,8 +224,48 @@ export async function probeComponent(input: {
     unresolved: [],
   };
 
-  const slots = Object.keys(properties ?? {}).filter((name) => isSlotProp(properties[name]));
-  if (!slots.length) return record;
+  // Two kinds of target, probed identically once built. A top-level slot writes one prop; a nested slot
+  // rebuilds its container with the candidate at one path inside it. Both end up as "props to merge
+  // over the base", so the render/assert loop below never learns the difference.
+  //
+  // Nested slots were 48 of 180 across 8x8's catalog — real coverage was 73%, not the 84% first
+  // reported — and they are where the body of a generated page lives. `image-gallery` generating three
+  // images and placing none of them was exactly this: nothing had ever measured `images[].thumbnailSlot`.
+  const nestedSlots = enumerateNestedSlots(input.previewValues ?? {});
+
+  // A container prop is probed as a whole as well as field by field, and it is often the container that
+  // holds the real answer.
+  //
+  // `image-gallery.images` is the case that forced this. Its preview items carry `thumbnailSlot` and
+  // `lightboxSlot` elements, so field-by-field probing reports both unresolved and stops — technically
+  // true, and useless. The component's field annotation rebuilds each item from `src` unless the slot
+  // already holds an element, so what an author actually writes is `[{ src, alt }]`, and that renders.
+  // The declared type never said so: `images` is `editorType: "array"`, not a slot at all.
+  //
+  // Only recorded when something is accepted. An unresolved container must NOT be written down, because
+  // a `cards` array whose `cardSlot` takes only an element still has title and body fields an author
+  // edits every day, and marking the prop uneditable would take those with it. Absence keeps the
+  // existing value-derived description in play, which is the correct fallback.
+  const containerProps = [...new Set(nestedSlots.filter((s) => s.container === 'array').map((s) => s.prop))]
+    .filter((prop) => !isSlotProp(properties?.[prop]));
+
+  const targets: { key: string; acceptedOnly?: boolean; props: (value: unknown) => Record<string, unknown> }[] = [
+    ...Object.keys(properties ?? {})
+      .filter((name) => isSlotProp(properties[name]))
+      .map((name) => ({ key: name, props: (value: unknown) => ({ [name]: value }) })),
+    ...containerProps.map((prop) => ({
+      key: prop,
+      acceptedOnly: true,
+      props: (value: unknown) => ({ [prop]: value }),
+    })),
+    ...nestedSlots.map((slot) => ({
+      key: slot.path,
+      props: (value: unknown) => ({
+        [slot.prop]: buildNestedProbeValue((input.previewValues ?? {})[slot.prop], slot, value),
+      }),
+    })),
+  ];
+  if (!targets.length) return record;
 
   const env = await setupProbeEnvironment();
   if (!env) {
@@ -239,9 +292,9 @@ export async function probeComponent(input: {
   const doc = env.window.document;
 
   try {
-    for (let i = 0; i < slots.length; i++) {
-      const slot = slots[i]!;
-      const sentinel = sentinelFor(slot, i);
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i]!;
+      const sentinel = sentinelFor(target.key, i);
       const outcomes: { candidate: ProbeCandidate; accepted: boolean; threw: boolean }[] = [];
 
       for (const candidate of candidates) {
@@ -264,7 +317,7 @@ export async function probeComponent(input: {
 
         let threw = false;
         try {
-          mod.render(host, { ...base, [slot]: candidate.make(sentinel) });
+          mod.render(host, { ...base, ...target.props(candidate.make(sentinel)) });
           await new Promise((r) => setTimeout(r, SETTLE_MS));
         } catch {
           threw = true;
@@ -279,7 +332,17 @@ export async function probeComponent(input: {
         host.remove();
       }
 
-      record.slots[slot] = buildSlotCapability(outcomes);
+      const capability = buildSlotCapability(outcomes);
+      if (target.acceptedOnly) {
+        if (capability.unresolved) continue;
+        // Rendering the sentinel is not enough for a container — see `containerAnswerIsUsable`. Five of
+        // six answers here were lossy, and a lossy answer tells an authoring model to discard the item's
+        // real fields.
+        const winner = candidates.find((c) => c.name === capability.accepts[0]);
+        const item = (input.previewValues ?? {})[target.key];
+        if (!winner || !containerAnswerIsUsable(winner.make(sentinel), Array.isArray(item) ? item[0] : item)) continue;
+      }
+      record.slots[target.key] = capability;
     }
   } finally {
     await cleanup();

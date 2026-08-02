@@ -227,3 +227,147 @@ export function buildSlotCapability(
     unresolved: accepts.length === 0,
   };
 }
+
+// ── Nested slots ─────────────────────────────────────────────────────────────
+//
+// A `ReactNode` sitting inside a JSON-native container: `cards[].imageSlot`, `items[].bodySlot`,
+// `slides[].mediaSlot`. Measured across 8x8's catalog there are 48 of them in 27 components, against
+// 132 top-level slots — so real coverage was 73%, not the 84% first reported.
+//
+// They matter more than that ratio suggests. Repeatable content is where the body of a generated page
+// lives: a hero is one slot, a feature grid is six. It is also the direct reason `image-gallery` could
+// generate three images and place none of them — nothing had ever told anyone what
+// `images[].thumbnailSlot` accepts.
+
+/** Where a nested slot lives, and how to reach it. */
+export interface NestedSlot {
+  /** The container prop, e.g. `cards`. */
+  prop: string;
+  container: 'array' | 'object';
+  /** The field inside each item, or null for a bare array of elements (`logoSlots[]`). */
+  field: string | null;
+  /** Record key: `cards[].imageSlot`, `logoSlots[]`, `subCard.bodySlot`. */
+  path: string;
+}
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const isElementLike = (v: unknown): boolean =>
+  isPlainObject(v) && (('props' in v && 'type' in v) || '_owner' in v || '$$typeof' in v);
+
+/**
+ * Find the nested slots a component's preview values reveal.
+ *
+ * Derived from values rather than types for the same reason everything else here is: the declared type
+ * of a container's item is a named interface the registry does not ship, while the preview shows an
+ * actual item with an actual element in it.
+ *
+ * Only the first item of an array is inspected — a list is homogeneous, and probing every entry would
+ * multiply the work for no new information.
+ */
+export function enumerateNestedSlots(previewValues: Record<string, unknown>): NestedSlot[] {
+  const found: NestedSlot[] = [];
+
+  for (const [prop, value] of Object.entries(previewValues ?? {})) {
+    if (Array.isArray(value)) {
+      const first = value[0];
+      if (isElementLike(first)) {
+        found.push({ prop, container: 'array', field: null, path: `${prop}[]` });
+      } else if (isPlainObject(first)) {
+        for (const [field, inner] of Object.entries(first)) {
+          if (field.startsWith('_')) continue;
+          if (isElementLike(inner)) found.push({ prop, container: 'array', field, path: `${prop}[].${field}` });
+        }
+      }
+      continue;
+    }
+
+    if (isPlainObject(value) && !isElementLike(value)) {
+      for (const [field, inner] of Object.entries(value)) {
+        if (field.startsWith('_')) continue;
+        if (isElementLike(inner)) found.push({ prop, container: 'object', field, path: `${prop}.${field}` });
+      }
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Build the container value that puts a candidate in one nested slot.
+ *
+ * The rest of the item comes from the preview, minus its other elements. Leaving those in place
+ * reproduces the interference that made a batched top-level probe report a false rejection — a sibling
+ * slot holding an unrenderable value can take the whole item down with it, and the result reads as the
+ * target slot refusing the candidate.
+ *
+ * One item only. A list renders its items the same way, and one is enough to see whether the slot took.
+ */
+export function buildNestedProbeValue(previewValue: unknown, slot: NestedSlot, candidateValue: unknown): unknown {
+  // Recursive, because an element can be one level further down than the sibling field itself:
+  // `cards[].buttonSlots` is an *array* of elements, and leaving it in place threw React error #31 —
+  // "object with keys {key, type, props, _owner, _store}" — for every candidate, so the target slot
+  // read as rejecting everything. Depth is small and known (preview values are plain JSON), so a full
+  // walk is cheaper than reasoning about which shapes can hide one.
+  const stripElements = (v: unknown): unknown => {
+    if (isElementLike(v)) return undefined;
+    if (Array.isArray(v)) return v.map(stripElements).filter((x) => x !== undefined);
+    if (isPlainObject(v)) {
+      const out: Record<string, unknown> = {};
+      for (const [k, inner] of Object.entries(v)) out[k] = stripElements(inner);
+      return out;
+    }
+    return v;
+  };
+
+  const stripSiblings = (item: Record<string, unknown>): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(item)) {
+      if (k === slot.field) continue;
+      out[k] = stripElements(v);
+    }
+    return out;
+  };
+
+  if (slot.container === 'array') {
+    if (slot.field === null) return [candidateValue];
+    const template = Array.isArray(previewValue) && isPlainObject(previewValue[0]) ? previewValue[0] : {};
+    return [{ ...stripSiblings(template), [slot.field]: candidateValue }];
+  }
+
+  const template = isPlainObject(previewValue) ? previewValue : {};
+  return { ...stripSiblings(template), [slot.field!]: candidateValue };
+}
+
+/**
+ * Whether a whole-container answer is worth recording.
+ *
+ * Probing a container as a unit found one true answer and five false ones across 8x8's catalog, and the
+ * false ones are the dangerous kind — plausible, measured, and lossy:
+ *
+ *   image-gallery.images  → array-of-image-object   item is { alt, caption, thumbnailSlot }   ✔ describes it
+ *   bento-lottie-grid.cards → array-of-labelhref    item is { eyebrow, heading, gridSpan, … }  ✘ discards all of it
+ *   related-cards.cards   → array-of-urltext        item is { cardSlot } and nothing else      ✘ describes nothing
+ *
+ * All six rendered the sentinel. Rendering is not the question for a container — an item has many
+ * fields, and matching one path through the component does not make the candidate the item's shape.
+ *
+ * So the test is coverage, not rendering: **the encoding must name at least one field the preview item
+ * actually carries.** `{ src, alt }` overlaps the gallery item's `alt`; `{ label, href }` overlaps a
+ * bento card in no way at all, and a card whose only field is a slot has nothing to overlap. Bookkeeping
+ * keys do not count — every item has a `_key`, so counting it would admit everything.
+ *
+ * Deliberately conservative. A container we decline to record keeps its value-derived description, which
+ * is imperfect but honest; a container recorded wrongly tells an authoring model to throw the item's
+ * real fields away.
+ */
+export function containerAnswerIsUsable(candidateValue: unknown, previewItem: unknown): boolean {
+  if (!isPlainObject(previewItem)) return false;
+
+  const first = Array.isArray(candidateValue) ? candidateValue[0] : candidateValue;
+  if (!isPlainObject(first)) return false;
+
+  const authorable = Object.keys(previewItem).filter((k) => !k.startsWith('_') && !isElementLike(previewItem[k]));
+  return Object.keys(first).some((k) => authorable.includes(k));
+}

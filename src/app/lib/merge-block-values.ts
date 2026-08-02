@@ -21,6 +21,7 @@
  */
 
 import { describeJsonShape } from './json-shape';
+import { nestedEncodingLookup, type ComponentCapabilities } from './slot-capabilities';
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   !!v && typeof v === 'object' && !Array.isArray(v);
@@ -550,7 +551,8 @@ function describeValue(value: unknown, depth = 0): string {
 export function summarizeFields(
   fields: Record<string, unknown> | null | undefined,
   values?: Record<string, unknown> | null,
-  max = 12
+  max = 12,
+  caps?: ComponentCapabilities | null
 ): string {
   const entries = Object.entries(fields ?? {});
   if (!entries.length) return '';
@@ -566,7 +568,10 @@ export function summarizeFields(
     if (seeded !== undefined) {
       // Examples where the value carries them. `{ stat, sub }` is ambiguous and got authored backwards;
       // `{ stat: "100", sub: "Countries" }` is not.
-      const withExamples = describeJsonShape(seeded);
+      // With the measured encodings for slots inside the container, where the probe found them —
+      // otherwise the item shape reads `thumbnailSlot: HTML string`, which is a guess, and the wrong
+      // one for every image slot in 8x8's catalog.
+      const withExamples = describeJsonShape(seeded, nestedEncodingLookup(caps ?? null, name));
       return `${name}: ${withExamples ?? describeValue(seeded)}`;
     }
     const editor = isPlainObject(meta) && typeof meta.editorType === 'string' ? meta.editorType : 'any';

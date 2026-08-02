@@ -236,3 +236,34 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
 
   return changed ? (out as T) : properties;
 }
+
+/**
+ * A lookup for the slots inside one container prop.
+ *
+ * Nested slots are recorded under their path — `cards[].imageSlot`, `subCard.bodySlot`,
+ * `logoSlots[]` — because a bare field name is not unique: two different containers on one component
+ * can both have a `bodySlot`, and they need not accept the same thing.
+ *
+ * The three return values are distinct and all three matter:
+ *   a string — measured, write this
+ *   `null`   — probed, nothing worked; the field is not editable
+ *   `undefined` — never probed; the caller should fall back rather than assert anything
+ */
+export function nestedEncodingLookup(
+  caps: ComponentCapabilities | null,
+  prop: string
+): ((field: string) => string | null | undefined) | undefined {
+  if (!caps?.slots) return undefined;
+  return (field: string) => {
+    const cap = caps.slots[`${prop}[].${field}`] ?? caps.slots[`${prop}.${field}`];
+    if (!cap) return undefined;
+    return cap.accepts[0] ?? null;
+  };
+}
+
+/** The encoding for a bare array of elements, `logoSlots[]`. Same three-way return. */
+export function bareArrayEncoding(caps: ComponentCapabilities | null, prop: string): string | null | undefined {
+  const cap = caps?.slots?.[`${prop}[]`];
+  if (!cap) return undefined;
+  return cap.accepts[0] ?? null;
+}

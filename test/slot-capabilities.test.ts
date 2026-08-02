@@ -2,9 +2,11 @@ import assert from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   applyCapabilitiesToProperties,
+  bareArrayEncoding,
   describeEncoding,
   encodingForSlot,
   isSlotEditable,
+  nestedEncodingLookup,
   placeholderForEncoding,
   readCapabilities,
   widgetForEncoding,
@@ -201,5 +203,55 @@ describe('applyCapabilitiesToProperties', () => {
 
   it('returns the original object for an unprobed component, so nothing re-renders', () => {
     assert.equal(applyCapabilitiesToProperties(properties, null), properties);
+  });
+});
+
+/**
+ * Nested slots are keyed by path — `cards[].imageSlot`, not `imageSlot` — because a bare field name is
+ * not unique: two containers on one component can both have a `bodySlot` and need not accept the same
+ * thing.
+ */
+describe('nestedEncodingLookup', () => {
+  const caps = readCapabilities({
+    capabilities: {
+      componentId: 'grid',
+      slots: {
+        'cards[].imageSlot': { accepts: ['image-object'] },
+        'cards[].bodySlot': { accepts: [] },
+        'subCard.bodySlot': { accepts: ['html-string'] },
+        titleSlot: { accepts: ['plain-text'] },
+      },
+    },
+  });
+
+  it('finds a slot inside an array container', () => {
+    assert.equal(nestedEncodingLookup(caps, 'cards')!('imageSlot'), 'image-object');
+  });
+
+  it('finds a slot inside an object container', () => {
+    assert.equal(nestedEncodingLookup(caps, 'subCard')!('bodySlot'), 'html-string');
+  });
+
+  it('returns null for probed-and-nothing-worked, undefined for never-probed', () => {
+    // The distinction is the whole point: one says "do not write this", the other says "we do not know"
+    // and the caller must fall back rather than assert anything.
+    assert.equal(nestedEncodingLookup(caps, 'cards')!('bodySlot'), null);
+    assert.equal(nestedEncodingLookup(caps, 'cards')!('missingSlot'), undefined);
+  });
+
+  it('does not confuse a top-level slot for a nested one of the same name', () => {
+    assert.equal(nestedEncodingLookup(caps, 'cards')!('titleSlot'), undefined);
+  });
+
+  it('returns undefined entirely when the component was never probed', () => {
+    assert.equal(nestedEncodingLookup(null, 'cards'), undefined);
+  });
+});
+
+describe('bareArrayEncoding', () => {
+  it('reads an array-of-elements slot, where the item IS the slot', () => {
+    const caps = readCapabilities({ capabilities: { slots: { 'logoSlots[]': { accepts: ['image-object'] } } } });
+    assert.equal(bareArrayEncoding(caps, 'logoSlots'), 'image-object');
+    assert.equal(bareArrayEncoding(caps, 'other'), undefined);
   });
 });

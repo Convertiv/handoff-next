@@ -3,7 +3,10 @@ import { describe, it } from 'node:test';
 import {
   PROBE_CANDIDATES,
   baseProps,
+  buildNestedProbeValue,
   buildSlotCapability,
+  containerAnswerIsUsable,
+  enumerateNestedSlots,
   isSlotProp,
   sentinelFor,
   type ProbeCandidate,
@@ -201,5 +204,121 @@ describe('hero-background regression fixture', () => {
       const cap = buildSlotCapability(PROBE_CANDIDATES.map((c) => outcome(c.name, names.includes(c.name))));
       assert.equal(cap.accepts[0], expected[slot], `${slot} should lead with ${expected[slot]}`);
     }
+  });
+});
+
+/**
+ * 48 of these across 27 components, against 132 top-level slots — real coverage was 73%, not the 84%
+ * first reported. They matter more than that ratio suggests: repeatable content is where the body of a
+ * generated page lives, and it is why `image-gallery` generated three images and placed none.
+ */
+describe('enumerateNestedSlots', () => {
+  const el = (type: string) => ({ key: null, type, props: { src: '/a.png' }, _owner: null, _store: {} });
+
+  it('finds a slot inside an array item — the common shape', () => {
+    const found = enumerateNestedSlots({ cards: [{ title: 'A', imageSlot: el('img'), bodySlot: el('p') }] });
+    assert.deepEqual(found.map((f) => f.path), ['cards[].imageSlot', 'cards[].bodySlot']);
+    assert.equal(found[0]!.container, 'array');
+    assert.equal(found[0]!.field, 'imageSlot');
+  });
+
+  it('finds a bare array of elements, where the item IS the slot', () => {
+    const found = enumerateNestedSlots({ logoSlots: [el('img'), el('img')] });
+    assert.deepEqual(found.map((f) => f.path), ['logoSlots[]']);
+    assert.equal(found[0]!.field, null);
+  });
+
+  it('finds a slot inside an object container', () => {
+    const found = enumerateNestedSlots({ subCard: { title: 'T', bodySlot: el('p') } });
+    assert.deepEqual(found.map((f) => f.path), ['subCard.bodySlot']);
+    assert.equal(found[0]!.container, 'object');
+  });
+
+  it('ignores top-level slots — those are probed directly', () => {
+    assert.deepEqual(enumerateNestedSlots({ titleSlot: el('h1'), theme: 'dark' }), []);
+  });
+
+  it('ignores bookkeeping keys and plain data', () => {
+    const found = enumerateNestedSlots({ stats: [{ _key: '1', _type: 'card', stat: '100', sub: 'Countries' }] });
+    assert.deepEqual(found, []);
+  });
+
+  it('inspects only the first item, since a list is homogeneous', () => {
+    const found = enumerateNestedSlots({ cards: [{ a: el('img') }, { b: el('p') }] });
+    assert.deepEqual(found.map((f) => f.path), ['cards[].a']);
+  });
+});
+
+describe('buildNestedProbeValue', () => {
+  const el = (type: string) => ({ key: null, type, props: {}, _owner: null, _store: {} });
+  const slot = { prop: 'cards', container: 'array' as const, field: 'imageSlot', path: 'cards[].imageSlot' };
+
+  it('puts the candidate in one item, keeping the item’s plain data', () => {
+    const out = buildNestedProbeValue([{ title: 'Real', imageSlot: el('img') }], slot, { src: 'X' }) as any[];
+    assert.equal(out.length, 1);
+    assert.deepEqual(out[0].imageSlot, { src: 'X' });
+    assert.equal(out[0].title, 'Real');
+  });
+
+  it('strips sibling elements, which would otherwise take the item down with them', () => {
+    // The same interference that made a batched top-level probe report a false rejection.
+    const out = buildNestedProbeValue([{ imageSlot: el('img'), bodySlot: el('p') }], slot, 'S') as any[];
+    assert.equal(out[0].bodySlot, undefined);
+    assert.equal(out[0].imageSlot, 'S');
+  });
+
+  it('handles a bare element array — the item is the slot', () => {
+    const bare = { prop: 'logoSlots', container: 'array' as const, field: null, path: 'logoSlots[]' };
+    assert.deepEqual(buildNestedProbeValue([el('img')], bare, 'S'), ['S']);
+  });
+
+  it('handles an object container', () => {
+    const obj = { prop: 'subCard', container: 'object' as const, field: 'bodySlot', path: 'subCard.bodySlot' };
+    const out = buildNestedProbeValue({ title: 'T', bodySlot: el('p') }, obj, 'S') as Record<string, unknown>;
+    assert.equal(out.bodySlot, 'S');
+    assert.equal(out.title, 'T');
+  });
+
+  it('copes with a preview that has no usable template', () => {
+    assert.deepEqual(buildNestedProbeValue(undefined, slot, 'S'), [{ imageSlot: 'S' }]);
+  });
+});
+
+/**
+ * All six containers that resolved across 8x8's catalog rendered their sentinel. Only one of the six
+ * was a usable answer. Rendering is the wrong question for a container: an item has many fields, and
+ * matching one path through the component does not make the candidate the item's shape.
+ */
+describe('containerAnswerIsUsable', () => {
+  const el = { key: null, type: 'img', props: {}, _owner: null, _store: {} };
+  const imageObject = [{ src: 'x', alt: 'y' }];
+  const labelHref = [{ label: 'x', href: '/y' }];
+
+  it('keeps image-gallery.images — { src, alt } names a field the item carries', () => {
+    assert.ok(containerAnswerIsUsable(imageObject, { _key: 'i1', alt: 'A', caption: 'C', thumbnailSlot: el }));
+  });
+
+  it('rejects bento-lottie-grid.cards — { label, href } would discard eyebrow, heading and the rest', () => {
+    assert.ok(!containerAnswerIsUsable(labelHref, { _key: 'c1', eyebrow: 'E', heading: 'H', mediaSlot: el }));
+  });
+
+  it('rejects an item that is nothing but a slot — there is no shape to describe', () => {
+    // related-cards, card-rows, media-kit: `{ _key, cardSlot }`. The whole card IS the element.
+    assert.ok(!containerAnswerIsUsable(labelHref, { _key: 'c1', cardSlot: el }));
+  });
+
+  it('does not count bookkeeping as coverage — every item has a _key', () => {
+    assert.ok(!containerAnswerIsUsable([{ _key: 'x' }], { _key: 'c1', cardSlot: el }));
+  });
+
+  it('rejects a scalar candidate, which cannot describe an item at all', () => {
+    assert.ok(!containerAnswerIsUsable('plain text', { _key: 'i1', alt: 'A' }));
+    assert.ok(!containerAnswerIsUsable(['a', 'b'], { _key: 'i1', alt: 'A' }));
+  });
+
+  it('rejects when there is no preview item to check against', () => {
+    // No evidence is not evidence. Recording an unchecked container is the confident-wrong answer.
+    assert.ok(!containerAnswerIsUsable(imageObject, undefined));
+    assert.ok(!containerAnswerIsUsable(imageObject, []));
   });
 });

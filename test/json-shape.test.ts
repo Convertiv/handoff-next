@@ -68,3 +68,39 @@ describe('describeJsonShape', () => {
     assert.match(describeJsonShape(['a', 'b'])!, /array of plain strings/);
   });
 });
+
+/**
+ * The item shape used to say `thumbnailSlot: HTML string` for every element inside a container — a
+ * guess, and the wrong one for every image slot in 8x8's catalog. `image-gallery` generated three
+ * images and placed none of them because of this line. Now nested slots are probed, so the description
+ * can report what was measured.
+ */
+describe('describeJsonShape with measured nested encodings', () => {
+  const el = { key: null, type: 'img', props: {}, _owner: null, _store: {} };
+
+  it('describes a nested slot from its measured encoding', () => {
+    const out = describeJsonShape([{ title: 'Card', imageSlot: el }], (f) =>
+      f === 'imageSlot' ? 'image-object' : undefined
+    );
+    assert.match(out!, /imageSlot: \{ src, alt \}/);
+  });
+
+  it('tells the model to omit a slot the probe resolved to nothing', () => {
+    // null means probed and nothing worked. Writing anything there is a form that reports success and
+    // changes nothing — the exact failure the whole capability mechanism exists to remove.
+    const out = describeJsonShape([{ imageSlot: el }], () => null);
+    assert.match(out!, /imageSlot: NOT EDITABLE/);
+  });
+
+  it('falls back to the old guess when the slot was never probed', () => {
+    // undefined is "we do not know", which must stay distinct from "nothing works". A workspace built
+    // before nested probing has no records, and its descriptions should not change.
+    assert.match(describeJsonShape([{ imageSlot: el }], () => undefined)!, /imageSlot: HTML string/);
+    assert.match(describeJsonShape([{ imageSlot: el }])!, /imageSlot: HTML string/);
+  });
+
+  it('leaves plain data alone — examples are still what disambiguates stat from sub', () => {
+    const out = describeJsonShape([{ stat: '100', sub: 'Countries' }], () => 'image-object');
+    assert.equal(out, 'array of { stat: "100", sub: "Countries" } — write EVERY item');
+  });
+});

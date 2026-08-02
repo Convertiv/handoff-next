@@ -131,6 +131,54 @@ decide separately what an image slot is.
 - **It is not opinionated.** `image-object` is not privileged; it is simply what some components accept.
   A component accepting only HTML strings is equally well served.
 
+## Nested slots and containers, 2026-08-02
+
+Top-level slots were never the whole population. Across 8x8's catalog: **142 top-level slots and 48
+nested ones** — `cards[].imageSlot`, `slides[].mediaSlot`, `images[].thumbnailSlot` — in 27 components.
+Real coverage was 73%, not the 84% first reported, and the missing quarter is where the body of a
+generated page lives. A hero is one slot; a feature grid is six.
+
+The extension is small: same candidates, same checks, a different injection point. Build the container
+with **one** item, write the sentinel at `cards[0].imageSlot`, render, look. Sibling elements in that
+item are stripped first — recursively, because `cards[].buttonSlots` is an *array* of elements and
+leaving it threw React error #31 for every candidate, which reads as the target slot rejecting
+everything. Paths come from the preview's values, which is sound here for the same reason it is unsound
+for shapes: the item type of `cards: CardProps[]` is an interface the registry never ships, but the
+preview holds an actual card with an actual element in it.
+
+### The container is often where the real answer is
+
+`image-gallery.images` is the case that forced the second half of this. Probing its fields reports
+`thumbnailSlot` and `lightboxSlot` both unresolved — true, and useless. The component's field annotation
+rebuilds each item from `src` unless the slot already holds an element, so what an author writes is
+`[{ src, alt }]`. Nothing declared that: `images` is `editorType: "array"`, not a slot at all. So
+containers holding slots are also probed **as a whole**, with the ordinary candidate set.
+
+That found one true answer and five false ones, and the false ones are the dangerous kind — plausible,
+measured, lossy:
+
+| Container | Rendered | Item really is | |
+|---|---|---|---|
+| `image-gallery.images` | `array-of-image-object` | `{ alt, caption, thumbnailSlot, lightboxSlot }` | ✔ describes it |
+| `bento-lottie-grid.cards` | `array-of-labelhref` | `{ eyebrow, heading, gridSpan, mediaSlot, … }` | ✘ discards all of it |
+| `related-cards.cards` | `array-of-urltext` | `{ cardSlot }` and nothing else | ✘ describes nothing |
+
+All six rendered their sentinel. **Rendering is the wrong question for a container**: an item has many
+fields, and matching one path through the component does not make the candidate the item's shape. The
+test is coverage instead — the encoding must name at least one field the preview item actually carries,
+bookkeeping keys excluded. That admits the gallery and rejects the other five, and an unrecorded
+container keeps its value-derived description, which is imperfect but honest.
+
+An unresolved container is never recorded at all, for the same reason: a `cards` array whose `cardSlot`
+takes only an element still has title and body fields an author edits every day, and marking the prop
+uneditable would take those with it.
+
+### Where it landed
+
+190 slots probed across 54 components, 147 resolved. 30 of 48 nested slots now have a measured
+encoding; the 18 that do not are almost all `cardSlot` — an item that *is* a card element, with no
+authorable shape to find. Cost is 12s for the whole catalog.
+
 ## What probing cannot do, and what covers it
 
 | Question | Answered by |

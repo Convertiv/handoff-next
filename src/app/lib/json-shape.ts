@@ -16,6 +16,16 @@
  * 8x8's catalog was serialized React elements, and those only ever appear in `ReactNode` props.
  */
 
+import { describeEncoding } from './slot-capabilities';
+
+/**
+ * The measured encoding for a field inside this container, if the probe found one.
+ *
+ * `null` means unresolved — probed and nothing worked — and `undefined` means never probed. They are
+ * described differently on purpose: one says "do not write this", the other says "we do not know".
+ */
+export type NestedEncodingLookup = (field: string) => string | null | undefined;
+
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -44,11 +54,26 @@ function exampleFor(value: unknown): string | null {
  * Nested objects collapse to their key list rather than recursing — this ships for every field of every
  * block in the catalog, and depth costs more than it explains.
  */
-function describeObject(value: Record<string, unknown>): string {
+function describeObject(value: Record<string, unknown>, encodingFor?: NestedEncodingLookup): string {
   const parts: string[] = [];
   for (const [key, v] of Object.entries(value)) {
     if (isBookkeeping(key)) continue;
     if (isElementish(v)) {
+      // A slot inside a container. `HTML string` was the guess here, and it was wrong in the way that
+      // matters most: `images[].thumbnailSlot` takes `{ src, alt }`, so the model wrote markup into it
+      // and three generated images landed nowhere. Use the measured answer when the probe has one.
+      if (encodingFor) {
+        const encoding = encodingFor(key);
+        if (encoding === null) {
+          parts.push(`${key}: NOT EDITABLE — omit this key`);
+          continue;
+        }
+        const described = describeEncoding(encoding ?? null);
+        if (described) {
+          parts.push(`${key}: ${described}`);
+          continue;
+        }
+      }
       parts.push(`${key}: HTML string`);
       continue;
     }
@@ -73,14 +98,14 @@ function describeObject(value: Record<string, unknown>): string {
  * Returns null when the value teaches nothing — an empty array, a missing preview, or a scalar the
  * declared type already covers. A caller with null should fall back rather than print something vague.
  */
-export function describeJsonShape(value: unknown): string | null {
+export function describeJsonShape(value: unknown, encodingFor?: NestedEncodingLookup): string | null {
   if (Array.isArray(value)) {
     if (!value.length) return null;
     const first = value[0];
     if (isPlainObject(first) && !isElementish(first)) {
       // The count matters as much as the shape: a live page came back with four stat objects whose
       // every field was blank, because "array" alone does not say each item needs authoring.
-      return `array of ${describeObject(first)} — write EVERY item`;
+      return `array of ${describeObject(first, encodingFor)} — write EVERY item`;
     }
     if (typeof first === 'string') return 'array of plain strings — write EVERY item';
     return null;
@@ -89,7 +114,7 @@ export function describeJsonShape(value: unknown): string | null {
   if (isPlainObject(value) && !isElementish(value)) {
     const keys = Object.keys(value).filter((k) => !isBookkeeping(k));
     if (!keys.length) return null;
-    return describeObject(value);
+    return describeObject(value, encodingFor);
   }
 
   return null;

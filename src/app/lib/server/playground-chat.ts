@@ -15,6 +15,7 @@ import {
   unplacedImageInstruction,
 } from '@/lib/placeholder-audit';
 import { summarizeError } from '@/lib/error-summary';
+import { readCapabilities } from '@/lib/slot-capabilities';
 import { describeTurn, flagsFor, type TurnFacts, type TurnRetry } from '@/lib/turn-log';
 import { logAiEvent } from '@/lib/server/event-log';
 import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
@@ -418,7 +419,12 @@ async function runTool(
         id: c.id,
         title: c.title,
         group: c.group,
-        fields: summarizeFields(comp?.properties ?? null, values as Record<string, unknown> | null),
+        fields: summarizeFields(
+          comp?.properties ?? null,
+          values as Record<string, unknown> | null,
+          undefined,
+          readCapabilities(comp)
+        ),
       };
     });
   }
