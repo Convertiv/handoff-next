@@ -5,7 +5,12 @@ import { desc } from 'drizzle-orm';
 import * as fs from 'fs-extra';
 import matter from 'gray-matter';
 import { Types as CoreTypes } from 'handoff-core';
-import { groupBy, startCase, uniq } from 'lodash';
+// Per-path rather than named: lodash is CJS and Node's ESM lexer does not detect its named exports, so
+// `import { groupBy } from 'lodash'` throws outside a bundler. That blocked running a chat turn from a
+// plain tsx script, which is how prompt changes get tested without a deploy. Also tree-shakes better.
+import groupBy from 'lodash/groupBy';
+import startCase from 'lodash/startCase';
+import uniq from 'lodash/uniq';
 import path from 'path';
 import { ParsedUrlQuery } from 'querystring';
 import { getDb } from '../../lib/db';
