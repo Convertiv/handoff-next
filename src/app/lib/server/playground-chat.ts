@@ -303,11 +303,20 @@ async function buildBlocks(
    * a mistyped field name reads to the user as a silent lie.
    */
   rejectedFields: { componentId: string; unknown: string[]; available: string[] }[];
+  /**
+   * Values the merge refused — an invented image src, an out-of-enum theme.
+   *
+   * Returned rather than only logged. A live run invented three image srcs, had all three replaced with
+   * placeholders, was asked to try again, and proposed the same three: the retry never told it what had
+   * been rejected, so it had no reason to do anything different. Same shape as the unknown-key bug.
+   */
+  invalidValues: { componentId: string; problems: string[] }[];
 }> {
   const blocks: ProposedBlock[] = [];
   const problems: string[] = [];
   const gaps: { componentId: string; fields: string[] }[] = [];
   const rejectedFields: { componentId: string; unknown: string[]; available: string[] }[] = [];
+  const invalidValues: { componentId: string; problems: string[] }[] = [];
 
   for (const entry of raw) {
     const componentId = String(entry?.componentId ?? '').trim();
@@ -324,19 +333,22 @@ async function buildBlocks(
     // looking finished and isn't.
     const template = blankContentValues(scaffold.args, scaffold.fields);
     const values = (entry?.values ?? {}) as Record<string, unknown>;
-    const { args, unknownKeys, invalidValues, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
+    const { args, unknownKeys, invalidValues: invalid, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
     if (unknownKeys.length) {
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
       console.warn('[playground-chat] unknown fields on', componentId, unknownKeys.join(', '));
       rejectedFields.push({ componentId, unknown: unknownKeys, available: Object.keys(template) });
     }
-    if (invalidValues.length) console.warn('[playground-chat] rejected values on', componentId, invalidValues.join('; '));
+    if (invalid.length) {
+      console.warn('[playground-chat] rejected values on', componentId, invalid.join('; '));
+      invalidValues.push({ componentId, problems: invalid });
+    }
     if (unfilled.length) gaps.push({ componentId, fields: unfilled });
     blocks.push({ componentId, args });
   }
 
-  return { blocks, problems, gaps, rejectedFields };
+  return { blocks, problems, gaps, rejectedFields, invalidValues };
 }
 
 /**
@@ -693,6 +705,19 @@ export async function runPlaygroundChatTurn(args: {
   // Likewise: nudge once if images were requested but never written into a block.
   let askedToPlaceImages = false;
 
+  /**
+   * The last page we actually built, kept so a retry can never destroy it.
+   *
+   * Every guard that asks the model to try again is a chance for it to answer with prose instead, and
+   * then the turn ends with nothing to apply — a page that existed, was set aside to ask for one
+   * improvement, and never came back. That is not a hypothetical: reporting three rejected image srcs
+   * turned a working eight-block proposal into a reply claiming "no placeholders or broken links" and
+   * zero blocks.
+   *
+   * An imperfect page beats no page, so the fallback is unconditional.
+   */
+  let lastBuiltProposal: { blocks: ProposedBlock[]; rationale: string } | null = null;
+
   let roundsUsed = 0;
   let exhaustedTurn = false;
 
@@ -740,6 +765,16 @@ export async function runPlaygroundChatTurn(args: {
       // will happily narrate the page it intended ("Hero section uses a strong image…") as though it
       // exists. Same principle as the imagery note: state the truth alongside the claim rather than try
       // to police the wording.
+      // A page was built and a retry lost it. Return it rather than the prose that replaced it.
+      if (lastBuiltProposal) {
+        const salvaged = describeMissingImagery(findPlaceholderImages(lastBuiltProposal.blocks));
+        const salvagedReply = [content ?? '', salvaged].filter(Boolean).join('\n\n');
+        console.warn('[playground-chat] retry ended without a proposal; returning the page already built');
+        emit({ type: 'reply', content: salvagedReply });
+        emit({ type: 'proposal', blocks: lastBuiltProposal.blocks, rationale: lastBuiltProposal.rationale });
+        return finish({ reply: salvagedReply, proposal: lastBuiltProposal, toolsUsed });
+      }
+
       const nothingProposed = !toolsUsed.some(isPlacementTool) && toolsUsed.includes('list_blocks');
       const reply = [
         content ?? '',
@@ -873,7 +908,8 @@ export async function runPlaygroundChatTurn(args: {
       // catch that, and removing the possibility is better than policing it.
       if (call.name === 'propose_page') {
         const raw = Array.isArray(parsed.blocks) ? (parsed.blocks as { componentId?: unknown; values?: unknown }[]) : [];
-        const { blocks, problems, gaps } = await buildBlocks(raw, seenAssetSrcs);
+        const { blocks, problems, gaps, invalidValues } = await buildBlocks(raw, seenAssetSrcs);
+        if (blocks.length) lastBuiltProposal = { blocks, rationale: String(parsed.rationale ?? '') };
 
         // Ask once for the content it skipped. Templates are seeded from real previews, so an
         // unfilled field is not empty — it is somebody's sample copy, and shipping that produces a
@@ -912,6 +948,30 @@ export async function runPlaygroundChatTurn(args: {
             role: 'tool',
             tool_call_id: call.id,
             content: JSON.stringify({ incomplete: true, reason: imageGapInstruction(placeholders) }),
+          });
+          continue;
+        }
+
+        // Values the merge threw away — almost always an invented image src. Reported before the gap
+        // check because it is the more actionable failure: a model told only "these fields are empty"
+        // re-proposed the same three fabricated srcs and had them rejected again.
+        if (invalidValues.length && !askedForGaps) {
+          askedForGaps = true;
+          noteRetry('rejected-values');
+          console.log('[playground-chat] reporting rejected values', JSON.stringify(invalidValues));
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({
+              incomplete: true,
+              reason:
+                'Some values were rejected and replaced with placeholders. An image src must come from a ' +
+                '`search_assets` result — you cannot invent a path, and a made-up one renders as a broken ' +
+                'image. Either use a src a search actually returned, or leave the placeholder and say so ' +
+                'in your reply. Then call propose_page again.',
+              rejected: invalidValues,
+              ...(gaps.length ? { alsoEmpty: gaps } : {}),
+            }),
           });
           continue;
         }

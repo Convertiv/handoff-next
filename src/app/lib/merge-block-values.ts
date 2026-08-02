@@ -71,6 +71,20 @@ function rejectInventedImages(
 const CONTENT_EDITORS = ['text', 'richtext', 'string', 'slot', 'image', 'array'];
 
 /**
+ * Fields that are identifiers rather than copy, despite being typed as text.
+ *
+ * `anchor` appeared in all six entries of a live gap retry — the model was asked to "write real values"
+ * for six HTML anchor ids, which cost a whole round and fixed nothing. Nobody reads an anchor; leaving
+ * one empty is not an unfinished page.
+ *
+ * A name heuristic, and openly so: nothing in the declared metadata distinguishes an id from a heading,
+ * and inferring it from the value would misfire on any short single-word heading. The list is the
+ * conventional set rather than one registry's naming, and the cost of a wrong guess is small in both
+ * directions — a missed identifier is one noisy line, a missed heading is one unprompted field.
+ */
+const IDENTIFIER_FIELDS = /^(anchor|id|slug|key|ref|name|uid|htmlId|elementId)$/i;
+
+/**
  * A serialized React element, as component previews store slot values.
  *
  * `{ key, type, props, _owner, _store }` — a rendered tree, not authorable content. Treating one as a
@@ -456,6 +470,7 @@ export function mergeBlockValues(
     // `fromBase` means the value came from a real preview — i.e. it is somebody's sample content, not
     // a neutral default. A placeholder from the scaffold is equally unfinished.
     if (!CONTENT_EDITORS.includes(editor)) continue;
+    if (IDENTIFIER_FIELDS.test(key)) continue;
     unfilled.push(key);
 
     // Clear an unusable asset path outright. A broken image is worse than an absent one: it reads as
