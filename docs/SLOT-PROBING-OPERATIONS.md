@@ -69,6 +69,38 @@ if it ever shows up.
 catalog-wide rather than on one component, and the strongest possible argument for step 3 of the
 remediation: previews are seeded with a form nothing accepts.
 
+### Correction: coverage is 73%, not 84% — nested slots are unmeasured
+
+The 84% counted **top-level** slots only. Measured 2026-08-01 across the catalog:
+
+```
+top-level slots (probed)   132
+nested slots (NOT probed)   48
+components affected          27
+real coverage      132/180 = 73%
+```
+
+A nested slot is a `React.ReactNode` sitting **inside** a JSON-native container — `cards[].imageSlot`,
+`items[].bodySlot`, `slides[].mediaSlot`. The probe walks top-level props, so it never sees them, the
+editor renders raw slot HTML with no widget, and the model is told nothing about their shape.
+
+46 of the 48 are inside arrays and 2 inside objects, and the naming is strikingly uniform — `cards[]`,
+`items[]`, `slides[]`, `columns[]`, `tabs[]`, `questions[]`, `products[]`. Three variants exist beyond
+the common `array[].field` form: bare element arrays (`logoSlots[]`, `secondaryCardSlots[]`), an object
+container (`stacked-feature-cta.subCard.bodySlot`), and one double nesting
+(`timeline.items[].buttonSlots[]`).
+
+**This matters more than the count suggests.** Repeatable content — cards, items, slides — is where the
+body of a generated page lives. Heroes and CTAs are one slot each; a feature grid is six. So the
+unmeasured 27% is concentrated in exactly the part of a page the composer spends most of its output on,
+and it is why `image-gallery` could generate three images and place none of them.
+
+**The extension is contained.** Same candidates, same checks, a different injection point: build the
+container with one item, write the sentinel at `cards[0].imageSlot`, render, look. `writePath` already
+does path-based immutable writes. At ~4ms a render the extra cost is under two seconds for the whole
+catalog. The new work is enumerating the paths — derived from preview values the same way
+`describeJsonShape` derives item shapes — and handling the three variants above.
+
 ### The harness was two-thirds of the "unprobeable"
 
 The first run reported **58 empty slots (42%)**. Almost all of it was my own base-prop generation: every
