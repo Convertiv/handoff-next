@@ -7,6 +7,7 @@ import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { blankContentValues, mergeBlockValues, placeholderImageUrl, summarizeFields } from '@/lib/merge-block-values';
 import { formatExemplars } from '@/lib/page-exemplars';
 import { buildImagePrompt } from '@/lib/image-generation-request';
+import { describeMissingImagery, findPlaceholderImages, imageGapInstruction } from '@/lib/placeholder-audit';
 import { summarizeError } from '@/lib/error-summary';
 import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
@@ -521,9 +522,12 @@ values shaped exactly as the scaffold tells you.
 1. Ask ONE round of clarifying questions if the request is genuinely vague. One round only.
 2. \`list_blocks\` ONCE, with no arguments. That is the entire catalog with every block's fields. Read
    it and choose. Do NOT call it repeatedly for different sections.
-3. \`search_assets\` / \`search_icons\` only if the page needs imagery or icons. If the library has
-   nothing for a slot that really needs a picture, \`request_image\`.
-4. \`propose_page\` with all the blocks and your copy.
+3. **Fill the imagery before you propose.** Any block you picked with an image field needs a real
+   picture: \`search_assets\` for it, and \`request_image\` where the store has nothing suitable. Do this
+   as its own step — leaving it until \`propose_page\` means it does not happen, and a page of grey
+   boxes is the most common way a generated page looks unfinished.
+4. \`search_icons\` if the page needs icons.
+5. \`propose_page\` with all the blocks, your copy, and the srcs those tools returned.
 
 You do not need to inspect a block before using it — the fields listed by \`list_blocks\` are all you
 need, and the server applies your values to the block's real shape. Write copy, not structure.
@@ -563,7 +567,11 @@ middle. Never set the same background on every block.
 ## Copy
 Write real copy, not placeholders. It must obey the brand voice below.
 ${brandVoice ? `\n### Brand voice\n${brandVoice.slice(0, 4000)}\n` : ''}${designMd ? `\n### Design guidelines\n${designMd.slice(0, 2000)}\n` : ''}
-Keep replies short. The user is watching a page get built, not reading an essay.`;
+Keep replies short. The user is watching a page get built, not reading an essay.
+
+**Describe only what you actually did.** If image slots are still on placeholders, say so — "I left the
+gallery images empty, ask me to generate them" is useful. Claiming imagery you did not add is worse than
+leaving an obvious gap, because the gap is visible and the claim is not.`;
 }
 
 export async function runPlaygroundChatTurn(args: {
@@ -608,6 +616,8 @@ export async function runPlaygroundChatTurn(args: {
   };
   // One retry only; see the gap handler below.
   let askedForGaps = false;
+  // Likewise one-shot: ask once for imagery the composition left on placeholders.
+  let askedForImages = false;
   // Likewise: nudge once if images were requested but never written into a block.
   let askedToPlaceImages = false;
 
@@ -757,6 +767,21 @@ export async function runPlaygroundChatTurn(args: {
         // unfilled field is not empty — it is somebody's sample copy, and shipping that produces a
         // page that looks finished and is not. Once only: a second ask rarely helps and the honest
         // fallback is a visibly incomplete page rather than a plausible fake one.
+        // Imagery first, and phrased for imagery. The generic gap retry says "write real values", which
+        // is not a thing you can do for an image — so a page asking for "good images of students" came
+        // back with none, and the model reported "real student imagery" anyway.
+        const placeholders = findPlaceholderImages(blocks);
+        if (placeholders.length && !askedForImages) {
+          askedForImages = true;
+          console.log('[playground-chat] asking for imagery', JSON.stringify(placeholders));
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({ incomplete: true, reason: imageGapInstruction(placeholders) }),
+          });
+          continue;
+        }
+
         if (gaps.length && !askedForGaps) {
           askedForGaps = true;
           console.log('[playground-chat] asking for unfilled content', JSON.stringify(gaps));
@@ -791,7 +816,10 @@ export async function runPlaygroundChatTurn(args: {
         }
 
         const rationale = String(parsed.rationale ?? '');
-        const reply = content ?? rationale ?? 'Here is the page.';
+        // Appended, not substituted. The model's prose may be accurate, vague, or an outright claim of
+        // imagery it never added — this makes the real state visible without trying to police wording.
+        const missingImagery = describeMissingImagery(findPlaceholderImages(blocks));
+        const reply = [content ?? rationale ?? 'Here is the page.', missingImagery].filter(Boolean).join('\n\n');
         emit({ type: 'reply', content: reply });
         emit({ type: 'proposal', blocks, rationale });
         return finish({ reply, proposal: { blocks, rationale }, toolsUsed });
