@@ -51,11 +51,28 @@ export function isReadableTextFile(name: string): boolean {
   return SOURCE_COPY_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
-/** The message shown when a file cannot be read, naming what would work. */
+/**
+ * The message shown when a file cannot be read, naming what would work.
+ *
+ * `.docx` is converted now, so it is not here. `.doc` is: that is the old binary format, mammoth does
+ * not read it, and "Word documents work" would be a half-truth that sends someone round a loop.
+ */
 export function unreadableFileMessage(name: string): string {
   const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')).toLowerCase() : '';
-  const kind = ext === '.docx' || ext === '.doc' ? 'Word documents' : ext === '.pdf' ? 'PDFs' : `${ext || 'That format'} files`;
-  return `${kind} can't be read yet — open it and paste the copy in instead. Text, Markdown and CSV files work.`;
+  // `.docx` is supported, so reaching here with one means the conversion itself failed — most often a
+  // password-protected or corrupt file, which is common enough in a client handoff to name. Saying
+  // ".docx files can't be read" while also saying "Word (.docx) works" is the contradiction to avoid.
+  if (ext === '.docx') {
+    return "That Word document couldn't be read — it may be password-protected or corrupt. Open it and paste the copy in instead.";
+  }
+
+  const kind =
+    ext === '.doc'
+      ? "The older .doc format can't be read"
+      : ext === '.pdf'
+        ? "PDFs can't be read yet"
+        : `${ext || 'That format'} files can't be read`;
+  return `${kind} — open it and paste the copy in instead. Word (.docx), text, Markdown and CSV files work.`;
 }
 
 /**

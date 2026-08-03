@@ -7,6 +7,7 @@ import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
+import { DOCX_EXTENSIONS, docxToSourceCopy, isConvertibleDocument } from '@/lib/docx-copy';
 import {
   SOURCE_COPY_EXTENSIONS,
   countWords,
@@ -300,12 +301,22 @@ export default function AiChatPanel() {
    */
   const readCopyFile = async (file: File | null | undefined) => {
     if (!file) return;
-    if (!isReadableTextFile(file.name)) {
+    if (!isReadableTextFile(file.name) && !isConvertibleDocument(file.name)) {
       setError(unreadableFileMessage(file.name));
       return;
     }
     try {
-      const text = await file.text();
+      // Word goes through mammoth, which is dynamically imported so its ~2MB is not in the bundle for
+      // everyone who never opens one. Converted to headings and lists rather than flat text, because
+      // the framing asks the model to put *supplied headings* into matching fields and a flat dump
+      // destroys that distinction.
+      const text = isConvertibleDocument(file.name)
+        ? await docxToSourceCopy(await file.arrayBuffer())
+        : await file.text();
+      if (!text.trim()) {
+        setError(`${file.name} had no text in it — if it is a scan or all images, paste the copy instead.`);
+        return;
+      }
       setError(null);
       setCopySource(file.name);
       // Appended, so dropping a second file adds to the first instead of quietly replacing it.
@@ -835,7 +846,7 @@ export default function AiChatPanel() {
       >
         {dragging ? (
           <p className="rounded-md border border-dashed border-primary/60 px-2.5 py-1.5 text-[11px] text-primary">
-            Drop a text, Markdown or CSV file to add its copy
+            Drop a Word, text, Markdown or CSV file to add its copy
           </p>
         ) : null}
 
@@ -869,7 +880,7 @@ export default function AiChatPanel() {
               <label className="cursor-pointer text-[11px] text-muted-foreground transition-colors hover:text-foreground">
                 <input
                   type="file"
-                  accept={SOURCE_COPY_EXTENSIONS.join(',')}
+                  accept={[...SOURCE_COPY_EXTENSIONS, ...DOCX_EXTENSIONS].join(',')}
                   className="hidden"
                   disabled={busy}
                   onChange={(e) => {

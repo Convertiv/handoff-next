@@ -90,9 +90,9 @@ describe('isReadableTextFile', () => {
     }
   });
 
-  it('refuses binary formats that would decode to noise', () => {
-    // Judged by extension, not MIME type: a .docx arrives as a plausible `application/…` and would be
-    // sent to the model as if it were copy.
+  it('refuses binary formats, including .docx — that goes through the converter, not here', () => {
+    // Judged by extension, not MIME type: a .docx arrives as a plausible `application/…` and reading it
+    // as text would decode to binary noise and send it to the model as if it were copy.
     for (const name of ['deck.docx', 'brief.pdf', 'logo.png', 'sheet.xlsx', 'noextension']) {
       assert.ok(!isReadableTextFile(name), name);
     }
@@ -101,10 +101,24 @@ describe('isReadableTextFile', () => {
 
 describe('unreadableFileMessage', () => {
   it('names the format and what to do instead', () => {
-    assert.match(unreadableFileMessage('deck.docx'), /Word documents can't be read yet/);
-    assert.match(unreadableFileMessage('deck.docx'), /paste the copy in instead/);
-    assert.match(unreadableFileMessage('brief.pdf'), /PDFs/);
+    assert.match(unreadableFileMessage('brief.pdf'), /PDFs can't be read yet/);
+    assert.match(unreadableFileMessage('brief.pdf'), /paste the copy in instead/);
     assert.match(unreadableFileMessage('thing.xlsx'), /\.xlsx files/);
+    assert.match(unreadableFileMessage('thing.xlsx'), /Word \(\.docx\), text, Markdown and CSV files work/);
+  });
+
+  it('distinguishes .doc from .docx, which is supported', () => {
+    // Claiming "Word documents work" and then failing on the old binary format sends someone round a
+    // loop, so the legacy format gets named specifically.
+    assert.match(unreadableFileMessage('legacy.doc'), /older \.doc format/);
+  });
+
+  it('does not contradict itself for a .docx that failed to convert', () => {
+    // `.docx` is supported, so getting here means the conversion failed — a password-protected file
+    // most often. The message used to read ".docx files can't be read … Word (.docx) works".
+    const message = unreadableFileMessage('deck.docx');
+    assert.match(message, /password-protected or corrupt/);
+    assert.ok(!/\.docx\) .*work/.test(message), 'must not claim .docx works while refusing one');
   });
 
   it('copes with a file that has no extension', () => {
