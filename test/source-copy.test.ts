@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
 import {
+  SOURCE_COPY_ACCEPT,
   SOURCE_COPY_MAX_CHARS,
   countWords,
   frameSourceCopy,
@@ -96,6 +97,39 @@ describe('isReadableTextFile', () => {
     for (const name of ['deck.docx', 'brief.pdf', 'logo.png', 'sheet.xlsx', 'noextension']) {
       assert.ok(!isReadableTextFile(name), name);
     }
+  });
+});
+
+/**
+ * The first report of this feature was "she can't select a docx" against a deployed build whose picker
+ * already listed `.docx`. Extensions alone are what the JS checks; `accept` is a hint to the OS dialog,
+ * and an extension-only list is where dialogs get selective about greying files out.
+ */
+describe('SOURCE_COPY_ACCEPT', () => {
+  it('offers every supported extension', () => {
+    for (const ext of ['.txt', '.md', '.markdown', '.csv', '.tsv', '.rtf', '.docx']) {
+      assert.ok(SOURCE_COPY_ACCEPT.includes(ext), ext);
+    }
+  });
+
+  it('also offers MIME types, so a dialog can match on either', () => {
+    assert.ok(SOURCE_COPY_ACCEPT.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document'));
+    assert.ok(SOURCE_COPY_ACCEPT.includes('text/plain'));
+  });
+
+  it('stays a valid accept list — comma separated, no spaces or empties', () => {
+    const parts = SOURCE_COPY_ACCEPT.split(',');
+    assert.ok(parts.length > 6);
+    for (const part of parts) {
+      assert.equal(part, part.trim(), `"${part}" has whitespace`);
+      assert.ok(part.length, 'no empty entries');
+    }
+  });
+
+  it('does not widen what is actually accepted — the extension gates still decide', () => {
+    // A dialog offering a .doc or .pdf is harmless; both are refused after selection, with a message.
+    assert.ok(!isReadableTextFile('legacy.doc'));
+    assert.ok(!isReadableTextFile('brief.pdf'));
   });
 });
 

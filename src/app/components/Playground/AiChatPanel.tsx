@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FileText, Link2, Loader2, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { FileText, Link2, Loader2, Paperclip, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
-import { DOCX_EXTENSIONS, docxToSourceCopy, isConvertibleDocument } from '@/lib/docx-copy';
+import { docxToSourceCopy, isConvertibleDocument } from '@/lib/docx-copy';
 import {
-  SOURCE_COPY_EXTENSIONS,
+  SOURCE_COPY_ACCEPT,
   countWords,
   frameSourceCopy,
   isReadableTextFile,
@@ -877,10 +877,19 @@ export default function AiChatPanel() {
               >
                 Use this copy
               </Button>
-              <label className="cursor-pointer text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+              {/* A button, not 11px grey text. The first report of this feature was "she can't select a
+                  docx" against a build that shipped `.docx` in the picker's accept list — so the more
+                  likely reading is that the control was never found: it only exists once the paste panel
+                  is open, and it looked like a footnote next to the primary action. */}
+              <label
+                className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors hover:bg-muted aria-disabled:opacity-50"
+                aria-disabled={busy}
+              >
+                <Paperclip className="h-3 w-3" />
+                Attach a file
                 <input
                   type="file"
-                  accept={[...SOURCE_COPY_EXTENSIONS, ...DOCX_EXTENSIONS].join(',')}
+                  accept={SOURCE_COPY_ACCEPT}
                   className="hidden"
                   disabled={busy}
                   onChange={(e) => {
@@ -889,7 +898,6 @@ export default function AiChatPanel() {
                     e.target.value = '';
                   }}
                 />
-                or attach a file
               </label>
               <span className="ml-auto text-[11px] text-muted-foreground">
                 {copySource ? `${copySource} · ` : ''}
@@ -943,7 +951,7 @@ export default function AiChatPanel() {
             className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
           >
             <FileText className="h-3 w-3" />
-            Paste or attach your copy
+            Paste or attach your copy (Word, text, Markdown, CSV)
           </button>
         ) : null}
         <ChatInput onSend={(t) => void send(t)} disabled={busy} />

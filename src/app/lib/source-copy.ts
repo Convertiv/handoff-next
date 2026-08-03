@@ -16,6 +16,33 @@
 export const SOURCE_COPY_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.tsv', '.rtf'] as const;
 
 /**
+ * The `accept` attribute for the file picker — extensions **and** MIME types.
+ *
+ * Extensions alone are what the code shipped with, and they are what the JS checks against, because a
+ * browser's reported MIME type for `.md` is unreliable. But `accept` is a different job: it is a hint to
+ * the OS file dialog, and an extension-only list is where dialogs get selective about greying files out
+ * — Safari on macOS especially. Giving both means the dialog can match on either.
+ *
+ * Widening `accept` cannot let anything unsafe through: `isReadableTextFile` and `isConvertibleDocument`
+ * still gate on extension after the file is chosen, and a dropped file never consults this at all.
+ */
+export const SOURCE_COPY_ACCEPT = [
+  '.txt',
+  '.md',
+  '.markdown',
+  '.csv',
+  '.tsv',
+  '.rtf',
+  '.docx',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+  'text/tab-separated-values',
+  'application/rtf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+].join(',');
+
+/**
  * Roughly a novel chapter.
  *
  * A limit exists because the transcript is replayed on every round of the tool loop — a turn that
