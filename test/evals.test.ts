@@ -169,7 +169,14 @@ describe('summarize', () => {
   });
 
   it('handles zero runs without dividing by nothing', () => {
-    assert.deepEqual(summarize('c', []), { caseId: 'c', runs: 0, passed: 0, failures: {}, medianSeconds: 0 });
+    assert.deepEqual(summarize('c', []), {
+      caseId: 'c',
+      runs: 0,
+      passed: 0,
+      failures: {},
+      signals: {},
+      medianSeconds: 0,
+    });
   });
 });
 

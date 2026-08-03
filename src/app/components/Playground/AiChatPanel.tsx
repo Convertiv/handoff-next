@@ -1,12 +1,19 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Link2, Loader2, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { FileText, Link2, Loader2, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
+import {
+  SOURCE_COPY_EXTENSIONS,
+  countWords,
+  frameSourceCopy,
+  isReadableTextFile,
+  unreadableFileMessage,
+} from '@/lib/source-copy';
 import { applyOps, describeOp, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { applyResolvedImages, containsImageSrc, swapImageSrc, type ResolvedImage } from '@/lib/swap-image-src';
 import { pollGenerationJob } from '@/lib/client/poll-generation-job';
@@ -85,6 +92,11 @@ export default function AiChatPanel() {
   const abortRef = useRef<AbortController | null>(null);
   const [urlOpen, setUrlOpen] = useState(false);
   const [url, setUrl] = useState('');
+  /** The "paste your copy" panel: open state, the text, and the filename when it came from a drop. */
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyText, setCopyText] = useState('');
+  const [copySource, setCopySource] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Serializes canvas writes from image watchers — see `watchImage`. */
   const swapQueue = useRef<Promise<void>>(Promise.resolve());
@@ -259,6 +271,48 @@ export default function AiChatPanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not read that page.');
       setBusy(false);
+    }
+  };
+
+  /**
+   * Send a block of copy the user supplied as source material for the page.
+   *
+   * Goes through the same door as the URL pull: the model gets the whole thing framed as material to
+   * work *from*, and the transcript shows a word count instead of the copy. Pasting into the ordinary
+   * chat box does not do this — a user turn is an instruction, so twelve paragraphs of approved copy get
+   * read as a brief and come back paraphrased into headlines nobody signed off.
+   */
+  const sendSourceCopy = async () => {
+    const framed = frameSourceCopy(copyText, copySource ?? undefined);
+    if (!framed || busy) return;
+    setCopyText('');
+    setCopySource(null);
+    setCopyOpen(false);
+    setError(framed.truncated ? 'That copy was very long — the first ~40,000 characters were sent.' : null);
+    await send(framed.content, framed.label);
+  };
+
+  /**
+   * Read a dropped or chosen file into the copy box, rather than sending it straight off.
+   *
+   * Into the box on purpose: the file may be a whole content doc when only one section is wanted, and
+   * seeing it before it goes is the difference between supplying copy and supplying a wall of it.
+   */
+  const readCopyFile = async (file: File | null | undefined) => {
+    if (!file) return;
+    if (!isReadableTextFile(file.name)) {
+      setError(unreadableFileMessage(file.name));
+      return;
+    }
+    try {
+      const text = await file.text();
+      setError(null);
+      setCopySource(file.name);
+      // Appended, so dropping a second file adds to the first instead of quietly replacing it.
+      setCopyText((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
+      setCopyOpen(true);
+    } catch {
+      setError(`Could not read ${file.name}.`);
     }
   };
 
@@ -761,7 +815,86 @@ export default function AiChatPanel() {
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </div>
 
-      <div className="space-y-2 border-t p-3">
+      <div
+        className="space-y-2 border-t p-3"
+        // Drop anywhere in the footer, not on a 20px target. The affordance is the button; this is for
+        // the person who already has the file in hand and drags it at the chat.
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('Files')) {
+            e.preventDefault();
+            setDragging(true);
+          }
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          if (!e.dataTransfer.files.length) return;
+          e.preventDefault();
+          setDragging(false);
+          void readCopyFile(e.dataTransfer.files[0]);
+        }}
+      >
+        {dragging ? (
+          <p className="rounded-md border border-dashed border-primary/60 px-2.5 py-1.5 text-[11px] text-primary">
+            Drop a text, Markdown or CSV file to add its copy
+          </p>
+        ) : null}
+
+        {copyOpen ? (
+          <div className="space-y-1.5">
+            <textarea
+              value={copyText}
+              onChange={(e) => setCopyText(e.target.value)}
+              onKeyDown={(e) => {
+                // Cmd/Ctrl+Enter sends. Plain Enter must insert a newline — this is a paste target for
+                // multi-paragraph copy, and submitting on Enter would make it unusable.
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void sendSourceCopy();
+                if (e.key === 'Escape') setCopyOpen(false);
+              }}
+              placeholder="Paste your copy — headings, body, CTAs. It will be used as the words for the page, not rewritten."
+              disabled={busy}
+              autoFocus
+              rows={8}
+              className="w-full resize-y rounded-md border bg-background px-2.5 py-1.5 text-xs leading-relaxed"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 shrink-0 text-xs"
+                disabled={busy || !copyText.trim()}
+                onClick={() => void sendSourceCopy()}
+              >
+                Use this copy
+              </Button>
+              <label className="cursor-pointer text-[11px] text-muted-foreground transition-colors hover:text-foreground">
+                <input
+                  type="file"
+                  accept={SOURCE_COPY_EXTENSIONS.join(',')}
+                  className="hidden"
+                  disabled={busy}
+                  onChange={(e) => {
+                    void readCopyFile(e.target.files?.[0]);
+                    // Cleared so choosing the same file twice fires onChange again.
+                    e.target.value = '';
+                  }}
+                />
+                or attach a file
+              </label>
+              <span className="ml-auto text-[11px] text-muted-foreground">
+                {copySource ? `${copySource} · ` : ''}
+                {copyText.trim() ? `${countWords(copyText).toLocaleString()} words` : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCopyOpen(false)}
+                className="text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         {urlOpen ? (
           <div className="flex gap-1.5">
             <input
@@ -791,6 +924,17 @@ export default function AiChatPanel() {
             Pull content from a URL
           </button>
         )}
+        {!copyOpen && !urlOpen ? (
+          <button
+            type="button"
+            onClick={() => setCopyOpen(true)}
+            disabled={busy}
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            <FileText className="h-3 w-3" />
+            Paste or attach your copy
+          </button>
+        ) : null}
         <ChatInput onSend={(t) => void send(t)} disabled={busy} />
       </div>
     </div>
