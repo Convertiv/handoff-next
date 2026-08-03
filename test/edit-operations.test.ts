@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { applyOps, describeOp, verifyOps, type EditOp, type PageBlock } from '../src/app/lib/edit-operations';
+import { applyOps, describeOp, describeOpVisually, type EditOp, type PageBlock, verifyOps } from '../src/app/lib/edit-operations';
 
 const page = (): PageBlock[] => [
   { componentId: 'header', args: {} },
@@ -131,5 +131,52 @@ describe('describeOp', () => {
 
   it('counts positions from one, since block 0 means nothing to a person', () => {
     assert.match(describeOp({ op: 'remove', index: 0, expect: 'header' }), /Remove block 1/);
+  });
+});
+
+/**
+ * "For any sort of component swaps, can you preview at all or just have to accept to see changes?"
+ *
+ * The answer was accept-to-see: a fresh proposal renders a thumbnail per block, a changeset rendered one
+ * line of text per op. The operation where seeing the result matters most had nothing to look at.
+ */
+describe('describeOpVisually', () => {
+  it('gives a swap both components, so the pictures answer "is this right"', () => {
+    const v = describeOpVisually({ op: 'replace', index: 2, expect: 'hero-split', componentId: 'content-split', values: {} });
+    assert.deepEqual(v, { action: 'Swap', position: 3, before: 'hero-split', after: 'content-split' });
+  });
+
+  it('gives an update its field list and no incoming component', () => {
+    // The block is the same block; a thumbnail would say nothing. What changed is the fields.
+    const v = describeOpVisually({ op: 'update', index: 0, expect: 'hero-background', values: { titleSlot: 'x', bodySlot: 'y' } });
+    assert.deepEqual(v.fields, ['titleSlot', 'bodySlot']);
+    assert.equal(v.after, undefined);
+    assert.equal(v.before, 'hero-background');
+  });
+
+  it('gives an insert only the arriving component', () => {
+    const v = describeOpVisually({ op: 'insert', index: 4, componentId: 'stats', values: {} });
+    assert.equal(v.after, 'stats');
+    assert.equal(v.before, undefined);
+    assert.equal(v.position, 5);
+  });
+
+  it('gives a remove only the departing one', () => {
+    const v = describeOpVisually({ op: 'remove', index: 1, expect: 'faq' });
+    assert.equal(v.before, 'faq');
+    assert.equal(v.after, undefined);
+  });
+
+  it('reports 1-based positions, matching what the chat showed the user', () => {
+    // Ops are zero-based on the wire; every number a person has seen is one-based. Mixing them is how
+    // an edit lands on the wrong block.
+    for (const index of [0, 1, 7]) {
+      assert.equal(describeOpVisually({ op: 'remove', index, expect: 'x' }).position, index + 1);
+    }
+  });
+
+  it('has an empty field list rather than undefined for an update that names none', () => {
+    // Such an update is rejected upstream, but the card must not crash rendering one.
+    assert.deepEqual(describeOpVisually({ op: 'update', index: 0, expect: 'x', values: {} }).fields, []);
   });
 });

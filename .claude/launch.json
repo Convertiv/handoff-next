@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "registry",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "--port", "3123"],
+      "cwd": "src/app",
+      "port": 3123
+    }
+  ]
+}

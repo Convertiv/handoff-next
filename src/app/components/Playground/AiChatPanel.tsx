@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FileText, Link2, Loader2, Paperclip, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { ArrowRight, FileText, Link2, Loader2, Paperclip, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
@@ -15,7 +15,7 @@ import {
   isReadableTextFile,
   unreadableFileMessage,
 } from '@/lib/source-copy';
-import { applyOps, describeOp, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
+import { applyOps, describeOpVisually, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { applyResolvedImages, containsImageSrc, swapImageSrc, type ResolvedImage } from '@/lib/swap-image-src';
 import { pollGenerationJob } from '@/lib/client/poll-generation-job';
 import { usePlayground } from './PlaygroundContext';
@@ -91,7 +91,17 @@ interface Proposal {
 }
 
 export default function AiChatPanel() {
-  const { bulkAddComponents, selectedComponents } = usePlayground();
+  const { bulkAddComponents, selectedComponents, components } = usePlayground();
+
+  /**
+   * A component's human title, falling back to its id.
+   *
+   * The changeset showed raw ids — `hero-split → content-split`. Monica reported the component type
+   * looking wrong on a swap twice; whether or not the model picked wrongly, two hyphenated slugs are not
+   * something a designer can check a swap against. The catalog is already loaded for the picker.
+   */
+  const titleFor = (componentId: string) =>
+    components.find((c) => c.id === componentId)?.title || componentId;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +114,16 @@ export default function AiChatPanel() {
   const [copyText, setCopyText] = useState('');
   const [copySource, setCopySource] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  /**
+   * The hidden file input, clicked by a real button.
+   *
+   * A `<label>` wrapping a hidden input looks identical and is not a control: it never appears in the
+   * accessibility tree and cannot be reached by keyboard. Reading the rendered page is what caught it —
+   * the panel's textarea, "Use this copy" and "Cancel" were all listed and the attach control simply was
+   * not there. For a feature whose first bug report was "she can't select a docx", shipping a second
+   * version that is invisible to half the ways people navigate would be the same mistake twice.
+   */
+  const copyFileRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Serializes canvas writes from image watchers — see `watchImage`. */
   const swapQueue = useRef<Promise<void>>(Promise.resolve());
@@ -655,12 +675,48 @@ export default function AiChatPanel() {
                   <p className="text-xs font-medium">
                     {m.changeset.ops.length} change{m.changeset.ops.length === 1 ? '' : 's'}
                   </p>
-                  <ul className="mt-1.5 space-y-0.5">
-                    {m.changeset.ops.map((op, oi) => (
-                      <li key={oi} className="text-xs text-muted-foreground">
-                        {describeOp(op)}
-                      </li>
-                    ))}
+                  {/* Thumbnails, not just a line of text. A swap is the one op where seeing the result
+                      matters most, and it was the one with nothing to look at — the answer to "can you
+                      preview at all" was no. The schematic is the same one the proposal card and the
+                      picker use, so a block looks the same wherever it appears. */}
+                  <ul className="mt-2 space-y-1.5">
+                    {m.changeset.ops.map((op, oi) => {
+                      const v = describeOpVisually(op);
+                      return (
+                        <li key={oi} className="flex items-center gap-2 rounded-md border bg-background/60 p-1.5">
+                          <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">
+                            {v.action} {v.position}
+                          </span>
+                          {v.before ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={componentThumbnailUrl(v.before)}
+                              alt=""
+                              className={`h-8 w-12 shrink-0 rounded border bg-background object-cover ${
+                                v.after ? 'opacity-50' : ''
+                              }`}
+                              loading="lazy"
+                            />
+                          ) : null}
+                          {v.before && v.after ? (
+                            <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          ) : null}
+                          {v.after ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={componentThumbnailUrl(v.after)}
+                              alt=""
+                              className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
+                              loading="lazy"
+                            />
+                          ) : null}
+                          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                            {v.after ? titleFor(v.after) : titleFor(v.before ?? '')}
+                            {v.fields?.length ? ` — ${v.fields.join(', ')}` : ''}
+                          </span>
+                        </li>
+                      );
+                    })}
                   </ul>
 
                   {/* Rejections are shown, not swallowed: an edit that did not land is something the
@@ -741,7 +797,7 @@ export default function AiChatPanel() {
                               loading="lazy"
                             />
                             <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                              {bi + 1}. {b.componentId}
+                              {bi + 1}. {titleFor(b.componentId)}
                             </span>
                             {m.proposal!.applied ? null : (
                               <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
@@ -889,7 +945,9 @@ export default function AiChatPanel() {
               rows={8}
               className="w-full resize-y rounded-md border bg-background px-2.5 py-1.5 text-xs leading-relaxed"
             />
-            <div className="flex items-center gap-2">
+            {/* Wraps defensively: three controls plus a filename and a word count is more than this
+                panel's width comfortably holds once a long filename is in play. */}
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 size="sm"
@@ -899,29 +957,34 @@ export default function AiChatPanel() {
               >
                 Use this copy
               </Button>
-              {/* A button, not 11px grey text. The first report of this feature was "she can't select a
-                  docx" against a build that shipped `.docx` in the picker's accept list — so the more
-                  likely reading is that the control was never found: it only exists once the paste panel
-                  is open, and it looked like a footnote next to the primary action. */}
-              <label
-                className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 text-xs transition-colors hover:bg-muted aria-disabled:opacity-50"
-                aria-disabled={busy}
+              {/* A real button, not 11px grey text and not a label. The first report of this feature was
+                  "she can't select a docx" against a build that already shipped `.docx` in the picker —
+                  so the likelier reading is that the control was never found: it only existed once the
+                  paste panel was open, and it looked like a footnote beside the primary action. */}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 shrink-0 gap-1.5 text-xs"
+                disabled={busy}
+                onClick={() => copyFileRef.current?.click()}
               >
                 <Paperclip className="h-3 w-3" />
                 Attach a file
-                <input
-                  type="file"
-                  accept={SOURCE_COPY_ACCEPT}
-                  className="hidden"
-                  disabled={busy}
-                  onChange={(e) => {
-                    void readCopyFile(e.target.files?.[0]);
-                    // Cleared so choosing the same file twice fires onChange again.
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-              <span className="ml-auto text-[11px] text-muted-foreground">
+              </Button>
+              <input
+                ref={copyFileRef}
+                type="file"
+                accept={SOURCE_COPY_ACCEPT}
+                className="hidden"
+                tabIndex={-1}
+                onChange={(e) => {
+                  void readCopyFile(e.target.files?.[0]);
+                  // Cleared so choosing the same file twice fires onChange again.
+                  e.target.value = '';
+                }}
+              />
+              <span className="ml-auto min-w-0 truncate text-[11px] text-muted-foreground">
                 {copySource ? `${copySource} · ` : ''}
                 {copyText.trim() ? `${countWords(copyText).toLocaleString()} words` : ''}
               </span>

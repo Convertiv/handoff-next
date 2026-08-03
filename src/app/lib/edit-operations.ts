@@ -127,3 +127,44 @@ export function applyOps(blocks: PageBlock[], ops: EditOp[]): PageBlock[] {
 
   return out;
 }
+
+/**
+ * What a changeset row should *show*, as opposed to what it says.
+ *
+ * "For any sort of component swaps, can you preview at all or just have to accept to see changes?" —
+ * and the answer was accept-to-see. A fresh proposal renders a schematic thumbnail per block; a
+ * changeset rendered one line of text per op. So the one operation where seeing the result matters most
+ * — replacing a block with a different component — was the one with nothing to look at.
+ *
+ * Returned as data rather than markup so the decision is testable and the card stays dumb. `describeOp`
+ * is kept: a text summary is still what a log line and a screen reader want.
+ */
+export interface OpVisual {
+  /** Verb phrase for the row, in words rather than an op name. */
+  action: string;
+  /** 1-based, matching what the chat showed the user. */
+  position: number;
+  /** The component being displaced — `remove`, and the outgoing half of a `replace`. */
+  before?: string;
+  /** The component arriving — `insert`, and the incoming half of a `replace`. */
+  after?: string;
+  /** Fields an `update` touches. The identity is unchanged, so the thumbnail would say nothing. */
+  fields?: string[];
+}
+
+export function describeOpVisually(op: EditOp): OpVisual {
+  const position = op.index + 1;
+  switch (op.op) {
+    case 'update':
+      // No thumbnail: the block is the same block. What changed is the field list, so that is the row.
+      return { action: 'Update', position, before: op.expect, fields: Object.keys(op.values) };
+    case 'replace':
+      // Both halves, because "is this the right component" is answerable from the pictures and not from
+      // two hyphenated ids. Monica reported the component type looking wrong on a swap twice.
+      return { action: 'Swap', position, before: op.expect, after: op.componentId };
+    case 'insert':
+      return { action: 'Insert', position, after: op.componentId };
+    case 'remove':
+      return { action: 'Remove', position, before: op.expect };
+  }
+}
