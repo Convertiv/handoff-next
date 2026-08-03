@@ -17,6 +17,7 @@ import {
   unplacedImageInstruction,
 } from '@/lib/placeholder-audit';
 import { summarizeError } from '@/lib/error-summary';
+import { packToBudget, purposeLine, truncationNote } from '@/lib/tool-payload';
 import { readCapabilities } from '@/lib/slot-capabilities';
 import { describeTurn, flagsFor, type TurnFacts, type TurnRetry } from '@/lib/turn-log';
 import { logAiEvent } from '@/lib/server/event-log';
@@ -151,15 +152,37 @@ const TOOLS: OpenAiTool[] = [
     function: {
       name: 'list_blocks',
       description:
-        'The block catalog: every block, with its group and its editable fields. Call this ONCE, with ' +
-        'no arguments, and choose from the result. Do not search section by section — the whole ' +
-        'catalog is small enough to read in one go, and searching per section is how you run out of ' +
-        'steps before proposing anything.',
+        'The block catalog for CHOOSING: every block, with its group and one line on what it is for. ' +
+        'Call this ONCE with no arguments and pick from the result — the whole catalog fits in one ' +
+        'response. It does not include field names; call describe_blocks for the blocks you decide to ' +
+        'use. Read the `use` line before choosing: several blocks hold copy and they are not ' +
+        'interchangeable.',
       parameters: {
         type: 'object',
         properties: {
           group: { type: 'string', description: 'Optional. Omit to see everything, which is usually right.' },
         },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'describe_blocks',
+      description:
+        'The editable fields of specific blocks, with the shape each field takes. Call this once for ' +
+        'every block you intend to use, in a single call, after choosing from list_blocks and before ' +
+        'proposing. Authoring without it means guessing field names, and a guessed field is dropped.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ids: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'The block ids you are going to use, all of them in one call.',
+          },
+        },
+        required: ['ids'],
       },
     },
   },
@@ -416,6 +439,17 @@ async function buildBlocks(
  */
 const MAX_GENERATED_IMAGES_PER_TURN = 3;
 
+/**
+ * Budgets for the two catalog tools, both comfortably under the 24,000-character tool-result cap.
+ *
+ * Headroom on purpose: the cap is applied by slicing the serialized JSON, so a payload that reaches it
+ * is not merely trimmed but malformed. Staying clear of it means the slice never fires.
+ */
+const LIST_BLOCKS_BUDGET = 20_000;
+const DESCRIBE_BLOCKS_BUDGET = 18_000;
+/** Enough for a whole page's worth of blocks in one call, not the whole catalog. */
+const MAX_DESCRIBED_BLOCKS = 12;
+
 /** The tools that actually change the page. Requesting an image is not one of them. */
 function isPlacementTool(name: string): boolean {
   return name === 'propose_edits' || name === 'propose_page';
@@ -465,29 +499,93 @@ async function runTool(
     const group = typeof args.group === 'string' ? args.group.toLowerCase().trim() : '';
     let list = await provider.getComponents();
     if (group) list = list.filter((c) => (c.group || '').toLowerCase() === group);
-    // The whole catalog with field summaries, in one response. Roughly a line per block — cheap enough
-    // that the model never needs to search section by section, which is what exhausted the loop before.
-    return list.map((c) => {
+
+    /**
+     * Selection, not authoring. Id, title, group and one line on what the block is *for*.
+     *
+     * This carried a field summary per component and came to 32,270 characters against a 24,000 cap
+     * applied by slicing the serialized string — so 16 of 77 components silently never arrived, the last
+     * of them alphabetically after `simple-copy`, and the payload was invalid JSON. A ten-section brief
+     * came back as six consecutive `simple-copy` blocks because the alternatives were not in the list.
+     *
+     * The purpose line is the other half. The registry has held an authored description for every block
+     * all along and this sent none of it, so the model chose from ids and field names — and
+     * `simple-copy`, whose own guidance says "legal pages, terms, and informational text", looks like a
+     * safe default for any text at all.
+     *
+     * Field shapes come from `describe_blocks` for the handful actually chosen. Cheaper as well as
+     * complete: this result is replayed on every subsequent round of the loop, so the full catalog's
+     * field summaries were being paid for repeatedly.
+     */
+    const rows = list.map((c) => ({
+      id: c.id,
+      title: c.title,
+      group: c.group,
+      /**
+       * Authored guidance first, description second.
+       *
+       * `should_do[0]` is written as an instruction — "Use for simple copy blocks such as legal pages,
+       * terms, and informational text" — and it is the line that discriminates. The description says
+       * "a component for simple rich-text copy blocks with optional CTA buttons", which sounds ideal for
+       * any copy section and is why five of them ended up on a marketing page. It is also *shorter*:
+       * 10.5k for the whole catalog against 11.9k.
+       */
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const comp = c as any;
-      // Shapes come from a real preview's values, so `buttonSlots` is described as whatever this
-      // component actually uses rather than a guess from its declared type. List rows already carry
-      // previews, so this costs no extra query.
-      const previews = (comp?.previews ?? {}) as Record<string, { values?: Record<string, unknown> }>;
-      const key = 'generic' in previews ? 'generic' : Object.keys(previews)[0];
-      const values = key ? (previews[key]?.values ?? (previews[key] as Record<string, unknown>)) : null;
-      return {
-        id: c.id,
-        title: c.title,
-        group: c.group,
-        fields: summarizeFields(
-          comp?.properties ?? null,
-          values as Record<string, unknown> | null,
-          undefined,
-          readCapabilities(comp)
-        ),
-      };
-    });
+      use: purposeLine((c as any).should_do?.[0] ?? (c as any).shouldDo?.[0] ?? (c as any).description),
+    }));
+
+    const packed = packToBudget(rows, LIST_BLOCKS_BUDGET);
+    const note = truncationNote(
+      packed.dropped,
+      rows.length,
+      'Call list_blocks again with a `group` to see the rest.'
+    );
+    return note ? { blocks: packed.items, note } : packed.items;
+  }
+
+  if (name === 'describe_blocks') {
+    const ids = Array.isArray(args.ids) ? args.ids.map((i) => String(i).trim()).filter(Boolean) : [];
+    if (!ids.length) return { error: 'Pass the ids of the blocks you intend to use.' };
+
+    const list = await provider.getComponents();
+    const byId = new Map(list.map((c) => [String(c.id), c]));
+    const missing = ids.filter((id) => !byId.has(id));
+
+    const rows = ids
+      .slice(0, MAX_DESCRIBED_BLOCKS)
+      .map((id) => byId.get(id))
+      .filter((c): c is NonNullable<typeof c> => !!c)
+      .map((c) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const comp = c as any;
+        // Shapes from a real preview's values, so `buttonSlots` is described as whatever this component
+        // actually uses rather than guessed from its declared type.
+        const previews = (comp?.previews ?? {}) as Record<string, { values?: Record<string, unknown> }>;
+        const key = 'generic' in previews ? 'generic' : Object.keys(previews)[0];
+        const values = key ? (previews[key]?.values ?? (previews[key] as Record<string, unknown>)) : null;
+        return {
+          id: c.id,
+          title: c.title,
+          fields: summarizeFields(
+            comp?.properties ?? null,
+            values as Record<string, unknown> | null,
+            undefined,
+            readCapabilities(comp)
+          ),
+        };
+      });
+
+    const packed = packToBudget(rows, DESCRIBE_BLOCKS_BUDGET);
+    return {
+      blocks: packed.items,
+      ...(missing.length ? { unknownIds: missing } : {}),
+      ...(ids.length > MAX_DESCRIBED_BLOCKS
+        ? { note: `Only the first ${MAX_DESCRIBED_BLOCKS} ids were described; ask again for the rest.` }
+        : {}),
+      ...(packed.dropped
+        ? { note: truncationNote(packed.dropped, rows.length, 'Ask for fewer blocks at a time.') }
+        : {}),
+    };
   }
 
   if (name === 'search_assets') {
@@ -692,6 +790,10 @@ need, and the server applies your values to the block's real shape. Write copy, 
   src into the block with \`propose_edits\` (or \`propose_page\`) in the same turn. Requesting an image
   and then only describing it leaves the page unchanged — this is the most common way to get this
   wrong. Mention the generation in your reply *as well as* making the edit, never instead of it.
+- Choosing then authoring is two calls: \`list_blocks\` once to see every block and what each is for,
+  then one \`describe_blocks\` call naming every block you decided on, which gives you their field
+  names and shapes. Several blocks hold copy and they are not interchangeable — \`simple-copy\` is for
+  legal and informational text, not for a marketing section that wants media beside it.
 - A full page normally opens with the \`header\` block and closes with \`footer\`, both with empty
   values — they are site chrome with nothing to author. Omit them when asked for a single section.
 ${attachedCount > 0 ? `\nThe user attached ${attachedCount} image(s) to this conversation. They are in the asset store and marked \`attached: true\` in search_assets results — prefer them.\n` : ''}${composition ? `\n## Already on the canvas\n${composition}\n\nA follow-up almost certainly refers to one of these. Use \`propose_edits\` to change them — the numbering above is 1-based for reading, so block 1 is index 0. Only use \`propose_page\` if the user wants to start over.\n` : ''}

@@ -85,6 +85,15 @@ export interface EvalCase {
   sourceCopy?: string;
 }
 
+/**
+ * Rounds used, as a fraction of the budget.
+ *
+ * `not-exhausted` only fires when the cap is actually hit, which makes a turn at 15 of 16 rounds look
+ * identical to one at 3. That is the difference between "fine" and "one retry away from returning
+ * nothing", and it is invisible until somebody's prompt tips it over — which is what happened.
+ */
+export const ROUND_BUDGET = 16;
+
 // ── Invariants ───────────────────────────────────────────────────────────────
 //
 // Applied to every case, so a fix that breaks something unrelated is caught by the case that was
@@ -102,6 +111,15 @@ export const INVARIANTS: EvalCheck[] = [
     // The round cap means a guard is looping or the composition outgrew the budget. Either way the user
     // gets nothing after 30 seconds.
     run: (o) => (o.facts.outcome === 'exhausted' ? `hit the round cap after ${o.facts.rounds} rounds` : null),
+  },
+  {
+    name: 'rounds-not-nearly-exhausted',
+    // A hard cap check cannot distinguish 3 rounds from 15. Monica's four-constraint prompt "got stuck";
+    // the turns leading up to that were already running at the edge and nothing said so.
+    run: (o) =>
+      o.facts.rounds > ROUND_BUDGET * 0.75
+        ? `${o.facts.rounds} of ${ROUND_BUDGET} rounds — one retry from returning nothing`
+        : null,
   },
   {
     name: 'guards-agree',
@@ -208,6 +226,29 @@ const usesComponents = (ids: string[]): EvalCheck => ({
     const used = new Set([...o.blocks.map((b) => b.componentId), ...o.ops.map((op) => op.blockId ?? '')]);
     const missing = ids.filter((id) => !used.has(id));
     return missing.length ? `did not use ${missing.join(', ')} — got [${[...used].join(', ')}]` : null;
+  },
+});
+
+/**
+ * A brief of distinct sections should not become the same block repeated.
+ *
+ * A ten-section brief with no Component column came back as six consecutive `simple-copy` blocks. Two
+ * causes, both fixed: `list_blocks` was truncated so 16 of 77 components never reached the model, and it
+ * sent no authored guidance, so `simple-copy` — "a component for simple rich-text copy blocks" — read as
+ * a safe default for any text at all.
+ *
+ * Thresholds are deliberately loose. Some sections genuinely are simple copy, and a tight bound would
+ * fail on the model's reasonable judgement rather than on the defect. Six-of-ten breaks this; three does
+ * not.
+ */
+const blocksAreVaried = (maxRepeat: number, minDistinct: number): EvalCheck => ({
+  name: 'blocks-are-varied',
+  run: (o) => {
+    const counts = new Map<string, number>();
+    for (const b of o.blocks) counts.set(b.componentId, (counts.get(b.componentId) ?? 0) + 1);
+    const worst = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (worst && worst[1] > maxRepeat) return `${worst[0]} used ${worst[1]} times`;
+    return counts.size >= minDistinct ? null : `only ${counts.size} distinct blocks, wanted ${minDistinct}+`;
   },
 });
 
@@ -371,7 +412,8 @@ export const EVAL_CASES: EvalCase[] = [
       'was to compose the page and offer images after.',
     prompt: 'Build a landing page selling our phone systems to university clients, with good imagery.',
     canvas: [],
-    smoke: true,
+    // Out of the smoke set when `complex-multi-constraint` joined: that case is a harder fresh page and
+    // exercises the same imagery path, and a smoke set that grows stops being one.
     checks: [proposed, atLeastBlocks(6), arrayItemsAreAuthored, didNotCall('request_image'), pageHasRealImagery],
   },
   {
@@ -457,6 +499,57 @@ export const EVAL_CASES: EvalCase[] = [
     ].join('\n'),
     canvas: [],
     checks: [proposed, usesComponents(['two-column-content', 'simple-table'])],
+  },
+  {
+    id: 'complex-multi-constraint',
+    origin:
+      'Monica: "It got stuck on my prompt" — a brief plus four constraints at once (placeholder images ' +
+      'from a URL, # for every link, "Learn More" for every CTA label). The round cap is 16 and a turn ' +
+      'has been measured burning 13, so the budget is what ran out.',
+    prompt:
+      'Create a new page based on the attached copy. For each image, use placeholder images from ' +
+      'https://www.8x8.com/partners. For any urls, use # as a placeholder, and "Learn More" for the CTA label.',
+    sourceCopy: [
+      '# Partner programme',
+      '',
+      '| Section | Component | New Copy |',
+      '| --- | --- | --- |',
+      '| Hero | Hero Split | Partner with 8x8 |',
+      '| Why | Two Column Content | Higher margins, faster deal registration, dedicated support. |',
+      '| Tiers | Card Rows | Silver, Gold and Platinum tiers with rising margins. |',
+      '| Proof | Stats | 99.999% uptime. 180 countries. 3m seats. |',
+      '| FAQ | FAQ | How do I apply? What support do I get? |',
+      '| Close | Callout CTA | Ready to apply? |',
+    ].join('\n'),
+    canvas: [],
+    smoke: true,
+    checks: [proposed, atLeastBlocks(5)],
+  },
+  {
+    id: 'brief-without-component-column',
+    origin:
+      'A ten-section brief with no Component column came back as six consecutive `simple-copy` blocks. ' +
+      '`list_blocks` was truncated at 24,000 chars so 16 of 77 components never reached the model — ' +
+      'everything after `simple-copy` alphabetically, including two-column-content, stats and timeline — ' +
+      'and it sent none of the authored should-do guidance that says what each block is for.',
+    prompt: 'Build this page.',
+    sourceCopy: [
+      '# Partner programme page',
+      '',
+      '| Section | Old Copy | New Copy |',
+      '| --- | --- | --- |',
+      '| Hero | Become a reseller | Partner with 8x8 |',
+      '| Intro | We have a scheme | Grow your business with the 8x8 partner programme. |',
+      '| Benefits | Margins are good | Higher margins, faster deal registration, dedicated support. |',
+      '| Tiers | Three tiers | Silver, Gold and Platinum tiers with rising margins. |',
+      '| Proof | We are big | 99.999% uptime. 180 countries. 3m seats under management. |',
+      '| Enablement | Training | Certification paths, co-marketing funds and a partner portal. |',
+      '| Stories | Customers like us | Partners grew revenue 40% in year one. |',
+      '| FAQ | Questions | How do I apply? How long is onboarding? |',
+      '| Close | Sign up | Ready to apply? |',
+    ].join('\n'),
+    canvas: [],
+    checks: [proposed, atLeastBlocks(6), blocksAreVaried(4, 5)],
   },
   {
     id: 'stats-not-inverted',
