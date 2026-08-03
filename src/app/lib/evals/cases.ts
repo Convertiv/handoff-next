@@ -169,6 +169,41 @@ const opsAreNonEmpty: EvalCheck = {
 };
 
 /**
+ * A change to an existing page must not come back as a whole new page.
+ *
+ * The most destructive failure Monica found, reported four different ways: asking for "# for all links
+ * and Learn More for all CTA labels" returned all-new blocks; asking to change one component's type
+ * added a second one instead of swapping; asking to add a form section proposed replacing everything.
+ * Her words on accepting it: "this eliminates all of your changes upstream and starts you from scratch
+ * again (like image direction, link changes, etc.)".
+ *
+ * That is the cost that makes this worse than a wrong answer. A wrong edit is one undo. A re-proposed
+ * page silently discards every earlier decision, and the user cannot tell until they look.
+ */
+const editedRatherThanRebuilt: EvalCheck = {
+  name: 'edited-not-rebuilt',
+  run: (o) =>
+    o.facts.outcome === 'proposal'
+      ? `re-proposed ${o.blocks.length} blocks instead of editing the ${o.facts.hasCanvas ? 'existing' : ''} page`
+      : null,
+};
+
+/** At least one op of a given kind — a swap must swap, not append a second block. */
+const usesOp = (kind: string): EvalCheck => ({
+  name: `uses-${kind}`,
+  run: (o) => {
+    const kinds = o.ops.map((op) => op.op);
+    return kinds.includes(kind) ? null : `ops were [${kinds.join(', ') || 'none'}], wanted a ${kind}`;
+  },
+});
+
+/** No more ops than the request implies. A "change one block" that touches six is a rebuild in disguise. */
+const atMostOps = (n: number): EvalCheck => ({
+  name: `at-most-${n}-ops`,
+  run: (o) => (o.ops.length <= n ? null : `${o.ops.length} ops for a change that needs at most ${n}`),
+});
+
+/**
  * The turn actually produced something.
  *
  * Guards against the vacuous pass. `fill-the-images` scored 3/3 on its first run while calling
@@ -277,6 +312,32 @@ const APPLIED_PAGE: CanvasBlock[] = [
   },
 ];
 
+/**
+ * Six blocks with decisions already made in them — chosen imagery, authored copy, a real link.
+ *
+ * Bigger than `APPLIED_PAGE` on purpose. The failure being measured is destructive rather than merely
+ * wrong, and its cost scales with how much work is already on the canvas: a two-block fixture makes
+ * "re-proposed the page" look like a rounding error instead of the loss it is.
+ */
+const WORKED_PAGE: CanvasBlock[] = [
+  {
+    componentId: 'hero-background',
+    args: {
+      anchor: 'hero',
+      theme: 'dark',
+      titleSlot: 'Partner with 8x8',
+      bodySlot: '<p>Grow your business with our partner programme.</p>',
+      desktopImageSlot: { src: '/api/handoff/assets/img_bc532c785605/raw', alt: 'Partners in a meeting' },
+      buttonSlots: [{ url: '/partners/apply', text: 'Become a partner' }],
+    },
+  },
+  { componentId: 'content-split', args: { anchor: 'why', title: 'Why partner with us', theme: 'light' } },
+  { componentId: 'card-rows', args: { anchor: 'tiers', title: 'Programme tiers' } },
+  { componentId: 'grid-columns', args: { anchor: 'support', title: 'What you get' } },
+  { componentId: 'faq', args: { anchor: 'faq', title: 'Partner questions' } },
+  { componentId: 'callout-cta', args: { anchor: 'cta', title: 'Ready to apply?' } },
+];
+
 // ── The suite ────────────────────────────────────────────────────────────────
 
 export const EVAL_CASES: EvalCase[] = [
@@ -295,7 +356,8 @@ export const EVAL_CASES: EvalCase[] = [
     origin: 'Retries mean two guards disagreeing. A plain request should fire none.',
     prompt: 'Build a short product page for our contact centre software.',
     canvas: [],
-    smoke: true,
+    // Dropped from the smoke set when `bulk-field-edit` joined it: fresh-page composition is already
+    // covered by `fresh-page-with-imagery`, and a smoke set that grows stops being one.
     checks: [proposed, atLeastBlocks(4), arrayItemsAreAuthored],
   },
   {
@@ -323,6 +385,33 @@ export const EVAL_CASES: EvalCase[] = [
     canvas: APPLIED_PAGE,
     requiresUser: true,
     checks: [didWork, everyQueuedImageIsPlaced, arrayItemsAreAuthored],
+  },
+  {
+    id: 'bulk-field-edit',
+    origin:
+      'Monica asked for "# for all links and Learn More for all CTA labels" on a finished page. It ' +
+      'returned all-new blocks; accepting them discarded every earlier decision — imagery, link changes, ' +
+      'copy corrections.',
+    prompt: 'Use # for all the links on this page, and "Learn More" for every CTA label.',
+    canvas: WORKED_PAGE,
+    smoke: true,
+    checks: [editedRatherThanRebuilt, changeset, opsAreNonEmpty],
+  },
+  {
+    id: 'swap-a-component',
+    origin: 'Asked to change a block to a different component type, it added the new one instead of swapping.',
+    prompt: 'Change the "Why partner with us" section to a stats block instead.',
+    canvas: WORKED_PAGE,
+    checks: [editedRatherThanRebuilt, usesOp('replace'), atMostOps(2)],
+  },
+  {
+    id: 'add-one-section',
+    origin:
+      'Asked to add a partner form, it proposed replacing the whole page. "Doing this eliminates all of ' +
+      'your changes upstream and starts you from scratch again."',
+    prompt: 'Add a form section after the hero so partners can register their interest.',
+    canvas: WORKED_PAGE,
+    checks: [editedRatherThanRebuilt, usesOp('insert'), atMostOps(2)],
   },
   {
     id: 'stats-not-inverted',

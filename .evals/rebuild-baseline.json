@@ -1,0 +1,37 @@
+[
+  {
+    "caseId": "bulk-field-edit",
+    "runs": 3,
+    "passed": 0,
+    "failures": {
+      "edited-not-rebuilt: re-proposed 8 blocks instead of editing the existing page": 2,
+      "produced-a-changeset: outcome was proposal, not a changeset": 3,
+      "edited-not-rebuilt: re-proposed 7 blocks instead of editing the existing page": 1
+    },
+    "signals": {
+      "left-placeholders": 3
+    },
+    "medianSeconds": 15.763
+  },
+  {
+    "caseId": "swap-a-component",
+    "runs": 3,
+    "passed": 3,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 6.322
+  },
+  {
+    "caseId": "add-one-section",
+    "runs": 3,
+    "passed": 2,
+    "failures": {
+      "edited-not-rebuilt: re-proposed 4 blocks instead of editing the existing page": 1,
+      "uses-insert: ops were [none], wanted a insert": 1
+    },
+    "signals": {
+      "left-placeholders": 1
+    },
+    "medianSeconds": 4.798
+  }
+]

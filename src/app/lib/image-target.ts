@@ -54,7 +54,16 @@ export function imageFieldsFor(fields: Record<string, FieldMeta> | undefined): s
  * excludes `src/app`, so a root `tsc --noEmit` does not catch it; use `npm run typecheck`.
  */
 export type ImageTarget =
-  | { ok: true; componentId: string; index: number; field: string; encoding: string | null }
+  | {
+      ok: true;
+      componentId: string;
+      /** Zero-based, matching `propose_edits`. */
+      index: number;
+      /** One-based, for anything a person or the model reads. */
+      position: number;
+      field: string;
+      encoding: string | null;
+    }
   | { ok: false; error: string };
 
 /**
@@ -66,28 +75,52 @@ export type ImageTarget =
  */
 export function resolveImageTarget(input: {
   blocks: { componentId: string }[];
-  /** 1-based, matching the numbering the composition summary shows the model. */
-  block: unknown;
+  /**
+   * **Zero-based**, the same convention as `propose_edits`.
+   *
+   * It was one-based for a day, and that cost six wasted generation attempts per turn. A model working
+   * with both tools in one turn sent `index: 0` for the first block — correct for `propose_edits`, and
+   * refused here — then `1` for the second, which resolved to the first and got refused on the field
+   * name. Measured: nine `request_image` calls to queue three images.
+   *
+   * One convention on the wire. The composition summary still shows 1-based numbers because that is
+   * what a person reads, and it already says block 1 is index 0.
+   */
+  index: unknown;
   field: unknown;
   fields: Record<string, FieldMeta> | undefined;
 }): ImageTarget {
   const { blocks } = input;
   if (!blocks.length) return { ok: false, error: 'There are no blocks on the canvas to put an image in.' };
 
-  const index = Number(input.block);
-  if (!Number.isInteger(index) || index < 1 || index > blocks.length) {
+  /**
+   * Coerced narrowly, because zero is now a *valid* index.
+   *
+   * `Number(null)`, `Number('')` and `Number(false)` are all 0, so a plain `Number()` turned a missing
+   * index into a confident "block 1" — an image placed somewhere nobody asked for, which reads as
+   * working. Under the old one-based scheme 0 was out of range and this was invisible; zero-basing made
+   * it reachable. Found by a test that enumerates junk values rather than the plausible ones.
+   */
+  const index =
+    typeof input.index === 'number'
+      ? input.index
+      : typeof input.index === 'string' && input.index.trim() !== ''
+        ? Number(input.index)
+        : NaN;
+
+  if (!Number.isInteger(index) || index < 0 || index >= blocks.length) {
     return {
       ok: false,
       error:
-        `\`block\` must be one of 1–${blocks.length}, numbered as in the composition. ` +
-        `Got ${JSON.stringify(input.block)}.`,
+        `\`index\` must be 0–${blocks.length - 1} (zero-based, the same as propose_edits). ` +
+        `Got ${JSON.stringify(input.index)}.`,
     };
   }
 
-  const componentId = blocks[index - 1]!.componentId;
+  const componentId = blocks[index]!.componentId;
   const candidates = imageFieldsFor(input.fields);
   if (!candidates.length) {
-    return { ok: false, error: `Block ${index} (${componentId}) has no image field. Pick a different block.` };
+    return { ok: false, error: `Block ${index + 1} (${componentId}) has no image field. Pick a different block.` };
   }
 
   const field = typeof input.field === 'string' ? input.field.trim() : '';
@@ -100,7 +133,7 @@ export function resolveImageTarget(input: {
     };
   }
 
-  return { ok: true, componentId, index, field, encoding: input.fields?.[field]?.encoding ?? null };
+  return { ok: true, componentId, index, position: index + 1, field, encoding: input.fields?.[field]?.encoding ?? null };
 }
 
 /**
@@ -124,11 +157,14 @@ export function valueForImageTarget(encoding: string | null, image: { src: strin
 export function describeImagePlacement(target: {
   componentId: string;
   index: number;
+  position: number;
   field: string;
   encoding: string | null;
 }): string {
+  // `position` in the prose a person would read, `index` in the call — the two numbers differ by one and
+  // conflating them is how an edit lands on the wrong block.
   return (
-    `Write this into block ${target.index} (${target.componentId}) field \`${target.field}\`, using ` +
+    `Write this into block ${target.position} (${target.componentId}) field \`${target.field}\`, using ` +
     `propose_edits: { op: "update", index: ${target.index}, expect: "${target.componentId}", values: ` +
     `{ "${target.field}": <the value below> } }. Requesting the image does NOT place it.`
   );

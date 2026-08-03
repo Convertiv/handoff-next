@@ -192,11 +192,12 @@ const TOOLS: OpenAiTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          block: {
+          index: {
             type: 'integer',
             description:
-              'Which block on the canvas, numbered as in the composition (1 = first). Required — an ' +
-              'image with no destination is generated, paid for, and lands nowhere.',
+              'ZERO-based position of the block on the canvas — the same convention as propose_edits, so ' +
+              'block 1 in the listing is index 0. Required: an image with no destination is generated, ' +
+              'paid for, and lands nowhere.',
           },
           field: {
             type: 'string',
@@ -218,7 +219,7 @@ const TOOLS: OpenAiTool[] = [
             description: 'Shape the slot needs. Landscape for heroes and cards; square for avatars and logos.',
           },
         },
-        required: ['block', 'field', 'prompt', 'title'],
+        required: ['index', 'field', 'prompt', 'title'],
       },
     },
   },
@@ -311,6 +312,13 @@ const TOOLS: OpenAiTool[] = [
             },
           },
           rationale: { type: 'string', description: 'One or two sentences on why this composition.' },
+          replacesExistingPage: {
+            type: 'boolean',
+            description:
+              'Set true ONLY if the user asked to start the page over. Proposing a page while the canvas ' +
+              'has blocks discards their copy, imagery and links — for a change to what is there, use ' +
+              'propose_edits instead.',
+          },
         },
         required: ['blocks', 'rationale'],
       },
@@ -539,11 +547,11 @@ async function runTool(
     // which is precisely what shipped. Rejecting here is free, and the error names the real fields so
     // the retry is informed rather than a second guess.
     const scaffold = await scaffoldArgsForComponent(
-      imageCtx.blocks[Number(args.block) - 1]?.componentId ?? ''
+      imageCtx.blocks[Number(args.index)]?.componentId ?? ''
     ).catch(() => null);
     const target = resolveImageTarget({
       blocks: imageCtx.blocks,
-      block: args.block,
+      index: args.index,
       field: args.field,
       fields: scaffold && !('error' in scaffold) ? scaffold.fields : undefined,
     });
@@ -551,7 +559,13 @@ async function runTool(
     // that setting TypeScript does not narrow a union on a boolean discriminant — `!target.ok` leaves
     // the type unnarrowed and `target.error` fails to compile. The `in` operator narrows under both
     // settings, and is the idiom the scaffold check above already uses.
-    if ('error' in target) return { error: target.error };
+    if ('error' in target) {
+      // Logged, because a run that burns nine `request_image` calls to queue three images is invisible
+      // otherwise — the tool result goes to the model and nowhere else, so the loop looks like the model
+      // being indecisive rather than a target it keeps getting wrong.
+      console.warn('[playground-chat] image target refused', { index: args.index, field: args.field, reason: target.error });
+      return { error: target.error };
+    }
 
     const orientation = typeof args.orientation === 'string' ? args.orientation : 'landscape';
     const [w, h] = orientation === 'portrait' ? [1024, 1536] : orientation === 'square' ? [1024, 1024] : [1536, 1024];
@@ -592,7 +606,7 @@ async function runTool(
       return { error: `Could not start image generation: ${message}. Use the placeholder src anyway.`, src: placeholderSrc };
     }
 
-    console.log('[playground-chat] queued image generation', { jobId, title, target: `${target.index}.${target.field}` });
+    console.log('[playground-chat] queued image generation', { jobId, title, target: `${target.position}.${target.field}` });
     imageCtx.queued.push({ jobId, title, placeholderSrc });
     // The value, already in the encoding this slot was measured to accept — not a src for the model to
     // wrap however it guesses. `array-of-image-object` needs a one-item array, and an object there is
@@ -809,6 +823,8 @@ export async function runPlaygroundChatTurn(args: {
   /** Every guard that fired, so a failed turn can be read from the log instead of inferred from prose. */
   const noteRetry = (kind: string, detail?: string) => retries.push({ kind, ...(detail ? { detail } : {}) });
 
+  /** One-shot: the whole-page-rebuild refusal fires once, then the model's second choice stands. */
+  let refusedWholePageRebuild = false;
   let askedForGaps = false;
   // Likewise one-shot: ask once for imagery the composition left on placeholders.
   let askedForImages = false;
@@ -1031,6 +1047,46 @@ export async function runPlaygroundChatTurn(args: {
       // building the args, so there is no step the model can skip. The enforcement existed only to
       // catch that, and removing the possibility is better than policing it.
       if (call.name === 'propose_page') {
+        /**
+         * A change to an existing page must not come back as a whole new page.
+         *
+         * The tool description has said "USE THIS, not propose_page, whenever the canvas has blocks and
+         * the request is a change" since the edits path existed. Measured: asking to change every link
+         * and CTA label on a six-block page re-proposed the whole page in **3 of 3 runs**. A prompt
+         * instruction is not a constraint, and this is the one failure where being wrong is worse than
+         * being unhelpful — accepting the proposal discards every earlier decision, and the user cannot
+         * tell until they look. Monica: "this eliminates all of your changes upstream and starts you from
+         * scratch again."
+         *
+         * So the model has to *say* it means to replace the page, and gets told once that it probably
+         * does not. The escape hatch is real — "start over" is a legitimate request — but it now costs a
+         * deliberate second call rather than being the path of least resistance.
+         */
+        const replacesPage = parsed.replacesExistingPage === true;
+        if (imageCtx.hasCanvas && !replacesPage && !refusedWholePageRebuild) {
+          refusedWholePageRebuild = true;
+          noteRetry('whole-page-rebuild');
+          console.warn('[playground-chat] refused a whole-page rebuild over a canvas', {
+            canvasBlocks: imageCtx.blocks.length,
+          });
+          convo.push({
+            role: 'tool',
+            tool_call_id: call.id,
+            content: JSON.stringify({
+              rejected: true,
+              reason:
+                `The canvas already has ${imageCtx.blocks.length} blocks with the user's own copy, ` +
+                'imagery and links in them. Proposing a new page throws all of that away, including ' +
+                'decisions made in earlier turns. Use `propose_edits` with one `update` op per block ' +
+                'you actually need to change — that is what "change every CTA label" or "add a section" ' +
+                'means. Only if the user explicitly asked to start the page over, call propose_page ' +
+                'again with `replacesExistingPage: true`.',
+              canvas: imageCtx.blocks.map((b, i) => ({ block: i + 1, componentId: b.componentId })),
+            }),
+          });
+          continue;
+        }
+
         const raw = Array.isArray(parsed.blocks) ? (parsed.blocks as { componentId?: unknown; values?: unknown }[]) : [];
         const { blocks, problems, gaps, invalidValues, replacedImages } = await buildBlocks(raw, seenAssetSrcs);
         const notices = describeReplacedImages(replacedImages);

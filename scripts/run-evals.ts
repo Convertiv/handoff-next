@@ -26,6 +26,7 @@ nextEnv.loadEnvConfig(process.cwd(), true, { info: () => {}, error: console.erro
 
 const { runPlaygroundChatTurn } = await import('../src/app/lib/server/playground-chat');
 const { EVAL_CASES, SMOKE_CASES, judge, observeSignals, summarize } = await import('../src/app/lib/evals/cases');
+const { resolveUserId } = await import('./lib/resolve-user.mjs');
 type EvalCase = import('../src/app/lib/evals/cases').EvalCase;
 type CaseResult = import('../src/app/lib/evals/cases').CaseResult;
 
@@ -68,44 +69,6 @@ function rate(passed: number, runs: number): string {
   const fraction = passed / runs;
   const colour = fraction >= 0.8 ? GREEN : fraction >= 0.4 ? YELLOW : RED;
   return `${colour}${passed}/${runs}${OFF}`;
-}
-
-/**
- * The user id `request_image` is gated on.
- *
- * Resolved rather than required, because forgetting it does not fail loudly — the tool returns "image
- * generation is unavailable", the turn queues nothing, and the imagery cases pass by having nothing to
- * judge. `HANDOFF_TURN_USER_ID` wins; otherwise the git identity is looked up, which is right on a
- * developer's machine and absent in CI, where those cases should be skipped anyway.
- */
-async function resolveUserId(): Promise<string | null> {
-  const explicit = process.env.HANDOFF_TURN_USER_ID?.trim();
-  if (explicit) return explicit;
-
-  const email = process.env.HANDOFF_TURN_USER_EMAIL?.trim() || (await gitEmail());
-  if (!email) return null;
-  try {
-    const [{ getDb }, { sql }] = await Promise.all([import('../src/app/lib/db/index'), import('drizzle-orm')]);
-    // Parameterised, not interpolated. The value comes from `git config`, which is not attacker-supplied
-    // in any realistic sense — but a script that builds SQL by concatenation is a pattern that gets
-    // copied to somewhere it matters.
-    const rows = (await (getDb() as unknown as {
-      execute: (q: unknown) => Promise<{ rows?: { id: string }[] } | { id: string }[]>;
-    }).execute(sql`select id from "user" where lower(email) = lower(${email}) limit 1`)) as
-      | { rows?: { id: string }[] }
-      | { id: string }[];
-    const list = Array.isArray(rows) ? rows : (rows.rows ?? []);
-    return list[0]?.id ?? null;
-  } catch {
-    return null;
-  }
-}
-
-async function gitEmail(): Promise<string | null> {
-  const { execFile } = await import('node:child_process');
-  return new Promise((resolve) =>
-    execFile('git', ['config', 'user.email'], (err, out) => resolve(err ? null : out.trim() || null))
-  );
 }
 
 async function runCase(kase: EvalCase, runs: number, userId: string | null): Promise<CaseResult> {

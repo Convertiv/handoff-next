@@ -27,6 +27,7 @@ import path from 'path';
 nextEnv.loadEnvConfig(process.cwd(), true, { info: () => {}, error: console.error });
 
 const { runPlaygroundChatTurn } = await import('../src/app/lib/server/playground-chat');
+const { resolveUserId } = await import('./lib/resolve-user.mjs');
 type PlaygroundChatEvent = Parameters<NonNullable<Parameters<typeof runPlaygroundChatTurn>[0]['onEvent']>>[0];
 
 interface Args {
@@ -37,7 +38,7 @@ interface Args {
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { prompt: '', canvas: [], json: false, userId: process.env.HANDOFF_TURN_USER_ID ?? null };
+  const out: Args = { prompt: '', canvas: [], json: false, userId: null };
   const rest: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -63,6 +64,10 @@ const OFF = '\x1b[0m';
 
 (async () => {
   const args = parseArgs(process.argv.slice(2));
+  // Resolved the same way the eval runner resolves it. This script passed `null` until a real eval
+  // failure was misdiagnosed through it: `request_image` is gated on a user, so every imagery run here
+  // reported "generation unavailable" and was measuring the runner rather than the agent.
+  if (!args.userId) args.userId = await resolveUserId();
   if (!args.prompt) {
     console.error('Usage: npm run turn -- "your prompt" [--canvas file.json] [--user <id>] [--json]');
     process.exit(2);

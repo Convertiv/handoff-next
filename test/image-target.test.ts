@@ -56,19 +56,28 @@ describe('imageFieldsFor', () => {
 
 describe('resolveImageTarget', () => {
   const blocks = [{ componentId: 'hero-background' }, { componentId: 'image-gallery' }];
-  const resolve = (block: unknown, field: unknown, fields = HERO) =>
-    resolveImageTarget({ blocks, block, field, fields });
+  const resolve = (index: unknown, field: unknown, fields = HERO) =>
+    resolveImageTarget({ blocks, index, field, fields });
 
-  it('resolves a valid block and field', () => {
-    const t = resolve(1, 'desktopImageSlot');
-    assert.ok(t.ok);
-    assert.equal(t.componentId, 'hero-background');
-    assert.equal(t.encoding, 'image-object');
+  it('is zero-based, like propose_edits', () => {
+    // One-based for a day, and it cost six wasted generation attempts per turn: a model using both tools
+    // in one turn sent `0` for the first block — right for propose_edits, refused here — then `1`, which
+    // resolved to the first block and was refused on the field name. Nine calls to queue three images.
+    const first = resolve(0, 'desktopImageSlot');
+    assert.ok(first.ok);
+    assert.equal(first.componentId, 'hero-background');
+    assert.equal(first.index, 0, 'index stays zero-based for the edit call');
+    assert.equal(first.position, 1, 'position is one-based for anything anyone reads');
+    assert.equal(first.encoding, 'image-object');
+
+    const second = resolveImageTarget({ blocks, index: 1, field: 'images', fields: { images: { encoding: 'array-of-image-object' } } });
+    assert.ok(second.ok);
+    assert.equal(second.componentId, 'image-gallery');
   });
 
   it('rejects `src`, and says what the fields actually are', () => {
     // The exact failure. A model told only "no such field" guesses a second time.
-    const t = resolve(1, 'src');
+    const t = resolve(0, 'src');
     assert.ok(!t.ok);
     assert.match(t.error, /no image field called `src`/);
     assert.match(t.error, /desktopImageSlot, mobileImageSlot/);
@@ -77,33 +86,39 @@ describe('resolveImageTarget', () => {
   it('rejects a missing field the same way, rather than picking one', () => {
     // Choosing for the model would place the image somewhere it never asked for, which is a worse
     // failure than a rejection: it looks like it worked.
-    const t = resolve(1, undefined);
+    const t = resolve(0, undefined);
     assert.ok(!t.ok);
     assert.match(t.error, /\(none given\)/);
   });
 
-  it('rejects an out-of-range block and names the range', () => {
-    for (const bad of [0, 3, -1, 'two', null, 1.5]) {
+  it('rejects an out-of-range index and names the range in the same convention', () => {
+    // `null`, `''` and `false` matter more than they look: all three are `Number()`-coercible to 0,
+    // which is a *valid* index now, so a missing one would have silently targeted block 1.
+    for (const bad of [2, 5, -1, 'two', null, undefined, '', false, 1.5, NaN]) {
       const t = resolve(bad, 'desktopImageSlot');
       assert.ok(!t.ok, `${JSON.stringify(bad)} should not resolve`);
-      assert.match(t.error, /must be one of 1–2/);
+      assert.match(t.error, /must be 0–1 \(zero-based, the same as propose_edits\)/);
     }
   });
 
   it('says so when the block has no image field, instead of failing on the field name', () => {
-    const t = resolve(1, 'desktopImageSlot', { titleSlot: { encoding: 'html-string' } } as typeof HERO);
+    const t = resolve(0, 'desktopImageSlot', { titleSlot: { encoding: 'html-string' } } as typeof HERO);
     assert.ok(!t.ok);
     assert.match(t.error, /has no image field/);
   });
 
   it('refuses when the canvas is empty — there is nowhere for an image to land', () => {
-    const t = resolveImageTarget({ blocks: [], block: 1, field: 'x', fields: HERO });
+    const t = resolveImageTarget({ blocks: [], index: 0, field: 'x', fields: HERO });
     assert.ok(!t.ok);
     assert.match(t.error, /no blocks on the canvas/);
   });
 
   it('tolerates a field name with stray whitespace', () => {
-    assert.ok(resolve(1, ' desktopImageSlot ').ok);
+    assert.ok(resolve(0, ' desktopImageSlot ').ok);
+  });
+
+  it('accepts a numeric string, which is how a model sometimes sends it', () => {
+    assert.ok(resolve('1', 'images', { images: { encoding: 'array-of-image-object' } } as unknown as typeof HERO).ok);
   });
 });
 
@@ -133,12 +148,16 @@ describe('describeImagePlacement', () => {
   it('spells out the whole edit, since "use this src" produced an invented field name', () => {
     const note = describeImagePlacement({
       componentId: 'hero-background',
-      index: 2,
+      index: 1,
+      position: 2,
       field: 'desktopImageSlot',
       encoding: 'image-object',
     });
     assert.match(note, /propose_edits/);
-    assert.match(note, /"index": 2|index: 2/);
+    // Prose reads the one-based position; the call carries the zero-based index. Conflating them is how
+    // an edit lands on the wrong block.
+    assert.match(note, /block 2 \(hero-background\)/);
+    assert.match(note, /index: 1/);
     assert.match(note, /expect: "hero-background"/);
     assert.match(note, /desktopImageSlot/);
     assert.match(note, /does NOT place/);
