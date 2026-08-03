@@ -167,3 +167,40 @@ describe('countWords', () => {
     assert.equal(countWords('  \n '), 0);
   });
 });
+
+/**
+ * A rewrite brief arrives as Section / Old Copy / New Copy, and the model authored from the old column.
+ *
+ * Structure alone does not resolve that — a markdown table makes the header a header, but nothing in
+ * "Old Copy" versus "New Copy" tells a reader which is wanted unless it is said. Monica: "It skipped the
+ * first 2 rows of copy in the word doc and then used the Old Copy column."
+ */
+describe('frameSourceCopy with a table', () => {
+  const table = ['| Section | Old Copy | New Copy |', '| --- | --- | --- |', '| Hero | Legacy line | Partner with 8x8 |'].join('\n');
+
+  it('says which column to author from', () => {
+    const content = frameSourceCopy(table)!.content;
+    assert.match(content, /column named for the \*new\*, \*revised\* or/);
+    assert.match(content, /never author from that one/);
+  });
+
+  it('says a section column maps rows to blocks', () => {
+    assert.match(frameSourceCopy(table)!.content, /which\s+block each row belongs to/);
+  });
+
+  it('tells it to ask rather than guess when the headers are ambiguous', () => {
+    // "It's not pushing back where it needs clarification" was the other half of the same report.
+    assert.match(frameSourceCopy(table)!.content, /ask which column to use rather/);
+  });
+
+  it('adds none of this to ordinary prose', () => {
+    // Guidance that always fires is noise, and noise is what gets ignored.
+    const content = frameSourceCopy('# Heading\n\nJust some copy, no table here.')!.content;
+    assert.ok(!content.includes('The copy is in a table'));
+  });
+
+  it('does not mistake a pipe in prose for a table', () => {
+    const content = frameSourceCopy('Choose speed | quality | price — pick two.')!.content;
+    assert.ok(!content.includes('The copy is in a table'));
+  });
+});

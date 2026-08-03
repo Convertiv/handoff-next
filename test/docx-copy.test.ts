@@ -42,10 +42,14 @@ describe('htmlToSourceCopy', () => {
   it('keeps a table row together and separate from the next row', () => {
     // A post-pass that merged consecutive cells gave `| Section | Copy | Hero | … |` — two rows of a
     // two-column deck run together, destroying the pairing the pipes exist to preserve.
+    //
+    // This asserted `'| Section | Copy |\n\n| Hero | Talk |'` until the table became a real markdown
+    // table. That expectation *was the bug*: rows separated by blank lines are not a table, so the
+    // header carried no meaning and a rewrite brief got authored from its Old Copy column.
     const out = htmlToSourceCopy(
       '<table><tr><td><p>Section</p></td><td><p>Copy</p></td></tr><tr><td><p>Hero</p></td><td><p>Talk</p></td></tr></table>'
     );
-    assert.equal(out, '| Section | Copy |\n\n| Hero | Talk |');
+    assert.equal(out, '| Section | Copy |\n| --- | --- |\n| Hero | Talk |');
   });
 
   it('drops inline formatting but keeps every word', () => {
@@ -122,5 +126,54 @@ describe('docxToSourceCopy against a real .docx', () => {
     assert.ok(!out.includes('<'), 'no markup survives');
     assert.ok(!/w:|xmlns/.test(out), 'no XML namespace leakage');
     assert.ok(out.split('\n\n').length >= 8, `expected several blocks, got ${out.split('\n\n').length}`);
+  });
+});
+
+/**
+ * Emitting each row as its own paragraph destroyed the one thing the pipes were added to preserve.
+ *
+ * A three-column rewrite brief came out as `| Section | Old Copy | New Copy |` followed by a blank line
+ * and then each row — so the header was indistinguishable from data and it was not a table at all. The
+ * model authored from the Old Copy column, which is exactly what Monica reported.
+ */
+describe('htmlToSourceCopy emits a real markdown table', () => {
+  const threeColumn =
+    '<table>' +
+    '<tr><td><p>Section</p></td><td><p>Old Copy</p></td><td><p>New Copy</p></td></tr>' +
+    '<tr><td><p>Hero</p></td><td><p>Legacy line</p></td><td><p>Partner with 8x8</p></td></tr>' +
+    '</table>';
+
+  it('puts a separator under the header so the header is a header', () => {
+    const out = htmlToSourceCopy(threeColumn);
+    assert.equal(
+      out,
+      ['| Section | Old Copy | New Copy |', '| --- | --- | --- |', '| Hero | Legacy line | Partner with 8x8 |'].join('\n')
+    );
+  });
+
+  it('keeps rows contiguous — a blank line between them is not a table', () => {
+    assert.ok(!htmlToSourceCopy(threeColumn).includes('\n\n'));
+  });
+
+  it('separates the table from the prose around it', () => {
+    const out = htmlToSourceCopy(`<h1>Brief</h1>${threeColumn}<p>Notes below.</p>`);
+    assert.match(out, /^# Brief\n\n\|/);
+    assert.match(out, /\|\n\nNotes below\.$/);
+  });
+
+  it('pads a ragged row rather than emitting a broken table', () => {
+    // Word merges cells, so a row narrower than the header is normal. A markdown table with uneven
+    // columns renders as garbage, and garbage is what the model would author from.
+    const ragged =
+      '<table><tr><td><p>A</p></td><td><p>B</p></td></tr><tr><td><p>only one</p></td></tr></table>';
+    const lines = htmlToSourceCopy(ragged).split('\n');
+    assert.equal(lines.length, 3);
+    assert.equal(lines[2], '| only one |  |');
+  });
+
+  it('handles two tables without merging them', () => {
+    const out = htmlToSourceCopy(`${threeColumn}<p>Then</p>${threeColumn}`);
+    assert.equal((out.match(/^\| --- \| --- \| --- \|$/gm) ?? []).length, 2, 'two headers, two separators');
+    assert.match(out, /\|\n\nThen\n\n\|/, 'the prose between them survives');
   });
 });

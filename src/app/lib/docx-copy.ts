@@ -75,6 +75,22 @@ export function htmlToSourceCopy(html: string): string {
   let inCell = false;
   /** Cells of the row being read, emitted as one line when `</tr>` closes. */
   let row: string[] = [];
+  /**
+   * Rows of the table being read, emitted together as one markdown table.
+   *
+   * Emitting each row as its own paragraph was wrong in a way that cost real work. A three-column
+   * rewrite brief — Section / Old Copy / New Copy — came out as:
+   *
+   *     | Section | Old Copy | New Copy |
+   *
+   *     | Hero | Legacy headline | Partner with 8x8 |
+   *
+   * The header is present and indistinguishable from data, and blank lines between rows mean it is not
+   * a table at all, just pipe-ish paragraphs. So nothing said which column was the copy to use, and the
+   * model took the old one. A real markdown table — contiguous lines, separator under the header — is a
+   * format models read reliably, and it makes the header a header.
+   */
+  let tableRows: string[][] = [];
 
   const flush = () => {
     const text = current ? normalizeSpace(current.text) : '';
@@ -94,8 +110,29 @@ export function htmlToSourceCopy(html: string): string {
    * two-column copy deck run together, which destroys the pairing the pipes were added to preserve.
    */
   const flushRow = () => {
-    if (row.length) blocks.push(`| ${row.join(' | ')} |`);
+    if (row.length) tableRows.push(row);
     row = [];
+  };
+
+  /**
+   * End a table, as one markdown block.
+   *
+   * The first row is treated as the header. A table's first row is its header the overwhelming majority
+   * of the time, and markdown requires one — a brief whose first row is data loses nothing but a
+   * separator line, where a header treated as data loses the meaning of every column beneath it.
+   */
+  const flushTable = () => {
+    if (!tableRows.length) return;
+    const width = Math.max(...tableRows.map((r) => r.length));
+    const pad = (r: string[]) => [...r, ...Array(width - r.length).fill('')];
+    const [header, ...body] = tableRows;
+    const lines = [
+      `| ${pad(header!).join(' | ')} |`,
+      `| ${Array(width).fill('---').join(' | ')} |`,
+      ...body.map((r) => `| ${pad(r).join(' | ')} |`),
+    ];
+    blocks.push(lines.join('\n'));
+    tableRows = [];
   };
 
   const prefixFor = (tag: string): string => {
@@ -127,6 +164,12 @@ export function htmlToSourceCopy(html: string): string {
     const tag = (name ?? '').toLowerCase();
     const closing = raw.startsWith('</');
 
+    if (tag === 'table') {
+      flush();
+      flushRow();
+      flushTable();
+      continue;
+    }
     if (tag === 'tr') {
       flush();
       flushRow();
@@ -160,6 +203,7 @@ export function htmlToSourceCopy(html: string): string {
   }
   flush();
   flushRow();
+  flushTable();
 
   // Nothing matched: a document of bare text runs, or HTML shaped in a way this misses. Fall back to a
   // plain strip rather than returning nothing — losing the structure is a degraded result, losing the

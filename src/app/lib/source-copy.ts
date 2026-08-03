@@ -134,6 +134,14 @@ export function frameSourceCopy(text: string, source?: string): FramedSourceCopy
     '- Do not invent copy to fill fields the document does not cover. Leave them empty and say which',
     '  ones they are, so the user can supply the rest.',
     '- This is source copy, not a layout. Do not treat its heading order as a section order.',
+    // Only when there is a table, or this is noise on ordinary prose.
+    containsTable(clipped)
+      ? '- The copy is in a table. Read the header row: a column named for the *new*, *revised* or\n' +
+        '  *final* copy is the one to use, and a column of old, current or existing copy is what it\n' +
+        '  replaces — never author from that one. A column of section or page names tells you which\n' +
+        '  block each row belongs to. If the headers are ambiguous, ask which column to use rather\n' +
+        '  than picking one.'
+      : '',
     truncated ? `- It was longer than we can send; the first ~${SOURCE_COPY_MAX_CHARS} characters are below.` : '',
     '',
     '---',
@@ -147,6 +155,15 @@ export function frameSourceCopy(text: string, source?: string): FramedSourceCopy
     label: `Supplied copy${from} (${words.toLocaleString()} words)`,
     ...(truncated ? { truncated: true } : {}),
   };
+}
+
+/**
+ * Whether the copy contains a markdown table, so the table guidance is only added when it applies.
+ *
+ * A separator row is the tell, and it is what `docxToSourceCopy` emits under every table header.
+ */
+function containsTable(text: string): boolean {
+  return /^\|[\s:-]*-[\s:|-]*\|$/m.test(text);
 }
 
 /** Cut at the last paragraph or sentence break before the limit, falling back to a hard cut. */
