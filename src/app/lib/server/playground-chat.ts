@@ -10,6 +10,7 @@ import { buildImagePrompt } from '@/lib/image-generation-request';
 import { describeImagePlacement, imageFieldsFor, resolveImageTarget, valueForImageTarget } from '@/lib/image-target';
 import {
   describeMissingImagery,
+  describeReplacedImages,
   findPlaceholderImages,
   findUnplacedImages,
   imageGapInstruction,
@@ -50,7 +51,7 @@ export interface PlaygroundChatTurn {
   /** Assistant prose — a question, a summary, or an explanation of the proposal. */
   reply: string;
   /** Present only when the model called `propose_page`. The client renders an apply card. */
-  proposal?: { blocks: ProposedBlock[]; rationale: string };
+  proposal?: { blocks: ProposedBlock[]; rationale: string; notices?: string[] };
   /** Present when the model called `propose_edits`. Targeted changes to what is already there. */
   changeset?: { ops: EditOp[]; summary: string; rejected: { reason: string }[] };
   /** Tool names invoked this turn, in order. Surfaced for the UI to show its working. */
@@ -89,7 +90,20 @@ export interface PlaygroundChatMessage {
 export type PlaygroundChatEvent =
   | { type: 'status'; text: string }
   | { type: 'reply'; content: string }
-  | { type: 'proposal'; blocks: ProposedBlock[]; rationale: string }
+  | {
+      type: 'proposal';
+      blocks: ProposedBlock[];
+      rationale: string;
+      /**
+       * Values that were refused while building these blocks — a refused image src, most often.
+       *
+       * The proposal event had no channel for this at all, so on a fresh page a chosen-and-rejected
+       * image was invisible: the reply said the slots held placeholders, and never that an image had
+       * been picked and thrown away. Named `notices` rather than `rejected` because nothing was dropped
+       * from the proposal; a value inside it was substituted.
+       */
+      notices?: string[];
+    }
   | { type: 'changeset'; ops: EditOp[]; summary: string; rejected: { reason: string }[] }
   | { type: 'images'; queued: QueuedImage[] }
   | { type: 'error'; message: string };
@@ -334,12 +348,21 @@ async function buildBlocks(
    * been rejected, so it had no reason to do anything different. Same shape as the unknown-key bug.
    */
   invalidValues: { componentId: string; problems: string[] }[];
+  /**
+   * Images swapped for a placeholder, flat and per field, for telling the **user**.
+   *
+   * `invalidValues` above carries the same fact phrased for the model. Both are needed: the model has to
+   * be told to use a verbatim asset src, and the person has to be told their hero is a stand-in. Only
+   * the first existed, which is why an edit could report success with no image and no explanation.
+   */
+  replacedImages: { componentId: string; field: string }[];
 }> {
   const blocks: ProposedBlock[] = [];
   const problems: string[] = [];
   const gaps: { componentId: string; fields: string[] }[] = [];
   const rejectedFields: { componentId: string; unknown: string[]; available: string[] }[] = [];
   const invalidValues: { componentId: string; problems: string[] }[] = [];
+  const replacedImages: { componentId: string; field: string }[] = [];
 
   for (const entry of raw) {
     const componentId = String(entry?.componentId ?? '').trim();
@@ -356,7 +379,7 @@ async function buildBlocks(
     // looking finished and isn't.
     const template = blankContentValues(scaffold.args, scaffold.fields);
     const values = (entry?.values ?? {}) as Record<string, unknown>;
-    const { args, unknownKeys, invalidValues: invalid, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
+    const { args, unknownKeys, invalidValues: invalid, replacedImages: replaced, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
     if (unknownKeys.length) {
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
@@ -367,11 +390,12 @@ async function buildBlocks(
       console.warn('[playground-chat] rejected values on', componentId, invalid.join('; '));
       invalidValues.push({ componentId, problems: invalid });
     }
+    for (const { field } of replaced) replacedImages.push({ componentId, field });
     if (unfilled.length) gaps.push({ componentId, fields: unfilled });
     blocks.push({ componentId, args });
   }
 
-  return { blocks, problems, gaps, rejectedFields, invalidValues };
+  return { blocks, problems, gaps, rejectedFields, invalidValues, replacedImages };
 }
 
 /**
@@ -802,7 +826,7 @@ export async function runPlaygroundChatTurn(args: {
    *
    * An imperfect page beats no page, so the fallback is unconditional.
    */
-  let lastBuiltProposal: { blocks: ProposedBlock[]; rationale: string } | null = null;
+  let lastBuiltProposal: { blocks: ProposedBlock[]; rationale: string; notices?: string[] } | null = null;
 
   let roundsUsed = 0;
   let exhaustedTurn = false;
@@ -857,7 +881,7 @@ export async function runPlaygroundChatTurn(args: {
         const salvagedReply = [content ?? '', salvaged].filter(Boolean).join('\n\n');
         console.warn('[playground-chat] retry ended without a proposal; returning the page already built');
         emit({ type: 'reply', content: salvagedReply });
-        emit({ type: 'proposal', blocks: lastBuiltProposal.blocks, rationale: lastBuiltProposal.rationale });
+        emit({ type: 'proposal', ...lastBuiltProposal });
         return finish({ reply: salvagedReply, proposal: lastBuiltProposal, toolsUsed });
       }
 
@@ -918,6 +942,13 @@ export async function runPlaygroundChatTurn(args: {
             preRejected.push({ reason: built.problems[0] ?? `Could not build ${componentId || 'that block'}.` });
             continue;
           }
+          // Shown to the user, not only fed back to the model. A silently-swapped image is the exact
+          // shape of "it listed components as edited and there were no images": the op is valid, it
+          // applies, the card says Applied, and nothing anywhere says the picture was refused.
+          for (const message of describeReplacedImages(built.replacedImages)) {
+            preRejected.push({ reason: message });
+          }
+
           if (op === 'update') {
             // Only the fields the model actually named. Merging the whole rebuilt block would drag
             // blanked placeholders over content the user already has.
@@ -949,7 +980,10 @@ export async function runPlaygroundChatTurn(args: {
         // time, where the canvas is the actual truth.
         // Same placement check for a targeted edit — an op that does not carry the generated src leaves
         // the image with nowhere to land.
-        const editBlocks = ops.map((o) => ({ args: ('values' in o ? o.values : {}) as Record<string, unknown> }));
+        const editBlocks = ops.map((o) => ({
+          componentId: 'expect' in o && o.expect ? o.expect : 'componentId' in o ? o.componentId : 'block',
+          args: ('values' in o ? o.values : {}) as Record<string, unknown>,
+        }));
         const unplacedEdits = findUnplacedImages(editBlocks, imageCtx.queued);
         if (unplacedEdits.length && !askedToPlaceImages) {
           askedToPlaceImages = true;
@@ -983,7 +1017,11 @@ export async function runPlaygroundChatTurn(args: {
         }
 
         const summary = String(parsed.summary ?? '');
-        const reply = content ?? summary;
+        // The same deterministic note the proposal path gets. It existed only there, so an *edit* turn
+        // could claim imagery it had not added with nothing to contradict it — which is precisely how
+        // "it listed these as edited" read to somebody looking at a page with no images on it.
+        const editImagery = describeMissingImagery(findPlaceholderImages(editBlocks));
+        const reply = [content ?? summary, editImagery].filter(Boolean).join('\n\n');
         emit({ type: 'reply', content: reply });
         emit({ type: 'changeset', ops: valid, summary, rejected: allRejected });
         return finish({ reply, changeset: { ops: valid, summary, rejected: allRejected }, toolsUsed });
@@ -994,8 +1032,9 @@ export async function runPlaygroundChatTurn(args: {
       // catch that, and removing the possibility is better than policing it.
       if (call.name === 'propose_page') {
         const raw = Array.isArray(parsed.blocks) ? (parsed.blocks as { componentId?: unknown; values?: unknown }[]) : [];
-        const { blocks, problems, gaps, invalidValues } = await buildBlocks(raw, seenAssetSrcs);
-        if (blocks.length) lastBuiltProposal = { blocks, rationale: String(parsed.rationale ?? '') };
+        const { blocks, problems, gaps, invalidValues, replacedImages } = await buildBlocks(raw, seenAssetSrcs);
+        const notices = describeReplacedImages(replacedImages);
+        if (blocks.length) lastBuiltProposal = { blocks, rationale: String(parsed.rationale ?? ''), notices };
 
         // Ask once for the content it skipped. Templates are seeded from real previews, so an
         // unfilled field is not empty — it is somebody's sample copy, and shipping that produces a
@@ -1102,8 +1141,8 @@ export async function runPlaygroundChatTurn(args: {
         const missingImagery = describeMissingImagery(findPlaceholderImages(blocks));
         const reply = [content ?? rationale ?? 'Here is the page.', missingImagery].filter(Boolean).join('\n\n');
         emit({ type: 'reply', content: reply });
-        emit({ type: 'proposal', blocks, rationale });
-        return finish({ reply, proposal: { blocks, rationale }, toolsUsed });
+        emit({ type: 'proposal', blocks, rationale, notices });
+        return finish({ reply, proposal: { blocks, rationale, notices }, toolsUsed });
       }
 
       let result: unknown;

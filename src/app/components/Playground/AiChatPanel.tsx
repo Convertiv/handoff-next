@@ -80,6 +80,12 @@ interface Changeset {
 interface Proposal {
   blocks: { componentId: string; args: Record<string, unknown> }[];
   rationale: string;
+  /**
+   * Values the server refused while building these blocks — a chosen image that was not in the asset
+   * library, most often. Shown for the same reason the changeset shows its rejections: a substitution
+   * nobody is told about reads as the feature not working.
+   */
+  notices?: string[];
   /** Set once applied, so the card stops offering to do it again. */
   applied?: boolean;
 }
@@ -170,6 +176,7 @@ export default function AiChatPanel() {
             ops?: EditOp[];
             summary?: string;
             rejected?: { reason: string }[];
+            notices?: string[];
             queued?: { jobId: number; title: string; placeholderSrc: string; error?: string }[];
           };
           try {
@@ -179,7 +186,8 @@ export default function AiChatPanel() {
           }
           if (event.type === 'status') setStatus(event.text ?? '');
           else if (event.type === 'reply') reply = event.content ?? '';
-          else if (event.type === 'proposal') proposal = { blocks: event.blocks ?? [], rationale: event.rationale ?? '' };
+          else if (event.type === 'proposal')
+            proposal = { blocks: event.blocks ?? [], rationale: event.rationale ?? '', notices: event.notices ?? [] };
           else if (event.type === 'changeset')
             changeset = { ops: event.ops ?? [], summary: event.summary ?? '', rejected: event.rejected ?? [] };
           else if (event.type === 'images')
@@ -702,6 +710,20 @@ export default function AiChatPanel() {
                   <p className="text-xs font-medium">
                     {m.proposal.blocks.length} block{m.proposal.blocks.length === 1 ? '' : 's'}
                   </p>
+
+                  {/* Values the server refused, in the user's words. Same reason the changeset shows
+                      its rejections: an image that was chosen and thrown away, with nothing said about
+                      it, reads as the feature simply not working. */}
+                  {m.proposal.notices?.length ? (
+                    <ul className="mt-1.5 space-y-0.5">
+                      {m.proposal.notices.map((n, ni) => (
+                        <li key={ni} className="text-[11px] text-amber-700 dark:text-amber-400">
+                          {n}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
                   {/* Per-block actions. Regenerating the whole page to change one hero was the single
                       loudest complaint — each row can be swapped, reworded or dropped on its own, and
                       the server scopes the request so the rest cannot drift while you fix one thing. */}

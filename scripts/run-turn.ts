@@ -105,6 +105,10 @@ const OFF = '\x1b[0m';
     blocks: turn.proposal?.blocks.length ?? 0,
     ops: turn.changeset?.ops.length ?? 0,
     rejected: turn.changeset?.rejected ?? [],
+    // What the user is actually told about refused values. Absent from this script until a fix for
+    // exactly that gap could not be observed through it — a runner that cannot see the user-facing
+    // half of a turn is only half a runner.
+    notices: turn.proposal?.notices ?? [],
     queuedImages: turn.queuedImages?.length ?? 0,
     reply: turn.reply,
   };
@@ -120,6 +124,7 @@ const OFF = '\x1b[0m';
       for (const r of turn.changeset.rejected) console.log(`  ${GREY}rejected: ${r.reason}${OFF}`);
     }
     if (result.queuedImages) console.log(`${BOLD}images${OFF}  ${result.queuedImages} queued`);
+    for (const notice of result.notices) console.log(`  ${GREY}notice: ${notice}${OFF}`);
     console.log(`\n${BOLD}reply${OFF}\n${turn.reply}\n`);
     // The server logs a one-line turn record with its computed flags; point at it rather than
     // recomputing here, so the script and the production log can never disagree.

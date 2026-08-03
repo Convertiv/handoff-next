@@ -475,6 +475,16 @@ export interface MergeResult {
   /** Enum values outside the allowed set. The template's value is kept. */
   invalidValues: string[];
   /**
+   * Images swapped back to a placeholder, per field.
+   *
+   * Separate from `invalidValues` because the two have different audiences and must say different
+   * things. `invalidValues` is model-facing and ends "use the exact `src` a search_assets result gave
+   * you, verbatim" — an instruction, useless to a person. The user needs to know their hero image is a
+   * stand-in and why, and until now they were told nothing: the swap was silent, the op applied, the
+   * card said Applied, and the reply claimed the image had been added.
+   */
+  replacedImages: { field: string; src: string }[];
+  /**
    * Content fields still holding preview sample data because the model never supplied them.
    *
    * This is the difference between "renders" and "is finished". Templates are seeded from real
@@ -495,6 +505,7 @@ export function mergeBlockValues(
   const args: Record<string, unknown> = { ...scaffoldArgs };
   const unknownKeys: string[] = [];
   const invalidValues: string[] = [];
+  const replacedImages: { field: string; src: string }[] = [];
   const supplied = new Set(Object.keys(values ?? {}));
 
   for (const [key, value] of Object.entries(values ?? {})) {
@@ -514,6 +525,7 @@ export function mergeBlockValues(
     const merged = coerceToShape(scaffoldArgs[key], value);
     const rejected = rejectInventedImages(merged, scaffoldArgs[key], knownAssetSrcs ?? new Set());
     if (rejected.changed) {
+      for (const src of rejected.rejectedSrcs) replacedImages.push({ field: key, src });
       const shown = rejected.rejectedSrcs.slice(0, 2).map((s) => `"${s.slice(0, 80)}"`).join(', ');
       invalidValues.push(
         `${key}: ${shown} is not an asset-store src — replaced with a placeholder. Use the exact \`src\` ` +
@@ -552,7 +564,7 @@ export function mergeBlockValues(
     }
   }
 
-  return { args, unknownKeys, invalidValues, unfilled };
+  return { args, unknownKeys, invalidValues, replacedImages, unfilled };
 }
 
 /**

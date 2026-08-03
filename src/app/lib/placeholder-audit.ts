@@ -118,3 +118,35 @@ export function unplacedImageInstruction(unplaced: { title: string; placeholderS
     'Do NOT request them again — they are already generating and re-requesting wastes the per-turn cap.'
   );
 }
+
+/**
+ * Tell the *user* an image was replaced, and why.
+ *
+ * The counterpart to `invalidValues`, which says the same thing to the model and ends with an
+ * instruction ("use the exact `src` a search_assets result gave you, verbatim") that means nothing to a
+ * person. Two audiences, two phrasings, one underlying fact.
+ *
+ * This is the fifth rejection today that was recorded and never surfaced. The others were surfaced to
+ * the model and not the user, or logged and not returned. The rule this keeps arriving at: **a value
+ * that was refused has to be visible to whoever can act on it** — and for an image the model picked
+ * badly, that is the person looking at the page, because they can go and choose one.
+ */
+export function describeReplacedImages(
+  replaced: { componentId: string; field: string }[]
+): string[] {
+  return replaced.map(
+    ({ componentId, field }) =>
+      `${humanField(field)} on ${componentId} is a placeholder — the image chosen was not in the asset ` +
+      `library, so it was not used. Pick one from the library, or ask for it to be generated.`
+  );
+}
+
+/** `desktopImageSlot` → `Desktop image`. Field names are code; this is read by a person. */
+function humanField(field: string): string {
+  const words = field
+    .replace(/Slots?$/, '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : field;
+}

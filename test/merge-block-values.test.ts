@@ -626,3 +626,53 @@ describe('mergeBlockValues unwrapping a wrapped src', () => {
     assert.match(r.invalidValues[0]!, /cdn\.made-up\.com/);
   });
 });
+
+/**
+ * The swap has to be reported to *both* audiences.
+ *
+ * `invalidValues` is model-facing and ends in an instruction. `replacedImages` is the structured fact,
+ * so the UI can phrase it for a person. Only the first existed, which is why an edit could apply, report
+ * "Applied", claim the image was added, and show a placeholder.
+ */
+describe('mergeBlockValues reports replaced images structurally', () => {
+  const template = { imageSlot: { src: 'https://placehold.co/1200x800', alt: '' } };
+  const fields = { imageSlot: { editorType: 'image' } };
+
+  it('records the field whose image was refused', () => {
+    const r = mergeBlockValues(template, { imageSlot: { src: 'https://cdn.made-up.com/a.jpg' } }, fields, new Set());
+    assert.deepEqual(r.replacedImages, [{ field: 'imageSlot', src: 'https://cdn.made-up.com/a.jpg' }]);
+    assert.equal(r.invalidValues.length, 1, 'and still tells the model');
+  });
+
+  it('records nothing when the src was legitimate', () => {
+    const known = new Set(['/api/handoff/assets/img_real/raw']);
+    const r = mergeBlockValues(template, { imageSlot: { src: '/api/handoff/assets/img_real/raw' } }, fields, known);
+    assert.deepEqual(r.replacedImages, []);
+    assert.deepEqual(r.invalidValues, []);
+  });
+
+  it('records nothing for a src recovered from a wrapped tag', () => {
+    // Unwrapping is a recovery, not a rejection — reporting it would tell the user their image failed
+    // when it did not.
+    const known = new Set(['/api/handoff/assets/img_real/raw']);
+    const r = mergeBlockValues(
+      template,
+      { imageSlot: { src: '<img src="/api/handoff/assets/img_real/raw" alt="A" />' } },
+      fields,
+      known
+    );
+    assert.deepEqual(r.replacedImages, []);
+  });
+
+  it('records every item of an array field, not just the first', () => {
+    const arrayTemplate = { images: [{ src: 'https://placehold.co/800x600', alt: '' }] };
+    const r = mergeBlockValues(
+      arrayTemplate,
+      { images: [{ src: 'https://a.invalid/1.jpg' }, { src: 'https://a.invalid/2.jpg' }] },
+      { images: { editorType: 'list' } },
+      new Set()
+    );
+    assert.equal(r.replacedImages.length, 2, 'a gallery with two bad srcs is two problems');
+    assert.ok(r.replacedImages.every((x) => x.field === 'images'));
+  });
+});

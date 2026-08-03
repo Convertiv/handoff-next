@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   describeMissingImagery,
+  describeReplacedImages,
   findPlaceholderImages,
   findUnplacedImages,
   imageGapInstruction,
@@ -162,5 +163,50 @@ describe('findUnplacedImages over edit ops', () => {
 
   it('still catches one that reached nothing', () => {
     assert.equal(findUnplacedImages([{ args: {} }], queued).length, 2);
+  });
+});
+
+/**
+ * The fifth rejection today that was recorded and never surfaced.
+ *
+ * `invalidValues` told the *model* the src was refused; nobody told the person. The op was valid, it
+ * applied, the card said "Applied", and the reply claimed the image had been added — which is exactly
+ * how Monica's "it listed these components as edited and there are still no images" reads.
+ */
+describe('describeReplacedImages', () => {
+  it('names the field in words a person reads, not the prop name', () => {
+    const [message] = describeReplacedImages([{ componentId: 'hero-background', field: 'desktopImageSlot' }]);
+    assert.match(message!, /Desktop image on hero-background is a placeholder/);
+    assert.ok(!message!.includes('desktopImageSlot'), 'the code name is not the user-facing name');
+  });
+
+  it('says why, and what to do about it', () => {
+    // "Not used" without a reason sends someone back to try the same thing again — the failure the
+    // model-facing version of this message already had to fix.
+    const [message] = describeReplacedImages([{ componentId: 'card-rows', field: 'imageSlot' }]);
+    assert.match(message!, /not in the asset library/);
+    assert.match(message!, /Pick one from the library, or ask for it to be generated/);
+  });
+
+  it('carries no model-facing instruction — different audience, different words', () => {
+    const [message] = describeReplacedImages([{ componentId: 'hero', field: 'imageSlot' }]);
+    assert.ok(!/verbatim|search_assets|src/.test(message!), `leaked instruction: ${message}`);
+  });
+
+  it('reports one per field, so two broken images are two messages', () => {
+    const messages = describeReplacedImages([
+      { componentId: 'hero-background', field: 'desktopImageSlot' },
+      { componentId: 'hero-background', field: 'mobileImageSlot' },
+    ]);
+    assert.equal(messages.length, 2);
+  });
+
+  it('handles a plural slot name and an unremarkable one', () => {
+    assert.match(describeReplacedImages([{ componentId: 'c', field: 'logoSlots' }])[0]!, /^Logo on c/);
+    assert.match(describeReplacedImages([{ componentId: 'c', field: 'images' }])[0]!, /^Images on c/);
+  });
+
+  it('returns nothing when nothing was replaced', () => {
+    assert.deepEqual(describeReplacedImages([]), []);
   });
 });
