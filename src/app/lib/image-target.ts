@@ -44,6 +44,15 @@ export function imageFieldsFor(fields: Record<string, FieldMeta> | undefined): s
     .map(([name]) => name);
 }
 
+/**
+ * Resolved, or a reason it could not be.
+ *
+ * Branch on `'error' in target`, **not** on `!target.ok`: the Next app compiles with
+ * `strictNullChecks: false`, and under that setting TypeScript does not narrow a union by a boolean
+ * discriminant — the false branch stays unnarrowed and reading `.error` fails to compile. The `in`
+ * operator narrows under both settings. This shipped as a build break, and the root `tsconfig.json`
+ * excludes `src/app`, so a root `tsc --noEmit` does not catch it; use `npm run typecheck`.
+ */
 export type ImageTarget =
   | { ok: true; componentId: string; index: number; field: string; encoding: string | null }
   | { ok: false; error: string };

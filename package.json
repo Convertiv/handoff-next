@@ -72,7 +72,8 @@
     "design-asset-worker": "tsx src/app/lib/server/design-asset-worker.ts",
     "cdk:deploy": "cd infrastructure/assets && npx cdk deploy",
     "eval": "NODE_OPTIONS=--conditions=react-server tsx scripts/run-evals.ts",
-    "eval:smoke": "NODE_OPTIONS=--conditions=react-server tsx scripts/run-evals.ts --runs 3"
+    "eval:smoke": "NODE_OPTIONS=--conditions=react-server tsx scripts/run-evals.ts --runs 3",
+    "typecheck": "tsc --noEmit -p tsconfig.json && cd src/app && tsc --noEmit -p tsconfig.json"
   },
   "prettier": {
     "printWidth": 140,

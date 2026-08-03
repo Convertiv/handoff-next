@@ -523,7 +523,11 @@ async function runTool(
       field: args.field,
       fields: scaffold && !('error' in scaffold) ? scaffold.fields : undefined,
     });
-    if (!target.ok) return { error: target.error };
+    // `'error' in target`, not `!target.ok`. The app compiles with `strictNullChecks: false`, and under
+    // that setting TypeScript does not narrow a union on a boolean discriminant — `!target.ok` leaves
+    // the type unnarrowed and `target.error` fails to compile. The `in` operator narrows under both
+    // settings, and is the idiom the scaffold check above already uses.
+    if ('error' in target) return { error: target.error };
 
     const orientation = typeof args.orientation === 'string' ? args.orientation : 'landscape';
     const [w, h] = orientation === 'portrait' ? [1024, 1536] : orientation === 'square' ? [1024, 1024] : [1536, 1024];
