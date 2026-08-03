@@ -279,7 +279,17 @@ const TOOLS: OpenAiTool[] = [
             items: {
               type: 'object',
               properties: {
-                op: { type: 'string', enum: ['update', 'replace', 'insert', 'remove'] },
+                op: {
+                  type: 'string',
+                  enum: ['update', 'replace', 'insert', 'remove'],
+                  description:
+                    'Which change to make. `update` keeps the block and changes its field values — copy, ' +
+                    'images, links, theme. `replace` puts a DIFFERENT component in that position: use it ' +
+                    'whenever the user asks to change what a block IS ("make this a stats block", "use a ' +
+                    'carousel here", "switch this to two columns"), because `update` cannot change a ' +
+                    "block's type and will leave it as it was. `insert` adds a new block at a position. " +
+                    '`remove` deletes one.',
+                },
                 index: { type: 'number', description: 'ZERO-based position. Block 1 in the listing is index 0.' },
                 expect: {
                   type: 'string',

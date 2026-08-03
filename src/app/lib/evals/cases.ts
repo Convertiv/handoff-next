@@ -470,6 +470,17 @@ export const EVAL_CASES: EvalCase[] = [
     checks: [editedRatherThanRebuilt, usesOp('replace'), atMostOps(2)],
   },
   {
+    id: 'swap-a-component-implicit',
+    origin:
+      'A guard, not a discriminator, and measured as such: this phrasing passes 5 of 5 with **and** ' +
+      'without the op documentation, so it was never broken. It is here because the sibling case was, and ' +
+      'a fix that lifts an explicit "make this a stats block" while breaking "would work better as a ' +
+      'table" would otherwise go unnoticed. Counterintuitively the explicit phrasing was the failing one.',
+    prompt: 'The programme tiers would work better as a table than as cards. Change it.',
+    canvas: WORKED_PAGE,
+    checks: [editedRatherThanRebuilt, usesOp('replace'), atMostOps(2)],
+  },
+  {
     id: 'add-one-section',
     origin:
       'Asked to add a partner form, it proposed replacing the whole page. "Doing this eliminates all of ' +
