@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { blankContentValues, extractImageSrc, humanizeFieldName, mergeBlockValues, summarizeFields } from '../src/app/lib/merge-block-values';
+import { blankContentValues, extractImageSrc, humanizeFieldName, mergeBlockValues, resolveFieldName, summarizeFields } from '../src/app/lib/merge-block-values';
 
 /**
  * The template owns the shape; the model owns the content. These rules are what make it impossible for
@@ -674,5 +674,78 @@ describe('mergeBlockValues reports replaced images structurally', () => {
     );
     assert.equal(r.replacedImages.length, 2, 'a gallery with two bad srcs is two problems');
     assert.ok(r.replacedImages.every((x) => x.field === 'images'));
+  });
+});
+
+/**
+ * `content-split` has `buttonSlots`; `card-rows` has `buttonSlot`. Two components, opposite conventions,
+ * and a model that has just written one writes the other. The whole update was dropped — "some components
+ * weren't edited that it listed out as being edited" — so a one-letter slip cost the block its change
+ * while the reply said the change had been made.
+ */
+describe('resolveFieldName', () => {
+  const fields = ['titleSlot', 'bodySlot', 'buttonSlots', 'theme'];
+
+  it('passes an exact name through untouched', () => {
+    assert.equal(resolveFieldName('buttonSlots', fields), 'buttonSlots');
+  });
+
+  it('corrects a missing plural — the reported slip', () => {
+    assert.equal(resolveFieldName('buttonSlot', fields), 'buttonSlots');
+  });
+
+  it('corrects a surplus plural, the same mistake the other way', () => {
+    assert.equal(resolveFieldName('themes', fields), 'theme');
+  });
+
+  it('corrects casing', () => {
+    assert.equal(resolveFieldName('ButtonSlots', fields), 'buttonSlots');
+    assert.equal(resolveFieldName('bodyslot', fields), 'bodySlot');
+  });
+
+  it('refuses when two fields are equally plausible', () => {
+    // A component with both `card` and `cards` is genuinely ambiguous once case or the plural is in
+    // question, and picking one is the confident-wrong answer this codebase keeps removing.
+    assert.equal(resolveFieldName('CARDS', ['card', 'cards']), null);
+    assert.equal(resolveFieldName('Card', ['card', 'cards']), null);
+  });
+
+  it('prefers an exact match over any correction', () => {
+    // Both names exist, so neither needs correcting — and the one that was written is the one meant.
+    assert.equal(resolveFieldName('card', ['card', 'cards']), 'card');
+    assert.equal(resolveFieldName('cards', ['card', 'cards']), 'cards');
+  });
+
+  it('does not fuzzy-match different fields', () => {
+    // `title` and `titleSlot` are different fields with different shapes on components that have both.
+    assert.equal(resolveFieldName('title', fields), null);
+    assert.equal(resolveFieldName('button', fields), null);
+    assert.equal(resolveFieldName('nonsense', fields), null);
+  });
+
+  it('refuses an empty name rather than matching something', () => {
+    assert.equal(resolveFieldName('', fields), null);
+  });
+});
+
+describe('mergeBlockValues correcting a field name', () => {
+  const template = { titleSlot: '', buttonSlots: [] as unknown[] };
+  const fields = { titleSlot: { editorType: 'text' }, buttonSlots: { editorType: 'list' } };
+
+  it('lands the change instead of dropping the whole update', () => {
+    const r = mergeBlockValues(template, { buttonSlot: [{ url: '#', text: 'Learn More' }] }, fields);
+    assert.deepEqual(r.args.buttonSlots, [{ url: '#', text: 'Learn More' }]);
+    assert.deepEqual(r.unknownKeys, [], 'a corrected name is not an unknown key');
+    assert.deepEqual(r.correctedFields, [{ from: 'buttonSlot', to: 'buttonSlots' }]);
+  });
+
+  it('still reports a name that is genuinely wrong', () => {
+    const r = mergeBlockValues(template, { footerButtonSlot: [] }, fields);
+    assert.deepEqual(r.unknownKeys, ['footerButtonSlot']);
+    assert.deepEqual(r.correctedFields, []);
+  });
+
+  it('reports nothing corrected when every name was already right', () => {
+    assert.deepEqual(mergeBlockValues(template, { titleSlot: 'Hi' }, fields).correctedFields, []);
   });
 });

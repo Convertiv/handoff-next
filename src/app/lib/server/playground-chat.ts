@@ -387,6 +387,18 @@ async function buildBlocks(
    * the first existed, which is why an edit could report success with no image and no explanation.
    */
   replacedImages: { componentId: string; field: string }[];
+  /**
+   * The fields the model named, per built block, **after** name correction.
+   *
+   * Returned so `propose_edits` does not re-derive them from the raw input. It did, and the two
+   * disagreed: `mergeBlockValues` corrected `buttonSlot` to `buttonSlots` and wrote it into the args,
+   * while the caller filtered by the original spelling, found nothing, and rejected the whole update as
+   * naming no fields. The correction worked and the edit was still lost.
+   *
+   * Two callers deriving one value is the most expensive recurring bug in this codebase. The fix is not
+   * to correct the second derivation; it is to have only one.
+   */
+  namedKeys: string[][];
 }> {
   const blocks: ProposedBlock[] = [];
   const problems: string[] = [];
@@ -394,6 +406,7 @@ async function buildBlocks(
   const rejectedFields: { componentId: string; unknown: string[]; available: string[] }[] = [];
   const invalidValues: { componentId: string; problems: string[] }[] = [];
   const replacedImages: { componentId: string; field: string }[] = [];
+  const namedKeys: string[][] = [];
 
   for (const entry of raw) {
     const componentId = String(entry?.componentId ?? '').trim();
@@ -410,7 +423,7 @@ async function buildBlocks(
     // looking finished and isn't.
     const template = blankContentValues(scaffold.args, scaffold.fields);
     const values = (entry?.values ?? {}) as Record<string, unknown>;
-    const { args, unknownKeys, invalidValues: invalid, replacedImages: replaced, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
+    const { args, unknownKeys, invalidValues: invalid, replacedImages: replaced, correctedFields, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
     if (unknownKeys.length) {
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
@@ -422,11 +435,31 @@ async function buildBlocks(
       invalidValues.push({ componentId, problems: invalid });
     }
     for (const { field } of replaced) replacedImages.push({ componentId, field });
+    if (correctedFields.length) {
+      // An acceptance, not a rejection — the change landed. Logged because a model repeatedly needing the
+      // same correction is a prompt problem, and this is where that becomes visible.
+      console.log(
+        '[playground-chat] corrected field names on',
+        componentId,
+        correctedFields.map((c) => `${c.from}→${c.to}`).join(', ')
+      );
+    }
     if (unfilled.length) gaps.push({ componentId, fields: unfilled });
+
+    // What the model asked to set, in the component's own spelling. `correctedFields` maps each slip to
+    // the real name; everything else it named is already real.
+    const corrections = new Map(correctedFields.map((c) => [c.from, c.to]));
+    const unknown = new Set(unknownKeys);
+    namedKeys.push(
+      Object.keys(values)
+        .filter((k) => !unknown.has(k))
+        .map((k) => corrections.get(k) ?? k)
+    );
+
     blocks.push({ componentId, args });
   }
 
-  return { blocks, problems, gaps, rejectedFields, invalidValues, replacedImages };
+  return { blocks, problems, gaps, rejectedFields, invalidValues, replacedImages, namedKeys };
 }
 
 /**
@@ -1068,9 +1101,12 @@ export async function runPlaygroundChatTurn(args: {
           }
 
           if (op === 'update') {
-            // Only the fields the model actually named. Merging the whole rebuilt block would drag
-            // blanked placeholders over content the user already has.
-            const named = Object.keys((e.values ?? {}) as Record<string, unknown>);
+            // Only the fields the model actually named — merging the whole rebuilt block would drag
+            // blanked placeholders over content the user already has. Taken from `buildBlocks` rather
+            // than re-derived from `e.values`: re-deriving used the model's original spelling, so a name
+            // corrected during the merge (`buttonSlot` → `buttonSlots`) was filtered straight back out
+            // and the update was rejected as naming no fields.
+            const named = built.namedKeys[0] ?? [];
             const values = Object.fromEntries(named.filter((k) => k in block.args).map((k) => [k, block.args[k]]));
             // An update with nothing left in it is not an update. Every named field was unknown to the
             // component — a mistyped or guessed field name — and emitting it anyway produced a
@@ -1079,10 +1115,19 @@ export async function runPlaygroundChatTurn(args: {
             // with instead of leaving it to guess a second time.
             if (!Object.keys(values).length) {
               const detail = built.rejectedFields[0];
+              // Every named field being unknown usually means the wrong *component*, not the wrong field
+              // names: the model wrote another block's fields onto this one. Measured at 2 of 5 runs on
+              // "change this section to a stats block", where it reached for `update` and the block kept
+              // its old type — "I wanted to change a component type and it didn't swap it out". Naming
+              // the alternative costs nothing and a rejection that only complains gets guessed at again.
+              const swapHint =
+                ' If you meant to change this block to a different component, use `op: "replace"` with ' +
+                'the new `componentId` — `update` only changes fields on the block that is already there.';
               preRejected.push({
-                reason: detail
-                  ? `${componentId}: no such field${detail.unknown.length === 1 ? '' : 's'} ${detail.unknown.join(', ')}. Its fields are: ${detail.available.join(', ')}`
-                  : `${componentId}: that edit named no fields the block has.`,
+                reason:
+                  (detail
+                    ? `${componentId}: no such field${detail.unknown.length === 1 ? '' : 's'} ${detail.unknown.join(', ')}. Its fields are: ${detail.available.join(', ')}`
+                    : `${componentId}: that edit named no fields the block has.`) + swapHint,
               });
               continue;
             }

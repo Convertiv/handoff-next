@@ -485,6 +485,14 @@ export interface MergeResult {
    */
   replacedImages: { field: string; src: string }[];
   /**
+   * Field names accepted after correcting case or a trailing plural.
+   *
+   * Logged rather than surfaced: nothing was refused and the user's change landed, so a warning would be
+   * noise. A model that keeps needing the same correction is a prompt problem, and the log is where that
+   * shows up.
+   */
+  correctedFields: { from: string; to: string }[];
+  /**
    * Content fields still holding preview sample data because the model never supplied them.
    *
    * This is the difference between "renders" and "is finished". Templates are seeded from real
@@ -493,6 +501,31 @@ export interface MergeResult {
    * body copy. Passing those through produced a page that looked complete and was not.
    */
   unfilled: string[];
+}
+
+/**
+ * A field name that differs from a real one only by case or a trailing plural.
+ *
+ * `content-split` has `buttonSlots`; `card-rows` has `buttonSlot`. Two components, opposite conventions,
+ * and a model that has just written one confidently writes the other. The whole update was then dropped
+ * — "some components weren't edited that it listed out as being edited" — so a one-letter slip cost the
+ * block its change while the reply said it had been made.
+ *
+ * Corrected only when **exactly one** field matches. A component holding both `image` and `images` is
+ * genuinely ambiguous, and guessing between them is the confident-wrong answer this codebase keeps
+ * removing; that case is still reported as unknown.
+ *
+ * Deliberately narrow. This is not fuzzy matching — no edit distance, no synonyms. `title` must not
+ * resolve to `titleSlot`, because those are different fields with different shapes on components that
+ * have both.
+ */
+export function resolveFieldName(key: string, available: string[]): string | null {
+  if (available.includes(key)) return key;
+
+  const normalise = (name: string) => name.toLowerCase().replace(/s$/, '');
+  const target = normalise(key);
+  const matches = available.filter((name) => normalise(name) === target);
+  return matches.length === 1 ? matches[0]! : null;
 }
 
 export function mergeBlockValues(
@@ -506,13 +539,20 @@ export function mergeBlockValues(
   const unknownKeys: string[] = [];
   const invalidValues: string[] = [];
   const replacedImages: { field: string; src: string }[] = [];
+  /** Names corrected from a near-miss, for the log — an acceptance, not a rejection. */
+  const correctedFields: { from: string; to: string }[] = [];
   const supplied = new Set(Object.keys(values ?? {}));
+  const available = Object.keys(scaffoldArgs);
 
-  for (const [key, value] of Object.entries(values ?? {})) {
-    if (!(key in scaffoldArgs)) {
-      unknownKeys.push(key);
+  for (const [rawKey, value] of Object.entries(values ?? {})) {
+    // A near-miss on case or a trailing plural is corrected rather than dropped; anything else is
+    // reported. See `resolveFieldName`.
+    const key = resolveFieldName(rawKey, available);
+    if (!key) {
+      unknownKeys.push(rawKey);
       continue;
     }
+    if (key !== rawKey) correctedFields.push({ from: rawKey, to: key });
 
     // An invalid enum value renders as the component's default, so the page looks like the model's
     // choice was ignored rather than rejected. Keep the template's value and report it.
@@ -564,7 +604,7 @@ export function mergeBlockValues(
     }
   }
 
-  return { args, unknownKeys, invalidValues, replacedImages, unfilled };
+  return { args, unknownKeys, invalidValues, replacedImages, correctedFields, unfilled };
 }
 
 /**
