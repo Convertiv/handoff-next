@@ -168,3 +168,24 @@ export function describeOpVisually(op: EditOp): OpVisual {
       return { action: 'Remove', position, before: op.expect };
   }
 }
+
+/**
+ * Pull well-formed edit entries out of whatever the model sent.
+ *
+ * `parsed.edits` was cast — `as Record<string, unknown>[]` — and then dereferenced. A single `null` in
+ * that array threw `Cannot read properties of null (reading 'op')` and killed the whole turn: no
+ * changeset, no reply, a failed request. Caught by the eval suite as a thrown run.
+ *
+ * A cast asserts something about model output that nothing checked. This is the same lesson
+ * `parseCanvasBlocks` exists for — the route had `currentBlocks` in its payload and nowhere in its
+ * parsing for a full release, because a cast compiles. Validating instead of asserting, and returning
+ * what was discarded so it can be reported rather than vanishing.
+ */
+export function parseEditEntries(raw: unknown): { entries: Record<string, unknown>[]; discarded: number } {
+  if (!Array.isArray(raw)) return { entries: [], discarded: 0 };
+
+  const entries = raw.filter(
+    (e): e is Record<string, unknown> => !!e && typeof e === 'object' && !Array.isArray(e)
+  );
+  return { entries, discarded: raw.length - entries.length };
+}

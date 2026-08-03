@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, like, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { assetSearchTerms, type AssetSearchMode } from '@/lib/asset-search';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
@@ -1775,6 +1776,13 @@ export type AssetListFilter = {
   iconSetId?: string;
   status?: string;
   search?: string;
+  /**
+   * How strictly `search` must match: every term, or any of them.
+   *
+   * Defaults to `all`. The caller runs the loose pass only when the precise one found nothing — see
+   * `asset-search.ts`.
+   */
+  searchMode?: AssetSearchMode;
   tags?: string[];
   limit?: number;
   offset?: number;
@@ -1787,7 +1795,34 @@ export async function listAssets(filter: AssetListFilter = {}) {
   if (filter.collectionId) conditions.push(eq(handoffAssets.collectionId, filter.collectionId));
   if (filter.iconSetId) conditions.push(eq(handoffAssets.iconSetId, filter.iconSetId));
   if (filter.status) conditions.push(eq(handoffAssets.status, filter.status));
-  if (filter.search) conditions.push(ilike(handoffAssets.title, `%${filter.search}%`));
+  if (filter.search) {
+    /**
+     * Every searchable word about the asset, not just its title.
+     *
+     * This was `ilike(title, '%search%')` — one substring, one column. So "lecture hall" matched nothing
+     * even where the library held "Students studying in university", and the alt text, description and
+     * tags that actually describe each picture were never consulted. Six of eight searches in a real turn
+     * came back empty and the page shipped on placeholders.
+     *
+     * `coalesce` on every part: a null description would otherwise make the whole concatenation null and
+     * the asset unfindable by any term at all.
+     *
+     * `tags` is `jsonb`, not a Postgres array, so `array_to_string` does not exist for it — the first
+     * attempt died on `42883 no function matches`. Casting to text gives `["copy", "text"]`, which an
+     * ILIKE reads perfectly well; the brackets and quotes are noise no search term contains.
+     */
+    const haystack = sql`(
+      coalesce(${handoffAssets.title}, '') || ' ' ||
+      coalesce(${handoffAssets.altText}, '') || ' ' ||
+      coalesce(${handoffAssets.description}, '') || ' ' ||
+      coalesce(${handoffAssets.tags}::text, '')
+    )`;
+    const terms = assetSearchTerms(filter.search);
+    if (terms.length) {
+      const clauses = terms.map((term) => sql`${haystack} ilike ${`%${term}%`}`);
+      conditions.push(filter.searchMode === 'any' ? or(...clauses)! : and(...clauses)!);
+    }
+  }
 
   const limit = Math.min(filter.limit ?? 100, 500);
   const offset = filter.offset ?? 0;

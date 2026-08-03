@@ -18,10 +18,11 @@ import {
 } from '@/lib/placeholder-audit';
 import { summarizeError } from '@/lib/error-summary';
 import { packToBudget, purposeLine, truncationNote } from '@/lib/tool-payload';
+import { assetSearchTerms, looseMatchNote, shouldRetryLoosely } from '@/lib/asset-search';
 import { readCapabilities } from '@/lib/slot-capabilities';
 import { describeTurn, flagsFor, type TurnFacts, type TurnRetry } from '@/lib/turn-log';
 import { logAiEvent } from '@/lib/server/event-log';
-import { applyOps, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
+import { applyOps, parseEditEntries, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { summarizeComposition } from '@/lib/composition-summary';
 
 export { summarizeComposition };
@@ -636,10 +637,24 @@ async function runTool(
     const q = typeof args.query === 'string' ? args.query.trim() : '';
     // Two queries rather than one: the search narrows by title, but anything the user attached must
     // surface regardless of what they called it — they uploaded it FOR this page.
-    const [matches, all] = await Promise.all([
+    const [precise, all] = await Promise.all([
       listAssets({ assetType: 'image', status: 'active', limit: 60, ...(q ? { search: q } : {}) }),
       preferredAssetIds.length ? listAssets({ assetType: 'image', status: 'active', limit: 200 }) : Promise.resolve([]),
     ]);
+
+    /**
+     * A loose second pass, only when the precise one found nothing.
+     *
+     * Coming back empty is the expensive outcome, not an imprecise result: the model rephrases, searches
+     * again, and after a few empties writes an invented src or leaves a placeholder that ships. Measured
+     * on one real turn — eight searches, six of them empty, a page of placeholders, and a 127-image
+     * library that had campus photographs the whole time.
+     */
+    const terms = assetSearchTerms(q);
+    const loose = shouldRetryLoosely(terms, precise.length)
+      ? await listAssets({ assetType: 'image', status: 'active', limit: 60, search: q, searchMode: 'any' })
+      : [];
+    const matches = precise.length ? precise : loose;
     const attachedRows = all.filter((r) => preferredAssetIds.includes(String(r.id)));
 
     const seen = new Set<string>();
@@ -654,7 +669,11 @@ async function runTool(
       out.push({ id, name: String(r.title ?? ''), src, alt: String(r.altText ?? ''), attached: preferredAssetIds.includes(id) });
     }
     for (const a of out) seenAssetSrcs?.add(a.src);
-    return out.slice(0, 25);
+
+    const results = out.slice(0, 25);
+    // A loose match is weaker evidence and the model should be able to tell: "students" returned for
+    // "lecture hall" may be the right picture or merely the nearest one.
+    return !precise.length && loose.length ? { results, note: looseMatchNote(q) } : results;
   }
 
   if (name === 'request_image') {
@@ -1081,13 +1100,20 @@ export async function runPlaygroundChatTurn(args: {
           componentId: b.componentId,
           args: (b.args ?? {}) as Record<string, unknown>,
         }));
-        const raw = Array.isArray(parsed.edits) ? (parsed.edits as Record<string, unknown>[]) : [];
+        // Validated, not cast. A `null` in this array threw `Cannot read properties of null` on the
+        // first `e.op` and killed the turn outright — no changeset, no reply.
+        const { entries: raw, discarded } = parseEditEntries(parsed.edits);
 
         // Build real args for anything carrying content, so an edit gets the same shape guarantees a
         // fresh proposal does — correct prop shapes, no invented images, no sample content.
         const ops: EditOp[] = [];
         /** Edits dropped before verification — a bad field name, an unknown component. */
         const preRejected: { reason: string }[] = [];
+        if (discarded) {
+          preRejected.push({
+            reason: `${discarded} edit${discarded === 1 ? '' : 's'} could not be read and were skipped.`,
+          });
+        }
         for (const e of raw) {
           const op = String(e.op ?? '');
           const index = Number(e.index);

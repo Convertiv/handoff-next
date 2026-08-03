@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { applyOps, describeOp, describeOpVisually, type EditOp, type PageBlock, verifyOps } from '../src/app/lib/edit-operations';
+import { applyOps, describeOp, describeOpVisually, parseEditEntries, type EditOp, type PageBlock, verifyOps } from '../src/app/lib/edit-operations';
 
 const page = (): PageBlock[] => [
   { componentId: 'header', args: {} },
@@ -178,5 +178,39 @@ describe('describeOpVisually', () => {
   it('has an empty field list rather than undefined for an update that names none', () => {
     // Such an update is rejected upstream, but the card must not crash rendering one.
     assert.deepEqual(describeOpVisually({ op: 'update', index: 0, expect: 'x', values: {} }).fields, []);
+  });
+});
+
+/**
+ * `parsed.edits` was cast — `as Record<string, unknown>[]` — and then dereferenced. One `null` in that
+ * array threw `Cannot read properties of null (reading 'op')` and killed the whole turn: no changeset, no
+ * reply, a failed request. The eval suite caught it as a thrown run.
+ */
+describe('parseEditEntries', () => {
+  it('drops a null without taking the turn down', () => {
+    const { entries, discarded } = parseEditEntries([{ op: 'update' }, null, { op: 'remove' }]);
+    assert.equal(entries.length, 2);
+    assert.equal(discarded, 1);
+  });
+
+  it('reports how many were unreadable, so they are not silently gone', () => {
+    assert.equal(parseEditEntries([null, undefined, 'update', 42, []]).discarded, 5);
+  });
+
+  it('keeps every well-formed entry untouched', () => {
+    const ops = [{ op: 'update', index: 0 }, { op: 'insert', index: 2 }];
+    assert.deepEqual(parseEditEntries(ops), { entries: ops, discarded: 0 });
+  });
+
+  it('rejects an array as an entry — it would dereference to undefined, not throw', () => {
+    // The quieter half of the same bug: `[].op` is undefined, so an array entry becomes an op named "",
+    // gets no branch, and disappears without a word.
+    assert.deepEqual(parseEditEntries([[]]), { entries: [], discarded: 1 });
+  });
+
+  it('handles a non-array, which is what a malformed tool call sends', () => {
+    for (const bad of [null, undefined, {}, 'edits', 7]) {
+      assert.deepEqual(parseEditEntries(bad), { entries: [], discarded: 0 });
+    }
   });
 });

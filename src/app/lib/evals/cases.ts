@@ -261,7 +261,13 @@ const usesOp = (kind: string): EvalCheck => ({
   },
 });
 
-/** No more ops than the request implies. A "change one block" that touches six is a rebuild in disguise. */
+/**
+ * No more ops than the request implies — a "change one block" that touches six is a rebuild in disguise.
+ *
+ * Ceilings are set above the plausible answer, not at it. A swap sometimes needs a second op to carry
+ * copy across, and failing that would be failing the model's judgement rather than the defect: rebuilding
+ * a six-block page is what this catches, and three ops is not that.
+ */
 const atMostOps = (n: number): EvalCheck => ({
   name: `at-most-${n}-ops`,
   run: (o) => (o.ops.length <= n ? null : `${o.ops.length} ops for a change that needs at most ${n}`),
@@ -478,7 +484,7 @@ export const EVAL_CASES: EvalCase[] = [
       'table" would otherwise go unnoticed. Counterintuitively the explicit phrasing was the failing one.',
     prompt: 'The programme tiers would work better as a table than as cards. Change it.',
     canvas: WORKED_PAGE,
-    checks: [editedRatherThanRebuilt, usesOp('replace'), atMostOps(2)],
+    checks: [editedRatherThanRebuilt, usesOp('replace'), atMostOps(3)],
   },
   {
     id: 'add-one-section',

@@ -1,0 +1,126 @@
+[
+  {
+    "caseId": "fresh-page-with-imagery",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2
+    },
+    "medianSeconds": 34.033
+  },
+  {
+    "caseId": "fresh-page-plain",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2
+    },
+    "medianSeconds": 20.044
+  },
+  {
+    "caseId": "fill-the-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 5.576
+  },
+  {
+    "caseId": "edit-the-headline",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 4.592
+  },
+  {
+    "caseId": "gallery-four-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 2.939
+  },
+  {
+    "caseId": "bulk-field-edit",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "rejected-values": 1
+    },
+    "medianSeconds": 17.182
+  },
+  {
+    "caseId": "swap-a-component",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 7.819
+  },
+  {
+    "caseId": "swap-a-component-implicit",
+    "runs": 2,
+    "passed": 1,
+    "failures": {
+      "at-most-2-ops: 3 ops for a change that needs at most 2": 1
+    },
+    "signals": {},
+    "medianSeconds": 6.174
+  },
+  {
+    "caseId": "add-one-section",
+    "runs": 2,
+    "passed": 1,
+    "failures": {
+      "threw: Cannot read properties of null (reading 'op')": 1
+    },
+    "signals": {
+      "rejected-values": 1
+    },
+    "medianSeconds": 13.3
+  },
+  {
+    "caseId": "brief-names-components",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2
+    },
+    "medianSeconds": 9.669
+  },
+  {
+    "caseId": "complex-multi-constraint",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2,
+      "left-placeholders": 2
+    },
+    "medianSeconds": 15.767
+  },
+  {
+    "caseId": "brief-without-component-column",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2,
+      "left-placeholders": 2
+    },
+    "medianSeconds": 13.136
+  },
+  {
+    "caseId": "stats-not-inverted",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 5.454
+  }
+]
