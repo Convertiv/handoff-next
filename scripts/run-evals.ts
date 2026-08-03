@@ -27,6 +27,20 @@ nextEnv.loadEnvConfig(process.cwd(), true, { info: () => {}, error: console.erro
 const { runPlaygroundChatTurn } = await import('../src/app/lib/server/playground-chat');
 const { EVAL_CASES, SMOKE_CASES, judge, observeSignals, summarize } = await import('../src/app/lib/evals/cases');
 const { resolveUserId } = await import('./lib/resolve-user.mjs');
+const { frameSourceCopy } = await import('../src/app/lib/source-copy');
+
+/** The workspace catalog, fetched once — every case that frames a brief needs the same list. */
+let catalogCache: { id: string; title: string }[] | null = null;
+const catalog = async () => {
+  if (!catalogCache) {
+    const { getDataProvider } = await import('../src/app/lib/data');
+    catalogCache = (await (await getDataProvider()).getComponents()).map((c) => ({
+      id: String(c.id),
+      title: String(c.title ?? ''),
+    }));
+  }
+  return catalogCache;
+};
 type EvalCase = import('../src/app/lib/evals/cases').EvalCase;
 type CaseResult = import('../src/app/lib/evals/cases').CaseResult;
 
@@ -85,8 +99,14 @@ async function runCase(kase: EvalCase, runs: number, userId: string | null): Pro
     const startedAt = Date.now();
     process.stdout.write(`  run ${i + 1}/${runs} `);
     try {
+      // Framed with the real catalog, the same call the paste panel makes — a case that sent pre-framed
+      // text would freeze today's wording and stop catching framing regressions.
+      const content = kase.sourceCopy
+        ? `${frameSourceCopy(kase.sourceCopy, 'brief.md', await catalog())!.content}\n\n${kase.prompt}`
+        : kase.prompt;
+
       const turn = await runPlaygroundChatTurn({
-        messages: [{ role: 'user', content: kase.prompt }],
+        messages: [{ role: 'user', content }],
         currentBlocks: kase.canvas,
         actorUserId: userId,
       });

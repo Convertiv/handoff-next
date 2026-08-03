@@ -312,7 +312,9 @@ export default function AiChatPanel() {
    * read as a brief and come back paraphrased into headlines nobody signed off.
    */
   const sendSourceCopy = async () => {
-    const framed = frameSourceCopy(copyText, copySource ?? undefined);
+    // The catalog goes with it: a brief that names "Split Content" should get `content-split`, and the
+    // matching is done here rather than left to the model to infer from prose.
+    const framed = frameSourceCopy(copyText, copySource ?? undefined, components);
     if (!framed || busy) return;
     setCopyText('');
     setCopySource(null);

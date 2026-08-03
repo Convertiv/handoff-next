@@ -75,6 +75,14 @@ export interface EvalCase {
    * rather than running them, so the absence shows up as a gap instead of a pass.
    */
   requiresUser?: boolean;
+  /**
+   * A brief sent as framed source copy, the way the paste panel sends it.
+   *
+   * The runner does the framing with the real catalog, so the case exercises the whole path — name
+   * resolution included — rather than a pre-framed string that would freeze today's wording and stop
+   * catching framing regressions.
+   */
+  sourceCopy?: string;
 }
 
 // ── Invariants ───────────────────────────────────────────────────────────────
@@ -187,6 +195,21 @@ const editedRatherThanRebuilt: EvalCheck = {
       ? `re-proposed ${o.blocks.length} blocks instead of editing the ${o.facts.hasCanvas ? 'existing' : ''} page`
       : null,
 };
+
+/**
+ * The blocks the brief asked for are the blocks that got used.
+ *
+ * "The copy doc suggested Split Content and Handoff provided Simple Copy" — two components with no words
+ * in common. The brief named what it wanted and nothing read it.
+ */
+const usesComponents = (ids: string[]): EvalCheck => ({
+  name: 'used-the-named-blocks',
+  run: (o) => {
+    const used = new Set([...o.blocks.map((b) => b.componentId), ...o.ops.map((op) => op.blockId ?? '')]);
+    const missing = ids.filter((id) => !used.has(id));
+    return missing.length ? `did not use ${missing.join(', ')} — got [${[...used].join(', ')}]` : null;
+  },
+});
 
 /** At least one op of a given kind — a swap must swap, not append a second block. */
 const usesOp = (kind: string): EvalCheck => ({
@@ -412,6 +435,28 @@ export const EVAL_CASES: EvalCase[] = [
     prompt: 'Add a form section after the hero so partners can register their interest.',
     canvas: WORKED_PAGE,
     checks: [editedRatherThanRebuilt, usesOp('insert'), atMostOps(2)],
+  },
+  {
+    id: 'brief-names-components',
+    origin:
+      'A brief with a Component column asked for Split Content and got Simple Copy — two blocks with no ' +
+      'words in common. "Split Content" and "Content Split" are the same words reversed, so nothing that ' +
+      'compares strings in order would ever have matched them.\n\n' +
+      'The copy here reads like a card grid while the brief asks for a two-column block, so the model\'s ' +
+      'instinct and the brief disagree — the only way to tell whether the brief is being read at all. ' +
+      'Measured without name resolution: 0 of 3, substituting content-split every time. A brief whose ' +
+      'named blocks are also the obvious ones passed 3 of 3 either way and measured nothing.',
+    prompt: 'Build this page.',
+    sourceCopy: [
+      '# Partner benefits',
+      '',
+      '| Section | Component | New Copy |',
+      '| --- | --- | --- |',
+      '| Benefits | Two Column Content | Higher margins. Faster deal registration. Dedicated support. |',
+      '| Tiers | Simple Table | Silver, Gold, Platinum |',
+    ].join('\n'),
+    canvas: [],
+    checks: [proposed, usesComponents(['two-column-content', 'simple-table'])],
   },
   {
     id: 'stats-not-inverted',

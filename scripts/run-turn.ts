@@ -32,13 +32,15 @@ type PlaygroundChatEvent = Parameters<NonNullable<Parameters<typeof runPlaygroun
 
 interface Args {
   prompt: string;
+  /** A brief to frame and send as source copy, the way the paste panel does. */
+  copyFile: string | null;
   canvas: { componentId: string; args?: Record<string, unknown> }[];
   json: boolean;
   userId: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { prompt: '', canvas: [], json: false, userId: null };
+  const out: Args = { prompt: '', copyFile: null, canvas: [], json: false, userId: null };
   const rest: string[] = [];
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -51,6 +53,7 @@ function parseArgs(argv: string[]): Args {
       // Accept either a bare array of blocks or a saved pattern shape.
       out.canvas = Array.isArray(raw) ? raw : (raw.components ?? raw.blocks ?? []);
     } else if (a === '--user') out.userId = argv[++i] ?? null;
+    else if (a === '--copy') out.copyFile = argv[++i] ?? null;
     else rest.push(a);
   }
 
@@ -68,7 +71,33 @@ const OFF = '\x1b[0m';
   // failure was misdiagnosed through it: `request_image` is gated on a user, so every imagery run here
   // reported "generation unavailable" and was measuring the runner rather than the agent.
   if (!args.userId) args.userId = await resolveUserId();
-  if (!args.prompt) {
+
+  /**
+   * A brief, framed exactly as the paste panel frames it — including resolving any block names it
+   * mentions against the real catalog.
+   *
+   * Without this the source-copy path could only be exercised by hand in a browser, which is the loop
+   * `docs/AGENT-TESTING.md` exists to close. The framing must match the panel's or this measures
+   * something nobody uses, so both call `frameSourceCopy` with the catalog.
+   */
+  let framedLabel: string | null = null;
+  if (args.copyFile) {
+    const { frameSourceCopy } = await import('../src/app/lib/source-copy');
+    const { getDataProvider } = await import('../src/app/lib/data');
+    const catalog = (await (await getDataProvider()).getComponents()).map((c) => ({
+      id: String(c.id),
+      title: String(c.title ?? ''),
+    }));
+    const framed = frameSourceCopy(fs.readFileSync(path.resolve(args.copyFile), 'utf-8'), path.basename(args.copyFile), catalog);
+    if (!framed) {
+      console.error(`${args.copyFile} had no copy in it.`);
+      process.exit(2);
+    }
+    framedLabel = framed.label;
+    // Prepended, so an instruction typed alongside the brief still reads as the request.
+    args.prompt = args.prompt ? `${framed.content}\n\n${args.prompt}` : framed.content;
+  }
+  if (!args.prompt && !args.copyFile) {
     console.error('Usage: npm run turn -- "your prompt" [--canvas file.json] [--user <id>] [--json]');
     process.exit(2);
   }
@@ -78,8 +107,10 @@ const OFF = '\x1b[0m';
   }
 
   if (!args.json) {
-    console.log(`${BOLD}prompt${OFF}  ${args.prompt}`);
-    console.log(`${BOLD}canvas${OFF}  ${args.canvas.length ? `${args.canvas.length} block(s)` : 'empty (composing a new page)'}\n`);
+    console.log(`${BOLD}prompt${OFF}  ${args.prompt.slice(0, 200)}${args.prompt.length > 200 ? '…' : ''}`);
+    console.log(`${BOLD}canvas${OFF}  ${args.canvas.length ? `${args.canvas.length} block(s)` : 'empty (composing a new page)'}`);
+    if (framedLabel) console.log(`${BOLD}copy${OFF}    ${framedLabel}`);
+    console.log('');
   }
 
   // The narration the user would see, as it happens — a turn that stalls is obvious here and invisible

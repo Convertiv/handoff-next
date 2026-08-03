@@ -1,0 +1,90 @@
+[
+  {
+    "caseId": "fresh-page-with-imagery",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2,
+      "left-placeholders": 1
+    },
+    "medianSeconds": 19.706
+  },
+  {
+    "caseId": "fresh-page-plain",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2,
+      "left-placeholders": 1
+    },
+    "medianSeconds": 18.757
+  },
+  {
+    "caseId": "fill-the-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 31.117
+  },
+  {
+    "caseId": "edit-the-headline",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 2.712
+  },
+  {
+    "caseId": "gallery-four-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 5.817
+  },
+  {
+    "caseId": "bulk-field-edit",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 15.983
+  },
+  {
+    "caseId": "swap-a-component",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 7.1
+  },
+  {
+    "caseId": "add-one-section",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 4.145
+  },
+  {
+    "caseId": "brief-names-components",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "first-pass-incomplete": 2
+    },
+    "medianSeconds": 6.819
+  },
+  {
+    "caseId": "stats-not-inverted",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 8.386
+  }
+]

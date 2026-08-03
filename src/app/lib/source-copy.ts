@@ -12,6 +12,13 @@
  * and a file read, and neither is where this can go wrong.
  */
 
+import {
+  describeBriefComponents,
+  findNamedComponents,
+  resolveBriefComponents,
+  type CatalogEntry,
+} from './brief-components';
+
 /** Plain-text formats read directly in the browser — no dependency, no server round trip. */
 export const SOURCE_COPY_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.tsv', '.rtf'] as const;
 
@@ -115,7 +122,16 @@ export function unreadableFileMessage(name: string): string {
  * - **This is not a layout** — the same trap the URL importer fell into: heading order in a document is
  *   not a section order on a page.
  */
-export function frameSourceCopy(text: string, source?: string): FramedSourceCopy | null {
+export function frameSourceCopy(
+  text: string,
+  source?: string,
+  /**
+   * The workspace catalog, so a brief that names a block gets the resolved id rather than a guess.
+   *
+   * Optional: pasted prose that names nothing is the common case, and the resolution adds nothing then.
+   */
+  catalog?: CatalogEntry[]
+): FramedSourceCopy | null {
   const body = text.trim();
   if (!body) return null;
 
@@ -125,6 +141,12 @@ export function frameSourceCopy(text: string, source?: string): FramedSourceCopy
 
   const from = source ? ` from ${source}` : '';
   const words = countWords(clipped);
+
+  // Resolved here rather than asked of the model. "The copy doc suggested Split Content and Handoff
+  // provided Simple Copy" — two components with no words in common, because nothing was reading the
+  // brief's own answer.
+  const named = catalog?.length ? resolveBriefComponents(findNamedComponents(clipped), catalog) : null;
+  const componentGuidance = named ? describeBriefComponents(named) : null;
 
   const content = [
     `Here is copy the user has supplied${from}. Use it as the source material for this page.`,
@@ -139,10 +161,11 @@ export function frameSourceCopy(text: string, source?: string): FramedSourceCopy
       ? '- The copy is in a table. Read the header row: a column named for the *new*, *revised* or\n' +
         '  *final* copy is the one to use, and a column of old, current or existing copy is what it\n' +
         '  replaces — never author from that one. A column of section or page names tells you which\n' +
-        '  block each row belongs to. If the headers are ambiguous, ask which column to use rather\n' +
-        '  than picking one.'
+        '  block each row belongs to, and a Component or Block column names the block itself. If the\n' +
+        '  headers are ambiguous, ask which column to use rather than picking one.'
       : '',
     truncated ? `- It was longer than we can send; the first ~${SOURCE_COPY_MAX_CHARS} characters are below.` : '',
+    componentGuidance ?? '',
     '',
     '---',
     clipped,
