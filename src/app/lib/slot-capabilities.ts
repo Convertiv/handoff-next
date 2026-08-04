@@ -188,6 +188,33 @@ export function widgetForEncoding(encoding: string | null): 'text' | 'richtext' 
 }
 
 /**
+ * The fields one item of a container takes, for a measured container encoding.
+ *
+ * `image-gallery.images` measured `array-of-image-object`, meaning an item is `{ src, alt }` — and the
+ * declared item type `ImageGalleryImage` has **no `src` at all**. Its fields are `alt`, `caption`,
+ * `thumbnailSlot` and `lightboxSlot`, the last two of which the probe found accept nothing. So the block
+ * editor offered two slots that cannot be authored and no way to set the picture, which is exactly the
+ * report: "thumbnailSlot and lightboxSlot aren't getting converted to image fields".
+ *
+ * They never can be. The component's own field annotation rebuilds each item from `src` unless the slot
+ * already holds a React element, so `src` is the authorable field and it is undeclared. Measurement found
+ * the truth the type does not carry; this is how it reaches the form.
+ */
+export function itemFieldsForEncoding(encoding: string | null): Record<string, { editorType: string; encoding?: string }> | null {
+  switch (encoding) {
+    case 'array-of-image-object':
+      return { src: { editorType: 'image', encoding: 'image-object' }, alt: { editorType: 'text' } };
+    case 'array-of-urltext':
+      return { url: { editorType: 'text' }, text: { editorType: 'text' } };
+    case 'array-of-labelhref':
+      return { label: { editorType: 'text' }, href: { editorType: 'text' } };
+    default:
+      // `array-of-text` items are bare strings and have no fields; anything else is unmapped.
+      return null;
+  }
+}
+
+/**
  * Overlay measured encodings onto a component's declared properties, for the block editor.
  *
  * The editor renders from `properties` (the raw schema) while the scaffold renders from the capability
@@ -232,6 +259,63 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
 
     out[name] = { ...meta, editorType: widget, encoding: slot.accepts[0], measured: true };
     changed = true;
+  }
+
+  /**
+   * Item fields for a measured container, which is where the gallery went wrong.
+   *
+   * Done as a second pass because the container's own record and its nested slots' records are separate
+   * entries — `images`, `images[].thumbnailSlot`, `images[].lightboxSlot` — and the item overlay needs
+   * all of them.
+   *
+   * **Augmenting, not replacing.** `caption` is a plain string the component passes through and an author
+   * writes; wiping the declared item shape to the measured one would take it with them. What changes is
+   * that the measured fields appear, and item slots the probe found nothing for stop being offered.
+   */
+  for (const [name, meta] of Object.entries(out)) {
+    const encoding = caps.slots?.[name]?.accepts?.[0] ?? null;
+    const measuredItems = itemFieldsForEncoding(encoding);
+    if (!isRecord(meta)) continue;
+    const items = isRecord(meta.items) ? meta.items : null;
+    const declared = items && isRecord(items.properties) ? items.properties : null;
+    if (!measuredItems && !declared) continue;
+
+    const itemProps: Record<string, unknown> = { ...(declared ?? {}) };
+    let itemChanged = false;
+
+    for (const [field, shape] of Object.entries(measuredItems ?? {})) {
+      const existing = isRecord(itemProps[field]) ? itemProps[field] : {};
+      itemProps[field] = {
+        // A name, so the form has a label even for a field the schema never declared.
+        name: field,
+        type: shape.editorType,
+        kind: 'primitive',
+        ...existing,
+        editorType: shape.editorType,
+        ...(shape.encoding ? { encoding: shape.encoding } : {}),
+        measured: true,
+      };
+      itemChanged = true;
+    }
+
+    // Item slots the probe reached and found nothing for. Offering an editor that changes nothing is the
+    // failure this whole mechanism exists to remove.
+    for (const field of Object.keys(itemProps)) {
+      const nested = caps.slots?.[`${name}[].${field}`];
+      if (!nested?.unresolved || !isRecord(itemProps[field])) continue;
+      itemProps[field] = {
+        ...itemProps[field],
+        measured: true,
+        editable: false,
+        note: 'This component accepts no editable value here — set the image on the item instead.',
+      };
+      itemChanged = true;
+    }
+
+    if (itemChanged) {
+      out[name] = { ...meta, items: { ...(items ?? {}), properties: itemProps } };
+      changed = true;
+    }
   }
 
   return changed ? (out as T) : properties;

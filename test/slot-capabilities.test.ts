@@ -255,3 +255,79 @@ describe('bareArrayEncoding', () => {
     assert.equal(bareArrayEncoding(caps, 'other'), undefined);
   });
 });
+
+/**
+ * "The thumbnailSlot and lightboxSlot aren't getting converted to image fields."
+ *
+ * They never can be. `image-gallery.images` measured `array-of-image-object` — an item is `{ src, alt }` —
+ * and the declared item type `ImageGalleryImage` has **no `src` at all**: its fields are `alt`, `caption`,
+ * `thumbnailSlot` and `lightboxSlot`, the last two of which accept nothing. The component's own annotation
+ * rebuilds each item from `src`, so `src` is the authorable field and it is undeclared. The editor offered
+ * two dead slots and no way to set the picture.
+ */
+describe('applyCapabilitiesToProperties on a measured container', () => {
+  const gallery = {
+    images: {
+      kind: 'array',
+      type: 'array',
+      items: {
+        kind: 'object',
+        properties: {
+          alt: { kind: 'primitive', type: 'text' },
+          _key: { kind: 'primitive', type: 'text' },
+          caption: { kind: 'primitive', type: 'text' },
+          thumbnailSlot: { kind: 'slot', type: 'React.ReactNode' },
+          lightboxSlot: { kind: 'slot', type: 'React.ReactNode' },
+        },
+      },
+    },
+  };
+  const caps = readCapabilities({
+    capabilities: {
+      slots: {
+        images: { accepts: ['array-of-image-object'] },
+        'images[].thumbnailSlot': { accepts: [] },
+        'images[].lightboxSlot': { accepts: [] },
+      },
+    },
+  });
+
+  const applied = applyCapabilitiesToProperties(gallery, caps) as typeof gallery;
+  const items = applied.images.items.properties as Record<string, Record<string, unknown>>;
+
+  it('adds the `src` the declared type never had, as an image field', () => {
+    assert.equal(items.src!.editorType, 'image');
+    assert.equal(items.src!.encoding, 'image-object');
+    assert.equal(items.src!.measured, true);
+  });
+
+  it('marks the slots that accept nothing as not editable, with a reason', () => {
+    for (const field of ['thumbnailSlot', 'lightboxSlot']) {
+      assert.equal(items[field]!.editable, false, field);
+      assert.match(String(items[field]!.note), /no editable value here/);
+    }
+  });
+
+  it('augments rather than replaces — `caption` is authorable and survives', () => {
+    // Wiping the declared item shape to the measured one would take a real field with it.
+    assert.ok(items.caption, 'caption kept');
+    assert.ok(items._key, 'bookkeeping kept');
+    assert.equal(items.alt!.editorType, 'text');
+  });
+
+  it('leaves a container the probe measured nothing for completely alone', () => {
+    // `grid-columns.columns` resolved to no container encoding, correctly — its items carry real copy
+    // fields that an `array-of-*` shape would discard.
+    const untouched = applyCapabilitiesToProperties(gallery, readCapabilities({ capabilities: { slots: {} } }));
+    assert.deepEqual(untouched, gallery);
+  });
+
+  it('does not invent items for an encoding with no item shape', () => {
+    // `array-of-text` items are bare strings.
+    const list = { tags: { kind: 'array', items: { properties: { label: { type: 'text' } } } } };
+    const applied2 = applyCapabilitiesToProperties(list, readCapabilities({
+      capabilities: { slots: { tags: { accepts: ['array-of-text'] } } },
+    })) as typeof list;
+    assert.deepEqual(Object.keys(applied2.tags.items.properties), ['label']);
+  });
+});

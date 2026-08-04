@@ -212,6 +212,49 @@ export function resolveFieldType(value: any): string {
 
 export function InputField({ fieldKey, value, data }: { fieldKey: string[]; value: any; data: any }) {
   const { getData, handleInputChange } = useEditContext();
+
+  /**
+   * A field the build-time probe found no encoding for.
+   *
+   * `applyCapabilitiesToProperties` has set `editable: false` on these since probing landed, and nothing
+   * read it — so `image-gallery`'s `thumbnailSlot` and `lightboxSlot` still rendered slot editors, and an
+   * author had no way to know that typing into them changes nothing. That was the report: they "aren't
+   * getting converted to image fields". They cannot be; the component rebuilds each item from `src`,
+   * which is now offered alongside them.
+   *
+   * The input stays. A slot can measure unresolved because the probe lacked the context it needed — a
+   * carousel body needs a slide to exist — and in that case the field may well work in situ. Removing the
+   * control on that evidence would take away something that works; saying so takes away nothing.
+   */
+  const notEditable = value?.editable === false;
+
+  return (
+    <>
+      {notEditable ? (
+        <p className="mb-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+          {typeof value?.note === 'string' && value.note
+            ? value.note
+            : 'This component accepts no editable value here — set in code.'}
+        </p>
+      ) : null}
+      <InputControl fieldKey={fieldKey} value={value} data={data} getData={getData} handleInputChange={handleInputChange} />
+    </>
+  );
+}
+
+function InputControl({
+  fieldKey,
+  value,
+  data,
+  getData,
+  handleInputChange,
+}: {
+  fieldKey: string[];
+  value: any;
+  data: any;
+  getData: (k: string[]) => any;
+  handleInputChange: (k: string[], v: any) => void;
+}) {
   switch (resolveFieldType(value)) {
     case 'object':
       return <ObjectField identifier={fieldKey} value={value} data={data} />;
