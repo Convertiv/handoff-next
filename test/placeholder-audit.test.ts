@@ -2,6 +2,7 @@ import assert from 'node:assert';
 import { describe, it } from 'node:test';
 import {
   describeMissingImagery,
+  describeOptionalGaps,
   describeReplacedImages,
   findPlaceholderImages,
   findUnplacedImages,
@@ -208,5 +209,39 @@ describe('describeReplacedImages', () => {
 
   it('returns nothing when nothing was replaced', () => {
     assert.deepEqual(describeReplacedImages([]), []);
+  });
+});
+
+/**
+ * The gap guard used to retry on these, and fired on every page ever composed — 2 of 2 on every
+ * fresh-page eval case. What it asked for was decoration: an intro paragraph on a stats band, a
+ * decorative background image. Pressing a model to fill those costs a round and produces copy nobody
+ * wrote, which is the filler the source-copy framing forbids. Worth knowing, not worth asking about.
+ */
+describe('describeOptionalGaps', () => {
+  it('names the blocks and their empty optional fields', () => {
+    const note = describeOptionalGaps([
+      { componentId: 'stats', fields: ['bodySlot'] },
+      { componentId: 'callout-cta', fields: ['imageSlot', 'overlineSlot'] },
+    ])!;
+    assert.match(note, /Optional fields left empty, if you want them/);
+    assert.match(note, /stats \(bodySlot\)/);
+    assert.match(note, /callout-cta \(imageSlot, overlineSlot\)/);
+  });
+
+  it('caps the list and counts the rest, so a twelve-block page does not bury the reply', () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({ componentId: `block-${i}`, fields: ['bodySlot'] }));
+    const note = describeOptionalGaps(many)!;
+    assert.match(note, /and 3 more blocks\.$/);
+  });
+
+  it('says "block" in the singular for one leftover', () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({ componentId: `b${i}`, fields: ['x'] }));
+    assert.match(describeOptionalGaps(five)!, /and 1 more block\.$/);
+  });
+
+  it('says nothing when every optional field was filled', () => {
+    assert.equal(describeOptionalGaps([]), null);
+    assert.equal(describeOptionalGaps([{ componentId: 'stats', fields: [] }]), null);
   });
 });

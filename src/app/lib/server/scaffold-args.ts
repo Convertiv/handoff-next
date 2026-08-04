@@ -104,6 +104,8 @@ export async function scaffoldArgsForComponent(
         shape: describeEncoding(encoding) ?? shapeNote(m),
         encoding,
         measured: true,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ...((m as any)?.rules?.required === true ? { required: true } : {}),
         fromBase: false,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ...((m as any)?.options ? { options: (m as any).options } : {}),
@@ -136,10 +138,15 @@ export async function scaffoldArgsForComponent(
     // were measured. Two halves of one component disagreeing is the failure mode that has cost the most
     // time on this work.
     const jsonShape = hasBase ? describeJsonShape(baseValues[k], nestedEncodingLookup(caps, k)) : null;
+    // Requiredness, so the gap guard can tell a field that must be authored from optional decoration.
+    // It was not carried, so every empty optional `bodySlot` read as an unfinished page.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const required = (m as any)?.rules?.required === true;
     fields[k] = {
       editorType: editorOf(m),
       shape: jsonShape ?? shapeNote(m),
       ...(jsonShape ? { fromValue: true } : {}),
+      ...(required ? { required: true } : {}),
       fromBase: hasBase,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ...((m as any)?.options ? { options: (m as any).options } : {}),

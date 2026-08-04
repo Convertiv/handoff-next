@@ -501,6 +501,15 @@ export interface MergeResult {
    * body copy. Passing those through produced a page that looked complete and was not.
    */
   unfilled: string[];
+  /**
+   * Empty optional fields — reported, never retried on.
+   *
+   * Two different jobs were one thing, and conflating them made the guard fire on every page ever
+   * composed. A blank optional intro is worth *telling* somebody about; it is not worth spending a round
+   * asking a model to invent a sentence for, which is the same filler the source-copy framing forbids.
+   * So: `unfilled` drives the retry, this drives a note.
+   */
+  unfilledOptional: string[];
 }
 
 /**
@@ -575,20 +584,66 @@ export function mergeBlockValues(
     args[key] = rejected.value;
   }
 
-  const unfilled: string[] = [];
+  /**
+   * Two separate jobs, which used to be one.
+   *
+   * **Sanitising** runs for every empty content field: an unusable asset path is cleared whether or not
+   * anyone is told, because a broken image reads as a bug in the page rather than a gap.
+   *
+   * **Reporting a gap** is now narrow, and it had to become narrow. The rule was "any empty content
+   * field", so it fired on every page ever composed — measured at 2 of 2 on every fresh-page eval case.
+   * What it asked for was optional decoration: a `bodySlot` intro on a stats band, a decorative
+   * `backgroundImageSlot`, an optional `imageSlot` on a CTA. None of that needs authoring, and pressing
+   * the model to fill it costs a round *and* contradicts the source-copy rule against inventing filler.
+   *
+   * A gap is now a field the component marks required, or — if nothing on the block was authored at all —
+   * everything, because that block really will render as an empty shell.
+   */
+  const emptyContentFields: { key: string; required: boolean }[] = [];
+  let authoredSomething = false;
+
   for (const [key, meta] of Object.entries(fields ?? {})) {
+    const info = isPlainObject(meta) ? meta : {};
+    const editor = typeof info.editorType === 'string' ? info.editorType : '';
+    const isContent = CONTENT_EDITORS.includes(editor) && !IDENTIFIER_FIELDS.test(key);
+
     // Supplied-but-empty counts as unfilled. A live page came back with four stat objects whose every
     // field was blank: the model had understood "four stats" and written none of them, and a
     // presence-only check called that done.
-    if (supplied.has(key) && !isEmptyContent(args[key])) continue;
-    const info = isPlainObject(meta) ? meta : {};
-    const editor = typeof info.editorType === 'string' ? info.editorType : '';
+    if (supplied.has(key) && !isEmptyContent(args[key])) {
+      if (isContent) authoredSomething = true;
+      continue;
+    }
     // `fromBase` means the value came from a real preview — i.e. it is somebody's sample content, not
     // a neutral default. A placeholder from the scaffold is equally unfinished.
-    if (!CONTENT_EDITORS.includes(editor)) continue;
-    if (IDENTIFIER_FIELDS.test(key)) continue;
-    unfilled.push(key);
+    if (!isContent) continue;
+    emptyContentFields.push({ key, required: info.required === true });
+  }
 
+  const shellIsEmpty = !authoredSomething;
+
+  // Sanitising, unconditionally. Independent of whether anything is reported.
+  for (const { key, required } of emptyContentFields) {
+    /**
+     * An untouched *optional* image ships empty, not as a grey box.
+     *
+     * `blankContentValues` seeds image fields with a dimensioned placeholder, which is right for a field
+     * that is going to be filled — it holds the page's proportions instead of collapsing the layout. It is
+     * wrong for optional decoration nobody asked for: a `backgroundImageSlot` left alone then renders a
+     * visible placeholder on a finished page.
+     *
+     * This surfaced as a trade rather than a bug. Narrowing the gap retry stopped the model being pushed
+     * to fill these, so `left-placeholders` went from 0-of-2 to 2-of-2 on the fresh-page cases — the
+     * rounds were reclaimed and the grey boxes stayed. Clearing them is the other half of that change.
+     */
+    if (!required && !shellIsEmpty) {
+      const value = args[key];
+      const src = isPlainObject(value) ? value.src : value;
+      if (typeof src === 'string' && src.includes('placehold.co')) {
+        args[key] = isPlainObject(value) ? { ...value, src: '', alt: '' } : '';
+        continue;
+      }
+    }
     // Clear an unusable asset path outright. A broken image is worse than an absent one: it reads as
     // a bug in the page rather than a gap we can still fill.
     const current = args[key];
@@ -604,7 +659,20 @@ export function mergeBlockValues(
     }
   }
 
-  return { args, unknownKeys, invalidValues, replacedImages, correctedFields, unfilled };
+  /**
+   * Required fields always; everything else only when the block is an empty shell.
+   *
+   * A block with a headline and six cards does not need its optional intro paragraph, and asking for one
+   * is how a page acquires copy nobody wrote — the same filler the source-copy framing forbids.
+   */
+  const unfilled = emptyContentFields
+    .filter((f) => f.required || shellIsEmpty)
+    .map((f) => f.key);
+  const unfilledOptional = emptyContentFields
+    .filter((f) => !(f.required || shellIsEmpty))
+    .map((f) => f.key);
+
+  return { args, unknownKeys, invalidValues, replacedImages, correctedFields, unfilled, unfilledOptional };
 }
 
 /**

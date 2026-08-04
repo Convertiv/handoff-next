@@ -93,13 +93,37 @@ describe('mergeBlockValues — preview sample content', () => {
     assert.equal(args.bodySlot, 'Real body copy.');
   });
 
-  it('reports content fields the model never supplied', () => {
-    const { unfilled } = mergeBlockValues(
+  it('reports an unsupplied optional field, but not as something to retry on', () => {
+    // This asserted `unfilled: ['bodySlot']` until the guard was measured firing on 2 of 2 fresh-page
+    // runs — every page ever composed. What it asked for was optional decoration, so the model was being
+    // pressed to invent copy nobody wrote. The field is still reported; it no longer costs a round.
+    const { unfilled, unfilledOptional } = mergeBlockValues(
       { title: 'T', bodySlot: 'Harum consequatur repellendus quaerat.', dark: false },
       { title: 'Real title' },
       fields({ title: 'text', bodySlot: 'richtext', dark: 'boolean' })
     );
-    assert.deepEqual(unfilled, ['bodySlot']);
+    assert.deepEqual(unfilled, [], 'nothing required is missing and the block is not an empty shell');
+    assert.deepEqual(unfilledOptional, ['bodySlot']);
+  });
+
+  it('retries on a required field, however much else was authored', () => {
+    const { unfilled } = mergeBlockValues(
+      { title: 'T', stats: [] },
+      { title: 'Real title' },
+      { title: { editorType: 'text' }, stats: { editorType: 'array', required: true } }
+    );
+    assert.deepEqual(unfilled, ['stats']);
+  });
+
+  it('retries on everything when the block is an empty shell', () => {
+    // Nothing authored at all: that block really will render as an empty frame, so every content field
+    // is worth asking about.
+    const { unfilled } = mergeBlockValues(
+      { title: '', bodySlot: '' },
+      {},
+      fields({ title: 'text', bodySlot: 'richtext' })
+    );
+    assert.deepEqual(unfilled.sort(), ['bodySlot', 'title']);
   });
 
   it('does not report configuration fields — a default theme is a real default', () => {
@@ -749,3 +773,47 @@ describe('mergeBlockValues correcting a field name', () => {
     assert.deepEqual(mergeBlockValues(template, { titleSlot: 'Hi' }, fields).correctedFields, []);
   });
 });
+
+/**
+ * `blankContentValues` seeds image fields with a dimensioned placeholder, which is right for a field about
+ * to be filled — it holds the page's proportions rather than collapsing the layout. It is wrong for
+ * optional decoration nobody asked for.
+ *
+ * This was a trade, not a bug: narrowing the gap retry stopped the model being pushed to fill these, so
+ * `left-placeholders` went from 0-of-2 to 2-of-2 on the fresh-page cases. The rounds were reclaimed and
+ * the grey boxes stayed. Clearing them is the other half.
+ */
+describe('mergeBlockValues clearing untouched optional images', () => {
+  const withImage = (extra: Record<string, unknown> = {}) => ({
+    title: 'T',
+    backgroundImageSlot: { src: 'https://placehold.co/1600x900?text=Background', alt: 'Background' },
+    ...extra,
+  });
+  const meta = {
+    title: { editorType: 'text' },
+    backgroundImageSlot: { editorType: 'image' },
+  };
+
+  it('clears an optional placeholder the model never touched', () => {
+    const { args } = mergeBlockValues(withImage(), { title: 'Real title' }, meta);
+    assert.deepEqual(args.backgroundImageSlot, { src: '', alt: '' });
+  });
+
+  it('keeps a placeholder on a required image, which will be filled', () => {
+    const required = { ...meta, backgroundImageSlot: { editorType: 'image', required: true } };
+    const { args } = mergeBlockValues(withImage(), { title: 'Real title' }, required);
+    assert.match(String((args.backgroundImageSlot as { src: string }).src), /placehold\.co/);
+  });
+
+  it('keeps placeholders on an empty shell, where they hold the layout together', () => {
+    // Nothing authored: the block is a frame, and proportions are all it has to show.
+    const { args } = mergeBlockValues({ ...withImage(), title: '' }, {}, meta);
+    assert.match(String((args.backgroundImageSlot as { src: string }).src), /placehold\.co/);
+  });
+
+  it('leaves a real asset alone', () => {
+    const real = { title: 'T', imageSlot: { src: '/api/handoff/assets/img_x/raw', alt: 'A' } };
+    const { args } = mergeBlockValues(real, { title: 'Real' }, { title: { editorType: 'text' }, imageSlot: { editorType: 'image' } });
+    assert.equal((args.imageSlot as { src: string }).src, '/api/handoff/assets/img_x/raw');
+  });
+})

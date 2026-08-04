@@ -150,3 +150,30 @@ function humanField(field: string): string {
     .trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : field;
 }
+
+/**
+ * Optional fields left blank, as a note for the user.
+ *
+ * The gap guard used to *retry* on these, which fired on every page ever composed — measured at 2 of 2
+ * on every fresh-page eval case. What it asked for was decoration: an intro paragraph on a stats band, a
+ * decorative background image, an optional CTA image. Pressing a model to fill those costs a round and
+ * produces copy nobody wrote, which is the filler the source-copy framing explicitly forbids.
+ *
+ * Knowing which fields are blank is still useful — it is the difference between "the page is done" and
+ * "the page is done and here is what you might still add". So it is said once, plainly, and nothing is
+ * asked of the model.
+ */
+export function describeOptionalGaps(
+  gaps: { componentId: string; fields: string[] }[],
+  maxBlocks = 4
+): string | null {
+  const listed = gaps.filter((g) => g.fields.length);
+  if (!listed.length) return null;
+
+  const shown = listed
+    .slice(0, maxBlocks)
+    .map((g) => `${g.componentId} (${g.fields.join(', ')})`)
+    .join('; ');
+  const rest = listed.length - Math.min(listed.length, maxBlocks);
+  return `Optional fields left empty, if you want them: ${shown}${rest ? `, and ${rest} more block${rest === 1 ? '' : 's'}` : ''}.`;
+}

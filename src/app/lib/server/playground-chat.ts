@@ -10,6 +10,7 @@ import { buildImagePrompt } from '@/lib/image-generation-request';
 import { describeImagePlacement, imageFieldsFor, resolveImageTarget, valueForImageTarget } from '@/lib/image-target';
 import {
   describeMissingImagery,
+  describeOptionalGaps,
   describeReplacedImages,
   findPlaceholderImages,
   findUnplacedImages,
@@ -374,6 +375,8 @@ async function buildBlocks(
   blocks: ProposedBlock[];
   problems: string[];
   gaps: { componentId: string; fields: string[] }[];
+  /** Empty optional fields, for telling the user rather than asking the model. */
+  optionalGaps: { componentId: string; fields: string[] }[];
   /**
    * Per-block field names the model used that the component does not have, plus the names it does.
    *
@@ -414,6 +417,7 @@ async function buildBlocks(
   const blocks: ProposedBlock[] = [];
   const problems: string[] = [];
   const gaps: { componentId: string; fields: string[] }[] = [];
+  const optionalGaps: { componentId: string; fields: string[] }[] = [];
   const rejectedFields: { componentId: string; unknown: string[]; available: string[] }[] = [];
   const invalidValues: { componentId: string; problems: string[] }[] = [];
   const replacedImages: { componentId: string; field: string }[] = [];
@@ -434,7 +438,15 @@ async function buildBlocks(
     // looking finished and isn't.
     const template = blankContentValues(scaffold.args, scaffold.fields);
     const values = (entry?.values ?? {}) as Record<string, unknown>;
-    const { args, unknownKeys, invalidValues: invalid, replacedImages: replaced, correctedFields, unfilled } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
+    const {
+      args,
+      unknownKeys,
+      invalidValues: invalid,
+      replacedImages: replaced,
+      correctedFields,
+      unfilled,
+      unfilledOptional,
+    } = mergeBlockValues(template, values, scaffold.fields, knownAssetSrcs);
     if (unknownKeys.length) {
       // Surfaced rather than swallowed: a model that keeps inventing the same field name is a prompt
       // problem, and silently dropping it is how that goes unnoticed for weeks.
@@ -456,6 +468,8 @@ async function buildBlocks(
       );
     }
     if (unfilled.length) gaps.push({ componentId, fields: unfilled });
+    // Reported to the user, never retried on. See `MergeResult.unfilledOptional`.
+    if (unfilledOptional.length) optionalGaps.push({ componentId, fields: unfilledOptional });
 
     // What the model asked to set, in the component's own spelling. `correctedFields` maps each slip to
     // the real name; everything else it named is already real.
@@ -470,7 +484,7 @@ async function buildBlocks(
     blocks.push({ componentId, args });
   }
 
-  return { blocks, problems, gaps, rejectedFields, invalidValues, replacedImages, namedKeys };
+  return { blocks, problems, gaps, optionalGaps, rejectedFields, invalidValues, replacedImages, namedKeys };
 }
 
 /**
@@ -1271,7 +1285,7 @@ export async function runPlaygroundChatTurn(args: {
         }
 
         const raw = Array.isArray(parsed.blocks) ? (parsed.blocks as { componentId?: unknown; values?: unknown }[]) : [];
-        const { blocks, problems, gaps, invalidValues, replacedImages } = await buildBlocks(raw, seenAssetSrcs);
+        const { blocks, problems, gaps, optionalGaps, invalidValues, replacedImages } = await buildBlocks(raw, seenAssetSrcs);
         const notices = describeReplacedImages(replacedImages);
         if (blocks.length) lastBuiltProposal = { blocks, rationale: String(parsed.rationale ?? ''), notices };
 
@@ -1378,7 +1392,12 @@ export async function runPlaygroundChatTurn(args: {
         // Appended, not substituted. The model's prose may be accurate, vague, or an outright claim of
         // imagery it never added — this makes the real state visible without trying to police wording.
         const missingImagery = describeMissingImagery(findPlaceholderImages(blocks));
-        const reply = [content ?? rationale ?? 'Here is the page.', missingImagery].filter(Boolean).join('\n\n');
+        // Optional fields left blank. Deterministic, and deliberately not a retry: this is worth knowing
+        // and not worth a round of invented copy.
+        const optionalNote = describeOptionalGaps(optionalGaps);
+        const reply = [content ?? rationale ?? 'Here is the page.', missingImagery, optionalNote]
+          .filter(Boolean)
+          .join('\n\n');
         emit({ type: 'reply', content: reply });
         emit({ type: 'proposal', blocks, rationale, notices });
         return finish({ reply, proposal: { blocks, rationale, notices }, toolsUsed });
