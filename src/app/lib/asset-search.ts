@@ -56,8 +56,24 @@ const STOP_WORDS = new Set([
  * searches for something rather than silently matching everything.
  */
 export function searchTerms(query: string): string[] {
-  const words = (query ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
-  const terms = [...new Set(words.filter((w) => w.length > 2 && !STOP_WORDS.has(w)))];
+  /**
+   * Annotated, not inferred.
+   *
+   * `const words = … .match(…) ?? []` broke the registry build with "Property 'length' does not exist on
+   * type 'never'" — the callback parameter of the `.filter` below came out as `never`.
+   *
+   * **I could not reproduce it.** It compiles clean under both of this repo's tsconfigs, under
+   * `--strict` and without it, at es5 and es2017, and under the TypeScript 5.9.2 the 8x8 build uses
+   * rather than the 5.6.3 here. So the mechanism is unexplained and I am not going to invent one.
+   *
+   * What is certain is that this annotation removes the question: `Array<string>.filter` gives its
+   * callback a `string`, by signature, with no inference involved. Sound by construction rather than by
+   * hope — which is the only reason to trust a fix you could not first reproduce.
+   */
+  const words: string[] = (query ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  // `Array.from` rather than spreading a Set: spread needs `downlevelIteration` or an ES2015+ target, and
+  // this function has already broken one build over a construct that compiles differently per tsconfig.
+  const terms = Array.from(new Set(words.filter((w) => w.length > 2 && !STOP_WORDS.has(w))));
   if (terms.length) return terms;
 
   const fallback = (query ?? '').trim().toLowerCase();

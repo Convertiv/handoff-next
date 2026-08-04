@@ -49,7 +49,10 @@ const NOISE_WORDS = new Set([
 
 /** Sorted significant words — order-insensitive, punctuation-insensitive, casing-insensitive. */
 export function signatureOf(name: string): string {
-  return (name.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+  // Annotated rather than inferred — `match(…) ?? []` can collapse to `never[]` under some tsconfigs and
+  // take `.filter`'s parameter with it. See `searchTerms` for the build this broke.
+  const words: string[] = name.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  return words
     .filter((w) => !NOISE_WORDS.has(w))
     .sort()
     .join(' ');

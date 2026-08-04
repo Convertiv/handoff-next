@@ -347,7 +347,8 @@ const pageHasRealImagery: EvalCheck = {
   name: 'page-has-real-imagery',
   run: (o) => {
     const json = JSON.stringify(o.blocks);
-    const srcs = json.match(/"src"\s*:\s*"[^"]+"/g) ?? [];
+    // Annotated — see `searchTerms`; `match(…) ?? []` can infer `never[]` and break `.some` below.
+    const srcs: string[] = json.match(/"src"\s*:\s*"[^"]+"/g) ?? [];
     if (!srcs.length) return 'no image src anywhere in the proposal';
     return srcs.some((s) => !/placehold\.co/.test(s)) ? null : `all ${srcs.length} image src(s) are placeholders`;
   },
