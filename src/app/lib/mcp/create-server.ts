@@ -12,7 +12,7 @@ import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/refe
 import { getDataProvider } from '@/lib/data';
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
 import { findAssets } from '@/lib/server/find-assets';
-import { looseMatchNote, searchTerms } from '@/lib/asset-search';
+import { looseMatchNote, searchTerms, summarizeAssetRow } from '@/lib/asset-search';
 import { purposeLine } from '@/lib/tool-payload';
 import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
 import { usePostgres } from '@/lib/db/dialect';
@@ -1255,7 +1255,12 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_search_assets',
     {
-      description: 'Search the asset library. Returns logos, icons, and images with URLs and metadata.',
+      description:
+        'Search the asset library — logos, icons and images. Matches every word of the query across title, ' +
+        'alt text, description and tags; if nothing matches all of them, falls back to any of them and ' +
+        'says so. Returns a summary per asset: id, title, type, storageUrl, alt text, description, tags ' +
+        'and native dimensions. Use `handoff_get_asset` for full detail including SVG content, file size ' +
+        'and component usages.',
       inputSchema: {
         query: z.string().optional().describe('Free-text search against title and tags'),
         type: z.enum(['logo', 'icon', 'image', 'video']).optional().describe('Filter by asset type'),
@@ -1284,9 +1289,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         limit: limit ?? 50,
         status: 'active',
       });
-      return textResult(
-        found.loose && query ? { assets: found.rows, note: looseMatchNote(query) } : found.rows
-      );
+      // Summarised, not raw rows. Whole rows came to 102,000 characters for 50 images, 59% of it the
+      // generation prompt in `sourceMetadata` — about 25k tokens per search, with the useful fields lost
+      // in it. `handoff_get_asset` is the detail call.
+      const assets = found.rows.map((r) => summarizeAssetRow(r as unknown as Record<string, unknown>));
+      return textResult(found.loose && query ? { assets, note: looseMatchNote(query) } : assets);
     }
   );
 

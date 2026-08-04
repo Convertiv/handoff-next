@@ -302,7 +302,21 @@ fields like `bodySlot`.
 **Fails if** nothing is required. The gap guard depends on it — without it every optional field reads as an
 unfinished page, which is what made it fire on every page ever composed.
 
-### B7. Instance writes still respect the contract
+### B7. Asset results are a summary, not a database dump
+
+**Call**
+```
+handoff_search_assets { "query": "campus", "type": "image", "limit": 50 }
+```
+
+**Look for** each result carrying `id, title, assetType, mimeType, storageUrl, altText, description, tags,
+width, height` — and nothing else. `handoff_get_asset` is where full detail lives.
+
+**Fails if** results carry `sourceMetadata`, `svgContent`, `createdAt`, `storageKey` or `sourceType`.
+Whole rows came to 102,000 characters for 50 images, 59% of it the generation prompt repeated per asset —
+roughly 26k tokens for one search, in which the useful fields were a rounding error.
+
+### B8. Instance writes still respect the contract
 
 **Call**
 ```
@@ -340,7 +354,6 @@ Two deliberate mistakes: an image src from nowhere, and `buttonSlot` where `hero
 | **`.doc` refused** | Deliberate; the converter reads `.docx` only. |
 | **A config field appears in "Optional fields left empty"** | Known noise. `imageTheme` and similar enums are typed as text and read as content. Harmless — the note asks for nothing — but it lengthens the list. |
 | **18 nested slots report as not editable** | Correct. Mostly `cardSlot`, where the whole item *is* a component element and there is no authorable shape to offer. |
-| **MCP asset search returns very large rows** | Every result carries the full row, including `sourceMetadata.prompt` — the entire generation prompt and house-style boilerplate, per asset. Three results came to roughly 5KB, so `limit: 50` would be enormous and the useful fields drown in it. Not wrong, just wasteful; worth trimming the returned shape. |
 | **Two components share the title "Content Split"** | `content-split` and `feature`. A brief naming it resolves to `content-split`, decided by its matching id rather than by catalog order. Worth tidying in the registry; not a defect here. |
 
 ---
@@ -367,7 +380,8 @@ Two deliberate mistakes: an image src from nowhere, and `buttonSlot` where `hero
 | B4 | Component search word order | | /1 | |
 | B5 | Measured field shapes | | /1 | |
 | B6 | Required fields marked | | /1 | |
-| B7 | Contract respected on write | | /1 | |
+| B7 | Asset results are summarised | | /1 | |
+| B8 | Contract respected on write | | /1 | |
 
 A useful failure report is **what you sent, what you got, and how many of how many runs**.
 

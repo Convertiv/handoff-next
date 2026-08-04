@@ -96,3 +96,56 @@ export function looseMatchNote(query: string): string {
     'if none of them fit, say so rather than using a poor match.'
   );
 }
+
+/**
+ * What an asset search result needs to carry.
+ *
+ * `handoff_search_assets` returned whole database rows. Measured on the 8x8 registry: **50 images came to
+ * 102,000 characters, 59% of it `sourceMetadata`** — the full generation prompt and house-style
+ * boilerplate, repeated per asset. Roughly 25k tokens for one search, in which the fields an agent
+ * actually needs are a rounding error.
+ *
+ * `svgContent` is dropped for the same reason even though this registry has no icons yet: a search for
+ * fifty icons would return fifty complete SVGs. `handoff_get_asset` exists for detail, which is the same
+ * browse-then-inspect split `list_blocks` and `describe_blocks` now use.
+ *
+ * Everything kept is something you would use to *choose* an asset or to *place* it: what it is, what it
+ * shows, how big it is, and the URL. Everything dropped is provenance, bookkeeping, or bytes.
+ */
+export interface AssetSummary {
+  id: string;
+  title: string;
+  assetType: string;
+  mimeType: string | null;
+  /** What to put in an image field. */
+  storageUrl: string;
+  altText: string | null;
+  description: string | null;
+  tags: unknown;
+  /** Native dimensions, which is how you tell a hero from a thumbnail. */
+  width: number | null;
+  height: number | null;
+  collectionName?: string | null;
+  iconSetName?: string | null;
+}
+
+export function summarizeAssetRow(row: Record<string, unknown>): AssetSummary {
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+  return {
+    id: String(row.id ?? ''),
+    title: String(row.title ?? ''),
+    assetType: String(row.assetType ?? ''),
+    mimeType: str(row.mimeType),
+    storageUrl: String(row.storageUrl ?? ''),
+    altText: str(row.altText),
+    description: str(row.description),
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    width: num(row.nativeWidth),
+    height: num(row.nativeHeight),
+    // Only when set, so an asset in no collection does not carry two null keys per row.
+    ...(str(row.collectionName) ? { collectionName: str(row.collectionName) } : {}),
+    ...(str(row.iconSetName) ? { iconSetName: str(row.iconSetName) } : {}),
+  };
+}

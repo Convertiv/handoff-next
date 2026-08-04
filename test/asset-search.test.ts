@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { searchTerms, looseMatchNote, shouldRetryLoosely } from '../src/app/lib/asset-search';
+import { looseMatchNote, searchTerms, shouldRetryLoosely, summarizeAssetRow } from '../src/app/lib/asset-search';
 
 /**
  * The search was `ilike(title, '%query%')` — one substring, one column.
@@ -79,5 +79,81 @@ describe('looseMatchNote', () => {
     const note = looseMatchNote('lecture hall');
     assert.match(note, /No asset matched all of "lecture hall"/);
     assert.match(note, /say so rather than using a poor match/);
+  });
+});
+
+/**
+ * `handoff_search_assets` returned whole database rows. Measured on the 8x8 registry: 50 images came to
+ * 102,000 characters, **59% of it `sourceMetadata`** — the full generation prompt and house-style
+ * boilerplate repeated per asset, roughly 25k tokens for one search.
+ */
+describe('summarizeAssetRow', () => {
+  const row = {
+    id: 'img_abc123',
+    title: 'Students on campus steps',
+    assetType: 'image',
+    mimeType: 'image/webp',
+    storageUrl: '/api/handoff/assets/img_abc123/raw',
+    altText: 'Students chatting on university steps',
+    description: 'Three students on the steps of a university building',
+    tags: ['generated', 'playground'],
+    nativeWidth: 1536,
+    nativeHeight: 1024,
+    fileSizeBytes: 154810,
+    storageKey: null,
+    svgContent: '<svg>…thousands of characters…</svg>',
+    sourceMetadata: { prompt: 'x'.repeat(2000), brief: 'y'.repeat(200), jobId: 121 },
+    sourceType: 'upload',
+    createdBy: '29fd45d9',
+    createdAt: '2026-08-03T22:11:03.050Z',
+    status: 'active',
+    collectionName: null,
+  };
+
+  it('keeps what you need to choose an asset and place it', () => {
+    const s = summarizeAssetRow(row);
+    assert.equal(s.id, 'img_abc123');
+    assert.equal(s.storageUrl, '/api/handoff/assets/img_abc123/raw');
+    assert.equal(s.altText, 'Students chatting on university steps');
+    assert.match(String(s.description), /Three students/);
+    assert.deepEqual(s.tags, ['generated', 'playground']);
+    assert.equal(s.width, 1536);
+    assert.equal(s.height, 1024);
+  });
+
+  it('drops the generation prompt, which was most of the payload', () => {
+    const json = JSON.stringify(summarizeAssetRow(row));
+    assert.ok(!json.includes('sourceMetadata'));
+    assert.ok(!json.includes('x'.repeat(50)), 'no prompt text survives');
+  });
+
+  it('drops svgContent — a search for fifty icons would return fifty SVGs', () => {
+    assert.ok(!JSON.stringify(summarizeAssetRow(row)).includes('<svg'));
+  });
+
+  it('drops bookkeeping nobody chooses an asset by', () => {
+    const json = JSON.stringify(summarizeAssetRow(row));
+    for (const gone of ['createdBy', 'createdAt', 'storageKey', 'sourceType', 'status']) {
+      assert.ok(!json.includes(gone), `${gone} should not be in a search summary`);
+    }
+  });
+
+  it('is dramatically smaller than the row it came from', () => {
+    const before = JSON.stringify(row).length;
+    const after = JSON.stringify(summarizeAssetRow(row)).length;
+    assert.ok(after < before / 5, `${after} should be well under a fifth of ${before}`);
+  });
+
+  it('omits collection and icon-set keys when unset, rather than carrying nulls per row', () => {
+    assert.ok(!('collectionName' in summarizeAssetRow(row)));
+    assert.equal(summarizeAssetRow({ ...row, collectionName: 'Campus' }).collectionName, 'Campus');
+  });
+
+  it('survives a row with almost nothing in it', () => {
+    const s = summarizeAssetRow({ id: 'img_x' });
+    assert.equal(s.id, 'img_x');
+    assert.equal(s.title, '');
+    assert.equal(s.width, null);
+    assert.deepEqual(s.tags, []);
   });
 });
