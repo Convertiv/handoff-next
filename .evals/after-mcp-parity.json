@@ -1,0 +1,116 @@
+[
+  {
+    "caseId": "fresh-page-with-imagery",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 22.613
+  },
+  {
+    "caseId": "fresh-page-plain",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 15.972
+  },
+  {
+    "caseId": "fill-the-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 8.134
+  },
+  {
+    "caseId": "edit-the-headline",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 4.877
+  },
+  {
+    "caseId": "gallery-four-images",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 3.329
+  },
+  {
+    "caseId": "bulk-field-edit",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "rejected-values": 2
+    },
+    "medianSeconds": 25.344
+  },
+  {
+    "caseId": "swap-a-component",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "rejected-values": 1
+    },
+    "medianSeconds": 10.653
+  },
+  {
+    "caseId": "swap-a-component-implicit",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 6.195
+  },
+  {
+    "caseId": "add-one-section",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "rejected-values": 1
+    },
+    "medianSeconds": 7.57
+  },
+  {
+    "caseId": "brief-names-components",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 7.789
+  },
+  {
+    "caseId": "complex-multi-constraint",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "left-placeholders": 2
+    },
+    "medianSeconds": 13.524
+  },
+  {
+    "caseId": "brief-without-component-column",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {
+      "left-placeholders": 1
+    },
+    "medianSeconds": 15.715
+  },
+  {
+    "caseId": "stats-not-inverted",
+    "runs": 2,
+    "passed": 2,
+    "failures": {},
+    "signals": {},
+    "medianSeconds": 9.112
+  }
+]
