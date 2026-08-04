@@ -199,6 +199,19 @@ export interface ComponentCapabilities {
   unresolved: string[];
   /** Set when the component could not be probed at all; no slot record is emitted in that case. */
   error?: string;
+  /**
+   * The slot targets the probe *would* have measured, recorded only when it bailed before measuring any.
+   *
+   * Always accompanies `error`, and exists because of what the record looks like without it: a probe that
+   * fails to load its module emits `slots: {}` and `unresolved: []`, which is byte-identical to a component
+   * whose every slot measured fine. A failure reads as a clean bill of health.
+   *
+   * That is not hypothetical — `product-comparison` reported "0 unresolved" for exactly this reason while
+   * its module had never loaded, and the empty list was believed over the baked record that disagreed.
+   * An absence of findings and an absence of measurement are different claims, and only one of them is
+   * evidence. This is the field that tells them apart.
+   */
+  unprobed?: string[];
 }
 
 /**

@@ -99,8 +99,9 @@ async function readCapabilities(workPath: string, id: string): Promise<Record<st
   try {
     return (await fs.readJson(capPath)) as Record<string, unknown>;
   } catch {
-    // A malformed record is the same as none: consumers fall back to treating slots as unresolved,
-    // which is the honest answer rather than a guessed shape.
+    // A malformed record is the same as none: `readCapabilities` returns null and consumers fall back to
+    // the declared shapes, rather than marking every slot uneditable. Unmeasured is not the same as
+    // measured-and-empty, and a failed probe must not be able to assert the latter.
     return null;
   }
 }

@@ -25,7 +25,7 @@ reader coming fresh.
 | **The encoding library** — the fixed vocabulary of prop shapes | `src/app/lib/slot-capabilities.ts` comments | The list, what each means, how to add one, why it is closed rather than open |
 | **The `of:` authoring vocabulary** — what one array item is | `src/app/lib/authoring-shapes.ts`, `docs/AUTHORING-BRIDGE.md` | The terms, which carry a shape and which deliberately do not, how to declare `item:` |
 | **The props → authoring bridge** | `docs/AUTHORING-BRIDGE.md` | The whole argument, and what a component author should write in `blocks/<id>/<id>.js` |
-| **`probeContext`** — the escape hatch for components that render nothing empty | one line in `preview/types.ts` | That it exists; no registry has ever used it; when you need it |
+| **`probeContext`** — the escape hatch for components that render nothing empty | one line in `preview/types.ts`, and 11 worked examples in 8x8's blocks | That it exists; how to tell it is needed; that an empty `unresolved` list can mean the probe never loaded |
 | **Field annotations** (`fields`, `editorType`, `render`, `of`, `item`) | scattered; the best explanation is a comment inside 8x8's own `image-gallery.js` | A single reference: every key, what reads it, what happens if you omit it |
 | **The agent contract** — what the chat and MCP see and why | `docs/AGENT-TESTING.md`, `docs/PLAYGROUND-ASSETS.md` | How a block's schema becomes an MCP scaffold; why measured shapes beat declared ones |
 | **Eval suite** — how behaviour is tested | `docs/AGENT-TESTING.md` | How to add a case; why rates rather than pass/fail; how to avoid a case that cannot fail |

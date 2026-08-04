@@ -96,8 +96,38 @@ slots stay unresolved even with context — those are genuine.
 
 So of three "not editable" fields on this block, one was a false negative, and the same shape — a
 component that renders nothing until its array has an item — likely affects others among the 25 top-level
-unresolved slots. **That list is probably overstated.** No 8x8 block declares a `probeContext`, which is
-the existing escape hatch for exactly this.
+unresolved slots. **That list is probably overstated.** `probeContext` is the existing escape hatch for
+exactly this, and at the time of writing no 8x8 block declared one.
+
+**Measured, later the same day.** 11 blocks have both an unresolved top-level slot and a required array,
+and all 11 now declare a `probeContext` (uncommitted in 8x8, pending review). Supplying one throwaway item
+per required array:
+
+| Outcome | Blocks |
+|---|---|
+| **False negative, now resolved** | `auto-tag-cards` (2 slots), `card-rows` (2), `sliding-vertical-carousel` (2), `bento-lottie-grid`, `filterable-card-grid`, `image-gallery` |
+| **Genuinely unauthorable** — rejects every encoding *with* an item present | `content-tabs.bodySlot`, `split-card-carousel.footerButtonSlot` |
+| **Behind interaction state** — `probeContext` sets props, and no prop opens the modal | `pricing-carousel.modalFooterSlot` |
+| **Fails outright** — throws on 8 of 9 encodings; a real defect, not a probe artefact | `job-table.bodySlot` |
+| **Unverifiable outside the build** | `product-comparison` (see below) |
+
+So the list was overstated by **9 of 25 top-level unresolved slots** — 6 blocks' worth — and the remaining
+four are now explained rather than merely unresolved. A minimal `[{ _key: 'probe' }]` performed identically
+to items derived from real preview values, so the declarations stay small.
+
+### A trap worth naming, because it cost an hour
+
+**A probe that fails to load reports `unresolved: []`** — the same value a component with no problems
+reports. `product-comparison` is the one bundle of 68 that leaves `react` as an external import, and the
+probe writes the bundle to a temp dir where ESM cannot resolve a bare specifier, so it reported a perfectly
+clean component while measuring nothing at all. This is the vacuous-pass problem from
+`docs/AGENT-TESTING.md` in a different costume.
+
+**Closed in code the same day**, rather than left as advice to read `capabilities.error` first — advice is
+what fails under time pressure, and I had ignored my own. A bail now records `unprobed: [targets]` so the
+failure states its scope, and `readCapabilities` returns `null` for an errored record with no slots, so no
+consumer can read a failed probe as a measurement. Six tests cover it, each confirmed to fail without the
+guard. See `docs/SLOT-PROBING.md` § "When the probe fails".
 
 ---
 
@@ -233,13 +263,17 @@ shape onto the declared properties: `image-gallery` items now offer `src` as an 
 `thumbnailSlot`/`lightboxSlot` are marked not editable with a reason. This is inference-only — no block
 had to change — and it is a patch at the consumer, not a fix at the source.
 
+Also shipped: the failed-probe guard (`unprobed`, and `readCapabilities` returning null for a record that
+measured nothing), so none of the measurement above can be quietly wrong in the same way again.
+
 **Next, cheap and independent.**
 
 1. Define the item-shape vocabulary in handoff-app (`image`, `button`, `card`, `link`, `richText`), so
    `of:` means something. Roughly the size of the encoding library.
 2. Teach the editor and the MCP scaffold to read `of:`/`item`. Both already read `fields`.
-3. Add `probeContext` to the blocks that render nothing without an array item, so the unresolved list stops
-   overstating itself. `image-gallery` is one; the count is unknown until it is measured.
+3. ~~Add `probeContext` to the blocks that render nothing without an array item, so the unresolved list stops
+   overstating itself.~~ **Done, uncommitted in 8x8** — 11 blocks, 6 of them genuine false negatives. See the
+   table in Part 1. Takes effect on the next `push:all`, since the capability record is baked at build time.
 
 **Then, the real fix.** Have `sync-handoff-blocks.ts` emit the authoring contract rather than only the
 props contract — it already special-cases `Slot`/`Slots` names, so it knows which props are slots. Where a

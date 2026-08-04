@@ -47,6 +47,18 @@ export function readCapabilities(component: unknown): ComponentCapabilities | nu
   if (!raw) return null;
 
   const slotsRaw = isRecord(raw.slots) ? raw.slots : {};
+
+  /**
+   * A probe that failed carries no measurement, so it is not a record.
+   *
+   * The build writes the failure down — `error` plus `unprobed` — because it is a useful diagnostic in the
+   * artifact. But a *consumer* asking "what does this slot accept" must not be handed a record whose empty
+   * `slots` reads as "measured, nothing there". Returning null puts it on the same footing as a component
+   * that predates probing, which is exactly what it is: unmeasured. Callers already fall back to declared
+   * shapes for null, so the degradation is the graceful one rather than marking every slot uneditable.
+   */
+  if (typeof raw.error === 'string' && !Object.keys(slotsRaw).length) return null;
+
   const slots: Record<string, SlotCapability> = {};
   for (const [name, value] of Object.entries(slotsRaw)) {
     if (!isRecord(value)) continue;

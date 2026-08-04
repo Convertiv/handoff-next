@@ -11,6 +11,7 @@ import {
   sentinelFor,
   type ProbeCandidate,
 } from '../src/transformers/plugins/slot-probe-candidates';
+import { probeComponent } from '../src/transformers/plugins/slot-probe';
 
 const byName = (n: string) => PROBE_CANDIDATES.find((c) => c.name === n)!;
 const outcome = (name: string, accepted: boolean, threw = false) => ({ candidate: byName(name), accepted, threw });
@@ -320,5 +321,72 @@ describe('containerAnswerIsUsable', () => {
     // No evidence is not evidence. Recording an unchecked container is the confident-wrong answer.
     assert.ok(!containerAnswerIsUsable(imageObject, undefined));
     assert.ok(!containerAnswerIsUsable(imageObject, []));
+  });
+});
+
+/**
+ * The bail paths, which had no coverage at all — and the gap was not academic.
+ *
+ * A probe that cannot load its module used to emit `slots: {}` and `unresolved: []`. That record is
+ * byte-identical to a component whose every slot measured clean, so a total failure read as a pass. It
+ * cost a real wrong conclusion: `product-comparison` was reported as having "0 unresolved slots" from a
+ * run where its module had never loaded, and the empty list was believed over the baked record that
+ * disagreed with it.
+ *
+ * A check that cannot fail is worse than no check, because it reports green for behaviour nobody measured.
+ */
+describe('probeComponent bail paths', () => {
+  const properties = {
+    bodySlot: { kind: 'slot', type: 'React.ReactNode' },
+    buttonSlot: { kind: 'slot', type: 'React.ReactNode' },
+    title: { kind: 'primitive', generic: 'string' },
+  };
+
+  it('names every slot it did not measure, rather than reporting an empty unresolved list', async () => {
+    const r = await probeComponent({
+      componentId: 'broken',
+      bundleSource: 'this is not valid javascript {{{',
+      properties,
+    });
+    assert.match(String(r.error), /module failed to load/);
+    assert.deepEqual(r.unprobed, ['bodySlot', 'buttonSlot'], 'both slots reported unmeasured');
+    // The trap itself: this list is empty, and must never be read as "nothing wrong".
+    assert.deepEqual(r.unresolved, []);
+    assert.deepEqual(r.slots, {});
+  });
+
+  it('reports unmeasured when the bundle exports no render()', async () => {
+    const r = await probeComponent({
+      componentId: 'no-render',
+      bundleSource: 'export const notRender = 1;',
+      properties,
+    });
+    assert.match(String(r.error), /no render\(\)/);
+    assert.deepEqual(r.unprobed, ['bodySlot', 'buttonSlot']);
+  });
+
+  it('does not claim anything went unmeasured when there was nothing to measure', async () => {
+    // No slots and no containers is a legitimate empty record, not a failure. Conflating the two would
+    // make every plain component look broken — the opposite over-correction.
+    const r = await probeComponent({
+      componentId: 'no-slots',
+      bundleSource: 'this is not valid javascript {{{',
+      properties: { title: { kind: 'primitive', generic: 'string' } },
+    });
+    assert.equal(r.error, undefined);
+    assert.equal(r.unprobed, undefined);
+    assert.deepEqual(r.unresolved, []);
+  });
+
+  it('counts nested slot targets as unmeasured too', async () => {
+    // A failure that only named top-level slots would understate itself — nested slots were 48 of 180
+    // across 8x8's catalog.
+    const r = await probeComponent({
+      componentId: 'nested',
+      bundleSource: 'this is not valid javascript {{{',
+      properties: { cards: { kind: 'array', generic: 'Card[]' } },
+      previewValues: { cards: [{ _key: 'c1', title: 'T', mediaSlot: { props: {}, type: 'div' } }] },
+    });
+    assert.ok(r.unprobed?.includes('cards[].mediaSlot'), `nested target named: ${JSON.stringify(r.unprobed)}`);
   });
 });

@@ -265,27 +265,37 @@ export async function probeComponent(input: {
       }),
     })),
   ];
+  // No slots and no containers: nothing to measure, and the empty record is the honest answer. Distinct
+  // from every path below, which is a *failure* to measure and must not be reported the same way.
   if (!targets.length) return record;
 
-  const env = await setupProbeEnvironment();
-  if (!env) {
-    record.error = 'jsdom is not installed — slots left unprobed.';
+  /**
+   * Give up, and say what went unmeasured.
+   *
+   * Naming the targets is the whole point. Without `unprobed` a bail emits `slots: {}` and
+   * `unresolved: []` — indistinguishable from a component that probed perfectly — so a broken probe
+   * reports green. See `ComponentCapabilities.unprobed`.
+   */
+  const bail = (message: string): ComponentCapabilities => {
+    record.error = message;
+    record.unprobed = targets.map((t) => t.key);
     return record;
-  }
+  };
+
+  const env = await setupProbeEnvironment();
+  if (!env) return bail('jsdom is not installed — slots left unprobed.');
 
   let loaded: { mod: ComponentModule; cleanup: () => Promise<void> } | null = null;
   try {
     loaded = await loadModule(bundleSource, componentId);
   } catch (e) {
-    record.error = `module failed to load: ${(e as Error)?.message?.slice(0, 160) ?? e}`;
-    return record;
+    return bail(`module failed to load: ${(e as Error)?.message?.slice(0, 160) ?? e}`);
   }
 
   const { mod, cleanup } = loaded;
   if (typeof mod.render !== 'function') {
     await cleanup();
-    record.error = 'bundle exports no render() — cannot probe.';
-    return record;
+    return bail('bundle exports no render() — cannot probe.');
   }
 
   const base = { ...baseProps(properties, componentId), ...(context ?? {}) };

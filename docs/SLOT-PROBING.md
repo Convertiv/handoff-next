@@ -192,6 +192,39 @@ authorable shape to find. Cost is 12s for the whole catalog.
 Note the last row is where 8x8's dimension-regex belongs: real information, useful to a model, correctly
 kept out of the shape question.
 
+### When the probe fails, 2026-08-04
+
+A capability record has to distinguish three states, and for a while it only expressed two:
+
+| State | Record |
+|---|---|
+| Measured, everything accepted something | `slots` populated, `unresolved: []` |
+| Measured, some slot accepts nothing | `slots` populated, `unresolved: [names]` |
+| **Could not measure at all** | `error`, plus **`unprobed: [targets]`** |
+
+Before the third row existed, a probe that bailed — no jsdom, a bundle that would not load, no `render()`
+export — emitted `slots: {}` and `unresolved: []`. That is byte-identical to a component whose every slot
+measured clean, so **a total failure reported green.**
+
+It cost a real wrong conclusion. `product-comparison` is the one bundle of 68 in 8x8's catalog that leaves
+`react` as an external import, so it cannot load from a temp directory outside the build. A measurement run
+reported it as having zero unresolved slots, and that empty list was believed over the component's own baked
+record, which disagreed. The probe had measured nothing whatsoever.
+
+Two rules follow, both now enforced in code and covered by tests that were confirmed to fail without them:
+
+1. **A bail names its targets.** `unprobed` lists what would have been measured, so the failure is visible
+   in the artifact and scaled — "6 slot(s) unmeasured" rather than a shrug.
+2. **A failed probe is not a record.** `readCapabilities` returns `null` for an errored record with no
+   slots, putting it on the same footing as a component that predates probing — which is what it is. The
+   fallback is declared shapes, not marking every slot uneditable. An errored record that *did* measure some
+   slots keeps them: partial evidence is not zero evidence.
+
+The general form is worth stating, because it is not specific to probing: **an absence of findings and an
+absence of measurement are different claims, and only one of them is evidence.** A check that cannot fail
+reports green for behaviour nobody measured — see `docs/AGENT-TESTING.md` on vacuous eval passes, which is
+the same mistake in the test suite rather than the artifact.
+
 ## Cost, honestly
 
 Naively it is slots × candidates renders. Batched it is far less: set **every** slot to the same

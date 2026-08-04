@@ -45,6 +45,29 @@ describe('readCapabilities', () => {
     assert.equal(readCapabilities('nonsense'), null);
   });
 
+  it('returns null for a failed probe, which measured nothing and so asserts nothing', () => {
+    // The record the build writes when the module would not load: an error, the targets it never reached,
+    // and an empty `slots`. Handing that to a consumer as a record would let `unresolved: []` read as
+    // "measured, nothing wrong" — the exact misreading that had `product-comparison` reported clean.
+    // Unmeasured belongs on the same footing as never-probed, so callers fall back to declared shapes.
+    const failed = {
+      componentId: 'product-comparison',
+      candidates: ['image-object'],
+      slots: {},
+      unresolved: [],
+      error: 'module failed to load: Cannot find package react',
+      unprobed: ['bodySlot', 'products[].imageSlot'],
+    };
+    assert.equal(readCapabilities({ id: 'x', data: { capabilities: failed } }), null);
+  });
+
+  it('still returns a record when a probe errored but measured some slots anyway', () => {
+    // An error alongside real measurements is partial evidence, not zero evidence — keep what was measured.
+    const partial = { slots: { titleSlot: { accepts: ['plain-text'] } }, error: 'settle timeout' };
+    const caps = readCapabilities({ id: 'x', data: { capabilities: partial } });
+    assert.deepEqual(caps?.slots.titleSlot?.accepts, ['plain-text']);
+  });
+
   it('survives a malformed record instead of throwing into a page render', () => {
     const caps = readCapabilities({ data: { capabilities: { slots: { a: 'not an object', b: { accepts: 'nope' } } } } });
     assert.ok(caps);

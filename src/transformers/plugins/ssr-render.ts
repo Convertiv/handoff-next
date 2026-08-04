@@ -390,7 +390,12 @@ export function ssrRenderPlugin(
           // written the directory, writing to it directly is the thing that actually works.
           pendingCapabilities = capabilities;
           if (capabilities.error) {
-            Logger.warn(`[probe] ${componentId}: ${capabilities.error}`);
+            // Say how many slots went unmeasured, not just that something failed. "could not load" alone
+            // reads as a minor gripe; "6 slot(s) unmeasured" reads as the missing data it is.
+            const n = capabilities.unprobed?.length ?? 0;
+            Logger.warn(
+              `[probe] ${componentId}: ${capabilities.error}${n ? ` — ${n} slot(s) unmeasured: ${capabilities.unprobed!.join(', ')}` : ''}`
+            );
           } else if (capabilities.unresolved.length) {
             Logger.warn(
               `[probe] ${componentId}: ${capabilities.unresolved.length} slot(s) not editable — ${capabilities.unresolved.join(', ')}`
