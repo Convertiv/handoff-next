@@ -1,3 +1,5 @@
+import { preferredEncoding, resolveItemFields } from './authoring-shapes';
+
 /**
  * Read the slot capability record a component was pushed with.
  *
@@ -73,8 +75,19 @@ export function readCapabilities(component: unknown): ComponentCapabilities | nu
  * slot is not a slot at all — because every one of them means the same thing to a caller: **do not
  * guess a shape.** The failure mode being avoided is a form that reports success and changes nothing.
  */
-export function encodingForSlot(caps: ComponentCapabilities | null, slot: string): string | null {
-  return caps?.slots?.[slot]?.accepts?.[0] ?? null;
+export function encodingForSlot(
+  caps: ComponentCapabilities | null,
+  slot: string,
+  /**
+   * The field annotation, so a declared `of:` can pick between several accepted encodings.
+   *
+   * `logoSlots` accepts both `array-of-image-object` and `array-of-labelhref`; specificity picks the
+   * first, and `of: "image"` says which one the field is *for*. See `preferredEncoding`.
+   */
+  field?: Record<string, unknown> | null
+): string | null {
+  const accepts = caps?.slots?.[slot]?.accepts;
+  return accepts?.length ? preferredEncoding(accepts, field?.of) : null;
 }
 
 /** Whether a slot has any measured encoding. A slot without one should not be offered as editable. */
@@ -188,33 +201,6 @@ export function widgetForEncoding(encoding: string | null): 'text' | 'richtext' 
 }
 
 /**
- * The fields one item of a container takes, for a measured container encoding.
- *
- * `image-gallery.images` measured `array-of-image-object`, meaning an item is `{ src, alt }` — and the
- * declared item type `ImageGalleryImage` has **no `src` at all**. Its fields are `alt`, `caption`,
- * `thumbnailSlot` and `lightboxSlot`, the last two of which the probe found accept nothing. So the block
- * editor offered two slots that cannot be authored and no way to set the picture, which is exactly the
- * report: "thumbnailSlot and lightboxSlot aren't getting converted to image fields".
- *
- * They never can be. The component's own field annotation rebuilds each item from `src` unless the slot
- * already holds a React element, so `src` is the authorable field and it is undeclared. Measurement found
- * the truth the type does not carry; this is how it reaches the form.
- */
-export function itemFieldsForEncoding(encoding: string | null): Record<string, { editorType: string; encoding?: string }> | null {
-  switch (encoding) {
-    case 'array-of-image-object':
-      return { src: { editorType: 'image', encoding: 'image-object' }, alt: { editorType: 'text' } };
-    case 'array-of-urltext':
-      return { url: { editorType: 'text' }, text: { editorType: 'text' } };
-    case 'array-of-labelhref':
-      return { label: { editorType: 'text' }, href: { editorType: 'text' } };
-    default:
-      // `array-of-text` items are bare strings and have no fields; anything else is unmapped.
-      return null;
-  }
-}
-
-/**
  * Overlay measured encodings onto a component's declared properties, for the block editor.
  *
  * The editor renders from `properties` (the raw schema) while the scaffold renders from the capability
@@ -228,15 +214,23 @@ export function itemFieldsForEncoding(encoding: string | null): Record<string, {
  */
 export function applyCapabilitiesToProperties<T extends Record<string, unknown>>(
   properties: T,
-  caps: ComponentCapabilities | null
+  caps: ComponentCapabilities | null,
+  /**
+   * The component's field annotations, where `of:` and `item:` live.
+   *
+   * Optional, and the whole function still works without it — measurement alone got `image-gallery` its
+   * `src`. `of:` is what reaches the containers the probe could *not* measure, which is most of them: only
+   * one of six candidate containers resolved. See `docs/AUTHORING-BRIDGE.md`.
+   */
+  fields?: Record<string, unknown> | null
 ): T {
-  if (!caps || !properties) return properties;
+  if ((!caps && !fields) || !properties) return properties;
 
   let changed = false;
   const out: Record<string, unknown> = {};
 
   for (const [name, meta] of Object.entries(properties)) {
-    const slot = caps.slots?.[name];
+    const slot = caps?.slots?.[name];
     if (!slot || !isRecord(meta)) {
       out[name] = meta;
       continue;
@@ -251,13 +245,15 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
       continue;
     }
 
-    const widget = widgetForEncoding(slot.accepts[0] ?? null);
+    // `of:` picks between accepted encodings where measurement found more than one.
+    const chosen = preferredEncoding(slot.accepts, isRecord(fields?.[name]) ? (fields![name] as Record<string, unknown>).of : undefined);
+    const widget = widgetForEncoding(chosen);
     if (!widget) {
       out[name] = meta;
       continue;
     }
 
-    out[name] = { ...meta, editorType: widget, encoding: slot.accepts[0], measured: true };
+    out[name] = { ...meta, editorType: widget, encoding: chosen, measured: true };
     changed = true;
   }
 
@@ -273,8 +269,12 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
    * that the measured fields appear, and item slots the probe found nothing for stop being offered.
    */
   for (const [name, meta] of Object.entries(out)) {
-    const encoding = caps.slots?.[name]?.accepts?.[0] ?? null;
-    const measuredItems = itemFieldsForEncoding(encoding);
+    const encoding = encodingForSlot(caps, name, isRecord(fields?.[name]) ? (fields![name] as Record<string, unknown>) : null);
+    // Measurement, an explicit `item:`, and the `of:` vocabulary, in that order of authority.
+    const measuredItems = resolveItemFields({
+      field: isRecord(fields?.[name]) ? (fields![name] as Record<string, unknown>) : null,
+      encoding,
+    });
     if (!isRecord(meta)) continue;
     const items = isRecord(meta.items) ? meta.items : null;
     const declared = items && isRecord(items.properties) ? items.properties : null;
@@ -293,6 +293,7 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
         ...existing,
         editorType: shape.editorType,
         ...(shape.encoding ? { encoding: shape.encoding } : {}),
+        ...(shape.label ? { name: shape.label } : {}),
         measured: true,
       };
       itemChanged = true;
@@ -301,7 +302,7 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
     // Item slots the probe reached and found nothing for. Offering an editor that changes nothing is the
     // failure this whole mechanism exists to remove.
     for (const field of Object.keys(itemProps)) {
-      const nested = caps.slots?.[`${name}[].${field}`];
+      const nested = caps?.slots?.[`${name}[].${field}`];
       if (!nested?.unresolved || !isRecord(itemProps[field])) continue;
       itemProps[field] = {
         ...itemProps[field],

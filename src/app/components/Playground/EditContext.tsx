@@ -72,7 +72,11 @@ export function EditContextProvider({
       // authored args, not the component row, so the reader's `data.capabilities` fallback would be
       // looking in the wrong place.
       setProperties(
-        applyCapabilitiesToProperties(component.properties, readCapabilities({ capabilities: component.capabilities }))
+        applyCapabilitiesToProperties(
+          component.properties,
+          readCapabilities({ capabilities: component.capabilities }),
+          component.fields
+        )
       );
       initialRenderDone.current = false;
 

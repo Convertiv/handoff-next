@@ -24,6 +24,13 @@ export interface PlaygroundComponent {
    * component's built `<id>.json`. Drives which editor a slot gets — see `lib/slot-capabilities.ts`.
    */
   capabilities?: Record<string, any>;
+  /**
+   * Field annotations from the component's Handoff definition — `of`, `item`, `label`, `editorType`.
+   *
+   * Passed to `applyCapabilitiesToProperties` so a declared `of:` can pick between several accepted
+   * encodings and supply item fields the props never declared. See `docs/AUTHORING-BRIDGE.md`.
+   */
+  fields?: Record<string, any>;
   /** The block's authored args — NOT the component row's `data` column. */
   data?: Record<string, any>;
   rendered?: string;

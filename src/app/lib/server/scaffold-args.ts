@@ -3,6 +3,7 @@ import 'server-only';
 import { getDataProvider } from '@/lib/data';
 import { editorOf, placeholderValue, shapeNote } from '@/lib/mcp/scaffold-helpers';
 import { describeJsonShape } from '@/lib/json-shape';
+import { resolveItemFields } from '@/lib/authoring-shapes';
 import {
   describeEncoding,
   encodingForSlot,
@@ -82,12 +83,30 @@ export async function scaffoldArgsForComponent(
   // probing — in which case everything below falls through to the old declared-shape path unchanged, so
   // this is a no-op until a workspace rebuilds and pushes.
   const caps = readCapabilities(comp);
+  /**
+   * Field annotations from the component's Handoff definition.
+   *
+   * `of:` picks between accepted encodings where the probe found several, and `of:`/`item:` supply item
+   * fields the declared props never had. Same input the block editor gets, so MCP and the form cannot
+   * disagree about a field's shape — which they have, twice.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const annotations = ((comp as any)?.fields ?? {}) as Record<string, Record<string, unknown>>;
 
   const args: Record<string, unknown> = {};
   const fields: Record<string, unknown> = {};
   for (const [k, m] of Object.entries(props)) {
     const hasBase = k in baseValues;
-    const encoding = encodingForSlot(caps, k);
+    const encoding = encodingForSlot(caps, k, annotations[k]);
+    /**
+     * Item fields for an array, computed once for every branch below.
+     *
+     * They were only on the fallback branch at first, which meant a *measured* container — the case that
+     * works best, `image-gallery.images` — took the first branch and MCP never saw them. The editor gets
+     * item fields through `applyCapabilitiesToProperties`; this is how an MCP consumer gets the same thing
+     * as structure rather than only as prose.
+     */
+    const itemFields = resolveItemFields({ field: annotations[k], encoding });
 
     if (encoding) {
       // **Measured beats seeded.** A preview value is not an input contract — across 8x8's catalog the
@@ -106,6 +125,7 @@ export async function scaffoldArgsForComponent(
         measured: true,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ...((m as any)?.rules?.required === true ? { required: true } : {}),
+        ...(itemFields ? { itemFields } : {}),
         fromBase: false,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ...((m as any)?.options ? { options: (m as any).options } : {}),
@@ -147,6 +167,7 @@ export async function scaffoldArgsForComponent(
       shape: jsonShape ?? shapeNote(m),
       ...(jsonShape ? { fromValue: true } : {}),
       ...(required ? { required: true } : {}),
+      ...(itemFields ? { itemFields } : {}),
       fromBase: hasBase,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ...((m as any)?.options ? { options: (m as any).options } : {}),
