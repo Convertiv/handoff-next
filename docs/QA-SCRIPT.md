@@ -171,9 +171,9 @@ and every word of the query is required.
 **Fails if** any returns nothing. Before this month all three returned nothing against a 127-image
 library.
 
-> **Known difference:** the chat's `search_assets` falls back to a looser any-word match when the precise
-> one finds nothing, and tells the model the match was partial. **MCP does not have that fallback** — it
-> returns the precise result or nothing. Worth deciding whether it should.
+Then call it with `university staff`. **Look for** results *and* a note saying the match was partial —
+nothing in the library matches both words, so this comes from the looser any-word pass. The chat and MCP
+share that policy now; if one falls back and the other returns nothing, they have drifted apart again.
 
 ### B2. `handoff_scaffold_args` reports measured field shapes
 
@@ -197,16 +197,29 @@ fields like `bodySlot`.
 **Fails if** nothing is marked required — the gap guard depends on it, and without it every optional field
 reads as an unfinished page.
 
-### B4. `handoff_browse_components` lists the whole catalog
+### B4. Component listings say what each block is for
 
-Call it with no arguments.
+Call `handoff_browse_components` with no arguments, then `handoff_search_components` with `copy`.
 
-**Look for** all ~77 components.
+**Look for**
+- All ~77 components from browse.
+- A **`use`** line on every entry from both tools — `simple-copy` should read *"Use for simple copy blocks
+  such as legal pages, terms, and informational text"*.
 
-> **Known gap:** MCP's browse returns `id, title, group, type, tags` and **no purpose line**. The chat's
-> `list_blocks` now carries one line of authored should-do guidance per block — which is what stopped it
-> collapsing every section to `simple-copy` — and MCP consumers still choose without it. Same defect, a
-> different surface, not yet fixed.
+**Fails if** entries carry only `id, title, group, type, tags`. Choosing from names alone is what produced
+six consecutive `simple-copy` blocks for a ten-section brief: `simple-copy` reads as a safe default for
+any text, and its own guidance says otherwise.
+
+### B6. Component search does not care about word order
+
+Call `handoff_search_components` with `split content`, then with `content split`, then with `statistics`.
+
+**Look for** `content-split` in the first two, and `stats` in the third — which matches on its
+description, not its name.
+
+**Fails if** `split content` returns nothing while `content-split` sits in the catalog. That was a
+whole-phrase substring match over id, title, group and tags only, and it is the same defect the asset
+search had.
 
 ### B5. Instance writes still respect the contract
 
@@ -223,8 +236,6 @@ reported rather than silently dropped.
 |---|---|
 | **Hero Form does not render, and has no form picker** | Not an AI or app bug. The published `hero-form` contract is `anchor`, `theme`, `direction` and six slots — there is **no form property at all**, so nothing can supply a form and no editor can offer to choose one. Needs a schema change on the 8x8 side. |
 | **The same prompt gives different layouts run to run** | Partly inherent to the model. Narrowed by the catalog and brief-naming fixes; a brief with a Component column is the reliable way to pin it. |
-| **MCP asset search has no loose fallback** | See B1. |
-| **MCP browse has no purpose line** | See B4. |
 | **PDF attachments are refused** | Deliberate. PDF text extraction returns positioned runs, so reading order interleaves wrongly on the multi-column exports marketing copy arrives as — it would produce copy that looks fine and is subtly scrambled. |
 | **`.doc` (legacy binary) is refused** | Deliberate; the converter reads `.docx` only. |
 | **A config field shows up in "Optional fields left empty"** | Known noise. `imageTheme` and similar enums are typed as text and read as content, so they occasionally appear in that note. Harmless — the note asks for nothing — but it makes the list longer than it should be. |
@@ -249,8 +260,9 @@ reported rather than silently dropped.
 | B1 | MCP asset search | | /1 | |
 | B2 | MCP measured shapes | | /1 | |
 | B3 | MCP required fields | | /1 | |
-| B4 | MCP full catalog | | /1 | |
+| B4 | MCP listings carry a purpose line | | /1 | |
 | B5 | MCP contract respected | | /1 | |
+| B6 | MCP component search word order | | /1 | |
 
 For anything that fails, the useful report is: **what you sent, what you got, and how many of how many
 runs.** The prose in a reply is often wrong about what happened — the changeset rows and the page itself

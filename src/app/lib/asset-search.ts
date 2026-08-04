@@ -45,6 +45,9 @@ const STOP_WORDS = new Set([
 /**
  * The words a query should match on.
  *
+ * Named for searching in general rather than for assets: the component search had the same whole-phrase
+ * defect — "split content" could not find `content-split` — and now shares this.
+ *
  * Split rather than matched whole, because a phrase match is what made the search useless: a person or a
  * model types "lecture hall" or "students on campus", and no asset title is ever that sentence.
  *
@@ -52,7 +55,7 @@ const STOP_WORDS = new Set([
  * word is stopped or too short, the original query comes back as a single term, so "the of" still
  * searches for something rather than silently matching everything.
  */
-export function assetSearchTerms(query: string): string[] {
+export function searchTerms(query: string): string[] {
   const words = (query ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? [];
   const terms = [...new Set(words.filter((w) => w.length > 2 && !STOP_WORDS.has(w)))];
   if (terms.length) return terms;

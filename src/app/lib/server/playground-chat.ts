@@ -19,7 +19,7 @@ import {
 } from '@/lib/placeholder-audit';
 import { summarizeError } from '@/lib/error-summary';
 import { packToBudget, purposeLine, truncationNote } from '@/lib/tool-payload';
-import { assetSearchTerms, looseMatchNote, shouldRetryLoosely } from '@/lib/asset-search';
+import { looseMatchNote } from '@/lib/asset-search';
 import { readCapabilities } from '@/lib/slot-capabilities';
 import { describeTurn, flagsFor, type TurnFacts, type TurnRetry } from '@/lib/turn-log';
 import { logAiEvent } from '@/lib/server/event-log';
@@ -648,27 +648,18 @@ async function runTool(
 
   if (name === 'search_assets') {
     const { listAssets } = await import('@/lib/db/queries');
+    const { findAssets } = await import('@/lib/server/find-assets');
     const q = typeof args.query === 'string' ? args.query.trim() : '';
-    // Two queries rather than one: the search narrows by title, but anything the user attached must
-    // surface regardless of what they called it — they uploaded it FOR this page.
-    const [precise, all] = await Promise.all([
-      listAssets({ assetType: 'image', status: 'active', limit: 60, ...(q ? { search: q } : {}) }),
+    // Two queries rather than one: the search narrows by the asset's text, but anything the user attached
+    // must surface regardless of what they called it — they uploaded it FOR this page.
+    //
+    // `findAssets` owns the precise-then-loose policy so MCP's search behaves the same way. It lived here
+    // inline, which is exactly how MCP ended up with the term matching and none of the fallback.
+    const [found, all] = await Promise.all([
+      findAssets({ assetType: 'image', status: 'active', limit: 60, ...(q ? { search: q } : {}) }),
       preferredAssetIds.length ? listAssets({ assetType: 'image', status: 'active', limit: 200 }) : Promise.resolve([]),
     ]);
-
-    /**
-     * A loose second pass, only when the precise one found nothing.
-     *
-     * Coming back empty is the expensive outcome, not an imprecise result: the model rephrases, searches
-     * again, and after a few empties writes an invented src or leaves a placeholder that ships. Measured
-     * on one real turn — eight searches, six of them empty, a page of placeholders, and a 127-image
-     * library that had campus photographs the whole time.
-     */
-    const terms = assetSearchTerms(q);
-    const loose = shouldRetryLoosely(terms, precise.length)
-      ? await listAssets({ assetType: 'image', status: 'active', limit: 60, search: q, searchMode: 'any' })
-      : [];
-    const matches = precise.length ? precise : loose;
+    const matches = found.rows;
     const attachedRows = all.filter((r) => preferredAssetIds.includes(String(r.id)));
 
     const seen = new Set<string>();
@@ -687,7 +678,7 @@ async function runTool(
     const results = out.slice(0, 25);
     // A loose match is weaker evidence and the model should be able to tell: "students" returned for
     // "lecture hall" may be the right picture or merely the nearest one.
-    return !precise.length && loose.length ? { results, note: looseMatchNote(q) } : results;
+    return found.loose ? { results, note: looseMatchNote(q) } : results;
   }
 
   if (name === 'request_image') {

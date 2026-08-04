@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, like, lt, lte, ne, or, sql } from 'drizzle-orm';
-import { assetSearchTerms, type AssetSearchMode } from '@/lib/asset-search';
+import { searchTerms, type AssetSearchMode } from '@/lib/asset-search';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { usePostgres } from './dialect';
 import { getDb } from './index';
@@ -1817,7 +1817,7 @@ export async function listAssets(filter: AssetListFilter = {}) {
       coalesce(${handoffAssets.description}, '') || ' ' ||
       coalesce(${handoffAssets.tags}::text, '')
     )`;
-    const terms = assetSearchTerms(filter.search);
+    const terms = searchTerms(filter.search);
     if (terms.length) {
       const clauses = terms.map((term) => sql`${haystack} ilike ${`%${term}%`}`);
       conditions.push(filter.searchMode === 'any' ? or(...clauses)! : and(...clauses)!);

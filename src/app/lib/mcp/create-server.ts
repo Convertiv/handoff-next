@@ -11,6 +11,9 @@ import { editorOf, isVisualSlot, placeholderValue, shapeNote } from '@/lib/mcp/s
 import { isReferenceMaterialId, REFERENCE_MATERIAL_IDS } from '@/lib/server/reference-material-ids';
 import { getDataProvider } from '@/lib/data';
 import { scaffoldArgsForComponent } from '@/lib/server/scaffold-args';
+import { findAssets } from '@/lib/server/find-assets';
+import { looseMatchNote, searchTerms } from '@/lib/asset-search';
+import { purposeLine } from '@/lib/tool-payload';
 import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
 import { usePostgres } from '@/lib/db/dialect';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
@@ -568,7 +571,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_search_components',
     {
-      description: 'Search component catalog by id, title, group, or tag substring.',
+      description:
+        'Search the component catalog. Matches every word of the query against a component\'s id, title, ' +
+        'group, tags and description, so word order does not matter. Returns a `use` line saying what ' +
+        'each block is for — read it before choosing, because several blocks hold copy and they are not ' +
+        'interchangeable.',
       inputSchema: {
         query: z.string().optional(),
         group: z.string().optional(),
@@ -578,21 +585,40 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     async ({ query, group, limit }) => {
       const provider = getDataProvider();
       let list = await provider.getComponents();
-      const q = query?.trim().toLowerCase();
-      if (q) {
-        list = list.filter(
-          (c) =>
-            c.id.toLowerCase().includes(q) ||
-            (c.title || '').toLowerCase().includes(q) ||
-            (c.group || '').toLowerCase().includes(q) ||
-            JSON.stringify(c.tags ?? []).toLowerCase().includes(q)
-        );
+      /**
+       * Every word of the query, against everything written about the component.
+       *
+       * This was a whole-phrase substring over id, title, group and tags — so "split content" found
+       * nothing while `content-split` sat in the catalog, and the authored description was never
+       * consulted. The same defect the asset search had, and the same fix: split the query, require every
+       * term, search all the text.
+       */
+      const terms = searchTerms(query ?? '');
+      if (terms.length) {
+        list = list.filter((c) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const comp = c as any;
+          const haystack = [c.id, c.title, c.group, comp.description, JSON.stringify(c.tags ?? [])]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return terms.every((term) => haystack.includes(term));
+        });
       }
       if (group?.trim()) {
         list = list.filter((c) => (c.group || '').toLowerCase() === group.trim().toLowerCase());
       }
       const cap = limit ?? 50;
-      return textResult(list.slice(0, cap).map((c) => ({ id: c.id, title: c.title, group: c.group, type: c.type })));
+      return textResult(
+        list.slice(0, cap).map((c) => ({
+          id: c.id,
+          title: c.title,
+          group: c.group,
+          type: c.type,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          use: purposeLine((c as any).should_do?.[0] ?? (c as any).shouldDo?.[0] ?? (c as any).description),
+        }))
+      );
     }
   );
 
@@ -1241,7 +1267,15 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     },
     async ({ query, type, collection_id, icon_set_id, tags, limit }) => {
       if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
-      const assets = await listAssets({
+      /**
+       * The same precise-then-loose policy the playground chat uses.
+       *
+       * This called `listAssets` directly, so it inherited the multi-field term matching and none of the
+       * fallback — two surfaces answering the same question differently. Coming back empty is the
+       * expensive outcome for an agent here too: it rephrases, searches again, and eventually writes a src
+       * that does not exist.
+       */
+      const found = await findAssets({
         search: query,
         assetType: type,
         collectionId: collection_id,
@@ -1250,7 +1284,9 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         limit: limit ?? 50,
         status: 'active',
       });
-      return textResult(assets);
+      return textResult(
+        found.loose && query ? { assets: found.rows, note: looseMatchNote(query) } : found.rows
+      );
     }
   );
 
@@ -2235,6 +2271,16 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
           title: c.title,
           group: c.group,
           type: c.type,
+          /**
+           * One line on what the block is *for*, from the authored should-do guidance.
+           *
+           * This returned id, title, group, type and tags — nothing about purpose — so an agent chose
+           * blocks from names alone. In the playground that produced six consecutive `simple-copy` blocks
+           * for a ten-section brief, because `simple-copy` reads as a safe default for any text while its
+           * own guidance says "legal pages, terms, and informational text". Same defect, same fix.
+           */
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          use: purposeLine((c as any).should_do?.[0] ?? (c as any).shouldDo?.[0] ?? (c as any).description),
           tags: Array.isArray(c.tags) ? c.tags.slice(0, 6) : [],
           detailUrl: `${registryBase}/system/component/${encodeURIComponent(c.id)}`,
         }));

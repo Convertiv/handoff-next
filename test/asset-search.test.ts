@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { assetSearchTerms, looseMatchNote, shouldRetryLoosely } from '../src/app/lib/asset-search';
+import { searchTerms, looseMatchNote, shouldRetryLoosely } from '../src/app/lib/asset-search';
 
 /**
  * The search was `ilike(title, '%query%')` — one substring, one column.
@@ -13,46 +13,46 @@ import { assetSearchTerms, looseMatchNote, shouldRetryLoosely } from '../src/app
  * Measuring first inverted my assumption: the eight calls cost 4KB, about 5k tokens replayed. The fan-out
  * was never the expense — it was the symptom.
  */
-describe('assetSearchTerms', () => {
+describe('searchTerms', () => {
   it('splits a phrase, because no asset title is ever a sentence', () => {
-    assert.deepEqual(assetSearchTerms('lecture hall'), ['lecture', 'hall']);
-    assert.deepEqual(assetSearchTerms('students on campus'), ['students', 'campus']);
+    assert.deepEqual(searchTerms('lecture hall'), ['lecture', 'hall']);
+    assert.deepEqual(searchTerms('students on campus'), ['students', 'campus']);
   });
 
   it('drops words that narrow nothing', () => {
-    assert.deepEqual(assetSearchTerms('images of the team'), ['team']);
-    assert.deepEqual(assetSearchTerms('photo for a hero'), ['hero']);
+    assert.deepEqual(searchTerms('images of the team'), ['team']);
+    assert.deepEqual(searchTerms('photo for a hero'), ['hero']);
   });
 
   it('drops fragments too short to narrow anything', () => {
     // `campus` survives; `uk` and `hq` are two letters and would match half the library.
-    assert.deepEqual(assetSearchTerms('UK campus hq'), ['campus']);
+    assert.deepEqual(searchTerms('UK campus hq'), ['campus']);
   });
 
   it('falls back rather than returning nothing when every word is too short', () => {
     // Not `[]`: an empty term list drops the search clause and returns the whole library as if it had all
     // matched. Searching the raw phrase finds little, which is honest; matching everything is not.
-    assert.deepEqual(assetSearchTerms('a UK hq'), ['a uk hq']);
+    assert.deepEqual(searchTerms('a UK hq'), ['a uk hq']);
   });
 
   it('deduplicates, so a repeated word is not matched twice', () => {
-    assert.deepEqual(assetSearchTerms('campus campus CAMPUS'), ['campus']);
+    assert.deepEqual(searchTerms('campus campus CAMPUS'), ['campus']);
   });
 
   it('is case and punctuation insensitive', () => {
-    assert.deepEqual(assetSearchTerms('Campus, Buildings!'), ['campus', 'buildings']);
+    assert.deepEqual(searchTerms('Campus, Buildings!'), ['campus', 'buildings']);
   });
 
   it('falls back to the raw query rather than matching everything', () => {
     // Every word stopped or too short. An empty term list would drop the search clause entirely and
     // return the whole library as though it had all matched.
-    assert.deepEqual(assetSearchTerms('the of'), ['the of']);
-    assert.deepEqual(assetSearchTerms('hq'), ['hq']);
+    assert.deepEqual(searchTerms('the of'), ['the of']);
+    assert.deepEqual(searchTerms('hq'), ['hq']);
   });
 
   it('returns nothing for nothing', () => {
-    assert.deepEqual(assetSearchTerms(''), []);
-    assert.deepEqual(assetSearchTerms('   '), []);
+    assert.deepEqual(searchTerms(''), []);
+    assert.deepEqual(searchTerms('   '), []);
   });
 });
 
