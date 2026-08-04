@@ -135,12 +135,34 @@ export interface ResolvedBriefComponents {
  * and the two can differ — `card` is titled "Simple Card".
  */
 export function resolveBriefComponents(names: string[], catalog: CatalogEntry[]): ResolvedBriefComponents {
-  const bySignature = new Map<string, CatalogEntry>();
+  /**
+   * Two tiers, because titles are not unique and ids are.
+   *
+   * The 8x8 registry has `content-split` and `feature` both titled "Content Split". A single map with
+   * first-writer-wins resolved "Split Content" to whichever happened to come first — correctly, as it
+   * turned out, and for no better reason than insertion order. That is the confident-wrong answer this
+   * codebase keeps removing, just one that got lucky.
+   *
+   * An id match is stronger evidence than a title match: `content-split`'s id signature *is* "content
+   * split" while `feature`'s is "feature", so the tie breaks on a real distinction rather than on order.
+   * Within a tier, a genuine clash is reported as ambiguous rather than guessed — see `resolveFieldName`
+   * for the same rule applied to fields.
+   *
+   * (I claimed zero collisions when this was written. That was measured against 70 built files on disk,
+   * not the 77 components in the registry. One collision, found by running the deployed MCP tool.)
+   */
+  const byId = new Map<string, CatalogEntry[]>();
+  const byTitle = new Map<string, CatalogEntry[]>();
   for (const entry of catalog ?? []) {
-    for (const candidate of [entry.title, entry.id]) {
+    for (const [candidate, map] of [
+      [entry.id, byId],
+      [entry.title, byTitle],
+    ] as const) {
       const key = candidate ? signatureOf(candidate) : '';
-      // First writer wins, so a title never loses to a later component's id.
-      if (key && !bySignature.has(key)) bySignature.set(key, entry);
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, []);
+      const list = map.get(key)!;
+      if (!list.some((e) => e.id === entry.id)) list.push(entry);
     }
   }
 
@@ -148,9 +170,15 @@ export function resolveBriefComponents(names: string[], catalog: CatalogEntry[])
   const unmatched: string[] = [];
 
   for (const name of names) {
-    const hit = bySignature.get(signatureOf(name));
-    if (hit) matched.push({ name, id: hit.id, title: hit.title || hit.id });
-    else unmatched.push(name);
+    const key = signatureOf(name);
+    const candidates = byId.get(key)?.length ? byId.get(key)! : (byTitle.get(key) ?? []);
+    // Exactly one, or nothing. Two components with an equal claim to a name is a question, not an answer.
+    if (candidates.length === 1) {
+      const hit = candidates[0]!;
+      matched.push({ name, id: hit.id, title: hit.title || hit.id });
+    } else {
+      unmatched.push(name);
+    }
   }
 
   return { matched, unmatched };

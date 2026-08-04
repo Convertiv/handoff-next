@@ -78,15 +78,13 @@ describe('resolveBriefComponents', () => {
     assert.deepEqual(unmatched, ['Zig Zag Timeline']);
   });
 
-  it('keeps every component distinguishable — no two entries collapse to one signature', () => {
-    // A collision would make one component unreachable by name, silently.
-    const seen = new Map<string, string>();
-    for (const entry of CATALOG) {
-      const key = signatureOf(entry.title);
-      const clash = seen.get(key);
-      assert.equal(clash, undefined, `${entry.id} and ${clash} share the signature "${key}"`);
-      seen.set(key, entry.id);
-    }
+  it('does not depend on the catalog being collision-free, because it is not', () => {
+    // This used to assert the fixture had no colliding titles, on the belief that a collision would make
+    // a component silently unreachable. The real registry has one — `content-split` and `feature` are both
+    // titled "Content Split" — so the behaviour under collision is what needs asserting, not its absence.
+    // See the duplicate-title suite below.
+    const signatures = CATALOG.map((c) => signatureOf(c.title));
+    assert.equal(new Set(signatures).size, signatures.length, 'this fixture happens to be clean');
   });
 
   it('survives an empty catalog and empty names', () => {
@@ -178,5 +176,49 @@ describe('describeBriefComponents', () => {
 
   it('returns null when the brief named nothing, so ordinary copy gains no noise', () => {
     assert.equal(describeBriefComponents({ matched: [], unmatched: [] }), null);
+  });
+});
+
+/**
+ * Titles are not unique and ids are.
+ *
+ * The 8x8 registry has `content-split` and `feature` both titled "Content Split". A single
+ * first-writer-wins map resolved "Split Content" to whichever came first — correctly, as it happened, and
+ * for no better reason than insertion order.
+ *
+ * Found by calling the deployed MCP tool while checking the QA script, which is also how the original
+ * "zero collisions" claim turned out to be wrong: it was measured against 70 built files on disk, not the
+ * 77 components in the registry.
+ */
+describe('resolveBriefComponents with a duplicate title', () => {
+  const withDuplicate = [
+    { id: 'feature', title: 'Content Split' },
+    { id: 'content-split', title: 'Content Split' },
+  ];
+
+  it('breaks the tie on the id, not on catalog order', () => {
+    // `content-split`'s id signature IS "content split"; `feature`'s is "feature". A real distinction.
+    assert.equal(resolveBriefComponents(['Split Content'], withDuplicate).matched[0]!.id, 'content-split');
+    assert.equal(
+      resolveBriefComponents(['Content Split'], [...withDuplicate].reverse()).matched[0]!.id,
+      'content-split',
+      'and the answer does not depend on which came first'
+    );
+  });
+
+  it('reports a genuine clash as unmatched rather than picking one', () => {
+    // Two components whose *titles* collide and neither id matches: nothing distinguishes them, so this
+    // is a question rather than an answer.
+    const twins = [
+      { id: 'promo-a', title: 'Big Promo' },
+      { id: 'promo-b', title: 'Big Promo' },
+    ];
+    const { matched, unmatched } = resolveBriefComponents(['Big Promo'], twins);
+    assert.deepEqual(matched, []);
+    assert.deepEqual(unmatched, ['Big Promo']);
+  });
+
+  it('still resolves an unambiguous name', () => {
+    assert.equal(resolveBriefComponents(['Simple Copy'], CATALOG).matched[0]!.id, 'simple-copy');
   });
 });
