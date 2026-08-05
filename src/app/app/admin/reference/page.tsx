@@ -4,7 +4,7 @@ import { auth } from '../../../lib/auth';
 import { getClientRuntimeConfig } from '../../../components/util';
 import { getDataProvider } from '../../../lib/data';
 import { listReferenceMaterials } from '../../../lib/db/queries';
-import { usePostgres } from '../../../lib/db/dialect';
+import { isPostgres } from '../../../lib/db/dialect';
 import ReferenceClient from './ReferenceClient';
 
 export const metadata: Metadata = {
@@ -25,7 +25,7 @@ export default async function AdminReferencePage() {
   }
 
   let referenceEmpty = false;
-  if (usePostgres()) {
+  if (isPostgres()) {
     try {
       const rows = await listReferenceMaterials();
       referenceEmpty = !rows.some((r) => (r.content?.trim().length ?? 0) > 50);

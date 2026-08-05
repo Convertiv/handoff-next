@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getImageSlotsForComponent } from '@/lib/db/registry-queries';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest): Promise<Response> {
-  if (!usePostgres()) return NextResponse.json({ slots: [] });
+  if (!isPostgres()) return NextResponse.json({ slots: [] });
 
   const componentId = request.nextUrl.searchParams.get('componentId');
   if (!componentId) {

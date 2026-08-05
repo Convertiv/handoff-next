@@ -15,7 +15,7 @@ import { findAssets } from '@/lib/server/find-assets';
 import { looseMatchNote, searchTerms, summarizeAssetRow } from '@/lib/asset-search';
 import { purposeLine } from '@/lib/tool-payload';
 import type { DtcgTokenType, DtcgTokenStrings } from '@/lib/data/types';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 import { fetchSyncChangesSince } from '@/lib/db/sync-queries';
 import { applyUploadedChange } from '@/lib/db/sync-queries';
 import { getUnifiedChangelog, type UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
@@ -482,7 +482,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async (fields) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = denyGuidanceWrite();
       if (denied) return denied;
       const supplied = Object.entries(fields).filter(([, v]) => v !== undefined);
@@ -524,7 +524,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ designMd }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = denyGuidanceWrite();
       if (denied) return denied;
       const { workspace, diff } = await replaceDesignGuidelines(designMd, authzActor().userId);
@@ -724,7 +724,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
     'handoff_sync_status',
     { description: 'Remote sync cursor and health. Returns workspace-mode notice if no registry is connected.', inputSchema: {} },
     async () => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const { getSyncStatus } = await import('@/lib/db/sync-queries');
       return textResult(await getSyncStatus());
     }
@@ -742,7 +742,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ since, limit }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const changeset = await fetchSyncChangesSince(since ?? 0, limit);
       return textResult(changeset);
     }
@@ -766,7 +766,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ body }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       if (!auth.isLegacySecret && !auth.scopes.includes('sync:write')) {
         return textResult({ error: 'Forbidden — sync:write required' });
       }
@@ -860,7 +860,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: { status: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
     },
     async ({ status, limit }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const { getDesignArtifacts } = await import('@/lib/db/queries');
       const isAdmin = auth.role === 'admin';
       const rows = await getDesignArtifacts({
@@ -879,7 +879,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: { id: z.string() },
     },
     async ({ id }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = await denyArtifactAccess(id.trim(), 'view');
       if (denied) return denied;
       const { getDesignArtifactById } = await import('@/lib/db/queries');
@@ -947,7 +947,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ artifactId }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = await denyArtifactAccess(artifactId.trim(), 'view');
       if (denied) return denied;
       const { getDesignArtifactById } = await import('@/lib/db/queries');
@@ -987,7 +987,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ artifactId, queueSpecIfMissing = true }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = await denyArtifactAccess(artifactId.trim(), 'view');
       if (denied) return denied;
       const { getDesignArtifactById, updateDesignArtifactById } = await import('@/lib/db/queries');
@@ -1049,7 +1049,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ artifactId, status }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       // Lifecycle gate, mirroring design-artifact/route.ts: 'approved' is
@@ -1079,7 +1079,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
    * transcripts and saved prompts keep working.
    */
   async function startDevHandoff(artifactId: string, extractAssets: boolean) {
-    if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+    if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
     const denied = requireScope(auth, 'sync:write');
     if (denied) return denied;
     if (!process.env.HANDOFF_AI_API_KEY?.trim()) {
@@ -1158,7 +1158,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ prompt, quality, componentGuides, foundationContext, artifactId }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       const { shouldProxyAi } = await import('@/lib/server/ai-client');
@@ -1207,7 +1207,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: { jobId: z.number().int() },
     },
     async ({ jobId }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const { getDesignGenerationJob } = await import('@/lib/db/queries');
       const job = await getDesignGenerationJob(jobId);
       if (!job) return textResult({ error: 'Job not found' });
@@ -1272,7 +1272,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ query, type, collection_id, icon_set_id, tags, limit }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       /**
        * The same precise-then-loose policy the playground chat uses.
        *
@@ -1305,7 +1305,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: { id: z.string() },
     },
     async ({ id }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const asset = await getAssetWithUsages(id);
       if (!asset) return textResult({ error: 'Not found' });
       return textResult(asset);
@@ -1319,7 +1319,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: {},
     },
     async () => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const collections = await listAssetCollections();
       return textResult(collections);
     }
@@ -1431,7 +1431,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ days, limit, entityType }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const since = new Date(Date.now() - (days ?? 14) * 86_400_000);
       const all = await getUnifiedChangelog(limit ?? 30, since);
       const filtered = entityType ? all.filter((e) => e.entityType === entityType) : all;
@@ -1452,7 +1452,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ id, limit }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const versions = await getComponentVersionHistory(id.trim(), limit ?? 20);
       return textResult(
         versions.map((v) => ({
@@ -1481,7 +1481,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ entityType, id }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const result = await resolveChangeWhy({ entityType, id, actorUserId: null });
       return textResult(result);
     }
@@ -1605,7 +1605,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ group, limit }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       let list = await getDataProvider().getPatterns();
       if (group?.trim()) list = list.filter((p) => (p.group || '').toLowerCase() === group.trim().toLowerCase());
       return textResult(
@@ -1628,7 +1628,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: { id: z.string() },
     },
     async ({ id }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const p = await getDataProvider().getPattern(id.trim());
       if (!p) return textResult({ error: 'Not found' });
       return textResult({ id: id.trim(), title: p.title, description: p.description, group: p.group, components: p.components });
@@ -1654,7 +1654,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ componentId, fromPreview }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       // Delegates rather than duplicating. This handler used to carry its own copy of the scaffold
       // loop, so when `scaffoldArgsForComponent` learned to build args from a component's measured
       // capability record, MCP silently kept emitting the old preview-seeded shapes — and since MCP is
@@ -1689,7 +1689,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ id, title, description, group, blocks, message }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       const { errors, report } = await checkBlocks(blocks);
@@ -1736,7 +1736,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ id, title, description, group, blocks, message }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       let report: Array<Record<string, unknown>> | undefined;
@@ -1794,7 +1794,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ componentId, title, values, semantic, rationale, previewKey }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       try {
@@ -1843,7 +1843,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ id, title, values, semantic, rationale }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       try {
@@ -1886,7 +1886,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ id, note }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       try {
@@ -1981,7 +1981,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: {},
     },
     async () => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       return textResult(await listHandoffPages());
     }
   );
@@ -1993,7 +1993,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       inputSchema: { slug: z.string().describe('Page slug, e.g. "guides/getting-started".') },
     },
     async ({ slug }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const p = await getHandoffPageBySlug(cleanSlug(slug));
       if (!p) return textResult({ error: 'Not found' });
       return textResult(p);
@@ -2015,7 +2015,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ slug, title, markdown, frontmatter, message }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       const s = cleanSlug(slug);
@@ -2045,7 +2045,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ slug, title, markdown, frontmatter, message }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       const s = cleanSlug(slug);
@@ -2078,7 +2078,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ slug, message }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       const result = await deleteDocPage(cleanSlug(slug), docPageActor(message));
@@ -2100,7 +2100,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ fromSlug, toSlug, message }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       const result = await moveDocPage(cleanSlug(fromSlug), cleanSlug(toSlug), docPageActor(message));
@@ -2183,7 +2183,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         _meta: { ui: { resourceUri: PREVIEW_UI_URI } },
       },
       async ({ id, preview }) => {
-        if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+        if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
         const comp = await getDataProvider().getComponent(id.trim());
         if (!comp) return textResult({ error: 'Not found' });
         const previews = ((comp as { previews?: Record<string, unknown> }).previews) ?? {};
@@ -2264,7 +2264,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         _meta: { ui: { resourceUri: PALETTE_UI_URI } },
       },
       async ({ brand, scheme }) => {
-        if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+        if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
         const selector: Record<string, string> = {};
         if (brand) selector.brand = brand;
         if (scheme) selector.scheme = scheme;
@@ -2320,7 +2320,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         _meta: { ui: { resourceUri: GALLERY_UI_URI } },
       },
       async ({ query, group }) => {
-        if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+        if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
         let list = await getDataProvider().getComponents();
         const q = query?.trim().toLowerCase();
         if (q) {

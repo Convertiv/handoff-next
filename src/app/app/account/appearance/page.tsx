@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
-import { usePostgres } from '../../../lib/db/dialect';
+import { isPostgres } from '../../../lib/db/dialect';
 import {
   getRegistryAppearance,
   getRegistryLogoSet,
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 export default async function AppearancePage() {
-  if (!usePostgres()) return null;
+  if (!isPostgres()) return null;
 
   const session = await auth();
   if (!session?.user) redirect('/login?callbackUrl=/account/appearance');

@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
-import { usePostgres } from '../../../lib/db/dialect';
+import { isPostgres } from '../../../lib/db/dialect';
 import { listUsers } from '../../../lib/server/admin-users';
 import UsersClient from './UsersClient';
 
@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 export default async function AccountUsersPage() {
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return null;
   }
 

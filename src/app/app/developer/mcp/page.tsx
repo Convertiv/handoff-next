@@ -2,7 +2,7 @@ import { ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { buttonVariants } from '@/components/ui/button';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 import McpSetupSection from '@/app/dev/local-setup/McpSetupSection';
 import { getMcpToolCatalog, CATEGORY_ORDER } from '@/lib/mcp/tool-catalog';
 
@@ -24,7 +24,7 @@ async function resolveOrigin(): Promise<string> {
 
 export default async function McpPage() {
   const origin = await resolveOrigin();
-  const mcpOnThisHost = usePostgres();
+  const mcpOnThisHost = isPostgres();
   const tools = getMcpToolCatalog();
   const categories = CATEGORY_ORDER.filter((cat) => tools.some((t) => t.category === cat));
   return (

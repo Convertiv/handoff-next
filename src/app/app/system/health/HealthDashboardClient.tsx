@@ -89,7 +89,7 @@ export function HealthDashboardClient({ summary, manifest, history }: HealthDash
           <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div>
             <span className="font-medium text-amber-800 dark:text-amber-300">
-              {summary.notRunComponents} component{summary.notRunComponents !== 1 ? 's' : ''} haven't been validated yet.
+              {summary.notRunComponents} component{summary.notRunComponents !== 1 ? 's' : ''} haven&apos;t been validated yet.
             </span>
             <span className="ml-1 text-amber-700 dark:text-amber-400">
               Run <code className="rounded bg-amber-100 px-1 dark:bg-amber-900/40">handoff-app push:all</code> to populate results.

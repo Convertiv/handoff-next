@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { eq } from 'drizzle-orm';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 
 export async function GET(request: Request) {
   const { auth } = await import('@/lib/auth');
@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return NextResponse.json({ results: [] });
   }
   const url = new URL(request.url);
