@@ -14,7 +14,6 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import {
   ChevronDown,
   FileCodeIcon,
-  FolderOpen,
   Layers,
   Maximize,
   Minimize,
@@ -34,10 +33,7 @@ import { EditContextProvider, useEditContext } from './EditContext';
 import SortableItem from './SortableItem';
 import Preview, { constructComponentPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
-import PatternPicker from './PatternPicker';
 import { savePatternAsTemplate } from '@/app/actions/patterns';
-import SavePatternDialog from './SavePatternDialog';
-import TemplateManager from './TemplateManager';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
 import type { PlaygroundPageExport, SelectedPlaygroundComponent } from './types';
@@ -129,16 +125,15 @@ export default function PlaygroundBuilder() {
     error,
     onDragEnd,
     removeComponent,
-    templates,
-    saveAsTemplate,
     activeComponentId,
     setActiveComponentId,
     editingPatternId,
     setEditingPatternId,
-    loadPatternById,
     isDynamicApp,
     updateComponent,
     saveState,
+    isTemplate,
+    cloneToNewPage,
     recoveredDraft,
     restoreRecoveredDraft,
     discardRecoveredDraft,
@@ -146,10 +141,9 @@ export default function PlaygroundBuilder() {
 
   const [html, setHtml] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
-  const [savePatternOpen, setSavePatternOpen] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [cloning, setCloning] = useState(false);
   const [templateNotice, setTemplateNotice] = useState<string | null>(null);
-  const [patternPickerOpen, setPatternPickerOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   // Open when starting a new page, closed when opening an existing pattern. A blank canvas has nothing
@@ -272,6 +266,14 @@ export default function PlaygroundBuilder() {
    * was invisible to sharing and review. This creates a real record others can clone from and guests can
    * build from, and leaves this page alone.
    */
+  const handleUseTemplate = async () => {
+    setCloning(true);
+    // No reset on success: the clone navigates away, and re-enabling the button first would invite a
+    // second click that creates a second page.
+    const id = await cloneToNewPage();
+    if (!id) setCloning(false);
+  };
+
   const handleSaveAsTemplate = async () => {
     if (!editingPatternId) return;
     const name = prompt('Name this template', 'Untitled template');
@@ -304,24 +306,17 @@ export default function PlaygroundBuilder() {
 
           <div className="mx-1 h-4 w-px bg-border" />
 
-          {(templates.length > 0 || isDynamicApp) && <TemplateManager />}
 
           {isDynamicApp && (
             <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={() => setPatternPickerOpen(true)}>
-                    <FolderOpen className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Open a page</TooltipContent>
-              </Tooltip>
+              {/* No "open a page" control: pages are opened from /library, which is their home, and each
+                  one has a real URL (roadmap E.2c). One place to browse, not two. */}
               {/**
                 * No "save page" here any more: in dynamic mode the page autosaves and creates itself on the
                 * first block (roadmap E.2/E.3). What remains is the action that actually needs a decision —
                 * turning this page into a template others can build from.
                 */}
-              {selectedComponents.length > 0 && editingPatternId && (
+              {selectedComponents.length > 0 && editingPatternId && !isTemplate && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -345,20 +340,6 @@ export default function PlaygroundBuilder() {
 
           {selectedComponents.length > 0 && (
             <>
-              {/* Static (no-database) mode has nothing to autosave to, so the explicit save stays there —
-                  and only there. The browser-local template store is no longer offered as a new place to
-                  put work; existing local templates remain loadable so they can be converted. */}
-              {!isDynamicApp && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={() => setSavePatternOpen(true)}>
-                      <SaveIcon className="h-4 w-4" />
-                      <span className="text-xs">Save</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Save this page</TooltipContent>
-                </Tooltip>
-              )}
 
               <DropdownMenu>
                 <Tooltip>
@@ -457,6 +438,18 @@ export default function PlaygroundBuilder() {
           </Button>
           <Button size="sm" variant="ghost" onClick={discardRecoveredDraft}>
             Start fresh
+          </Button>
+        </div>
+      ) : null}
+
+      {isTemplate ? (
+        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm">
+          <span>
+            <strong>This is a template.</strong> It’s frozen so that pages built from it — and the reviews of
+            those pages — stay stable. Make a page from it to edit.
+          </span>
+          <Button size="sm" variant="secondary" disabled={cloning} onClick={() => void handleUseTemplate()}>
+            {cloning ? 'Creating…' : 'Use this template'}
           </Button>
         </div>
       ) : null}
@@ -585,19 +578,6 @@ export default function PlaygroundBuilder() {
         {aiPanelOpen && <AiChatPanel />}
       </div>
 
-      <SavePatternDialog
-        open={savePatternOpen}
-        onOpenChange={setSavePatternOpen}
-        selectedComponents={selectedComponents}
-        editingPatternId={editingPatternId}
-        onSaved={(id) => setEditingPatternId(id)}
-      />
-
-      <PatternPicker
-        open={patternPickerOpen}
-        onOpenChange={setPatternPickerOpen}
-        onPick={(id) => loadPatternById(id, true)}
-      />
     </div>
   );
 }

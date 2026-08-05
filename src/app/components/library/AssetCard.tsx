@@ -25,12 +25,23 @@ export type LibraryAsset = {
   status: Lifecycle;
   permissions: ResourcePermissions | null;
   updatedAt: string | number | Date | null;
+  /** `handoff_pattern.source` — 'template' gets its own identity, being the thing others build from. */
+  source?: string | null;
 };
 
 const TYPE_META: Record<LibraryAsset['type'], { label: string; Icon: typeof PenNib }> = {
   design: { label: 'Design', Icon: PenNib },
   pattern: { label: 'Page', Icon: Layout },
 };
+
+/**
+ * A template is not just a page with a flag — it is the object other people build from, so it says so.
+ * Same row shape, different identity.
+ */
+function assetTypeLabel(asset: LibraryAsset): string {
+  if (asset.type === 'pattern' && asset.source === 'template') return 'Template';
+  return TYPE_META[asset.type].label;
+}
 
 function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined {
   if (!updatedAt) return undefined;
@@ -42,11 +53,15 @@ function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined 
 export function AssetCard({
   asset,
   onOpen,
+  onDetails,
 }: {
   asset: LibraryAsset;
   onOpen: () => void;
+  /** Opens the inspector — where visibility, lifecycle and **sharing** live. */
+  onDetails?: () => void;
 }) {
-  const { label: typeLabel, Icon: TypeIcon } = TYPE_META[asset.type];
+  const { Icon: TypeIcon } = TYPE_META[asset.type];
+  const typeLabel = assetTypeLabel(asset);
   const editedLabel = formatEdited(asset.updatedAt);
   const ownerName = asset.owner?.name?.trim() || (asset.isMe ? 'You' : 'Teammate');
 
@@ -90,11 +105,30 @@ export function AssetCard({
         </p>
 
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* Templates read as templates, not as pages that happen to be flagged. */}
+          {asset.type === 'pattern' && asset.source === 'template' ? (
+            <span className={PLAIN_BADGE}>Template</span>
+          ) : null}
           <span className={PLAIN_BADGE}>{LIFECYCLE_META[asset.status].short}</span>
           <span className={PLAIN_BADGE}>{VISIBILITY_META[asset.visibility].label}</span>
         </div>
         </div>
       </button>
+
+      {/**
+       * Outside the open-button, deliberately: nesting a button inside a button is invalid, and "look at
+       * details / share this" is a different intent from "open it".
+       */}
+      {onDetails ? (
+        <button
+          type="button"
+          onClick={onDetails}
+          aria-label={`Details and sharing for ${asset.title}`}
+          className="shrink-0 border-l px-2 text-xs text-muted-foreground hover:bg-muted/50"
+        >
+          ⋯
+        </button>
+      ) : null}
     </li>
   );
 }

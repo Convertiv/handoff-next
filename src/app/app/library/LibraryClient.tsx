@@ -6,7 +6,8 @@ import { ChevronDown, Info, Loader2, PlusIcon, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AssetCard, type LibraryAsset } from '@/components/library';
+import { AssetCard, AssetInspector, type LibraryAsset } from '@/components/library';
+import { setPatternMeta } from '@/app/actions/patterns';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -29,8 +30,9 @@ type DesignRow = {
   isMe: boolean;
 };
 
-/** Pattern lane row shape (mirrors PatternPicker's PatternListEntry). */
+/** Pattern lane row shape, as `/api/handoff/patterns?lane=` returns it. */
 type PatternRow = PatternListObject & {
+  _source?: string | null;
   _thumbnail?: string | null;
   _updatedAt?: string | null;
   visibility: string;
@@ -74,6 +76,8 @@ function normalizePattern(row: PatternRow): LibraryAsset {
     status: row.status as Lifecycle,
     permissions: row.permissions,
     updatedAt: row._updatedAt ?? null,
+    // The list API prefixes its extra fields: `_source`, not `source` (see `patternRowToListEntry`).
+    source: row._source ?? null,
   };
 }
 
@@ -250,12 +254,51 @@ export default function LibraryClient({
     setError(null);
   }, []);
 
+  /**
+   * The inspector is where sharing lives (roadmap E.2a). It was previously reachable only from a dialog
+   * inside the playground, which meant a template — the object whose entire purpose is being sent to
+   * someone — could not be shared from the place it lives.
+   */
+  const [inspected, setInspected] = useState<LibraryAsset | null>(null);
+  const [inspectorBusy, setInspectorBusy] = useState(false);
+
+  const applyMeta = useCallback(
+    async (meta: { visibility?: Visibility; status?: Lifecycle }) => {
+      if (!inspected) return;
+      setInspectorBusy(true);
+      try {
+        if (inspected.type === 'pattern') {
+          await setPatternMeta(inspected.id, meta);
+        } else {
+          const res = await fetch(handoffApiUrl(`/api/handoff/ai/design-artifact/${encodeURIComponent(inspected.id)}`), {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(meta),
+          });
+          if (!res.ok) throw new Error('Could not update.');
+        }
+        // Reflect it locally rather than refetching the whole grid for one field.
+        setInspected((cur) => (cur ? { ...cur, ...meta } : cur));
+        setPatternAssets((cur) =>
+          cur.map((a) => (a.id === inspected.id && a.type === inspected.type ? { ...a, ...meta } : a)),
+        );
+      } catch (e) {
+        console.error('[library] meta update failed', e);
+      } finally {
+        setInspectorBusy(false);
+      }
+    },
+    [inspected],
+  );
+
   const openAsset = useCallback(
     (asset: LibraryAsset) => {
       if (asset.type === 'design') {
         router.push(`${basePath}/design/library/${asset.id}/`);
       } else {
-        router.push(`${basePath}/playground?pattern=${encodeURIComponent(asset.id)}`);
+        // Real route (roadmap E.3). The query form still works, but this is the shape to link.
+        router.push(`${basePath}/playground/${encodeURIComponent(asset.id)}`);
       }
     },
     [router, basePath],
@@ -297,6 +340,7 @@ export default function LibraryClient({
   ];
 
   return (
+    <>
     <div className="flex h-full min-h-0 overflow-hidden bg-background">
       {/* Main area — slim top bar + scrolling card grid. */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -402,6 +446,7 @@ export default function LibraryClient({
                     key={keyOf(asset)}
                     asset={asset}
                     onOpen={() => openAsset(asset)}
+                    onDetails={() => setInspected(asset)}
                   />
                 ))}
               </ul>
@@ -431,5 +476,44 @@ export default function LibraryClient({
         </div>
       </div>
     </div>
+
+      {/**
+        * Sharing lives here (roadmap E.2a). `shareResource` switches the inspector to the full panel —
+        * capability picker, expiry, max uses, active links, revoke — which is what makes a template
+        * sendable from the place it lives rather than from a dialog inside the builder.
+        */}
+      <AssetInspector
+        open={inspected !== null}
+        onOpenChange={(o) => !o && setInspected(null)}
+        asset={
+          inspected
+            ? {
+                id: inspected.id,
+                title: inspected.title,
+                thumbnailUrl: inspected.thumbnailUrl,
+                owner: inspected.owner,
+                isMe: inspected.isMe,
+                visibility: inspected.visibility,
+                status: inspected.status,
+                surface: inspected.type,
+              }
+            : null
+        }
+        permissions={inspected?.permissions ?? null}
+        busy={inspectorBusy}
+        onSetLifecycle={(status) => void applyMeta({ status })}
+        onSetVisibility={(visibility) => void applyMeta({ visibility })}
+        onOpen={() => inspected && openAsset(inspected)}
+        shareResource={
+          inspected
+            ? {
+                resourceType: inspected.type === 'pattern' ? 'pattern' : 'design_artifact',
+                resourceId: inspected.id,
+                basePath,
+              }
+            : null
+        }
+      />
+    </>
   );
 }

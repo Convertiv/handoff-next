@@ -29,9 +29,13 @@ export default async function PlaygroundPageById({ params }: { params: Promise<{
   const { props } = await fetchDocPageMarkdownAsync('docs/', 'playground', '/playground');
   const config = getClientRuntimeConfig();
 
+  let isTemplate = false;
   if (isPostgres()) {
     const row = await getDbPatternById(id).catch(() => null);
     if (!row) notFound();
+    // Known here, so the editor can open read-only on the first render rather than discovering it after a
+    // refused save. See `savePageAsTemplate`: templates are frozen by design.
+    isTemplate = row.source === 'template';
   }
 
   return (
@@ -41,6 +45,7 @@ export default async function PlaygroundPageById({ params }: { params: Promise<{
       current={props.current}
       config={config}
       initialPatternId={id}
+      initialIsTemplate={isTemplate}
     />
   );
 }

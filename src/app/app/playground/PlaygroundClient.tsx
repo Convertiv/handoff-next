@@ -11,17 +11,19 @@ export default function PlaygroundClient({
   current,
   config,
   initialPatternId,
+  initialIsTemplate = false,
 }: {
   menu: unknown;
   metadata: unknown;
   current: unknown;
   config: unknown;
   initialPatternId?: string;
+  initialIsTemplate?: boolean;
 }) {
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <TooltipProvider>
-        <PlaygroundProvider initialPatternId={initialPatternId}>
+        <PlaygroundProvider initialPatternId={initialPatternId} initialIsTemplate={initialIsTemplate}>
           <PlaygroundBuilder />
         </PlaygroundProvider>
       </TooltipProvider>

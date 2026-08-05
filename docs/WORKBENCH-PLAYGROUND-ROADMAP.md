@@ -283,20 +283,31 @@ Correct observation: the backend exists and **no UI reaches it**. Missing, all s
 - **A links list per template** — label, capabilities, uses/max, expiry, revoke.
 - Keep guest submissions visible in `/library` under a filter, not only in the review queue.
 
-### E.2 — One save path: everything lands in the library
+### E.2 — One save path; templates as the shared object
 
-Drop the "save pattern" control/dropdown. It presents saving as an occasional export when it should be the
-default state of the document.
+**Partly shipped 2026-08-05, with three corrections outstanding** (found by Brad testing it).
 
-- Saving is **implicit** (see E.3): there is no save button to find.
-- The library is the single home for pages, so "where did my page go" stops being a question.
-- **Promote-to-template is the headline action on a saved page.** Today `source: 'template'` and
-  `template_id` exist and nothing sets them from the UI — a saved page becomes a template by being marked
-  one, then it can carry a share link. The flow should read: *save (automatic) → mark as template → get a
-  link to send*, with the guardrail editor (Slice 3) attached to the template, since that is the object
-  whose limits matter.
-- A template needs a visibly different identity from an ordinary page in the library — it is the thing
-  strangers will build from.
+Shipped: `savePageAsTemplate` (a separate, **frozen**, team-visible copy — the page carries on as the
+author's own), the freeze guard in `patchPattern`, save-on-first-block + autosave so dynamic mode has no
+save button, clone-of-a-template recording `template_id`, and "page" wording.
+
+**Still to do, in this order:**
+
+- **E.2a — Share from the library.** The blocker: `AssetInspector` (which now hosts `ShareLinkPanel`) is
+  consumed *only* by the playground's `PatternPicker` dialog. The library has no inspector and therefore no
+  way to share anything — so a template, the object whose whole purpose is being sent out, cannot be shared
+  from the place it lives. Wire the inspector (or at least the share panel) into `/library`, and give
+  templates a visible identity + filter there.
+- **E.2b — Templates are read-only in the editor.** The freeze is enforced server-side but nothing says so
+  in the UI: you can edit a template's canvas, and the refused write surfaces only as "Not saved". Opening a
+  template must present a read-only canvas plus **Use this template** (clone → new page, which the existing
+  `/clone` route already does), and autosave must not attempt a write it knows will be refused.
+- **E.2c — Drop the "Saved pages" control.** Opening a page belongs in the library, not in a modal inside
+  the builder. Remove the `FolderOpen` control and retire `PatternPicker` once E.2a means the library can
+  open *and* share. (This is the control Brad asked to drop; it is still there.)
+- **E.2d — Remove the browser-local template code path** (`saveAsTemplate`/`loadTemplate`/`deleteTemplate`,
+  `TemplateManager`'s local section). Creation is already disabled; existing local templates stay loadable
+  so they can be converted first.
 
 ### E.3 — `playground/{page}` as a real route, autosaved, no local storage
 
@@ -314,9 +325,17 @@ document:
 - This also fixes a real bug class: local-only state cannot be reviewed, shared, or recovered on another
   device, and every feature after this one (review, templates, guest links) assumes a record exists.
 
-**Sequencing:** E.1 first (hours, and it makes Slices 1–2 usable at all). E.3 before E.2, because "one
-save path" is only coherent once the record is the source of truth. Guardrails (Slice 3, below) attach to
-templates, so they are usable before E.2 and better after it.
+### E.4 — Guardrail editor for templates
+
+Slice 3 enforces `template.data.guardrails` in three places (editor, submit, review) but nothing *sets* it
+from the browser — today it is a JSON field. Now that a template is a real, frozen object with its own
+inspector, that inspector is where per-field limits, required flags and the alt-text severity belong. Small
+and high-leverage: it is what lets Craig and Andrew define the rules SS&C asked for without editing JSON.
+
+**Sequencing:** E.1 ✅. E.3 ✅ (before E.2, because "one save path" is only coherent once the record is the
+source of truth). E.2 → **E.2b, E.2a, E.2c, E.2d** in that order: fix the template-editing defect first
+because it is wrong behaviour on an object that already exists, then unblock sharing, then remove the
+control the library replaces. E.4 last, since it needs the template inspector E.2a builds.
 
 ## Phase F — Direct manipulation in the playground editor (Brad, 2026-08-05)
 

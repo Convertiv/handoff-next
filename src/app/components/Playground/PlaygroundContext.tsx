@@ -46,6 +46,10 @@ interface PlaygroundContextType {
    * canvas — which is the one case where the old explicit save still matters (roadmap E.2 removes it).
    */
   saveState: 'off' | 'idle' | 'saving' | 'saved' | 'failed';
+  /** True when the open record is a frozen template: read-only, clone to edit. */
+  isTemplate: boolean;
+  /** Copy this template into a new editable page and go there. Resolves to the new page id. */
+  cloneToNewPage: () => Promise<string | null>;
   recoveredDraft: { count: number } | null;
   restoreRecoveredDraft: () => void;
   discardRecoveredDraft: () => void;
@@ -115,9 +119,11 @@ async function fetchComponentDetail(id: string, basePath: string): Promise<Playg
 export function PlaygroundProvider({
   children,
   initialPatternId,
+  initialIsTemplate = false,
 }: {
   children: ReactNode;
   initialPatternId?: string;
+  initialIsTemplate?: boolean;
 }) {
   const { status } = useSession();
   /** Full Handoff server (DB-backed patterns, etc.); static export mode has been removed. */
@@ -132,6 +138,12 @@ export function PlaygroundProvider({
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
   const [editingPatternId, setEditingPatternId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'off' | 'idle' | 'saving' | 'saved' | 'failed'>('off');
+  /**
+   * A template is frozen (`savePageAsTemplate`), so this canvas is a **view**. Known from the server on
+   * first render, because discovering it from a refused save is how you get an editor that looks editable
+   * and silently isn't.
+   */
+  const [isTemplate] = useState(initialIsTemplate);
   const [recoveredDraft, setRecoveredDraft] = useState<{ count: number } | null>(null);
   /** Held outside state: it is data to restore on request, not something the canvas renders. */
   const recoveredRef = useRef<SelectedPlaygroundComponent[] | null>(null);
@@ -198,6 +210,31 @@ export function PlaygroundProvider({
     }
   }, [selectedComponents]);
 
+  /**
+   * "Use this template" — clone it into a new page and open that.
+   *
+   * Reuses the existing `/clone` route, which already copies blocks + values and (since E.2) stamps
+   * `template_id` on the copy, so an editor-made page is diffable against its template exactly like a
+   * guest submission.
+   */
+  const cloneToNewPage = useCallback(async (): Promise<string | null> => {
+    if (!editingPatternId) return null;
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(editingPatternId)}/clone`), {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const json = (await res.json()) as { id?: string; pattern?: { id?: string }; error?: string };
+      const newId = json.id ?? json.pattern?.id ?? null;
+      if (!res.ok || !newId) throw new Error(json.error || 'Could not create a page from this template.');
+      router.push(`${basePath}/playground/${newId}`);
+      return newId;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not create a page from this template.');
+      return null;
+    }
+  }, [editingPatternId, router, basePath]);
+
   const restoreRecoveredDraft = useCallback(() => {
     const draft = recoveredRef.current;
     recoveredRef.current = null;
@@ -242,6 +279,15 @@ export function PlaygroundProvider({
     if (!isDynamicApp || status !== 'authenticated') {
       setSaveState('off');
       persistedRef.current = null;
+      return;
+    }
+
+    /**
+     * Never autosave a template. The write core refuses it anyway, so attempting one would only produce a
+     * "Not saved" flicker on a canvas that is behaving exactly as intended.
+     */
+    if (isTemplate) {
+      setSaveState('off');
       return;
     }
 
@@ -319,7 +365,7 @@ export function PlaygroundProvider({
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath, router]);
+  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath, router, isTemplate]);
 
   const bulkAddComponents = useCallback(
     async (entries: BulkComponentEntry[], replace = true) => {
@@ -498,6 +544,8 @@ export function PlaygroundProvider({
         templates,
         saveAsTemplate,
         saveState,
+        isTemplate,
+        cloneToNewPage,
         recoveredDraft,
         restoreRecoveredDraft,
         discardRecoveredDraft,
