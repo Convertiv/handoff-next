@@ -1271,6 +1271,42 @@ export async function getPendingDesignGenerationJobs(limit = 3): Promise<DesignG
     .limit(limit);
 }
 
+export type GenerationQueueActivity = {
+  /** Jobs the drain is working on right now. Non-zero proves the drain is alive. */
+  runningCount: number;
+  /** Most recent moment any job reached a terminal state. Also proves the drain is alive. */
+  lastTerminalAt: Date | null;
+};
+
+/**
+ * Evidence that the cron drain is running at all — *not* a measure of how busy it is.
+ *
+ * Needed because "my job has been pending for four minutes" is ambiguous: the drain takes ≤3 jobs a
+ * tick and one generation legitimately runs 25s-4min, so a backlog looks exactly like a dead drain
+ * from a single job's point of view. The difference is whether anything else is moving. If a job is
+ * `running`, or something reached `done`/`failed` recently, the drain is alive and the wait is a
+ * queue; if neither is true, nothing is draining.
+ *
+ * See `describeGenerationQueueHealth`, which is the only intended caller.
+ */
+export async function getGenerationQueueActivity(): Promise<GenerationQueueActivity> {
+  const db = getDb();
+  const [running] = await db
+    .select({ n: count() })
+    .from(handoffDesignGenerationJobs)
+    .where(eq(handoffDesignGenerationJobs.status, 'running'));
+
+  const [terminal] = await db
+    .select({ at: sql<Date | null>`max(${handoffDesignGenerationJobs.updatedAt})` })
+    .from(handoffDesignGenerationJobs)
+    .where(inArray(handoffDesignGenerationJobs.status, ['done', 'failed']));
+
+  return {
+    runningCount: Number(running?.n ?? 0),
+    lastTerminalAt: terminal?.at ? new Date(terminal.at) : null,
+  };
+}
+
 /** Delete a generation job row (e.g. dismissing a failed/stuck job). Owner-scoped. */
 export async function deleteDesignGenerationJob(jobId: number, userId: string): Promise<boolean> {
   const db = getDb();

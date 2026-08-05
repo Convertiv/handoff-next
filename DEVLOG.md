@@ -5,6 +5,262 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-05 — Slice 2: the review inbox, and moving the approve gate so MCP could exist
+
+`/review` + `GET/POST /api/handoff/review[/id]` + `handoff_list_review_queue` / `handoff_review_page`.
+
+**The structural move was the point.** The approve rule lived inside the `setPatternMeta` *server action*,
+which is why the roadmap noted an MCP status setter would have to duplicate it. It now lives in
+`lib/authz/review.ts` (`decidePatternMetaChange` / `decideReview` — client-safe, 11 tests) and is enforced
+by `applyPatternMeta` / `reviewPattern` in the write core. The server action, the HTTP routes and the MCP
+tools are now thin wrappers; none of them re-derives the rule. Same principle as `assertCanMutatePattern`
+living inside `pattern-write`.
+
+Decisions worth keeping:
+
+- **Reject requires `canApprove`, not `canEdit`** — otherwise the submission's *owner* (the link creator,
+  who owns every guest page by design) could clear the queue without being a maintainer.
+- **Reject → `draft`**, which is precisely what re-opens guest editing. "Send back with a note" and "ask
+  for another pass" are one mechanism, not two states.
+- **Only a page in `review` can be decided**, re-checked in the UPDATE's `WHERE` so two reviewers racing
+  can't both record a verdict; the loser gets 409, which is what a stale queue deserves.
+- **Approving never touches visibility.** Attention ≠ access.
+- Queue is **one query** — lateral join for the latest guest change, on `pattern_status_idx` from `0027`.
+
+**Verified server-side with real actors** (the UI needs a signed-in maintainer, and I won't type
+credentials): queue returns the submission with submitter/template/link/note/owner; non-maintainer reject →
+`AuthorizationError`; maintainer reject → `draft`; rejecting again while `draft` → refused with the actual
+status in the message; the row leaves the queue; approve → `approved`; visibility still `private`; changelog
+carries the guest edit plus both verdicts with `trigger=review` and their notes. All three review endpoints
+401 unauthenticated, and `/review` redirects to sign-in. Test data removed.
+
+**`strict: false` bites here.** The app compiles with `strictNullChecks: false`, so a
+`{ok:true}|{ok:false}` union does *not* narrow via `if (!decision.ok)` — TS collapses it and `.reason`
+fails to typecheck. Fixed with an explicit `isMetaDenied` type guard, which narrows regardless. Worth
+remembering before writing another discriminated union in this codebase.
+
+Two bits of polish caught by looking at real output: the queue was rendering "Submitted by
+**guest:**Casey Jordan" (the `guest:` prefix is provenance in `history_label`, not part of a name — now
+stripped for display), and the template diff was inline in the route, so it moved into
+`diffSubmissionAgainstTemplate` with six tests, including "diff against the template as it stands now, not
+the submission's stale copy".
+
+---
+
+## 2026-08-05 — Guest authoring verified end-to-end, and a migration numbering trap worth knowing
+
+Drove the whole flow in a browser against the dev DB: name gate → draft created from template → text
+edit → autosave → asset swap → submit → locked. Then read the rows back. Everything held: `status=review`,
+`visibility=private` (untouched), `source=guest`, owner = **link creator** (not null), `template_id` +
+`share_link_token` set, one override entry, and — the thing most likely to have broken — the swapped image
+kept `props.width: 1280` and `type: 'img'`, so `applyOverride` did protect the element node. The asset's
+alt text followed the image and then showed up as an editable Alt field on its own, which is
+`collectEditableText` doing exactly what it should. Changelog: 5 rows, every one `trigger=guest`,
+`by=guest:Casey Jordan`, with the submit note as the "why". Link `use_count: 1` — reloads and PATCHes did
+not inflate it — and the row stores only the public id, never the secret.
+
+Negative cases, all against the server rather than the UI: bare id with no secret → 404; wrong secret →
+404; guest API with no cookie → 401; PATCH after submit → 403; and a PATCH carrying
+`status: 'approved', visibility: 'public', userId: 'someone-else'` → 400 "Nothing to change", i.e. every
+escalation field was dropped before it reached the write core. Test data deleted afterwards.
+
+**⚠️ The trap: a migration on `main` can be silently skipped.** Drizzle applies a journal entry only if
+its `when` is greater than the newest `created_at` already in `drizzle.__drizzle_migrations`. This dev
+database has been migrated from **`feature/spec-driven`**, which owns `0025_design_spec_version` and
+`0026_pipeline_job` — neither of which exists on `main`. So the DB's newest applied `when` was
+1783400000000 while my hand-authored 0025 used 1783300000000 (already taken), and `migrate()` skipped it
+**while still logging "database schema is up to date"**. The columns simply weren't there. Renamed to
+`0027_guest_authoring` with `when: 1783500000000` and it applied. Lesson for the next hand-written
+migration: **check `select max(created_at) from drizzle.__drizzle_migrations` first**, not just the local
+journal — the shared DB may be ahead of your branch. Whoever merges these branches reconciles the journal.
+
+**Two findings from watching it run:**
+
+1. *The design-system assistant was rendering on the public share pages.* `ChatFab`/`ChatDrawer` are
+   mounted globally in `providers.tsx`, so `/s/*` got them — an authenticated feature on an
+   unauthenticated page, inviting a guest to ask a chat whose API will reject them, and contradicting the
+   viewer's own "standalone by design" docstring. Now suppressed for `/s/*` (base-path safe via
+   `usePathname`). Fixes the read-only viewer too.
+2. *Field order comes from Postgres, not from the template.* `jsonb` does not preserve key order (it sorts
+   by key length, then bytewise), so the guest saw Eyebrow → Body → Headline rather than headline first.
+   Harmless but wrong-feeling, and it can't be fixed by ordering the insert — it needs an explicit field
+   order from the template or the descriptor layer. Noted in the design doc as a Slice 3 item.
+
+Also worth confirming with fresh eyes: `/api/handoff/assets/<id>/raw` serves bytes to an unauthenticated
+caller (that is what makes the guest picker's thumbnails work). Pre-existing, not introduced here, but a
+guest link now depends on it — so it should be a deliberate decision rather than an accident.
+
+---
+
+## 2026-08-05 — Guest asset read + authoring UI: the shallow-merge trap, from a new direction
+
+Slice 1 is now code-complete: `/api/handoff/guest/assets` (capability-gated, read-only, `summarizeAssetRow`
+subset, active-only, hard 60 cap) and the `/s/[token]` authoring surface, which the share page renders
+**when the link is write-capable** — a view-only link on the same route behaves exactly as before.
+
+**The design decision worth keeping:** guest edits are stored in the **override layer**
+(`data.previews.default.values[i]`), never in `components[i].args`. The template stays pristine and the
+review diff *is* the values array.
+
+**The trap that nearly repeated itself.** `mergeBlockArgs` is a *shallow* merge, so writing a partial
+`{ desktopImageSlot: { props: { src } } }` into the override would replace the template's whole element
+node — losing `type`, `width`, `className` — and the block would stop rendering. That is the 2026-07-31
+element-shape bug reached from the opposite side. Fixed in `applyOverride`: apply the edit to the *merged*
+args, then write the affected **top-level key whole**, so the override is always a set of complete
+top-level values (the only shape a shallow merge carries safely). Five tests on it.
+
+Fields come from **real values** (`collectEditableText` / `collectImageSrcs`), not descriptors — same
+lesson as `summarizeFields`. Structural strings (`className`, `type`, `href`, `width`…) are excluded so a
+guest can't silently break a block; a `picture` with several `source` children counts as one slot,
+because offering three pickers for one visual image lets someone change two and see nothing happen; and
+picking an image carries the asset's alt into a sibling `alt`, since a swapped image with the old alt
+describes the wrong picture.
+
+754 unit + 9 server tests, `tsc` clean. **Not yet exercised in a browser** — that needs migration 0025
+applied plus a template and a write-capable link, i.e. DB writes. Stated rather than implied.
+
+---
+
+## 2026-08-05 — Guest sessions: one link, many recipients, one page each
+
+Brad's question — does one link sent to two people make two copies? **Yes, and that's the design.** The
+link grants against the *template*; each session's first edit creates a child carrying `template_id` and
+`share_link_token`, and `canGuestEditPattern`'s token check is what keeps two recipients out of each
+other's work. Both land in the review queue separately.
+
+The honest caveat, now written into the note: **identity is a browser, not a person.** Same person on two
+devices = two drafts; two people in one browser profile = one; cleared cookies = an orphaned draft. That
+is inherent to authoring without accounts, and it is why the queue shows a self-declared name plus the
+admitting link rather than an identity. Consequence for `maxUses`: it caps *sessions*, not people — and a
+reload must not spend one, so the entry route resumes **before** it consumes.
+
+Session = signed cookie (`handoff_guest_<linkId>`, HMAC over `AUTH_SECRET`), one per link so two links in
+one browser are independent. Three deliberate omissions from the payload: **capabilities** (re-read from
+the link row every request, so revoking a link ends its sessions on the next call rather than whenever
+the cookie lapses), **the link secret** (already presented at the door; re-storing it only adds a place
+to read it), and any **expiry beyond the link's own** (`maxExp` clamps it). Missing `AUTH_SECRET` throws
+rather than signing with a default, which would make every cookie forgeable.
+
+**Two things caught while building, both worth remembering:**
+
+1. *The submission id comes from the signed cookie, never the request body.* A body-supplied id would let
+   any link holder name any pattern and lean on `share_link_token` to catch it — safe only because two
+   independent things both had to be right. From the cookie, one does.
+2. *Submitting was a dead end.* The cookie kept pointing at the submitted page, which is locked
+   (`canGuestEditPattern` requires `draft`), so the guest could neither edit it nor start anything new.
+   POST now falls through on a non-draft submission and creates a fresh page, repointing the cookie; the
+   submitted one is untouched.
+
+Also: my first read of `cat -v` output made me think the control-character strip in `sanitizeGuestName`
+had become a negated class. It hadn't — `^@-^_^?` is caret notation for `\x00-\x1f\x7f`. The literal
+control bytes are now `\u` escapes so the next person doesn't lose the same minute.
+
+730 unit + 9 server tests pass, `tsc` clean. Remaining in Slice 1: capability-gated asset read for
+guests, and the `/s/[token]` authoring UI.
+
+---
+
+## 2026-08-05 — Guest authoring, Slice 1 backend: a guest is a capability holder, not a user
+
+Design note: `docs/GUEST-AUTHORING.md`. SS&C want a template link a non-account holder can build a page
+from, which lands in a review queue. **Decided: no guest image generation** — asset library only. It is
+enforced by *absence* (there is no `generate_image` capability to grant) rather than by a budget that has
+to be enforced correctly, and a test pins it so adding one is a deliberate change.
+
+**The bug this design is shaped around.** `canMutatePattern` grants access when `ownerUserId == null`,
+because legacy/unowned patterns are team-editable — and a guest's `userId` is *also* null. A guest actor
+passed to the existing write core would therefore have been handed every unowned pattern in the
+deployment, and each call site would still have read as correct. `writePattern` is worse: it has no
+authorization check at all. So:
+
+- `MutateActor.guest` — its **presence** closes every ownership path. `canMutatePattern` returns false
+  before looking at role or owner; `computePermissions` returns early with view-from-capability and
+  nothing else, so `team`/`public` visibility and a stray grant row can't leak edit rights.
+- Guest writes get their own three functions (`createGuestSubmission`, `patchGuestSubmission`,
+  `submitGuestSubmission`) rather than a flag. The patch builds its UPDATE field by field instead of
+  spreading, because a spread would carry `status`/`userId`/`visibility` from the HTTP layer into the
+  very escalation the function exists to prevent.
+- A guest's claim on a page is `handoff_pattern.share_link_token`, not ownership: submissions are owned
+  by the **link's creator** so they land in a real library and never leave a null-owner row behind.
+
+**Tokens changed shape for write-capable links.** URL is now `/s/<id>.<secret>`: `id` stays the primary
+key (one indexed lookup, safe to log), only `sha256(secret)` is stored. A DB read no longer yields usable
+links. Legacy read-only rows have `token_hash = null` and are compared directly, so existing viewer URLs
+keep working — and a bare id can never satisfy a hashed row, which is what stops a logged id from being a
+credential. Consequence worth knowing: **`GET /api/handoff/share` cannot return a working URL for a
+write link** — the secret is gone. It returns `secretRecoverable: false` and the UI's move is
+revoke-and-remint. Write links also default to a 14-day expiry rather than erroring when none is given,
+so an immortal write link can't be created by forgetting a field.
+
+Empty `capabilities` means `['view']`, because every pre-Slice-1 row has `[]` and those are the viewer's
+links.
+
+**Also added a test lane.** `policy.ts` is `server-only`, so the default `tsx --test` runner could never
+import it — the entire authorization layer had **zero tests**. New `test:unit:server`
+(`--conditions=react-server`, `test/server/*.test.ts`, wired into `test:unit`) exists so security-
+critical server-only code has somewhere to be tested; the guest-denial guards are pinned there. The pure
+guest predicates live in the client-safe `lib/authz/guest.ts` so the authoring UI renders from the same
+rules it is enforced by (an Edit button on a submitted page is a lie).
+
+714 unit + 9 server tests pass, app `tsc` clean. **Migration 0025 is NOT applied** — auto-migrate will
+run it on next boot. Preconditions checked read-only against the dev DB first: `handoff_pattern.id` is
+`text` (so the self-FK type-checks), no column or index name collisions, and 0 existing share links.
+
+**Next:** guest session cookie, guest-scoped HTTP routes, `/s/[token]` authoring UI. Two open questions
+in the note gate the UI — how a returning guest resumes their draft, and what `shared` visibility means
+at promote time.
+
+---
+
+## 2026-08-05 — Both playground generators "hung" in the SS&C demo; the env was the bug, the silence was ours
+
+**Root cause, verified live, not inferred.** `GET https://ssc-handoff.vercel.app/api/handoff/ai/design-jobs/run`
+returns `503 {"error":"CRON_SECRET is not configured on the server"}`. That route is the **only** consumer
+of `pending` generation jobs (`getPendingDesignGenerationJobs` has exactly one caller), and both
+generators are enqueue-only — the chat's `request_image` tool and the block editor's per-field Generate
+both just insert a row. So on that deployment nothing ever drained the queue, and the reaper that would
+have marked the rows failed lives *inside the same dead route*, so nothing reached a terminal state
+either. `DESIGN_SYSTEM_ROADMAP.md:173` had already written this down as a deploy requirement.
+
+Brad is setting the env var. Two further gates to confirm on that project, because the secret alone
+isn't sufficient: **Vercel Cron only runs on production deployments** (a branch/preview deploy ignores
+`vercel.json` crons entirely, secret or not), and `* * * * *` needs a plan with minute-level crons.
+
+**The part that was ours:** `pollGenerationJob` waits **15 minutes** before saying anything, so a dead
+queue is indistinguishable from slow generation for a quarter of an hour — in front of a client it reads
+as "the product hangs". Shipped `lib/server/generation-queue-health.ts`: the job-status route now returns
+a `queue` block and the poller gives up immediately with the reason. Two verdicts, deliberately kept
+apart:
+
+- **`CRON_SECRET` unset** → stalled at once, no age threshold. The drain provably cannot run, so waiting
+  three minutes to say so would be three minutes of lying.
+- **Old `pending` job with a configured drain** → ambiguous on its own, because the drain takes ≤3 jobs a
+  tick and one image legitimately runs 25s–4min, so a *backlog* looks identical to a dead drain from
+  inside a single job. The distinguisher is whether anything else is moving: `runningCount > 0` or a
+  terminal transition inside the last 3 minutes means alive-and-busy, not stalled. That's the only reason
+  `getGenerationQueueActivity` exists, and it's queried lazily so the common 3s poll stays one read.
+
+`running` is never called stalled even with no secret — `ai/generate-design` advances jobs inline, so a
+running row may be progressing without the cron. The health check never mutates the job: a recovered
+drain still processes the row.
+
+No DB import in the health module; the activity read is injected, which is what let the branching get 8
+unit tests without a Postgres connection. The SQL itself was smoke-checked read-only against the real
+schema (both branches), since the tests deliberately don't cover it.
+
+**Also learned:** `npm test` has been failing repo-wide for unrelated reasons — the root config is
+`.eslintrc.json` and ESLint 9 won't read it, so `npm run lint` dies before `test:unit` runs. Pre-existing,
+flagged separately. Use `npm run test:unit` until it's fixed.
+
+**Next:** `docs/GUEST-AUTHORING.md` — SS&C want template + write-capable share link + guest authoring +
+review queue, over MCP too. Almost all of it is already in the schema (`handoff_pattern.status` has
+`review`, `handoff_share_link` already covers `resourceType: 'pattern'`, `pattern_change` is the audit
+trail); the real gaps are capabilities on the token, a `MutateActor` who isn't a user, guest attribution,
+and the fact that **the opaque-origin preview iframe means a11y checks cannot run in the parent frame**.
+Slice 0 above was the prerequisite: don't hand a stranger a link to a queue that can fail silently.
+
+---
+
 ## 2026-07-31 — Image slots are React elements, and the declared shape lies
 
 **Third bug from one root cause, so writing the cause down properly.** Component preview values are

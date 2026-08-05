@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
-import { resolveShareLink } from '@/lib/db/grant-queries';
+import { resolveShareLink, shareLinkCapabilities } from '@/lib/db/grant-queries';
+import { isWriteCapable } from '@/lib/authz/vocab';
 import { getDbPatternById, getDesignArtifactById } from '@/lib/db/queries';
+import GuestAuthoring from '@/components/Guest/GuestAuthoring';
 
 /**
  * PUBLIC share viewer (Phase B). The unguessable token in the URL is the
@@ -123,6 +125,21 @@ export default async function PublicSharePage({ params }: PageProps) {
   if (link.resourceType === 'pattern') {
     const row = await getDbPatternById(link.resourceId);
     if (!row) return <Unavailable />;
+
+    /**
+     * A write-capable link is an invitation to build, not to look — so it gets the authoring surface
+     * instead of the read-only view. Capabilities decide, not the URL shape: a view-only link on the
+     * same route keeps rendering exactly what it did before.
+     *
+     * The raw token is handed to the client because it is the guest's own credential and already in
+     * their address bar; `/api/handoff/guest/enter` exchanges it for a signed session cookie.
+     */
+    if (isWriteCapable(shareLinkCapabilities(link))) {
+      return (
+        <GuestAuthoring token={token} templateTitle={row.title || 'Untitled template'} templateDescription={row.description} />
+      );
+    }
+
     const pattern: SafePattern = {
       id: row.id,
       title: row.title,

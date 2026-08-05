@@ -5,9 +5,16 @@ import {
   getActiveShareLink,
   getResourceOwner,
   revokeShareLink,
+  shareLinkCapabilities,
   type ResourceType,
 } from '@/lib/db/grant-queries';
-import { computePermissions, isAuthorizationError, toVisibility, type MutateActor } from '@/lib/authz/policy';
+import {
+  computePermissions,
+  isAuthorizationError,
+  toShareCapabilities,
+  toVisibility,
+  type MutateActor,
+} from '@/lib/authz/policy';
 
 const RESOURCE_TYPES = new Set<ResourceType>(['pattern', 'design_artifact']);
 
@@ -15,6 +22,10 @@ type CreateBody = {
   resourceType?: string;
   resourceId?: string;
   expiresAt?: string | null;
+  /** `ShareCapability[]`. Omitted = read-only viewer link, this endpoint's original behavior. */
+  capabilities?: unknown;
+  label?: unknown;
+  maxUses?: unknown;
 };
 
 /**
@@ -51,7 +62,25 @@ export async function GET(request: NextRequest) {
 
   try {
     const link = await getActiveShareLink(resourceType, resourceId);
-    return NextResponse.json({ token: link?.token ?? null });
+    if (!link) return NextResponse.json({ token: null });
+
+    /**
+     * A write-capable link's secret is hashed, so there is no URL to hand back — only the id. Say so
+     * explicitly (`secretRecoverable: false`) instead of returning the id as `token`, which would look
+     * like a working link and 404 for whoever it was sent to. The UI's move is revoke-and-remint.
+     */
+    const secretRecoverable = link.tokenHash == null;
+    return NextResponse.json({
+      token: secretRecoverable ? link.token : null,
+      id: link.token,
+      secretRecoverable,
+      capabilities: shareLinkCapabilities(link),
+      label: link.label,
+      expiresAt: link.expiresAt,
+      useCount: link.useCount,
+      maxUses: link.maxUses,
+      lastUsedAt: link.lastUsedAt,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Fetch failed';
     return NextResponse.json({ error: msg }, { status: 500 });
@@ -79,10 +108,38 @@ export async function POST(request: NextRequest) {
     expiresAt = d;
   }
 
+  /**
+   * Capabilities are opt-in. An omitted list keeps this endpoint's original meaning — a read-only
+   * viewer link — so existing callers are unaffected by guest authoring existing.
+   */
+  const capabilities = Array.isArray(body.capabilities) ? toShareCapabilities(body.capabilities) : undefined;
+  if (Array.isArray(body.capabilities) && !capabilities?.length) {
+    return NextResponse.json({ error: 'capabilities contained no recognized values' }, { status: 400 });
+  }
+
+  const maxUses = body.maxUses == null ? null : Number(body.maxUses);
+  if (maxUses != null && (!Number.isInteger(maxUses) || maxUses < 1)) {
+    return NextResponse.json({ error: 'maxUses must be a positive integer' }, { status: 400 });
+  }
+
   const actor: MutateActor = { userId: session.user.id, role: session.user.role ?? null };
   try {
-    const link = await createShareLink(resourceType, resourceId, actor, { expiresAt });
-    return NextResponse.json({ token: link.token, resourceType, resourceId, expiresAt: link.expiresAt });
+    const { link, urlToken } = await createShareLink(resourceType, resourceId, actor, {
+      expiresAt,
+      capabilities,
+      label: typeof body.label === 'string' ? body.label : null,
+      maxUses,
+    });
+    return NextResponse.json({
+      // For a write-capable link this is the only time the secret exists outside the URL bar.
+      token: urlToken,
+      id: link.token,
+      resourceType,
+      resourceId,
+      capabilities: shareLinkCapabilities(link),
+      expiresAt: link.expiresAt,
+      maxUses: link.maxUses,
+    });
   } catch (e) {
     if (isAuthorizationError(e)) return NextResponse.json({ error: e.message }, { status: 403 });
     const msg = e instanceof Error ? e.message : 'Create failed';

@@ -3,8 +3,10 @@ import { and, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql } from 'driz
 import { usePostgres } from './dialect';
 import { getDb } from './index';
 import { handoffDesignArtifacts, handoffPatterns, handoffResourceGrants, handoffShareLinks } from './schema';
-import type { GrantLevel, MutateActor, ResourceGrant } from '../authz/policy';
+import type { GrantLevel, MutateActor, ResourceGrant, ShareCapability } from '../authz/policy';
 import { AuthorizationError, computePermissions, toVisibility } from '../authz/policy';
+import { isWriteCapable, toShareCapabilities } from '../authz/vocab';
+import { mintShareToken, parseShareToken, verifyShareSecret } from '../server/share-link-token';
 
 /**
  * Grant resolution + lane-aware, visibility-filtered list queries + tokenized
@@ -330,22 +332,168 @@ export async function getResourceOwner(
 }
 
 /* -------------------------------------------------------------------------- */
+/* 4b. Review queue (docs/GUEST-AUTHORING.md, Slice 2)                        */
+/* -------------------------------------------------------------------------- */
+
+/** Turn a stored `guest:<name>` provenance label into a display name. */
+function stripGuestPrefix(label: string | null): string | null {
+  if (!label) return null;
+  const stripped = label.startsWith('guest:') ? label.slice('guest:'.length) : label;
+  return stripped.trim() || null;
+}
+
+export interface ReviewQueueRow {
+  id: string;
+  title: string;
+  description: string | null;
+  status: string;
+  visibility: string;
+  source: string;
+  updatedAt: Date | null;
+  blockCount: number;
+  /** The template it was built from, when it came from one. */
+  templateId: string | null;
+  templateTitle: string | null;
+  /** The link that admitted the author — provenance, and what to revoke if something is off. */
+  shareLinkToken: string | null;
+  /** Owner (the link's creator for guest submissions). */
+  ownerUserId: string | null;
+  ownerName: string | null;
+  /** Self-declared name of whoever submitted. Unverified — see the design note. */
+  submittedByName: string | null;
+  submittedAt: Date | null;
+  /** The author's note to the reviewer, from the submitting change row. */
+  submittedMessage: string | null;
+}
+
+/**
+ * Everything awaiting a reviewer, newest submission first.
+ *
+ * One query. The submitter is the **latest** `handoff_pattern_change` for that pattern with a guest
+ * trigger, resolved by a lateral join rather than a per-row lookup — a queue of fifty submissions would
+ * otherwise be fifty extra round trips, the same N+1 the lane lists were built to avoid.
+ *
+ * Uses the `pattern_status_idx` added in `0027_guest_authoring`; before that this was a full scan.
+ */
+export async function listReviewQueue(limit = 100): Promise<ReviewQueueRow[]> {
+  if (!usePostgres()) return [];
+  const db = getDb();
+  const capped = Math.min(Math.max(1, Math.trunc(limit)), 200);
+
+  const result = await db.execute(sql`
+    SELECT
+      p.id,
+      p.title,
+      p.description,
+      p.status,
+      p.visibility,
+      p.source,
+      p.updated_at,
+      p.template_id,
+      p.share_link_token,
+      p.user_id AS owner_user_id,
+      t.title AS template_title,
+      u.name AS owner_name,
+      c.pushed_by_name AS submitted_by_name,
+      c.pushed_at AS submitted_at,
+      c.message AS submitted_message,
+      COALESCE(jsonb_array_length(CASE WHEN jsonb_typeof(p.components) = 'array' THEN p.components ELSE '[]'::jsonb END), 0) AS block_count
+    FROM handoff_pattern p
+    LEFT JOIN handoff_pattern t ON t.id = p.template_id
+    LEFT JOIN "user" u ON u.id = p.user_id
+    LEFT JOIN LATERAL (
+      SELECT pc.pushed_by_name, pc.pushed_at, pc.message
+      FROM handoff_pattern_change pc
+      WHERE pc.pattern_id = p.id AND pc.trigger = 'guest'
+      ORDER BY pc.pushed_at DESC
+      LIMIT 1
+    ) c ON TRUE
+    WHERE p.status = 'review'
+    ORDER BY COALESCE(c.pushed_at, p.updated_at) DESC NULLS LAST
+    LIMIT ${capped}
+  `);
+
+  const rows = (result.rows ?? result) as Record<string, unknown>[];
+  return rows.map((r) => ({
+    id: String(r.id),
+    title: String(r.title ?? ''),
+    description: (r.description as string | null) ?? null,
+    status: String(r.status ?? ''),
+    visibility: String(r.visibility ?? ''),
+    source: String(r.source ?? ''),
+    updatedAt: r.updated_at ? new Date(r.updated_at as string) : null,
+    blockCount: Number(r.block_count ?? 0),
+    templateId: (r.template_id as string | null) ?? null,
+    templateTitle: (r.template_title as string | null) ?? null,
+    shareLinkToken: (r.share_link_token as string | null) ?? null,
+    ownerUserId: (r.owner_user_id as string | null) ?? null,
+    ownerName: (r.owner_name as string | null) ?? null,
+    /**
+     * `history_label` stores `guest:<name>` so provenance is unambiguous next to a real user's label.
+     * The prefix is plumbing, not part of anyone's name — stripped here so the queue doesn't render
+     * "Submitted by guest:Casey Jordan".
+     */
+    submittedByName: stripGuestPrefix(r.submitted_by_name as string | null),
+    submittedAt: r.submitted_at ? new Date(r.submitted_at as string) : null,
+    submittedMessage: (r.submitted_message as string | null) ?? null,
+  }));
+}
+
+/* -------------------------------------------------------------------------- */
 /* 5. Share links                                                             */
 /* -------------------------------------------------------------------------- */
 
 export type ShareLinkRow = typeof handoffShareLinks.$inferSelect;
 
 /**
+ * Default lifetime for a write-capable link when the caller names no expiry.
+ *
+ * `docs/GUEST-AUTHORING.md` calls expiry mandatory for write links. Defaulting rather than throwing is
+ * what makes that true in practice: an immortal write link can't be created by forgetting a field.
+ */
+export const DEFAULT_WRITE_LINK_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Capabilities a link actually confers.
+ *
+ * Every row written before Slice 1 has an empty list, and those links are the read-only viewer's —
+ * so empty means `['view']`, not "nothing". Anything else is taken literally.
+ */
+export function shareLinkCapabilities(link: Pick<ShareLinkRow, 'capabilities'>): ShareCapability[] {
+  const stored = toShareCapabilities(link.capabilities);
+  return stored.length ? stored : ['view'];
+}
+
+export interface CreatedShareLink {
+  link: ShareLinkRow;
+  /**
+   * The token to put in the URL. For a write-capable link this is `<id>.<secret>` and is returned
+   * **only here** — the secret is hashed at rest and cannot be recovered afterwards.
+   */
+  urlToken: string;
+}
+
+/**
  * Create an unguessable tokenized share link for a resource. Requires
  * `canChangeVisibility` (owner or admin) — enforced here so both UI and MCP
  * callers share one gate. Throws `AuthorizationError` on denial.
+ *
+ * Two token shapes, decided by whether the link can write (see `share-link-token.ts`):
+ * - **write-capable** → `<id>.<secret>` with only `sha256(secret)` stored, and an expiry always set.
+ * - **view-only** → the legacy single opaque token stored in plaintext, unchanged, so existing
+ *   read-only viewer URLs and the code that builds them keep working exactly as before.
  */
 export async function createShareLink(
   resourceType: ResourceType,
   resourceId: string,
   actor: MutateActor,
-  opts: { expiresAt?: Date | null } = {}
-): Promise<ShareLinkRow> {
+  opts: {
+    expiresAt?: Date | null;
+    capabilities?: readonly string[];
+    label?: string | null;
+    maxUses?: number | null;
+  } = {}
+): Promise<CreatedShareLink> {
   const db = getDb();
   const owner = await getResourceOwner(resourceType, resourceId);
   if (!owner) throw new AuthorizationError('Resource not found.');
@@ -357,10 +505,28 @@ export async function createShareLink(
   if (!perms.canChangeVisibility) {
     throw new AuthorizationError('You do not have permission to share this resource.');
   }
-  // Unguessable token: two UUIDs, hyphens stripped, base64url of the random bytes.
-  const token = Buffer.from(`${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, ''), 'hex').toString(
-    'base64url'
-  );
+
+  const capabilities = opts.capabilities ? toShareCapabilities(opts.capabilities) : (['view'] as ShareCapability[]);
+  const writeCapable = isWriteCapable(capabilities);
+
+  let token: string;
+  let tokenHash: string | null;
+  let urlToken: string;
+  if (writeCapable) {
+    const minted = mintShareToken();
+    token = minted.id;
+    tokenHash = minted.secretHash;
+    urlToken = minted.urlToken;
+  } else {
+    // Unguessable token: two UUIDs, hyphens stripped, base64url of the random bytes.
+    token = Buffer.from(`${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, ''), 'hex').toString('base64url');
+    tokenHash = null;
+    urlToken = token;
+  }
+
+  const expiresAt =
+    opts.expiresAt ?? (writeCapable ? new Date(Date.now() + DEFAULT_WRITE_LINK_TTL_MS) : null);
+
   const [row] = await db
     .insert(handoffShareLinks)
     .values({
@@ -368,16 +534,27 @@ export async function createShareLink(
       resourceType,
       resourceId,
       createdByUserId: actor.userId,
-      expiresAt: opts.expiresAt ?? null,
+      capabilities,
+      tokenHash,
+      label: opts.label?.trim() || null,
+      maxUses: opts.maxUses ?? null,
+      expiresAt,
     })
     .returning();
-  return row;
+  return { link: row, urlToken };
 }
 
-/** Revoke a share link (sets `revoked_at`). Requires `canChangeVisibility` on the resource. */
+/**
+ * Revoke a share link (sets `revoked_at`). Requires `canChangeVisibility` on the resource.
+ *
+ * Accepts either the public id or a full `<id>.<secret>` URL token: for a hashed link the id is all an
+ * operator ever has, and requiring the secret would make a leaked link unrevokable. Authorization here
+ * is ownership of the resource, not possession of the token, so accepting the id grants nothing.
+ */
 export async function revokeShareLink(token: string, actor: MutateActor): Promise<boolean> {
   const db = getDb();
-  const [link] = await db.select().from(handoffShareLinks).where(eq(handoffShareLinks.token, token)).limit(1);
+  const id = parseShareToken(token)?.id ?? token.trim();
+  const [link] = await db.select().from(handoffShareLinks).where(eq(handoffShareLinks.token, id)).limit(1);
   if (!link) return false;
   const owner = await getResourceOwner(link.resourceType as ResourceType, link.resourceId);
   const perms = computePermissions(
@@ -391,7 +568,7 @@ export async function revokeShareLink(token: string, actor: MutateActor): Promis
   const updated = await db
     .update(handoffShareLinks)
     .set({ revokedAt: new Date() })
-    .where(and(eq(handoffShareLinks.token, token), isNull(handoffShareLinks.revokedAt)))
+    .where(and(eq(handoffShareLinks.token, id), isNull(handoffShareLinks.revokedAt)))
     .returning({ token: handoffShareLinks.token });
   return updated.length > 0;
 }
@@ -424,13 +601,71 @@ export async function getActiveShareLink(
   return link ?? null;
 }
 
-/** Resolve an active (not revoked, not expired) share link by token, or null. */
+/**
+ * Resolve an active (not revoked, not expired) share link from a URL token, or null.
+ *
+ * Handles both token shapes: the id half is the primary key either way, so this stays one indexed
+ * lookup, and `verifyShareSecret` decides whether the presented secret proves possession. A bare id
+ * from a hashed row never verifies, which is what keeps the (loggable) id from being a credential.
+ */
 export async function resolveShareLink(token: string): Promise<ShareLinkRow | null> {
-  if (!token.trim()) return null;
+  const parsed = parseShareToken(token);
+  if (!parsed) return null;
   const db = getDb();
-  const [link] = await db.select().from(handoffShareLinks).where(eq(handoffShareLinks.token, token.trim())).limit(1);
+  const [link] = await db.select().from(handoffShareLinks).where(eq(handoffShareLinks.token, parsed.id)).limit(1);
+  if (!link) return null;
+  if (!verifyShareSecret(parsed, { token: link.token, tokenHash: link.tokenHash })) return null;
+  if (link.revokedAt) return null;
+  if (link.expiresAt && link.expiresAt.getTime() <= Date.now()) return null;
+  return link;
+}
+
+/**
+ * Fetch an active link by its public id, **without** requiring the secret.
+ *
+ * For an established guest session only: the secret was verified at the door by `consumeShareLink`, and
+ * the signed session cookie is the credential from then on. The active checks stay here rather than in
+ * the cookie so revoking or expiring a link ends every session on it at once.
+ */
+export async function getActiveShareLinkById(id: string): Promise<ShareLinkRow | null> {
+  const trimmed = id.trim();
+  if (!trimmed) return null;
+  const db = getDb();
+  const [link] = await db.select().from(handoffShareLinks).where(eq(handoffShareLinks.token, trimmed)).limit(1);
   if (!link) return null;
   if (link.revokedAt) return null;
   if (link.expiresAt && link.expiresAt.getTime() <= Date.now()) return null;
   return link;
+}
+
+/**
+ * Resolve a link **and** count the visit — used when a guest starts an authoring session.
+ *
+ * Separate from `resolveShareLink` because a use is a session, not a request: incrementing on every
+ * poll or preview render would make `maxUses` meaningless and `useCount` unreadable.
+ *
+ * The cap is enforced in the UPDATE's own WHERE clause rather than by reading then writing, so two
+ * guests arriving at once on the last remaining use can't both be admitted.
+ */
+export async function consumeShareLink(token: string): Promise<ShareLinkRow | null> {
+  const link = await resolveShareLink(token);
+  if (!link) return null;
+
+  const db = getDb();
+  const now = new Date();
+  const [updated] = await db
+    .update(handoffShareLinks)
+    .set({ useCount: sql`${handoffShareLinks.useCount} + 1`, lastUsedAt: now })
+    .where(
+      and(
+        eq(handoffShareLinks.token, link.token),
+        isNull(handoffShareLinks.revokedAt),
+        or(
+          isNull(handoffShareLinks.maxUses),
+          lt(handoffShareLinks.useCount, sql`coalesce(${handoffShareLinks.maxUses}, 2147483647)`)
+        )
+      )
+    )
+    .returning();
+  return updated ?? null;
 }

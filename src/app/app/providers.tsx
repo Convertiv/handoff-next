@@ -2,6 +2,7 @@
 
 import { SessionProvider } from 'next-auth/react';
 import type { Session } from 'next-auth';
+import { usePathname } from 'next/navigation';
 import { ReactNode } from 'react';
 import { AuthUiProvider } from '../components/context/AuthUiContext';
 import { ConfigContextProvider } from '../components/context/ConfigContext';
@@ -33,6 +34,17 @@ export default function Providers({
 }: ProvidersProps) {
   const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
 
+  /**
+   * `/s/*` is the public share surface — the read-only viewer and the guest authoring page. Both are
+   * standalone by design (no nav, no session, no owner data), so the design-system assistant does not
+   * belong there: it is an authenticated feature, its API rejects an unauthenticated caller, and on the
+   * guest page it invites someone with no account to ask a chat that cannot answer them.
+   *
+   * `usePathname()` returns the path without the app base path, so this comparison is base-path safe.
+   */
+  const pathname = usePathname();
+  const isPublicShare = pathname === '/s' || pathname?.startsWith('/s/');
+
   return (
     <SessionProvider session={session ?? undefined}>
       <AuthUiProvider authEnabled={authEnabled}>
@@ -41,8 +53,8 @@ export default function Providers({
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
               <ChatProvider>
                 {children}
-                {capabilities.aiFeatures && <ChatDrawer basePath={basePath} />}
-                <ChatFab />
+                {capabilities.aiFeatures && !isPublicShare && <ChatDrawer basePath={basePath} />}
+                {!isPublicShare && <ChatFab />}
               </ChatProvider>
             </ThemeProvider>
           </ConfigContextProvider>

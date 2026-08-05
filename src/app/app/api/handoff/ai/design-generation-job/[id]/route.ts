@@ -1,6 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDesignGenerationJob, deleteDesignGenerationJob } from '@/lib/db/queries';
+import {
+  getDesignGenerationJob,
+  deleteDesignGenerationJob,
+  getGenerationQueueActivity,
+} from '@/lib/db/queries';
+import { describeGenerationQueueHealth } from '@/lib/server/generation-queue-health';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
@@ -20,6 +25,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
+  /**
+   * Whether this job is going to be processed at all. Pollers can only see `pending` and would
+   * otherwise wait out their full deadline while the drain is down — see `generation-queue-health`.
+   * Never let a health-check failure break the status read the caller actually asked for.
+   */
+  const queue = await describeGenerationQueueHealth(job, getGenerationQueueActivity).catch((err) => {
+    console.error('[design-generation-job] queue health check failed', err);
+    return null;
+  });
+
   return NextResponse.json({
     job: {
       id: job.id,
@@ -31,6 +46,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       createdAt: job.createdAt,
       updatedAt: job.updatedAt,
     },
+    ...(queue ? { queue } : {}),
   });
 }
 

@@ -16,6 +16,12 @@ export interface GenerationJobResult {
   /** Where the finished image lives. Present only on `done`. */
   imageUrl?: string;
   error?: string;
+  /**
+   * The job was abandoned because nothing is draining the queue, not because generation failed. The
+   * row is still `pending` server-side and a recovered drain will process it; the caller stopped
+   * waiting. Worth distinguishing in the UI — it is an operator problem, not a bad prompt.
+   */
+  stalled?: boolean;
 }
 
 export interface PollOptions {
@@ -35,15 +41,25 @@ export async function pollGenerationJob(jobId: number, options: PollOptions = {}
     if (signal?.aborted) return { status: 'failed', error: 'Cancelled.' };
 
     let job: { status?: string; imageUrl?: string | null; error?: string | null } | undefined;
+    let queue: { stalled?: boolean; reason?: string } | undefined;
     try {
       const res = await fetch(`/api/handoff/ai/design-generation-job/${jobId}`, { credentials: 'include', signal });
       if (!res.ok) throw new Error(String(res.status));
-      ({ job } = (await res.json()) as { job: typeof job });
+      ({ job, queue } = (await res.json()) as { job: typeof job; queue: typeof queue });
     } catch (err) {
       if (signal?.aborted) return { status: 'failed', error: 'Cancelled.' };
       // A blip is not a failure — the job is still running server-side. Keep polling until the
       // deadline; a transient error should cost one interval, not the whole generation.
       continue;
+    }
+
+    /**
+     * Stop early when the server says nothing will pick this up. Waiting out the full deadline in that
+     * case teaches the user the product hangs, which is a worse lie than an error — and the reason
+     * text names the actual fault, so someone can fix it instead of retrying.
+     */
+    if (queue?.stalled) {
+      return { status: 'failed', stalled: true, error: queue.reason ?? 'The image queue is not running.' };
     }
 
     if (!job || job.status === 'pending' || job.status === 'running') continue;

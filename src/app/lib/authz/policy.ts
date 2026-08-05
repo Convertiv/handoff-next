@@ -1,6 +1,13 @@
 import 'server-only';
 import type { GrantLevel, Visibility, ResourcePermissions } from './vocab';
 import { VISIBILITY } from './vocab';
+import {
+  canGuestCreateFromTemplate,
+  canGuestEditPattern,
+  canGuestSubmitPattern,
+  type GuestPatternRef,
+  type GuestPrincipal,
+} from './guest';
 
 /**
  * Authorization policy layer (Phase A of the Workbench/Playground multiuser roadmap).
@@ -37,6 +44,16 @@ export interface MutateActor {
   role?: string | null;
   /** Reserved seam for a future org/tenant tier — unused today. */
   orgId?: string | null;
+  /**
+   * Set only for share-link callers. Its presence **removes** every ownership-derived permission —
+   * a guest can act solely through the `canGuest*` functions below.
+   */
+  guest?: GuestPrincipal | null;
+}
+
+/** True when this actor is a share-link bearer rather than an authenticated user. */
+export function isGuestActor(actor: MutateActor): boolean {
+  return actor.guest != null;
 }
 
 /**
@@ -48,6 +65,13 @@ export interface MutateActor {
  * Reads are intentionally team-wide and NOT gated here — visibility lands in Phase B.
  */
 export function canMutatePattern(actor: MutateActor, ownerUserId: string | null | undefined): boolean {
+  /**
+   * Guests first, and unconditionally. A guest has `userId: null`, so without this line the
+   * null-owner clause below would hand every legacy/unowned pattern in the deployment to anyone
+   * holding any share link — and a caller that forgot the guest case would look correct.
+   * Guest writes are authorized only by `canGuestEditPattern` / `canGuestCreateFromTemplate`.
+   */
+  if (actor.guest != null) return false;
   if (actor.role === 'admin') return true;
   if (ownerUserId == null) return true;
   return actor.userId != null && actor.userId === ownerUserId;
@@ -66,8 +90,16 @@ export function assertCanMutatePattern(actor: MutateActor, ownerUserId: string |
 // Vocabulary (types + value lists) lives in the client-safe `./vocab` module; re-exported
 // here so existing server-side imports from '@/lib/authz/policy' are unchanged. Client
 // components import from './vocab' directly (this file is server-only).
-export type { Visibility, Lifecycle, GrantLevel, ResourcePermissions } from './vocab';
-export { VISIBILITY, LIFECYCLE } from './vocab';
+export type { Visibility, Lifecycle, GrantLevel, ResourcePermissions, ShareCapability } from './vocab';
+export {
+  VISIBILITY,
+  LIFECYCLE,
+  SHARE_CAPABILITIES,
+  WRITE_CAPABILITIES,
+  AUTHORING_CAPABILITIES,
+  toShareCapabilities,
+  isWriteCapable,
+} from './vocab';
 
 /** A per-user grant the current actor holds on a resource (looked up by the caller in Stage 2). */
 export interface ResourceGrant {
@@ -95,6 +127,16 @@ export function computePermissions(
   resource: OwnedResource,
   grant?: ResourceGrant | null
 ): ResourcePermissions {
+  /**
+   * A guest holds capabilities, not permissions over resources. Returning early keeps them out of
+   * every clause below — `isUnowned`, `visibility === 'team'` and a stray grant row would all
+   * otherwise read as access. The one thing a link can confer here is view.
+   */
+  if (actor.guest != null) {
+    const canView = actor.guest.capabilities.includes('view');
+    return { canView, canEdit: false, canDelete: false, canChangeVisibility: false, canApprove: false };
+  }
+
   const isAdmin = actor.role === 'admin';
   const isOwner = resource.ownerUserId != null && actor.userId != null && actor.userId === resource.ownerUserId;
   const isUnowned = resource.ownerUserId == null;
@@ -117,6 +159,41 @@ export function computePermissions(
   const canApprove = isAdmin;
 
   return { canView, canEdit, canDelete, canChangeVisibility, canApprove };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Guest authoring — throwing wrappers (docs/GUEST-AUTHORING.md)               */
+/* -------------------------------------------------------------------------- */
+
+// The predicates themselves live in the client-safe `./guest` so the authoring UI can render from the
+// same rules it is enforced by, and so they can be unit-tested without a server condition.
+export type { GuestPrincipal, GuestPatternRef } from './guest';
+export {
+  canGuestCreateFromTemplate,
+  canGuestEditPattern,
+  canGuestSubmitPattern,
+  canGuestUseAssetLibrary,
+  canGuestView,
+} from './guest';
+
+export function assertGuestCanCreateFromTemplate(guest: GuestPrincipal, templateId: string): void {
+  if (!canGuestCreateFromTemplate(guest, templateId)) {
+    throw new AuthorizationError('This link does not allow creating a page from this template.');
+  }
+}
+
+export function assertGuestCanEditPattern(guest: GuestPrincipal, pattern: GuestPatternRef): void {
+  if (!canGuestEditPattern(guest, pattern)) {
+    // Deliberately does not distinguish "not yours" from "already submitted": the first would confirm
+    // to a token holder that some other page exists.
+    throw new AuthorizationError('This page can no longer be edited with this link.');
+  }
+}
+
+export function assertGuestCanSubmitPattern(guest: GuestPrincipal, pattern: GuestPatternRef): void {
+  if (!canGuestSubmitPattern(guest, pattern)) {
+    throw new AuthorizationError('This page cannot be submitted with this link.');
+  }
 }
 
 /** Coerce an arbitrary stored string into a known `Visibility` (defaults to 'private'). */

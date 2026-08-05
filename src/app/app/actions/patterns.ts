@@ -1,10 +1,15 @@
 'use server';
 
 import { auth } from '../../lib/auth';
-import { patchPattern, removePattern, setPatternMetaFields, writePattern, type PatternWriteActor } from '../../lib/db/pattern-write';
-import { getDbPatternById } from '../../lib/db/queries';
+import {
+  applyPatternMeta,
+  patchPattern,
+  removePattern,
+  reviewPattern,
+  writePattern,
+  type PatternWriteActor,
+} from '../../lib/db/pattern-write';
 import { getActorGrant } from '../../lib/db/grant-queries';
-import { AuthorizationError, computePermissions, toVisibility, type MutateActor } from '../../lib/authz/policy';
 
 async function requireActor(): Promise<PatternWriteActor> {
   const session = await auth();
@@ -67,52 +72,29 @@ export async function deletePattern(id: string) {
   return { success: true };
 }
 
-const ALLOWED_PATTERN_STATUS = new Set(['prototype', 'draft', 'review', 'approved', 'archived']);
-const ALLOWED_VISIBILITY = new Set(['private', 'shared', 'team', 'public']);
-
 /**
- * Phase B: set a pattern's sharing visibility and/or lifecycle status, gated by
- * `computePermissions`:
- *   - changing `visibility` requires `canChangeVisibility` (owner/admin);
- *   - `status = 'approved'` requires `canApprove` (admin/maintainer);
- *   - any other `status` change requires `canEdit`.
- * Throws `AuthorizationError` on denial.
+ * Phase B: set a pattern's sharing visibility and/or lifecycle status.
+ *
+ * The gate itself lives in the write core (`applyPatternMeta` → `decidePatternMetaChange`) rather than
+ * here, so the MCP and HTTP surfaces enforce the same rules instead of each re-deriving them — that
+ * duplication is exactly what blocked an MCP status setter. This stays a thin session wrapper: resolve
+ * the actor and their grant, then delegate.
  */
 export async function setPatternMeta(id: string, meta: { visibility?: string; status?: string }) {
   const actor = await requireActor();
-  const row = await getDbPatternById(id);
-  if (!row) throw new Error('Pattern not found');
-
-  const mutateActor: MutateActor = { userId: actor.userId, role: actor.role ?? null };
   const grant = await getActorGrant('pattern', id, actor.userId);
-  const perms = computePermissions(
-    mutateActor,
-    { ownerUserId: row.userId ?? null, visibility: toVisibility(row.visibility) },
-    grant
-  );
-
-  const patch: { visibility?: string; status?: string } = {};
-
-  if (meta.visibility !== undefined && meta.visibility !== row.visibility) {
-    if (!ALLOWED_VISIBILITY.has(meta.visibility)) throw new Error('Invalid visibility');
-    if (!perms.canChangeVisibility) {
-      throw new AuthorizationError('You do not have permission to change this pattern\'s visibility.');
-    }
-    patch.visibility = meta.visibility;
-  }
-
-  if (meta.status !== undefined && meta.status !== row.status) {
-    if (!ALLOWED_PATTERN_STATUS.has(meta.status)) throw new Error('Invalid status');
-    if (meta.status === 'approved') {
-      if (!perms.canApprove) throw new AuthorizationError('Only a maintainer can approve a pattern.');
-    } else if (!perms.canEdit) {
-      throw new AuthorizationError('You do not have permission to modify this pattern.');
-    }
-    patch.status = meta.status;
-  }
-
-  if (patch.visibility !== undefined || patch.status !== undefined) {
-    await setPatternMetaFields(id, patch, actor);
-  }
+  await applyPatternMeta(id, meta, actor, grant);
   return { success: true };
+}
+
+/** Record a reviewer's verdict on a submitted page. Maintainer-gated inside the write core. */
+export async function reviewPatternSubmission(
+  id: string,
+  decision: 'approve' | 'reject',
+  message?: string | null
+) {
+  const actor = await requireActor();
+  const grant = await getActorGrant('pattern', id, actor.userId);
+  const result = await reviewPattern(id, decision, actor, { message, grant });
+  return { success: true, status: result.status };
 }

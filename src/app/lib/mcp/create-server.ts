@@ -21,7 +21,8 @@ import { applyUploadedChange } from '@/lib/db/sync-queries';
 import { getUnifiedChangelog, type UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
 import { getComponentVersionHistory } from '@/lib/db/component-version-queries';
 import { resolveChangeWhy } from '@/lib/server/change-why';
-import { writePattern, patchPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
+import { writePattern, patchPattern, reviewPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
+import { listReviewQueue } from '@/lib/db/grant-queries';
 import { computePermissions, isAuthorizationError, toVisibility, type MutateActor } from '@/lib/authz/policy';
 import { validatePreviewValues } from '@handoff/transformers/preview/component/preview-validation';
 import {
@@ -1904,6 +1905,65 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       } catch (e) {
         if (e instanceof PreviewValidationFailed) return textResult({ ok: false, errors: e.errors });
         return textResult({ ok: false, error: e instanceof Error ? e.message : 'Failed to promote preview' });
+      }
+    }
+  );
+
+  // ─── Review queue (guest submissions) — docs/GUEST-AUTHORING.md, Slice 2 ─────
+
+  server.registerTool(
+    'handoff_list_review_queue',
+    {
+      description:
+        'List playground pages awaiting review — typically pages built by someone outside the team through a ' +
+        'guest share link. Each entry carries who submitted it (a self-declared, UNVERIFIED name), the ' +
+        'template it was built from, the share link that admitted them, and their note to the reviewer. ' +
+        'Decide an entry with handoff_review_page.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional().describe('Maximum entries to return (default 100).'),
+      },
+    },
+    async ({ limit }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:read');
+      if (denied) return denied;
+      const submissions = await listReviewQueue(limit ?? 100);
+      return textResult({
+        count: submissions.length,
+        // Stated in the payload, not just the description: a model summarizing this queue must not
+        // present a self-declared guest name as an identity.
+        note: 'submittedByName is self-declared and unverified; shareLinkToken is the link that admitted them.',
+        submissions,
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_review_page',
+    {
+      description:
+        'Approve a submitted playground page, or send it back to its author. "approve" marks it approved; ' +
+        '"reject" returns it to draft, which also re-opens editing for the guest who built it, so a rejection ' +
+        'with a message is how you ask for another pass. Visibility is never changed — promoting a page to a ' +
+        'wider audience stays a separate, deliberate act. Maintainer only.',
+      inputSchema: {
+        id: z.string().describe('Page id from handoff_list_review_queue.'),
+        decision: z.enum(['approve', 'reject']).describe('approve → approved; reject → back to draft.'),
+        message: z.string().optional().describe('Note to the author, recorded as the change reason.'),
+      },
+    },
+    async ({ id, decision, message }) => {
+      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      try {
+        // The gate lives in `reviewPattern` (→ `decideReview`), the same one the UI and HTTP routes use.
+        // This tool exists because that gate moved out of the server action; it does not re-implement it.
+        const result = await reviewPattern(id.trim(), decision, patternActor(message));
+        return textResult({ ok: true, id: id.trim(), status: result.status });
+      } catch (e) {
+        if (isAuthorizationError(e)) return textResult({ ok: false, error: `Forbidden — ${e.message}` });
+        return textResult({ ok: false, error: e instanceof Error ? e.message : 'Could not record the decision.' });
       }
     }
   );

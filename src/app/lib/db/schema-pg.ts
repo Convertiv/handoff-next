@@ -137,6 +137,14 @@ export const handoffPatterns = pgTable('handoff_pattern', {
   visibility: text('visibility').notNull().default('private'),
   /** Lifecycle: prototype | draft | review | approved | archived (Phase B). */
   status: text('status').notNull().default('draft'),
+  /** The template this page was built from, if any — drives the review diff. */
+  templateId: text('template_id'),
+  /**
+   * The share link this page was created through. Scopes a guest to their own submission, since
+   * guest pages are owned by the link's creator and ownership therefore can't. Provenance that
+   * deliberately outlives the link, so no FK.
+   */
+  shareLinkToken: text('share_link_token'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
@@ -215,11 +223,25 @@ export const handoffResourceGrants = pgTable(
 export const handoffShareLinks = pgTable(
   'handoff_share_link',
   {
+    /**
+     * Lookup id, and — for legacy read-only links — the secret itself. Write-capable links put the
+     * secret in `tokenHash` instead and treat this purely as a non-secret handle. See
+     * `docs/GUEST-AUTHORING.md`.
+     */
     token: text('token').primaryKey(),
     /** pattern | design_artifact */
     resourceType: text('resource_type').notNull(),
     resourceId: text('resource_id').notNull(),
     createdByUserId: text('created_by_user_id'),
+    /** `ShareCapability[]`. Empty = view-only, which is what every pre-Slice-1 link is. */
+    capabilities: jsonb('capabilities').notNull().default([]),
+    /** SHA-256 of the URL secret. Null = legacy link whose `token` is the secret. */
+    tokenHash: text('token_hash'),
+    /** Operator-facing name, so a list of links is readable. */
+    label: text('label'),
+    maxUses: integer('max_uses'),
+    useCount: integer('use_count').notNull().default(0),
+    lastUsedAt: timestamp('last_used_at'),
     expiresAt: timestamp('expires_at'),
     revokedAt: timestamp('revoked_at'),
     createdAt: timestamp('created_at').defaultNow(),
