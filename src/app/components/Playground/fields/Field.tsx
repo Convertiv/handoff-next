@@ -26,6 +26,19 @@ export function renderFormFields(obj: any, data: any, path: string[] = []) {
     // array crash below: one bad property took down the page and left no way to fix it by hand.
     if (!value || typeof value !== 'object') return null;
 
+    /**
+     * A field that cannot be authored *and* has something else standing in for it: not rendered at all.
+     *
+     * `image-gallery`'s `thumbnailSlot` and `lightboxSlot` are the case. The component derives both from
+     * `src`, which measurement now offers on the same item, so the two slots are pure noise — an author
+     * types into them and the component discards it.
+     *
+     * Set only where a replacement exists (see `applyCapabilitiesToProperties`). A slot with nothing
+     * standing in for it keeps its control and gets a warning instead, because an unresolved measurement is
+     * not proof the field is unauthorable — the probe may simply never have reached it.
+     */
+    if (value.hidden === true) return null;
+
     if (value.type === 'boolean') {
       return (
         <div key={key} className="flex items-center justify-between pb-4 pt-2">
@@ -101,7 +114,9 @@ function ArrayField({ identifier, value }: { identifier: string[]; value: any; d
     const t = resolveFieldType(itemDescriptor);
     if (t === 'number') return 0;
     if (t === 'boolean') return false;
-    if (t === 'text' || t === 'string' || t === 'richtext' || t === 'slot') return '';
+    // `image-url` belongs with the strings: its value *is* the URL. Seeding `{}` would hand the picker an
+    // object to write into and land back at `<img src="[object Object]">` from the other direction.
+    if (t === 'text' || t === 'string' || t === 'richtext' || t === 'slot' || t === 'image-url') return '';
     return {}; // button / link / image / object-shaped leaves
   };
 
@@ -183,7 +198,9 @@ export function resolveFieldType(value: any): string {
   // wins on widget selection — a `React.ReactNode` slot annotated `image` should
   // render the image editor, not the slot fallback.
   const BUILDER_EDITORS = new Set([
-    'text', 'richtext', 'number', 'boolean', 'select', 'image', 'link', 'button', 'object', 'array', 'slot',
+    // `image-url` is a picker whose value is the URL string itself, for a field like an image item's
+    // `src`. `image` is bound to a whole image object and writes `src`/`srcset`/`alt` inside it.
+    'text', 'richtext', 'number', 'boolean', 'select', 'image', 'image-url', 'link', 'button', 'object', 'array', 'slot',
   ]);
   const editorType = value?.editorType;
   if (typeof editorType === 'string' && BUILDER_EDITORS.has(editorType)) return editorType;
@@ -213,18 +230,17 @@ export function resolveFieldType(value: any): string {
 export function InputField({ fieldKey, value, data }: { fieldKey: string[]; value: any; data: any }) {
   const { getData, handleInputChange } = useEditContext();
 
+  /** Replaced by another field: gone entirely. Same rule as `renderFormFields`, for the array-item path. */
+  if (value?.hidden === true) return null;
+
   /**
-   * A field the build-time probe found no encoding for.
+   * Measured as accepting nothing, with nothing offered in its place.
    *
-   * `applyCapabilitiesToProperties` has set `editable: false` on these since probing landed, and nothing
-   * read it — so `image-gallery`'s `thumbnailSlot` and `lightboxSlot` still rendered slot editors, and an
-   * author had no way to know that typing into them changes nothing. That was the report: they "aren't
-   * getting converted to image fields". They cannot be; the component rebuilds each item from `src`,
-   * which is now offered alongside them.
-   *
-   * The input stays. A slot can measure unresolved because the probe lacked the context it needed — a
-   * carousel body needs a slide to exist — and in that case the field may well work in situ. Removing the
-   * control on that evidence would take away something that works; saying so takes away nothing.
+   * The control stays and says so. An unresolved measurement is not proof a field is unauthorable — the
+   * probe may not have reached it, which is the whole reason `probeContext` exists — and
+   * `pricing-carousel.modalFooterSlot` is the live example: it renders inside a modal no prop can open, so
+   * the probe cannot see it while an author almost certainly can. Removing that control would take away
+   * something that works. Saying "this may do nothing" takes away nothing.
    */
   const notEditable = value?.editable === false;
 
@@ -262,6 +278,9 @@ function InputControl({
       return <ArrayField identifier={fieldKey} value={value} data={data} />;
     case 'image':
       return <ImageField identifier={fieldKey} value={value} data={data} />;
+    // The value at this path IS the URL, so the picker writes a string here rather than an object.
+    case 'image-url':
+      return <ImageField identifier={fieldKey} value={value} data={data} scalar />;
     case 'video_file':
       return <VideoFileField identifier={fieldKey} value={value} data={data} />;
     case 'button':

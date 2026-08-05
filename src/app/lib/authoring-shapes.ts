@@ -53,8 +53,13 @@ export const AUTHORING_SHAPES: Record<string, AuthoringShape> = {
   image: {
     kind: 'image',
     // Universal: the encoding library defines an image value as `{ src, alt }` everywhere.
+    //
+    // `src` holds a **URL string**, which is why its editor is `image-url` and not `image`. An `image`
+    // editor is bound to a whole image *object* and writes `src`/`srcset`/`alt` inside the value it is
+    // given — so pointing one at `src` produced `src.src` and the component rendered
+    // `<img src="[object Object]">`. The item is the image object; `src` is one string inside it.
     itemFields: {
-      src: { editorType: 'image', encoding: 'image-object', label: 'Image' },
+      src: { editorType: 'image-url', label: 'Image' },
       alt: { editorType: 'text', label: 'Alt text' },
     },
   },
@@ -101,7 +106,9 @@ export function authoringShapeFor(of: unknown): AuthoringShape | null {
 export function itemFieldsForEncoding(encoding: string | null): Record<string, AuthoringField> | null {
   switch (encoding) {
     case 'array-of-image-object':
-      return { src: { editorType: 'image', encoding: 'image-object' }, alt: { editorType: 'text' } };
+      // `src` is a URL string, not a nested image object — see the `image` entry above for what assuming
+      // otherwise produced.
+      return { src: { editorType: 'image-url' }, alt: { editorType: 'text' } };
     case 'array-of-urltext':
       return { url: { editorType: 'text' }, text: { editorType: 'text' } };
     case 'array-of-labelhref':

@@ -318,17 +318,46 @@ describe('applyCapabilitiesToProperties on a measured container', () => {
   const applied = applyCapabilitiesToProperties(gallery, caps) as typeof gallery;
   const items = applied.images.items.properties as Record<string, Record<string, unknown>>;
 
-  it('adds the `src` the declared type never had, as an image field', () => {
-    assert.equal(items.src!.editorType, 'image');
-    assert.equal(items.src!.encoding, 'image-object');
+  it('adds the `src` the declared type never had, as a URL-valued image picker', () => {
+    // `image-url`, not `image`. The distinction is the whole bug: an `image` editor is bound to an image
+    // *object* and writes `src`/`srcset`/`alt` inside the value it is given, so aiming one at `src`
+    // produced `src.src` and the component rendered `<img src="[object Object]">`. The measured
+    // `array-of-image-object` encoding is `[{ src: 'https://…', alt }]` — `src` is a string.
+    //
+    // This assertion previously read `'image'` / `'image-object'`, which is to say the test encoded the
+    // defect and passed.
+    assert.equal(items.src!.editorType, 'image-url');
+    assert.equal(items.src!.encoding, undefined, 'src is a URL string, not an image-object');
     assert.equal(items.src!.measured, true);
   });
 
-  it('marks the slots that accept nothing as not editable, with a reason', () => {
+  it('hides the slots that accept nothing, because `src` now stands in for them', () => {
+    // Both are derived from `src` by the component's own projection, so a control for them can only
+    // mislead. Hidden rather than merely flagged *because* a replacement was measured — see the next test
+    // for what happens without one.
     for (const field of ['thumbnailSlot', 'lightboxSlot']) {
       assert.equal(items[field]!.editable, false, field);
-      assert.match(String(items[field]!.note), /no editable value here/);
+      assert.equal(items[field]!.hidden, true, field);
+      assert.match(String(items[field]!.note), /set the image on the item instead/);
     }
+  });
+
+  it('does NOT hide an unauthorable item slot when nothing replaces it', () => {
+    // An unresolved measurement is not proof a field is unauthorable — the probe may never have reached
+    // it. `pricing-carousel.modalFooterSlot` renders inside a modal no prop can open, so it measures
+    // unresolved while an author can very likely set it. Hiding that removes something that works, which
+    // is the opposite error and much harder to spot than a stray field.
+    const block = {
+      cards: {
+        editorType: 'array',
+        items: { properties: { _key: { type: 'text' }, footerSlot: { type: 'React.ReactNode' } } },
+      },
+    };
+    const c = readCapabilities({ capabilities: { slots: { 'cards[].footerSlot': { accepts: [] } } } });
+    const out = applyCapabilitiesToProperties(block, c) as typeof block;
+    const f = out.cards.items.properties.footerSlot as Record<string, unknown>;
+    assert.equal(f.editable, false, 'still flagged');
+    assert.equal(f.hidden, undefined, 'but kept visible with a warning');
   });
 
   it('augments rather than replaces — `caption` is authorable and survives', () => {

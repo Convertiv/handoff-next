@@ -311,8 +311,18 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
       itemChanged = true;
     }
 
-    // Item slots the probe reached and found nothing for. Offering an editor that changes nothing is the
-    // failure this whole mechanism exists to remove.
+    /**
+     * Item slots the probe reached and found nothing for. Offering an editor that changes nothing is the
+     * failure this whole mechanism exists to remove.
+     *
+     * `hidden` only when measurement supplied a **replacement** — `image-gallery`'s `thumbnailSlot` and
+     * `lightboxSlot` are derived from `src`, which now appears beside them, so the slots are noise and the
+     * form drops them. Without a replacement the field keeps its control and a warning instead, because
+     * "unresolved" is not proof of "unauthorable": `pricing-carousel.modalFooterSlot` renders inside a modal
+     * no prop can open, so the probe cannot reach it and an author very likely can. Hiding that would take
+     * away something that works, which is the opposite mistake and the harder one to notice.
+     */
+    const hasReplacement = !!measuredItems && Object.keys(measuredItems).length > 0;
     for (const field of Object.keys(itemProps)) {
       const nested = caps?.slots?.[`${name}[].${field}`];
       if (!nested?.unresolved || !isRecord(itemProps[field])) continue;
@@ -320,7 +330,10 @@ export function applyCapabilitiesToProperties<T extends Record<string, unknown>>
         ...itemProps[field],
         measured: true,
         editable: false,
-        note: 'This component accepts no editable value here — set the image on the item instead.',
+        ...(hasReplacement ? { hidden: true } : {}),
+        note: hasReplacement
+          ? 'This component accepts no editable value here — set the image on the item instead.'
+          : 'This component accepts no editable value here — set in code.',
       };
       itemChanged = true;
     }

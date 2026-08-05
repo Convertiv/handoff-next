@@ -5,6 +5,7 @@ import { Button } from '../../ui/button';
 import { ImageIcon, Loader2, Sparkles, Trash2Icon, X } from 'lucide-react';
 import { useEditContext } from '../EditContext';
 import { pollGenerationJob } from '@/lib/client/poll-generation-job';
+import { clearImageFieldWrites, imageFieldWrites } from '@/lib/image-field-write';
 
 /**
  * The image slot's editor: pick from the library, or describe one and have it made.
@@ -17,10 +18,32 @@ import { pollGenerationJob } from '@/lib/client/poll-generation-job';
  * Same queue, same worker, same asset library as `request_image`; only the entry point differs. See
  * `docs/PLAYGROUND-ASSETS.md`.
  */
-export function ImageField({ identifier, value }: { identifier: string[]; value: any; data: any }) {
-  const { getData, handleInputChange, setCurrentImagePath, setCurrentImageRules, setMediaBrowserOpen } = useEditContext();
+/**
+ * `scalar` — the value at this path is the URL string itself, not an image object.
+ *
+ * The default shape is an object: this control writes `src`, `srcset` and `alt` *inside* the value it is
+ * bound to. That is right for a prop like `desktopImage`, and wrong for an image item's `src`, which the
+ * measured `array-of-image-object` encoding defines as a bare URL. Pointing the object form at `src` wrote
+ * `src.src` and the component rendered `<img src="[object Object]">`.
+ *
+ * In scalar mode there is no `srcset` and no `alt` here — `alt` is the item's own sibling field, so
+ * offering a second one would give an author two inputs writing to different places.
+ */
+export function ImageField({
+  identifier,
+  value,
+  scalar = false,
+}: {
+  identifier: string[];
+  value: any;
+  data: any;
+  scalar?: boolean;
+}) {
+  const { getData, handleInputChange, setCurrentImagePath, setCurrentImageRules, setCurrentImageScalar, setMediaBrowserOpen } =
+    useEditContext();
 
-  const imgData = getData(identifier);
+  const raw = getData(identifier);
+  const imgData = scalar ? { src: typeof raw === 'string' ? raw : '', alt: '' } : raw;
   const hasSrc = !!imgData?.src;
 
   const [genOpen, setGenOpen] = useState(false);
@@ -35,12 +58,14 @@ export function ImageField({ identifier, value }: { identifier: string[]; value:
   const openBrowser = () => {
     setCurrentImagePath(identifier);
     setCurrentImageRules(value.rules?.dimensions ?? null);
+    // The browser commits the selection itself, so it has to know whether this path takes a URL or an
+    // object. Without this the picker would reintroduce `src.src` on the very next selection.
+    setCurrentImageScalar(scalar);
     setMediaBrowserOpen(true);
   };
 
   const removeImage = () => {
-    handleInputChange([...identifier, 'src'], '');
-    handleInputChange([...identifier, 'srcset'], '');
+    for (const [path, v] of clearImageFieldWrites(identifier, scalar)) handleInputChange(path, v);
   };
 
   const generate = async () => {
@@ -74,9 +99,13 @@ export function ImageField({ identifier, value }: { identifier: string[]; value:
 
       // Straight into the field. The editor knows the exact path, so unlike the chat's canvas-wide
       // swap there is nothing to search for and nothing to race.
-      handleInputChange([...identifier, 'src'], result.imageUrl);
-      handleInputChange([...identifier, 'srcset'], '');
-      if (!imgData?.alt) handleInputChange([...identifier, 'alt'], brief.trim().slice(0, 120));
+      // Alt only when the field has none, so generating a replacement never overwrites authored alt text.
+      const writes = imageFieldWrites(
+        identifier,
+        { src: result.imageUrl, alt: imgData?.alt ? undefined : brief.trim().slice(0, 120) },
+        scalar
+      );
+      for (const [path, v] of writes) handleInputChange(path, v);
       setGenOpen(false);
       setBrief('');
     } catch (e) {
@@ -172,6 +201,7 @@ export function ImageField({ identifier, value }: { identifier: string[]; value:
         </div>
       )}
 
+      {!scalar && (
       <div className="space-y-1">
         <Label htmlFor={`${identifier[identifier.length - 1]}_alt`} className="text-xs">
           Alt text
@@ -182,6 +212,7 @@ export function ImageField({ identifier, value }: { identifier: string[]; value:
           onChange={(e) => handleInputChange([...identifier, 'alt'], e.target.value)}
         />
       </div>
+      )}
 
       {value.description && <p className="text-xs text-muted-foreground">{value.description}</p>}
     </div>

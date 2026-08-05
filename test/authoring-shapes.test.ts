@@ -18,7 +18,22 @@ describe('the of: vocabulary', () => {
     const shape = authoringShapeFor('image')!;
     assert.equal(shape.kind, 'image');
     assert.deepEqual(Object.keys(shape.itemFields!), ['src', 'alt']);
-    assert.equal(shape.itemFields!.src!.editorType, 'image');
+    // `image-url`: the value at `src` is the URL itself. An `image` editor writes an object *into* the
+    // path it is given, which at `src` means `src.src` and `<img src="[object Object]">` downstream.
+    assert.equal(shape.itemFields!.src!.editorType, 'image-url');
+    assert.equal(shape.itemFields!.src!.encoding, undefined);
+  });
+
+  it('never describes an item field as taking a whole image object', () => {
+    // The guard, stated once for the whole vocabulary rather than per term: an item field holds a scalar
+    // or a declared sub-shape, and `image-object` is a *prop* encoding. Any item field claiming it is the
+    // nesting bug waiting to happen again.
+    for (const [term, shape] of Object.entries(AUTHORING_SHAPES)) {
+      for (const [field, def] of Object.entries(shape.itemFields ?? {})) {
+        assert.notEqual(def.encoding, 'image-object', `${term}.${field} must not take an image object`);
+        assert.notEqual(def.editorType, 'image', `${term}.${field} must use image-url for a URL value`);
+      }
+    }
   });
 
   it('refuses to give `button` a shape, because the catalog measures two', () => {

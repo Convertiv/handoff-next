@@ -4,6 +4,7 @@ import { createContext, ReactNode, RefObject, useCallback, useContext, useEffect
 import { renderHandlebarsPreview, renderPreview, renderReactPreview } from './Preview';
 import { SelectedPlaygroundComponent } from './types';
 import { applyCapabilitiesToProperties, readCapabilities } from '@/lib/slot-capabilities';
+import { imageFieldWrites } from '@/lib/image-field-write';
 
 interface ImageDimensionRules {
   min?: { width: number; height: number };
@@ -24,6 +25,9 @@ interface EditContextType {
   setCurrentImagePath: (path: string[]) => void;
   currentImageRules: ImageDimensionRules | null;
   setCurrentImageRules: (rules: ImageDimensionRules | null) => void;
+  /** True when the open picker's target holds a bare URL string rather than an image object. */
+  currentImageScalar: boolean;
+  setCurrentImageScalar: (scalar: boolean) => void;
   getData: (path: string[], localData?: any) => any;
   handleInputChange: (path: string[], value: any) => any;
   handleMediaSelect: (image: { src: string; srcset: string; alt: string }) => void;
@@ -56,6 +60,7 @@ export function EditContextProvider({
   const [mediaBrowserOpen, setMediaBrowserOpen] = useState(false);
   const [currentImagePath, setCurrentImagePath] = useState<string[]>([]);
   const [currentImageRules, setCurrentImageRules] = useState<ImageDimensionRules | null>(null);
+  const [currentImageScalar, setCurrentImageScalar] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const initialRenderDone = useRef(false);
 
@@ -159,13 +164,16 @@ export function EditContextProvider({
   const handleMediaSelect = useCallback(
     (image: { src: string; srcset: string; alt: string }) => {
       if (currentImagePath.length > 0) {
-        handleInputChange([...currentImagePath, 'src'], image.src);
-        handleInputChange([...currentImagePath, 'srcset'], image.srcset);
-        handleInputChange([...currentImagePath, 'alt'], image.alt);
+        // Shared with the field's own picker and generate flow — see `imageFieldWrites`. When the target is
+        // an image item's `src`, the value written is the URL itself; writing the object there is what
+        // produced `<img src="[object Object]">`.
+        for (const [path, v] of imageFieldWrites(currentImagePath, image, currentImageScalar)) {
+          handleInputChange(path, v);
+        }
       }
       setMediaBrowserOpen(false);
     },
-    [currentImagePath, handleInputChange]
+    [currentImagePath, currentImageScalar, handleInputChange]
   );
 
   const handleSave = useCallback(async () => {
@@ -190,6 +198,8 @@ export function EditContextProvider({
         setCurrentImagePath,
         currentImageRules,
         setCurrentImageRules,
+        currentImageScalar,
+        setCurrentImageScalar,
         getData,
         handleInputChange,
         handleMediaSelect,
