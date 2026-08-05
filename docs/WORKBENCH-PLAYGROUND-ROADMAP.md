@@ -318,6 +318,51 @@ document:
 save path" is only coherent once the record is the source of truth. Guardrails (Slice 3, below) attach to
 templates, so they are usable before E.2 and better after it.
 
+## Phase F — Direct manipulation in the playground editor (Brad, 2026-08-05)
+
+Full design: **`docs/PLAYGROUND-DIRECT-MANIPULATION.md`**. Distinct from `PLAYGROUND-EDITING.md`, which
+covers AI-proposed edit *operations*; this is the human editing surface — the left-rail form.
+
+The field editor works and is not slick. Three complaints with three different fixes: fields arrive in
+schema order with patchy help text; block-builder parameters (`light`/`dark`, `left`/`right`, overlay) can't
+be explained by a label as well as by being *seen*; and the form is visually rough. Constraint throughout:
+components stay arbitrary production React/Handlebars — **no Handoff authoring sauce may be required.**
+
+**The reframe.** Don't detect props in the DOM (intractable on arbitrary code). **Mark the values before
+render and find the marks after** — the component's own render is the oracle. Zero-width sentinels for text,
+a `?__hf=` query param for URLs, and deliberately *no* tracing of enums/booleans/numbers (a sentinel there
+corrupts a class name or flips a branch). This is `slot-probe.ts`'s existing technique extended to record
+*where* the sentinel landed. The exclusion is the design, not a limitation: tracing works on exactly the
+props worth editing inline and fails on exactly the props where inline editing is meaningless — so the
+surface is a hybrid, **content inline on the canvas, configuration as rendered choices in chrome.**
+
+- **F.0 — the unglamorous pass.** Styling/layout/grouping; wire up `SlotMetadata.rules` (modelled, only
+  `ImageField` reads it) and `SlotCapability.threw` as validation; undo/redo + per-field revert; surface
+  `previews` as a *start from* strip (today only the first one is used, to seed data). Most of the felt
+  improvement, no new machinery.
+- **F.1 — render the options instead of naming them.** Miniature renders per enum/boolean value, pick by
+  sight. The direct fix for the opaque-parameter complaint, needs no tracer, machinery already exists
+  (`m.update(props)`). Vary one prop at a time; two enums crossed is a matrix, not a picker.
+- **F.2 — the tracer, consumed for orientation only.** Bidirectional hover linking (panel ⇄ canvas),
+  automatic field ordering by document position (the real fix for "fields come in the order they come in"),
+  and dead-prop/impact detection for free ranking. Every consumer degrades to *nothing* when a trace is
+  missing. **This is where coverage gets measured** — expect 60–80% of text/image props.
+- **F.3 — inline overlay editing.** Absolutely-positioned overlay over the traced node's bounding box,
+  never `contenteditable` on the component's own node (React reconciliation eats it; see the caret-loss note
+  in `RichTextField.tsx`). Identical path for React and Handlebars.
+- **F.4 — LLM-populated field annotations** (parallel). `FieldAnnotation` was built for hand-authored
+  labels/help/groups and nobody hand-authors them. Generate at build time from source + screenshot into a
+  checked-in, editable artifact. Biggest lever on missing help text; asks authors for nothing; docgen already
+  carries TSDoc into `description` so generation only fills gaps.
+
+⚠️ **F.3 has a hard prerequisite outside this phase:** `field-lens.ts` documents that stored preview values
+are serialized render *output, not input props*, and the fix is repairing capture. F.3 is the first phase
+that writes, so it inherits that bug; F.0–F.2 only read and are unblocked.
+
+**The trap to avoid:** building the tracer *for* inline editing. Build it for hover-linking and ordering,
+where partial coverage is a win and absence is invisible, and let F.3 be the payoff if the measured numbers
+earn it.
+
 ## Phase D — Outbound export (ship assets to Jira / Asana / CMS / Figma)
 
 Nothing exists today (Figma is inbound-only; sync is Handoff-internal registry ⇄ workspace). Build a
@@ -375,6 +420,7 @@ install needs a Blob store from first boot — 3.1 provisions it as a standard p
 | C | Lifecycle, library org, concurrency, attribution | A done (B parallel) |
 | D | Outbound export adapters on the event backbone | A done; demand-driven |
 | E | Pages as documents; one save path; templates as the shared object | B done; E.1 → E.3 → E.2 |
+| F | Direct manipulation: form polish → rendered option pickers → field tracer → inline editing | none for F.0/F.1/F.4; F.2 after F.1; F.3 needs F.2 coverage + preview-capture fix |
 
 **Open decisions (not blocking Phase 0):**
 - C.3 concurrency: optimistic-lock only, or invest in real-time multiplayer? (Recommend lock-first.)

@@ -80,6 +80,12 @@ async function recordPatternChange(
   });
 }
 
+/**
+ * The fields that constitute a page's *content*, as opposed to its metadata. A template freezes these and
+ * nothing else — see the guard in `patchPattern`.
+ */
+const CONTENT_FIELDS = ['title', 'description', 'group', 'components', 'data', 'tags', 'thumbnail'] as const;
+
 export interface PatternInput {
   id: string;
   title: string;
@@ -162,11 +168,25 @@ export async function patchPattern(
 
   // Authorize BEFORE mutating: owner or admin only (null-owner = team-editable).
   const [existing] = await db
-    .select({ userId: handoffPatterns.userId })
+    .select({ userId: handoffPatterns.userId, source: handoffPatterns.source })
     .from(handoffPatterns)
     .where(eq(handoffPatterns.id, id))
     .limit(1);
   if (existing) assertCanMutatePattern(actor, existing.userId);
+
+  /**
+   * Templates are frozen (roadmap E.2, `savePageAsTemplate`). Enforced here rather than in the UI because
+   * **autosave reaches this function**: opening a template in the playground and nudging a block would
+   * otherwise rewrite the team's standard silently, and every guest diff taken against it would shift.
+   *
+   * Only content is frozen. `setPatternMetaFields` still adjusts visibility/status, which are
+   * administrative rather than editorial — a maintainer must still be able to archive a template.
+   */
+  if (existing?.source === 'template' && CONTENT_FIELDS.some((field) => updates[field] !== undefined)) {
+    throw new AuthorizationError(
+      'This is a template and cannot be edited. Clone it to a new page, or save a new template from the page it came from.'
+    );
+  }
 
   await db
     .update(handoffPatterns)
@@ -241,6 +261,104 @@ export async function setPatternMetaFields(
     blockCount: Array.isArray(row?.components) ? (row!.components as unknown[]).length : null,
     actor,
   });
+}
+
+/* -------------------------------------------------------------------------- */
+/* Templates — "save this page as a template" (roadmap E.2)                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A template is a **separate, frozen copy** of a page — not a promoted page (Brad, 2026-08-05).
+ *
+ * That distinction does real work:
+ * - the author's page carries on as their own thing, still editable, still private;
+ * - the template becomes a living standard the team can see and clone from;
+ * - and because it is frozen, a guest submission's diff against `template_id` stays stable. A template
+ *   that kept changing would make previously-reviewed diffs shift under whoever looks next.
+ *
+ * Changing a template therefore means saving a *new* one from the page, which is version history by
+ * construction rather than a feature to build.
+ */
+export async function savePageAsTemplate(
+  pageId: string,
+  actor: PatternWriteActor,
+  opts: { title?: string | null } = {}
+): Promise<{ id: string; title: string }> {
+  const db = getDb();
+  const [page] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, pageId)).limit(1);
+  if (!page) throw new Error('Page not found.');
+
+  // You can template what you could modify. Reading someone else's page is not enough to publish a
+  // team-visible standard from it.
+  assertCanMutatePattern(actor, page.userId);
+  if (page.source === 'template') {
+    throw new Error('This is already a template. Save a template from the page instead.');
+  }
+
+  const title = (opts.title?.trim() || page.title || 'Untitled').slice(0, 200);
+  const slug =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'template';
+  const id = `template-${slug}-${crypto.randomUUID().slice(0, 8)}`;
+
+  await db.insert(handoffPatterns).values({
+    id,
+    title,
+    description: page.description ?? '',
+    group: page.group ?? '',
+    tags: page.tags ?? [],
+    // The copy is a snapshot: blocks and values as they stand right now, guardrails included.
+    components: page.components ?? [],
+    data: page.data ?? {},
+    userId: actor.userId,
+    source: 'template',
+    /**
+     * Team-visible by construction — being findable is the point of a template, and unlike promoting a
+     * page in place this widens nothing the author already had. Sending it *outside* the team is still a
+     * separate, separately-gated act (a share link).
+     */
+    visibility: 'team',
+    /**
+     * Left as `draft`, deliberately: `approved` is maintainer-gated everywhere else (`canApprove`), and
+     * setting it here would be a way around that gate. A maintainer can approve a template through the
+     * normal path if that ever matters.
+     */
+    status: 'draft',
+    thumbnail: page.thumbnail ?? null,
+    /**
+     * NOT `templateId`. That column means "the template this page was built from", and pointing it at the
+     * source page would invert its meaning and confuse every diff that reads it. Provenance goes in the
+     * audit trail instead, which is where "where did this come from" belongs.
+     */
+  });
+
+  await db.insert(editHistory).values({
+    entityType: 'pattern',
+    entityId: id,
+    userId: historyUserId(actor),
+    diff: { action: 'save-as-template', fromPageId: pageId, by: actor.historyLabel ?? null },
+  });
+
+  await insertSyncEvent({
+    entityType: 'pattern',
+    entityId: id,
+    action: 'create',
+    payload: { id, title, templateOf: pageId },
+    userId: actor.userId,
+  });
+
+  await recordPatternChange(db, {
+    patternId: id,
+    action: 'created',
+    title,
+    blockCount: Array.isArray(page.components) ? (page.components as unknown[]).length : null,
+    actor: { ...actor, message: actor.message ?? `Saved as a template from ${pageId}` },
+  });
+
+  return { id, title };
 }
 
 /* -------------------------------------------------------------------------- */

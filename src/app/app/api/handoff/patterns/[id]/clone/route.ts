@@ -40,6 +40,12 @@ export async function POST(_request: Request, context: RouteContext) {
     data: row.data,
     userId: session.user.id ?? null,
     source: 'playground',
+    /**
+     * Cloning a template records what it came from, exactly as a guest submission does. That is what makes
+     * an editor-created page diffable against its template in the review queue — otherwise only guest
+     * pages would carry provenance, and the same feature would behave differently by author.
+     */
+    ...(row.source === 'template' ? { templateId: row.id } : {}),
     thumbnail: row.thumbnail,
   });
 

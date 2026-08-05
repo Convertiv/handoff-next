@@ -284,7 +284,7 @@ export default function LibraryClient({
       <Button asChild size="sm" variant="secondary" className="gap-1">
         <Link href={`${basePath}/playground`}>
           <PlusIcon className="h-4 w-4" aria-hidden />
-          New pattern
+          New page
         </Link>
       </Button>
     </>
@@ -293,7 +293,7 @@ export default function LibraryClient({
   const typeFacets: { value: TypeFacet; label: string }[] = [
     { value: 'all', label: 'All types' },
     { value: 'design', label: 'Designs' },
-    { value: 'pattern', label: 'Patterns' },
+    { value: 'pattern', label: 'Pages' },
   ];
 
   return (

@@ -35,6 +35,7 @@ import SortableItem from './SortableItem';
 import Preview, { constructComponentPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
 import PatternPicker from './PatternPicker';
+import { savePatternAsTemplate } from '@/app/actions/patterns';
 import SavePatternDialog from './SavePatternDialog';
 import TemplateManager from './TemplateManager';
 import MediaBrowser from './MediaBrowser';
@@ -146,6 +147,8 @@ export default function PlaygroundBuilder() {
   const [html, setHtml] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
   const [savePatternOpen, setSavePatternOpen] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateNotice, setTemplateNotice] = useState<string | null>(null);
   const [patternPickerOpen, setPatternPickerOpen] = useState(false);
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
@@ -262,14 +265,25 @@ export default function PlaygroundBuilder() {
     URL.revokeObjectURL(url);
   };
 
-  const handleSaveTemplate = () => {
-    const name = prompt('Enter a name for the template');
-    if (name) {
-      if (templates.some((t) => t.name === name)) {
-        alert('A template with this name already exists.');
-        return;
-      }
-      saveAsTemplate(name);
+  /**
+   * Save this page as a template — a separate, frozen, team-visible copy (roadmap E.2).
+   *
+   * Not a rename of the old browser-local "template", which only ever existed in one person's browser and
+   * was invisible to sharing and review. This creates a real record others can clone from and guests can
+   * build from, and leaves this page alone.
+   */
+  const handleSaveAsTemplate = async () => {
+    if (!editingPatternId) return;
+    const name = prompt('Name this template', 'Untitled template');
+    if (name === null) return;
+    setSavingTemplate(true);
+    try {
+      const result = await savePatternAsTemplate(editingPatternId, name.trim() || undefined);
+      setTemplateNotice(`Saved “${result.title}” as a template. Your page is untouched.`);
+    } catch (e) {
+      setTemplateNotice(e instanceof Error ? e.message : 'Could not save the template.');
+    } finally {
+      setSavingTemplate(false);
     }
   };
 
@@ -302,14 +316,28 @@ export default function PlaygroundBuilder() {
                 </TooltipTrigger>
                 <TooltipContent side="bottom">Open a page</TooltipContent>
               </Tooltip>
-              {selectedComponents.length > 0 && (
+              {/**
+                * No "save page" here any more: in dynamic mode the page autosaves and creates itself on the
+                * first block (roadmap E.2/E.3). What remains is the action that actually needs a decision —
+                * turning this page into a template others can build from.
+                */}
+              {selectedComponents.length > 0 && editingPatternId && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={() => setSavePatternOpen(true)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1 px-2"
+                      disabled={savingTemplate}
+                      onClick={() => void handleSaveAsTemplate()}
+                    >
                       <SaveIcon className="h-4 w-4" />
+                      <span className="text-xs">{savingTemplate ? 'Saving…' : 'Save as template'}</span>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">{editingPatternId ? 'Update page' : 'Save page'}</TooltipContent>
+                  <TooltipContent side="bottom">
+                    Create a frozen, team-visible template from this page. Your page stays yours.
+                  </TooltipContent>
                 </Tooltip>
               )}
             </>
@@ -317,14 +345,18 @@ export default function PlaygroundBuilder() {
 
           {selectedComponents.length > 0 && (
             <>
+              {/* Static (no-database) mode has nothing to autosave to, so the explicit save stays there —
+                  and only there. The browser-local template store is no longer offered as a new place to
+                  put work; existing local templates remain loadable so they can be converted. */}
               {!isDynamicApp && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={handleSaveTemplate}>
+                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={() => setSavePatternOpen(true)}>
                       <SaveIcon className="h-4 w-4" />
+                      <span className="text-xs">Save</span>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Save as template</TooltipContent>
+                  <TooltipContent side="bottom">Save this page</TooltipContent>
                 </Tooltip>
               )}
 
@@ -425,6 +457,15 @@ export default function PlaygroundBuilder() {
           </Button>
           <Button size="sm" variant="ghost" onClick={discardRecoveredDraft}>
             Start fresh
+          </Button>
+        </div>
+      ) : null}
+
+      {templateNotice ? (
+        <div className="flex items-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm">
+          <span>{templateNotice}</span>
+          <Button size="sm" variant="ghost" onClick={() => setTemplateNotice(null)}>
+            Dismiss
           </Button>
         </div>
       ) : null}

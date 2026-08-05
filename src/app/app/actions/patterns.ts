@@ -6,6 +6,7 @@ import {
   patchPattern,
   removePattern,
   reviewPattern,
+  savePageAsTemplate,
   writePattern,
   type PatternWriteActor,
 } from '../../lib/db/pattern-write';
@@ -97,4 +98,16 @@ export async function reviewPatternSubmission(
   const grant = await getActorGrant('pattern', id, actor.userId);
   const result = await reviewPattern(id, decision, actor, { message, grant });
   return { success: true, status: result.status };
+}
+
+/**
+ * Save a page as a template — a separate, frozen, team-visible copy (roadmap E.2).
+ *
+ * The page is untouched: the author keeps iterating on theirs while the template becomes the standard
+ * others clone from and guests build from.
+ */
+export async function savePatternAsTemplate(pageId: string, title?: string) {
+  const actor = await requireActor();
+  const template = await savePageAsTemplate(pageId, actor, { title });
+  return { success: true, ...template };
 }

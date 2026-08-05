@@ -3,8 +3,9 @@
 import type { PatternComponentEntry } from '@handoff/transformers/preview/types';
 import { DragEndEvent } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
+import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { updatePattern } from '@/app/actions/patterns';
+import { createPattern, updatePattern } from '@/app/actions/patterns';
 import { buildPatternPayload } from '@/lib/pattern-payload';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { handoffApiUrl } from '@/lib/api-path';
@@ -27,7 +28,7 @@ interface PlaygroundContextType {
   error: string | null;
   activeComponentId: string | null;
   setActiveComponentId: (id: string | null) => void;
-  /** When set, Save pattern updates this id (dynamic mode). */
+  /** The record this canvas is; autosave writes to it (dynamic mode). Null until the first block. */
   editingPatternId: string | null;
   setEditingPatternId: (id: string | null) => void;
   addComponent: (component: PlaygroundComponent) => void;
@@ -123,6 +124,7 @@ export function PlaygroundProvider({
   const isDynamicApp = true;
 
   const [components, setComponents] = useState<PlaygroundComponent[]>([]);
+  const router = useRouter();
   const [selectedComponents, setSelectedComponents] = useState<SelectedPlaygroundComponent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -233,11 +235,48 @@ export function PlaygroundProvider({
   const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Serialized canvas last known to be persisted — the baseline that stops a load from saving itself. */
   const persistedRef = useRef<string | null>(null);
+  /** Guards the create-on-first-block path so a burst of edits cannot mint two pages. */
+  const creatingRef = useRef(false);
 
   useEffect(() => {
-    if (!isDynamicApp || status !== 'authenticated' || !editingPatternId) {
+    if (!isDynamicApp || status !== 'authenticated') {
       setSaveState('off');
       persistedRef.current = null;
+      return;
+    }
+
+    /**
+     * **Save on first block** (roadmap E.2): a page with no record gets one as soon as it has content, and
+     * the URL becomes `/playground/{id}`. There is no save button to find and no unsaved state to lose.
+     *
+     * Guarded by a ref rather than state so two quick edits cannot race into two records — the first
+     * block creates exactly one page.
+     */
+    if (!editingPatternId) {
+      if (!selectedComponents.length || creatingRef.current) {
+        setSaveState('off');
+        return;
+      }
+      creatingRef.current = true;
+      setSaveState('saving');
+      void (async () => {
+        try {
+          const id = `page-${crypto.randomUUID().slice(0, 8)}`;
+          const title = 'Untitled page';
+          const { components, payload } = buildPatternPayload(id, title, '', '', [], selectedComponents, basePath);
+          await createPattern({ id, title, components, payload, source: 'playground' });
+          persistedRef.current = JSON.stringify(selectedComponents);
+          setEditingPatternId(id);
+          setSaveState('saved');
+          // Replace, not push: the blank canvas is not a step anyone wants to go "back" to.
+          router.replace(`${basePath}/playground/${id}`);
+        } catch (e) {
+          console.error('[playground] could not create the page', e);
+          setSaveState('failed');
+          // Left true on failure would strand the canvas with no record and no retry.
+          creatingRef.current = false;
+        }
+      })();
       return;
     }
 
@@ -280,7 +319,7 @@ export function PlaygroundProvider({
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath]);
+  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath, router]);
 
   const bulkAddComponents = useCallback(
     async (entries: BulkComponentEntry[], replace = true) => {
@@ -323,7 +362,7 @@ export function PlaygroundProvider({
   const loadPatternById = useCallback(
     async (patternId: string, replace = true) => {
       if (!isDynamicApp || status !== 'authenticated') {
-        setError('Sign in and use dynamic mode to load patterns from the server.');
+        setError('Sign in and use dynamic mode to load pages from the server.');
         return;
       }
       try {

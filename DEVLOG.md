@@ -5,6 +5,35 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-05 — Design note: direct manipulation in the playground editor (Phase F)
+
+Design only, no code. `docs/PLAYGROUND-DIRECT-MANIPULATION.md` + Phase F in
+`docs/WORKBENCH-PLAYGROUND-ROADMAP.md`. Prompted by the field editor being functional-but-klunky: schema-order
+fields with patchy help text, opaque block parameters (`light`/`dark`, `left`/`right`, overlay), rough visuals.
+
+**The load-bearing idea, worth not re-deriving:** inline editing on arbitrary components is possible, but not
+by detecting props in the DOM — that is reverse-engineering the render. Instead **mark the values before
+render and find the marks after**; the component's own render is the oracle. Zero-width sentinels for text, a
+`?__hf=` query param for URLs. This is `slot-probe.ts`'s existing sentinel technique extended to record *where*
+the mark landed, so it needs no component-side cooperation — which the "no Handoff sauce in production
+components" constraint requires.
+
+Deliberately **do not** trace enums/booleans/numbers: a sentinel corrupts a class name or flips a branch. That
+exclusion is the design rather than a limitation — tracing works on exactly the props worth editing inline and
+fails on exactly the ones where inline editing is meaningless. Hence hybrid: content inline, configuration as
+*rendered* choices (F.1 — miniature renders per enum value, which is the actual fix for the opaque-parameter
+complaint and needs no tracer at all).
+
+Two traps recorded in the note. (1) Never `contenteditable` the component's own node — reconciliation eats it,
+per the existing caret-loss comment in `RichTextField.tsx`; use a positioned overlay, which also makes the path
+identical for React and Handlebars. (2) Don't build the tracer *for* inline editing. First consumers are hover
+linking and document-order field sorting, where partial coverage still wins and a missing trace is invisible;
+inline editing (F.3) is gated on coverage measured there.
+
+Gotcha for whoever picks up F.3: `field-lens.ts` says stored preview values are serialized render *output*, not
+input props. F.3 is the first phase that writes back into args, so it inherits that bug — capture has to be
+repaired first. F.0–F.2 only read.
+
 ## 2026-08-05 — E.1 (share + review reachable) and E.3 (pages as documents)
 
 Staged uncommitted for review; see `REVIEW-2026-08-05.md` for the click-through list.
