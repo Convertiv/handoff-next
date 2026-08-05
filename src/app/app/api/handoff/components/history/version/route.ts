@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 
 /**
  * GET /api/handoff/components/history/version?id=<componentId>&v=<versionNumber>
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing or invalid id/v parameter' }, { status: 400 });
   }
 
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return NextResponse.json({ version: null });
   }
 

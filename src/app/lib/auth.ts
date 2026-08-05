@@ -7,7 +7,7 @@ import Google from 'next-auth/providers/google';
 import { and, eq } from 'drizzle-orm';
 import { getDb } from './db';
 import * as schema from './db/schema';
-import { usePostgres } from './db/dialect';
+import { isPostgres } from './db/dialect';
 import { verifyPassword } from './passwords';
 import { logEvent } from './server/event-log';
 
@@ -69,7 +69,7 @@ function linkedAccountProviders(): NextAuthConfig['providers'] {
 // `typeof window === 'undefined'` guards were insufficient on their own because
 // Next.js static analysis runs in a Node environment where window is always undefined.
 function getAuthDb() {
-  return usePostgres() ? getDb() : null;
+  return isPostgres() ? getDb() : null;
 }
 function getAuthProviders() {
   if (typeof process === 'undefined') return { loginOauth: [], linkedOauth: [] };
@@ -239,6 +239,6 @@ export const signOut: NextAuthInstance['signOut'] = (...args) => getNextAuth().s
 
 /** Postgres: NextAuth session. Local hybrid mode (no DATABASE_URL): no session. */
 export async function auth(): Promise<Session | null> {
-  if (!usePostgres()) return null;
+  if (!isPostgres()) return null;
   return (await getNextAuth().auth()) as Session | null;
 }

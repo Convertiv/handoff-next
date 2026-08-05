@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { Suspense } from 'react';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 import LocalSetupClient from '../../dev/local-setup/LocalSetupClient';
 
 export const metadata: Metadata = {
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function LocalDevelopmentPage() {
-  const mcpOnThisHost = usePostgres();
+  const mcpOnThisHost = isPostgres();
   const fallbackMcpUrl =
     process.env.HANDOFF_CLOUD_URL?.trim().replace(/\/$/, '') ||
     process.env.HANDOFF_SYNC_URL?.trim().replace(/\/$/, '') ||

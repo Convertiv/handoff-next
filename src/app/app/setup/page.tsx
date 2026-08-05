@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { usePostgres } from '../../lib/db/dialect';
+import { isPostgres } from '../../lib/db/dialect';
 import { getUserCount } from '../../lib/db/queries';
 import SetupClient from './SetupClient';
 
@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default async function SetupPage() {
   // Workspace mode — no setup needed
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
         <p className="text-muted-foreground text-sm">

@@ -34,7 +34,7 @@ export default async function HealthPage() {
         <div className="mx-auto max-w-2xl py-24 text-center space-y-4">
           <HeadersType.H1>System Health</HeadersType.H1>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            Validation isn't configured for this workspace yet. Add a{' '}
+            Validation isn&apos;t configured for this workspace yet. Add a{' '}
             <code className="rounded bg-muted px-1.5 py-0.5 text-xs">validation</code> block to your{' '}
             <code className="rounded bg-muted px-1.5 py-0.5 text-xs">handoff.config.js</code> to start
             tracking component health here.

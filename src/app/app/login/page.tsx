@@ -1,6 +1,6 @@
 import { Metadata } from 'next';
 import { Suspense } from 'react';
-import { usePostgres } from '../../lib/db/dialect';
+import { isPostgres } from '../../lib/db/dialect';
 import LoginClient from './LoginClient';
 
 export const metadata: Metadata = {
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ reset?: string; setup?: string }> }) {
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center p-8 text-center">
         <p className="text-muted-foreground">

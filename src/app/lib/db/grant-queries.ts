@@ -1,6 +1,6 @@
 import 'server-only';
 import { and, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
-import { usePostgres } from './dialect';
+import { isPostgres } from './dialect';
 import { getDb } from './index';
 import { handoffDesignArtifacts, handoffPatterns, handoffResourceGrants, handoffShareLinks } from './schema';
 import type { GrantLevel, MutateActor, ResourceGrant } from '../authz/policy';
@@ -26,7 +26,7 @@ export async function getActorGrant(
   resourceId: string,
   userId: string | null
 ): Promise<ResourceGrant | null> {
-  if (!userId || !usePostgres()) return null;
+  if (!userId || !isPostgres()) return null;
   const db = getDb();
   const [row] = await db
     .select({ level: handoffResourceGrants.level })
@@ -53,7 +53,7 @@ export async function getActorGrantsForResources(
   userId: string | null
 ): Promise<Map<string, ResourceGrant>> {
   const map = new Map<string, ResourceGrant>();
-  if (!userId || ids.length === 0 || !usePostgres()) return map;
+  if (!userId || ids.length === 0 || !isPostgres()) return map;
   const db = getDb();
   const rows = await db
     .select({ resourceId: handoffResourceGrants.resourceId, level: handoffResourceGrants.level })
@@ -182,7 +182,7 @@ export type LanePage<T> = { rows: T[]; nextCursor: string | null };
 
 /** Lane-filtered, cursor-paginated design artifacts. Light projection (no base64 blobs). */
 export async function listDesignArtifactsByLane(args: LaneListArgs): Promise<LanePage<DesignArtifactLaneRow>> {
-  if (!usePostgres()) return { rows: [], nextCursor: null };
+  if (!isPostgres()) return { rows: [], nextCursor: null };
   const db = getDb();
   const limit = clampLimit(args.limit);
   const isAdmin = args.actorRole === 'admin';
@@ -262,7 +262,7 @@ export type PatternLaneRow = typeof handoffPatterns.$inferSelect;
 
 /** Lane-filtered, cursor-paginated patterns. Returns full rows (for `patternRowToListEntry`). */
 export async function listPatternsByLane(args: LaneListArgs): Promise<LanePage<PatternLaneRow>> {
-  if (!usePostgres()) return { rows: [], nextCursor: null };
+  if (!isPostgres()) return { rows: [], nextCursor: null };
   const db = getDb();
   const limit = clampLimit(args.limit);
   const isAdmin = args.actorRole === 'admin';
@@ -405,7 +405,7 @@ export async function getActiveShareLink(
   resourceType: ResourceType,
   resourceId: string
 ): Promise<ShareLinkRow | null> {
-  if (!resourceId.trim() || !usePostgres()) return null;
+  if (!resourceId.trim() || !isPostgres()) return null;
   const db = getDb();
   const now = new Date();
   const [link] = await db

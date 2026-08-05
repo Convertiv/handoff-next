@@ -3,7 +3,7 @@ import { getClientRuntimeConfig, SectionLink } from '../../components/util';
 import Layout from '../../components/Layout/Main';
 import { getDataProvider } from '../../lib/data';
 import { auth } from '../../lib/auth';
-import { usePostgres } from '../../lib/db/dialect';
+import { isPostgres } from '../../lib/db/dialect';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,7 +60,7 @@ export default async function AccountLayout({ children }: { children: React.Reac
   const menu = await getDataProvider().getMenu();
   const meta = { metaTitle: 'Account', metaDescription: 'Manage your profile and workspace settings' };
 
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return (
       <Layout config={config} menu={menu} current={null} metadata={meta}>
         <p className="text-sm text-muted-foreground">Account settings require Postgres (set DATABASE_URL).</p>

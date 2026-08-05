@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { auth } from '../lib/auth';
 import { getDataProvider } from '../lib/data';
-import { usePostgres } from '../lib/db/dialect';
+import { isPostgres } from '../lib/db/dialect';
 import { getHandoffCapabilities, probeRemoteHandoffReachable } from '../lib/handoff-capabilities';
 import { getMergedRuntimeConfig } from '../lib/server/runtime-config';
 import Providers from './providers';
@@ -16,7 +16,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // over the static defaults. See ADR-001 §1.
   const config = await getMergedRuntimeConfig();
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
-  const authEnabled = usePostgres();
+  const authEnabled = isPostgres();
 
   // First-run check: registry mode with no users → send to /setup.
   // Uses x-pathname header injected by middleware (no extra DB query on every request

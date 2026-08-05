@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, like, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { searchTerms, type AssetSearchMode } from '@/lib/asset-search';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
-import { usePostgres } from './dialect';
+import { isPostgres } from './dialect';
 import { getDb } from './index';
 import { offloadArtifactImages, isDataUrl } from '../storage/artifact-images';
 import {
@@ -30,7 +30,7 @@ export const DESIGN_WORKSPACE_ID = 'default';
 
 /** Returns the total number of registered users. Used to detect fresh/unconfigured deployments. */
 export async function getUserCount(): Promise<number> {
-  if (!usePostgres()) return 0;
+  if (!isPostgres()) return 0;
   try {
     const db = getDb();
     const result = await db.select({ n: count() }).from(users);
@@ -62,7 +62,7 @@ export type UserDisplay = { id: string; name: string | null; email: string | nul
  */
 export async function getUserDisplays(ids: string[]): Promise<Map<string, UserDisplay>> {
   const map = new Map<string, UserDisplay>();
-  if (!usePostgres() || ids.length === 0) return map;
+  if (!isPostgres() || ids.length === 0) return map;
   const db = getDb();
   const rows = await db
     .select({ id: users.id, name: users.name, email: users.email, image: users.image })
@@ -143,7 +143,7 @@ export async function getDbPatternsFiltered(filters: DbPatternFilter) {
   const q = filters.q?.trim();
   if (q) {
     const like = `%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`;
-    if (usePostgres()) {
+    if (isPostgres()) {
       clauses.push(or(ilike(handoffPatterns.title, like), ilike(handoffPatterns.description, like))!);
     } else {
       clauses.push(
@@ -387,7 +387,7 @@ export async function getAiEventsForRange({
   to: Date;
   limit?: number;
 }): Promise<AiEventRow[]> {
-  if (!usePostgres()) return [];
+  if (!isPostgres()) return [];
   const db = getDb();
   const rows = await db
     .select({
@@ -428,7 +428,7 @@ export type AiCostSummary = {
 };
 
 export async function getAiCostSummaryForRange({ from, to }: { from: Date; to: Date }): Promise<AiCostSummary> {
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return { totalCalls: 0, successCalls: 0, failedCalls: 0, totalCostUsd: 0, byModel: [], byDay: [] };
   }
   const db = getDb();
@@ -1164,7 +1164,7 @@ export type AiCostByUserRow = {
 };
 
 export async function getAiCostByUser({ from, to }: { from: Date; to: Date }): Promise<AiCostByUserRow[]> {
-  if (!usePostgres()) return [];
+  if (!isPostgres()) return [];
   const db = getDb();
   const rows = await db
     .select({

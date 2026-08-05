@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { auth } from '../../../lib/auth';
-import { usePostgres } from '../../../lib/db/dialect';
+import { isPostgres } from '../../../lib/db/dialect';
 import { getClientRuntimeConfig } from '../../../components/util';
 import { getDataProvider } from '../../../lib/data';
 import IntegrationsClient from './IntegrationsClient';
@@ -15,7 +15,7 @@ export default async function AdminIntegrationsPage() {
   const config = getClientRuntimeConfig();
   const menu = await getDataProvider().getMenu();
 
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return (
       <IntegrationsClient
         config={config}

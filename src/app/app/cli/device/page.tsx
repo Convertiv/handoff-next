@@ -5,7 +5,7 @@ import { getClientRuntimeConfig } from '@/components/util';
 import { getDataProvider } from '@/lib/data';
 import CliDeviceClient from './CliDeviceClient';
 import HeadersType from '@/components/Typography/Headers';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 
 export const metadata: Metadata = {
   title: 'Authorize CLI',
@@ -22,7 +22,7 @@ export default async function CliDevicePage() {
     description: '',
   };
 
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return (
       <Layout config={config} menu={menu} current={undefined} metadata={layoutMeta}>
         <p className="text-sm text-muted-foreground">

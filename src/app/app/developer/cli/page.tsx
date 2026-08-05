@@ -67,7 +67,7 @@ export default function CliPage() {
         <h1 className="text-3xl font-semibold tracking-tight text-gray-900 dark:text-gray-100">CLI Reference</h1>
         <p className="mt-3 max-w-2xl text-base font-light text-gray-500 dark:text-gray-400">
           <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-sm dark:bg-gray-800">handoff-app</code> is the workspace CLI.
-          Install it globally and run all commands from your workspace's <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">handoff/</code> directory.
+          Install it globally and run all commands from your workspace&apos;s <code className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs dark:bg-gray-800">handoff/</code> directory.
         </p>
       </div>
 

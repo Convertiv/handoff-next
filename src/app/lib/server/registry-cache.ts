@@ -3,7 +3,7 @@ import { unstable_cache, revalidateTag } from 'next/cache';
 import { getRegistryConfig, getRegistryNavigation, type RegistryConfigData, type NavigationNode } from '../db/registry-queries';
 import { getUserCount } from '../db/queries';
 import { getHandoffPageBySlug } from './doc-pages';
-import { usePostgres } from '../db/dialect';
+import { isPostgres } from '../db/dialect';
 
 /**
  * Cross-request caching for the registry read hot-path.
@@ -64,7 +64,7 @@ export const getCachedUserCount = unstable_cache(
 export function getCachedPageBySlug(slug: string) {
   // Workspace mode (no DB) runs the same routes — keep its path byte-identical by
   // only engaging the Data Cache in registry mode.
-  if (!usePostgres()) return getHandoffPageBySlug(slug);
+  if (!isPostgres()) return getHandoffPageBySlug(slug);
   return unstable_cache(
     async () => getHandoffPageBySlug(slug),
     ['registry-page', slug],

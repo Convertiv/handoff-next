@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { Badge } from '../../../components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
 import { auth } from '../../../lib/auth';
-import { usePostgres } from '../../../lib/db/dialect';
+import { isPostgres } from '../../../lib/db/dialect';
 import type { AiCostByUserRow, AiEventRow } from '../../../lib/db/queries';
 
 export const metadata: Metadata = {
@@ -23,7 +23,7 @@ function currency(value: number): string {
 }
 
 export default async function AccountAiCostPage() {
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return null;
   }
 
