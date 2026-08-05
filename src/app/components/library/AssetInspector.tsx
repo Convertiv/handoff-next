@@ -12,6 +12,7 @@ import { VisibilityBadge } from './VisibilityBadge';
 import { OwnerAttribution } from './OwnerAttribution';
 import { LifecyclePicker } from './LifecyclePicker';
 import { VisibilityPicker } from './VisibilityPicker';
+import ShareLinkPanel from '../Share/ShareLinkPanel';
 
 type InspectorAsset = {
   id: string;
@@ -39,6 +40,12 @@ type Props = {
   shareUrl?: string | null;
   onCreateShare?: () => void;
   onRevokeShare?: () => void;
+  /**
+   * When set, the full share panel replaces the single-link row — capability picker, expiry, max uses, the
+   * links list, and the copy-once warning a write-capable link needs. Passed by surfaces that can mint an
+   * authoring link (see roadmap E.1); the legacy row remains for callers that only do read-only links.
+   */
+  shareResource?: { resourceType: 'pattern' | 'design_artifact'; resourceId: string; basePath?: string } | null;
   busy?: boolean;
 };
 
@@ -85,6 +92,7 @@ export function AssetInspector({
   shareUrl,
   onCreateShare,
   onRevokeShare,
+  shareResource = null,
   busy,
 }: Props) {
   const canEdit = Boolean(permissions?.canEdit);
@@ -196,8 +204,16 @@ export function AssetInspector({
                 </div>
               ) : null}
 
-              {/* Public link panel */}
-              {showPublicPanel ? (
+              {/* Share panel — full capability-aware version when the caller supplies a resource. */}
+              {shareResource ? (
+                <Section title="Links">
+                  <ShareLinkPanel
+                    resourceType={shareResource.resourceType}
+                    resourceId={shareResource.resourceId}
+                    basePath={shareResource.basePath}
+                  />
+                </Section>
+              ) : showPublicPanel ? (
                 <Section title="Public link">
                   {shareUrl ? (
                     <div className="space-y-2">

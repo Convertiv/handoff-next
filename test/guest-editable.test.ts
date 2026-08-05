@@ -84,6 +84,12 @@ describe('collectImageSrcs', () => {
     assert.deepEqual(images[0].path, ['desktopImageSlot', 'props', 'src']);
   });
 
+  it('labels from the slot, not from "src"', () => {
+    // "Src has no alt text" is what this looked like in a guardrail message before the fix.
+    assert.equal(collectImageSrcs(heroBackground)[0].label, 'Desktop Image');
+    assert.equal(collectImageSrcs({ logo: { src: '/logo.svg' } })[0].label, 'Logo');
+  });
+
   it('carries native dimensions, which is how a hero is told from a thumbnail', () => {
     const [img] = collectImageSrcs(heroBackground);
     assert.equal(img.width, 2560);

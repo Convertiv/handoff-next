@@ -4,7 +4,9 @@ import type { PatternComponentEntry } from '@handoff/transformers/preview/types'
 import { DragEndEvent } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useSession } from 'next-auth/react';
-import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { updatePattern } from '@/app/actions/patterns';
+import { buildPatternPayload } from '@/lib/pattern-payload';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { handoffApiUrl } from '@/lib/api-path';
 import { renderPreview } from './Preview';
 import type { BulkComponentEntry, PlaygroundComponent, SelectedPlaygroundComponent } from './types';
@@ -34,6 +36,18 @@ interface PlaygroundContextType {
   removeComponent: (uniqueId: string) => void;
   updateComponent: (component: SelectedPlaygroundComponent) => void;
   onDragEnd: (event: DragEndEvent) => void;
+  /**
+   * A canvas found in local storage from a previous visit, **not** applied. Roadmap E.3: silently
+   * rehydrating is what made "New" load old work. Offered for recovery instead, then cleared either way.
+   */
+  /**
+   * Autosave state for a page opened by id. `off` means there is no record to write to yet — a brand new
+   * canvas — which is the one case where the old explicit save still matters (roadmap E.2 removes it).
+   */
+  saveState: 'off' | 'idle' | 'saving' | 'saved' | 'failed';
+  recoveredDraft: { count: number } | null;
+  restoreRecoveredDraft: () => void;
+  discardRecoveredDraft: () => void;
   templates: Template[];
   saveAsTemplate: (templateName: string) => void;
   loadTemplate: (templateName: string) => void;
@@ -42,6 +56,8 @@ interface PlaygroundContextType {
 }
 
 const STORAGE_KEY = 'handoff-playground-components';
+/** Generous on purpose: a save is a full pattern replace plus an audit row, and edits arrive in bursts. */
+const AUTOSAVE_DEBOUNCE_MS = 2000;
 const TEMPLATE_PREFIX = 'handoff-playground-template-';
 
 const PlaygroundContext = createContext<PlaygroundContextType | undefined>(undefined);
@@ -113,6 +129,10 @@ export function PlaygroundProvider({
   const [templates, setTemplates] = useState<Template[]>([]);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
   const [editingPatternId, setEditingPatternId] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<'off' | 'idle' | 'saving' | 'saved' | 'failed'>('off');
+  const [recoveredDraft, setRecoveredDraft] = useState<{ count: number } | null>(null);
+  /** Held outside state: it is data to restore on request, not something the canvas renders. */
+  const recoveredRef = useRef<SelectedPlaygroundComponent[] | null>(null);
 
   const basePath = typeof process !== 'undefined' ? process.env.HANDOFF_APP_BASE_PATH ?? '' : '';
 
@@ -139,16 +159,34 @@ export function PlaygroundProvider({
     setTemplates(getTemplatesFromStorage());
   }, [basePath]);
 
+  /**
+   * Local storage is read **once, into a recovery offer** — never applied to the canvas.
+   *
+   * The old behaviour restored it automatically, which meant clicking "New" reopened whatever was last on
+   * screen, and there was no way to get a blank canvas. Deleting the key outright would have thrown away
+   * unsaved work on the deploy that shipped it, so the draft is surfaced and the user decides. Either
+   * choice clears the key, so the offer appears at most once.
+   *
+   * A page opened by id skips the offer entirely: the record is the truth there, and a stale local canvas
+   * must never be mistaken for it.
+   */
   useEffect(() => {
+    if (initialPatternId) return;
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        setSelectedComponents(JSON.parse(saved));
-      } catch {
-        // ignore corrupt data
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        recoveredRef.current = parsed as SelectedPlaygroundComponent[];
+        setRecoveredDraft({ count: parsed.length });
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
       }
+    } catch {
+      // Corrupt data is not recoverable and not worth offering.
+      localStorage.removeItem(STORAGE_KEY);
     }
-  }, []);
+  }, [initialPatternId]);
 
   useEffect(() => {
     if (selectedComponents.length > 0) {
@@ -157,6 +195,92 @@ export function PlaygroundProvider({
       localStorage.removeItem(STORAGE_KEY);
     }
   }, [selectedComponents]);
+
+  const restoreRecoveredDraft = useCallback(() => {
+    const draft = recoveredRef.current;
+    recoveredRef.current = null;
+    setRecoveredDraft(null);
+    // Cleared before applying: restoring is a one-time recovery, and the canvas write below re-persists it.
+    localStorage.removeItem(STORAGE_KEY);
+    if (draft?.length) setSelectedComponents(draft);
+  }, []);
+
+  const discardRecoveredDraft = useCallback(() => {
+    recoveredRef.current = null;
+    setRecoveredDraft(null);
+    localStorage.removeItem(STORAGE_KEY);
+  }, []);
+
+
+  /* ------------------------------------------------------------------ autosave -- */
+
+  /**
+   * Autosave a page that has a record (roadmap E.3): a saved page is a document, not something you
+   * remember to export.
+   *
+   * Only runs once `editingPatternId` is set — i.e. the page was opened by id or has been saved once.
+   * A brand-new canvas has nothing to write to, so `saveState` stays `off` and the explicit save is still
+   * the way to create the record; E.2 replaces that with save-on-first-edit.
+   *
+   * Three details that matter:
+   * - The first render after a load must not write. `loadPatternById` sets the canvas *and* the id, so
+   *   without a baseline the load itself would immediately save what it just read.
+   * - The debounce is generous (2s) because a write is a full pattern replace plus an audit row, and
+   *   block edits arrive in bursts while someone drags or types.
+   * - A failed save leaves `failed` on screen rather than retrying silently; the canvas still holds the
+   *   work, and a user who sees "not saved" can act, where a silent retry loop cannot tell them anything.
+   */
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Serialized canvas last known to be persisted — the baseline that stops a load from saving itself. */
+  const persistedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isDynamicApp || status !== 'authenticated' || !editingPatternId) {
+      setSaveState('off');
+      persistedRef.current = null;
+      return;
+    }
+
+    const snapshot = JSON.stringify(selectedComponents);
+    if (persistedRef.current === null) {
+      // First observation for this record: treat what is on screen as already saved.
+      persistedRef.current = snapshot;
+      setSaveState('saved');
+      return;
+    }
+    if (persistedRef.current === snapshot) return;
+
+    setSaveState('idle');
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = setTimeout(() => {
+      void (async () => {
+        setSaveState('saving');
+        try {
+          const { components, payload } = buildPatternPayload(
+            editingPatternId,
+            '',
+            '',
+            '',
+            [],
+            selectedComponents,
+            basePath
+          );
+          // Title/description/group/tags are deliberately NOT sent: they are edited elsewhere, and an
+          // empty string here would wipe them. Autosave owns the canvas, nothing else.
+          await updatePattern(editingPatternId, { components, data: payload });
+          persistedRef.current = snapshot;
+          setSaveState('saved');
+        } catch (e) {
+          console.error('[playground] autosave failed', e);
+          setSaveState('failed');
+        }
+      })();
+    }, AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath]);
 
   const bulkAddComponents = useCallback(
     async (entries: BulkComponentEntry[], replace = true) => {
@@ -334,6 +458,10 @@ export function PlaygroundProvider({
         onDragEnd,
         templates,
         saveAsTemplate,
+        saveState,
+        recoveredDraft,
+        restoreRecoveredDraft,
+        discardRecoveredDraft,
         loadTemplate,
         deleteTemplate,
         isDynamicApp,

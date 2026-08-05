@@ -15,6 +15,7 @@ import {
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
+import { buildPatternPayload } from '@/lib/pattern-payload';
 import type { BulkComponentEntry, SelectedPlaygroundComponent } from './types';
 
 function slugFromTitle(title: string): string {
@@ -31,47 +32,6 @@ function newPatternId(title: string): string {
   const slug = slugFromTitle(title);
   const suffix = Math.random().toString(36).slice(2, 8);
   return `pattern-${slug}-${suffix}`;
-}
-
-function buildPatternPayload(
-  id: string,
-  title: string,
-  description: string,
-  group: string,
-  tags: string[],
-  selected: SelectedPlaygroundComponent[],
-  basePath: string
-): { list: PatternListObject; components: PatternComponentEntry[]; payload: Record<string, unknown> } {
-  const components: PatternComponentEntry[] = selected.map((c) => {
-    const previewKeys = Object.keys(c.previews || {});
-    const previewKey = c.previews?.generic ? 'generic' : previewKeys[0];
-    return {
-      id: c.id,
-      ...(previewKey ? { preview: previewKey } : {}),
-      args: { ...(c.data ?? {}) },
-    };
-  });
-
-  const previews = {
-    default: {
-      title: 'Default',
-      values: selected.map((c) => ({ ...(c.data ?? {}) })),
-    },
-  };
-
-  const list: PatternListObject = {
-    id,
-    path: `${basePath}/api/pattern/${id}.json`,
-    title,
-    description: description || undefined,
-    group: group || undefined,
-    tags: tags.length ? tags : undefined,
-    components,
-    url: `${id}.html`,
-  };
-
-  const payload: Record<string, unknown> = { ...list, previews };
-  return { list, components, payload };
 }
 
 function buildPatternPayloadFromBulk(

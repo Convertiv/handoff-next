@@ -137,6 +137,10 @@ export default function PlaygroundBuilder() {
     loadPatternById,
     isDynamicApp,
     updateComponent,
+    saveState,
+    recoveredDraft,
+    restoreRecoveredDraft,
+    discardRecoveredDraft,
   } = usePlayground();
 
   const [html, setHtml] = useState('');
@@ -384,6 +388,16 @@ export default function PlaygroundBuilder() {
 
         {/* Right group */}
         <div className="ml-auto flex items-center gap-1">
+          {/* Autosave state for a page that has a record. Silent for a brand-new canvas, which has
+              nothing to autosave to yet. */}
+          {saveState !== 'off' ? (
+            <span
+              aria-live="polite"
+              className={`mr-2 text-xs ${saveState === 'failed' ? 'text-amber-700' : 'text-muted-foreground'}`}
+            >
+              {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'failed' ? 'Not saved' : 'Unsaved changes'}
+            </span>
+          ) : null}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={toggleFullscreen}>
@@ -397,6 +411,23 @@ export default function PlaygroundBuilder() {
 
         </div>
       </div>
+
+      {/* Recovery offer for a canvas left in local storage by an older build (roadmap E.3). Shown instead
+          of silently restoring it, which is what made "New" reopen old work. Either action clears it. */}
+      {recoveredDraft ? (
+        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm">
+          <span>
+            You have an unsaved canvas from a previous visit ({recoveredDraft.count} block
+            {recoveredDraft.count === 1 ? '' : 's'}).
+          </span>
+          <Button size="sm" variant="secondary" onClick={restoreRecoveredDraft}>
+            Restore it
+          </Button>
+          <Button size="sm" variant="ghost" onClick={discardRecoveredDraft}>
+            Start fresh
+          </Button>
+        </div>
+      ) : null}
 
       {/* ── Main content area ── */}
       <div className="flex flex-1 overflow-hidden">

@@ -93,6 +93,17 @@ export function humanizeKey(key: string | number): string {
     .trim();
 }
 
+/**
+ * Label for an image slot.
+ *
+ * `src` is skipped as well as `props`, so `desktopImageSlot.props.src` reads "Desktop Image" rather than
+ * "Src" — which is what it said until a guardrail message surfaced it ("Src has no alt text"). Kept
+ * separate from `labelFor` so a text field genuinely named `alt` still labels as "Alt".
+ */
+function labelForImage(path: (string | number)[]): string {
+  return labelFor(path.filter((seg) => seg !== 'src'));
+}
+
 /** Label from the nearest meaningful key, skipping structural hops like `props` and `children`. */
 function labelFor(path: (string | number)[]): string {
   for (let i = path.length - 1; i >= 0; i -= 1) {
@@ -171,7 +182,7 @@ export function collectImageSrcs(args: unknown): EditableImage[] {
     if (seen.has(src)) return;
     seen.add(src);
     const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-    found.push({ path, src, label: labelFor(path), width: num(node.width), height: num(node.height) });
+    found.push({ path, src, label: labelForImage(path), width: num(node.width), height: num(node.height) });
   };
 
   const walk = (node: unknown, path: (string | number)[]) => {

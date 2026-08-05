@@ -351,6 +351,9 @@ export default function PatternPicker({
         shareUrl={shareUrl}
         onCreateShare={() => void handleCreateShare()}
         onRevokeShare={() => void handleRevokeShare()}
+        /* The full panel: a saved page is what you turn into a template and send out, so this is where
+           minting a build link belongs. */
+        shareResource={selectedId ? { resourceType: 'pattern', resourceId: selectedId, basePath: handoffBasePath() } : null}
       />
     </Dialog>
   );

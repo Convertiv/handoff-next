@@ -5,6 +5,36 @@ into a branch; delete them when they land.
 
 ---
 
+## In-iframe accessibility checking for authored pages
+
+**Raised** 2026-08-05 (deferred out of guest-authoring Slice 3 — Brad: "a nice stretch goal"). **Size**
+substantial: it changes the preview contract, not just a lib.
+
+Slice 3 shipped the guardrails that need no rendered output — length limits, required fields, missing alt
+text, weak link text — in `src/app/lib/authoring-guardrails.ts`. What is left is everything that needs the
+**rendered DOM**: heading order, tab order, focus visibility, and real computed contrast (as opposed to
+contrast derived from token pairs).
+
+### Why it is not a small addition
+
+The preview iframe is deliberately **opaque-origin sandboxed** (`srcdoc` + `postMessage` + CSP — a fixed
+vulnerability, not an accident, see `project-preview-render-isolation`). A parent-frame checker therefore
+**cannot read the preview DOM at all**. The checker has to run *inside* the iframe and post results out,
+which means:
+
+- it ships with the preview bundle and becomes part of the preview contract (versioning, size, failure
+  modes when an older preview lacks it);
+- results arrive asynchronously over `postMessage` and have to be correlated with the block that produced
+  them;
+- a preview that fails to load must read as "not checked", never as "passed".
+
+### Shape when it is picked up
+
+- Advisory only, annotating the review queue alongside the Slice 3 findings — the same severity split
+  already implemented (`GuardrailFinding.severity`), so the plumbing exists.
+- Reuse the existing finding shape so the review UI needs no new rendering.
+- Token-pair contrast (no DOM needed) is the cheap half and could ship first, from the token resolver.
+
 ## Document the authoring model for the Handoff site, and write developer guides
 
 **Raised** 2026-08-04. **Size** substantial — a documentation project, not a task.

@@ -601,6 +601,95 @@ export async function getActiveShareLink(
   return link ?? null;
 }
 
+/** How many pages are waiting on a reviewer — for the nav badge. Uses `pattern_status_idx`. */
+export async function countReviewQueue(): Promise<number> {
+  if (!isPostgres()) return 0;
+  const db = getDb();
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.status, 'review'));
+  return Number(row?.n ?? 0);
+}
+
+/** A share link as an operator sees it — **never** the secret, which is not recoverable anyway. */
+export interface ShareLinkSummary {
+  /** Public link id. Safe to show and to log; on its own it grants nothing. */
+  id: string;
+  label: string | null;
+  capabilities: ShareCapability[];
+  writeCapable: boolean;
+  /** False when the secret is hashed, i.e. the full URL cannot be shown again. */
+  secretRecoverable: boolean;
+  useCount: number;
+  maxUses: number | null;
+  lastUsedAt: Date | null;
+  expiresAt: Date | null;
+  createdAt: Date | null;
+  /** How many pages have been created through this link. */
+  submissionCount: number;
+}
+
+/**
+ * Every active link for a resource, with usage — what a links list needs.
+ *
+ * Deliberately a summary rather than the row: something that *cannot* leak a secret is safer to hand to a
+ * UI than a row that merely happens not to contain one today. `submissionCount` comes from
+ * `handoff_pattern.share_link_token` in one grouped query rather than one per link.
+ */
+export async function listShareLinks(
+  resourceType: ResourceType,
+  resourceId: string
+): Promise<ShareLinkSummary[]> {
+  if (!resourceId.trim() || !isPostgres()) return [];
+  const db = getDb();
+  const now = new Date();
+
+  const links = await db
+    .select()
+    .from(handoffShareLinks)
+    .where(
+      and(
+        eq(handoffShareLinks.resourceType, resourceType),
+        eq(handoffShareLinks.resourceId, resourceId),
+        isNull(handoffShareLinks.revokedAt),
+        or(isNull(handoffShareLinks.expiresAt), gt(handoffShareLinks.expiresAt, now))
+      )
+    )
+    .orderBy(desc(handoffShareLinks.createdAt));
+  if (!links.length) return [];
+
+  const counts = new Map<string, number>();
+  const rows = await db
+    .select({ token: handoffPatterns.shareLinkToken, n: sql<number>`count(*)::int` })
+    .from(handoffPatterns)
+    .where(
+      inArray(
+        handoffPatterns.shareLinkToken,
+        links.map((l) => l.token)
+      )
+    )
+    .groupBy(handoffPatterns.shareLinkToken);
+  for (const row of rows) if (row.token) counts.set(row.token, Number(row.n));
+
+  return links.map((link) => {
+    const capabilities = shareLinkCapabilities(link);
+    return {
+      id: link.token,
+      label: link.label,
+      capabilities,
+      writeCapable: isWriteCapable(capabilities),
+      secretRecoverable: link.tokenHash == null,
+      useCount: link.useCount ?? 0,
+      maxUses: link.maxUses,
+      lastUsedAt: link.lastUsedAt,
+      expiresAt: link.expiresAt,
+      createdAt: link.createdAt,
+      submissionCount: counts.get(link.token) ?? 0,
+    };
+  });
+}
+
 /**
  * Resolve an active (not revoked, not expired) share link from a URL token, or null.
  *

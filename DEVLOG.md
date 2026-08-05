@@ -5,6 +5,91 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-05 — E.1 (share + review reachable) and E.3 (pages as documents)
+
+Staged uncommitted for review; see `REVIEW-2026-08-05.md` for the click-through list.
+
+**E.1 — complete.** `ShareLinkPanel` mints a **View only** or **Invite to build** link (label, expiry,
+max uses) and lists active links with usage + revoke; it drops into `AssetInspector` via a new optional
+`shareResource` prop, so both the library and the playground's pattern picker get it without duplicating
+anything. New `GET /api/handoff/share/links` (gated on `canChangeVisibility`), plus `listShareLinks` and
+`countReviewQueue`. `/library` now has a maintainer-only **Review queue** entry, badged, counted
+server-side so the badge is right on first paint and non-maintainers never learn the number.
+
+The UX consequence worth remembering: a write-capable secret is hashed, so it is showable **exactly once**.
+The panel says so, and an existing hashed link renders "the full URL can't be shown again" instead of an id
+that looks like a URL and 404s for the recipient. `secretRecoverable` exists precisely to allow that.
+
+**E.3 — mostly done.** `/playground/{id}` is a real route (unknown id → 404, not a silent empty canvas that
+eats whatever you type next). `buildPatternPayload` moved to `lib/pattern-payload.ts` so autosave and
+`SavePatternDialog` cannot write differently-shaped records — that mapping is what the playground reads back
+*and* what the guest diff compares, so drift there would surface as "loads differently than it saved".
+Autosave is debounced 2s and writes `components` + `data` only: title/group/tags are edited elsewhere and
+empty strings would wipe them.
+
+Two details that would have been bugs:
+
+1. *The load would have saved itself.* `loadPatternById` sets canvas and id together, so without a
+   persisted baseline the first render after a load writes what it just read. Fixed with `persistedRef`
+   treating the first observation as already-saved.
+2. *Deleting the local-storage key would have destroyed unsaved work* on the deploy that shipped it. So the
+   auto-restore is gone but the key is read **into an offer** — "unsaved canvas from a previous visit (N
+   blocks)" with Restore / Start fresh, cleared either way, never shown for a page opened by id. That fixes
+   "New loads old stuff" without a data-loss deploy.
+
+Net lint effect: `PlaygroundContext` 5 → 4 warnings (the removed auto-restore effect), builder/picker
+unchanged at 2, new files clean.
+
+**E.2 deliberately not started.** It removes the only way to create a record and rewires saving on the
+surface Brad uses daily, and authenticated pages cannot be visually verified from here. Everything it needs
+is now in place (autosave, shared payload builder, `source: 'template'`/`template_id` unused in the UI).
+
+---
+
+## 2026-08-05 — Slice 3 guardrails, and where content limits actually belong
+
+`lib/authoring-guardrails.ts` — pure, client-safe, 21 tests — running in the three places that must not
+disagree: the guest editor as you type, `submitGuestSubmission` (the only one that counts), and the review
+queue as annotations.
+
+**Revised a decision from the design note.** It put constraints on the FIELD-BRIDGE descriptors. Wrong for
+content limits: descriptors describe a **component contract** — code-owned, replaced on push — whereas
+"headline maxes at 60 here" is an **editorial rule about a template instance**, authored by the person who
+built the template. Same contract-vs-instance line the previews/properties split already draws. So config
+lives at `template.data.guardrails`, resolving template-default → per-field override, and **the template
+always beats a page's own copy** — otherwise a guest could relax their own limits by writing to `data`,
+which is the whole game.
+
+**The property I care most about: nothing is invented.** A limit applies only where configured; the engine
+never infers a rule from a template value's length. Only the unambiguous checks are configuration-free
+(missing alt, required-but-empty-*or-absent*, "click here" link text). Verified all five cases against the
+DB — including *no guardrails configured → submits fine*, which is the one that proves it.
+
+`required` needed its own pass: `collectEditableText` only reports strings that *exist*, so an absent slot
+would satisfy a required rule by not being there — the exact failure the check exists for. My first version
+of that pass was a tangle of double negatives; rewrote it plainly.
+
+Small polish the verification surfaced: a finding read "**Src** has no alt text" — image slots were
+labelling from `props.src`. Added `labelForImage` (skips `src` too, so it reads "Desktop Image"), kept
+separate from `labelFor` so a text field genuinely named `alt` still labels "Alt". Pinned with a test.
+
+Two UI decisions worth keeping: **no `maxLength` on the inputs** (silent truncation of pasted copy loses
+text without saying so — the counter turns amber instead), and the submit button is disabled *with* the
+reason next to it, since the server refuses the same content regardless.
+
+**Not started:** the in-iframe a11y agent. Heading order, tab order, focus visibility and real computed
+contrast need the rendered DOM, which the opaque-origin sandbox puts out of reach — that checker ships
+inside the preview bundle and becomes part of the preview contract.
+
+Also, Brad's three observations from testing are now **Phase E** in the roadmap: E.1 surface what Slices
+1–2 built (nothing links to `/review`, and no UI mints a write-capable link — `POST /api/handoff/share`
+already accepts `capabilities`/`label`/`maxUses` and nothing calls it with them), E.2 one save path with
+promote-to-template as the headline action, E.3 `playground/{id}` as a real autosaved route with the
+local-storage rehydrate removed. Sequenced E.1 → E.3 → E.2, because "one save path" only makes sense once
+the record is the source of truth.
+
+---
+
 ## 2026-08-05 — "The input argument must be ArrayBuffer ([object SharedArrayBuffer])" = sharp's wasm build meets the AWS SDK
 
 Reported from the field-sidebar image generation. **Not our code being wrong — a valid Buffer the AWS SDK

@@ -167,7 +167,59 @@ The status enum is there; the queue is not. What's needed:
 
 ---
 
-## Gap 4 — Guardrails, and the iframe wall
+## Gap 4 — Guardrails — ✅ PHASE 1 BUILT (Slice 3); in-iframe a11y still open
+
+`lib/authoring-guardrails.ts` — pure, client-safe, 21 tests — running in the three places that must agree:
+live in the guest editor as you type, **authoritatively in `submitGuestSubmission`**, and as annotations in
+the review queue.
+
+**Where limits live, revising this note's original claim.** The design said constraints belong on the
+FIELD-BRIDGE descriptors. That is wrong for *content* limits: descriptors describe a **component
+contract** — code-owned, replaced on push — while "the headline on this campaign page maxes at 60
+characters" is an **editorial rule about a template instance**, authored by whoever built the template.
+So config lives at `template.data.guardrails` and resolves template-default → per-field override, and the
+template always wins over a page's own copy (otherwise a guest could relax their own limits by writing to
+`data`). A descriptor-declared floor could layer underneath later without changing callers.
+
+```jsonc
+// template.data.guardrails
+{
+  "defaults": { "maxLength": 120 },
+  "fields": {
+    "headline": { "maxLength": 60, "required": true, "help": "One line, no full stop." },
+    "bodySlot.props.children": { "maxLength": 240 }
+  },
+  "requireImageAlt": "advisory",   // or "blocking", or false
+  "checkLinkText": true
+}
+```
+
+**Nothing is invented.** A length limit applies only where one is configured — the engine never infers
+that a 32-character template value implies a 32-character rule. The checks needing no configuration are
+the ones unambiguous regardless of intent: a missing alt text, a required field that is empty *or absent*,
+link text that says "click here".
+
+Severity is explicit, as this note argued it should be: **length/required block submission; accessibility
+findings annotate review.** `requireImageAlt` can be raised to blocking per template. A guest cannot be
+stopped by a contrast warning on a component they didn't write.
+
+Verified against the DB, five cases: over-long headline → refused with the numbers; empty required →
+refused; alt removed with `requireImageAlt: 'blocking'` → refused; all-within-limits → submitted; and **no
+guardrails configured → submitted**, which is the "don't invent limits" property.
+
+Two deliberate details: the editor sets **no `maxLength` on the input** — silently truncating pasted copy
+loses text without saying so, so the counter turns amber and submit explains itself instead. And the
+submit button is disabled *and* accompanied by the reason, because the server refuses the same content
+anyway.
+
+### Still open: the in-iframe accessibility agent
+
+Unchanged from the analysis below — heading order, tab order, focus visibility and real computed contrast
+need the rendered DOM, which the opaque-origin sandbox makes unreachable from the parent. That work ships
+the checker inside the preview bundle and posts results out, making it part of the preview contract. Not
+started.
+
+### The original analysis
 
 Content-length limits fall out of Gap 2 for free. Accessibility checking does not, and there is a hard
 architectural constraint to design around **now**:

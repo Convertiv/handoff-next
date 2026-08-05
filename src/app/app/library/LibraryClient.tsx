@@ -88,7 +88,15 @@ function keyOf(asset: Pick<LibraryAsset, 'type' | 'id'>): string {
   return `${asset.type}:${asset.id}`;
 }
 
-export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
+export default function LibraryClient({
+  isLoggedIn,
+  isMaintainer = false,
+  pendingReviews = 0,
+}: {
+  isLoggedIn: boolean;
+  isMaintainer?: boolean;
+  pendingReviews?: number;
+}) {
   const router = useRouter();
   const basePath = handoffBasePath();
 
@@ -255,6 +263,18 @@ export default function LibraryClient({ isLoggedIn }: { isLoggedIn: boolean }) {
 
   const launchButtons = (
     <>
+      {/* The way into the review queue. Shown only to maintainers, and only worth a badge when something
+          is actually waiting — a permanent "0" trains people to ignore it. */}
+      {isMaintainer ? (
+        <Button asChild size="sm" variant={pendingReviews > 0 ? 'default' : 'outline'} className="gap-1">
+          <Link href={`${basePath}/review`}>
+            Review queue
+            {pendingReviews > 0 ? (
+              <span className="ml-1 rounded-full bg-background/20 px-1.5 text-xs font-semibold">{pendingReviews}</span>
+            ) : null}
+          </Link>
+        </Button>
+      ) : null}
       <Button asChild size="sm" className="gap-1">
         <Link href={`${basePath}/design`}>
           <Sparkles className="h-4 w-4" aria-hidden />
