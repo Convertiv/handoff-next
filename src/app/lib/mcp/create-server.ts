@@ -1924,7 +1924,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ limit }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:read');
       if (denied) return denied;
       const submissions = await listReviewQueue(limit ?? 100);
@@ -1953,7 +1953,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       },
     },
     async ({ id, decision, message }) => {
-      if (!usePostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
       const denied = requireScope(auth, 'sync:write');
       if (denied) return denied;
       try {

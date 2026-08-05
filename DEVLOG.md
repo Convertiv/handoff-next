@@ -5,6 +5,50 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-05 — "The input argument must be ArrayBuffer ([object SharedArrayBuffer])" = sharp's wasm build meets the AWS SDK
+
+Reported from the field-sidebar image generation. **Not our code being wrong — a valid Buffer the AWS SDK
+refuses.**
+
+The chain, each link verified rather than assumed:
+
+1. The string is verbatim from `@smithy/util-buffer-from`'s `fromArrayBuffer`, whose `isArrayBuffer`
+   check is `instanceof ArrayBuffer` — a SharedArrayBuffer fails it.
+2. It is reached from `@smithy/core`'s **`toBase64`**, which — unlike the neighbouring `castSourceData` —
+   has **no `Buffer.isBuffer` short-circuit**: `fromArrayBuffer(input.buffer, input.byteOffset, …)`. So a
+   perfectly ordinary Buffer throws if its *backing store* happens to be shared.
+3. Where does a shared backing store come from? **`@img/sharp-wasm32` is installed**, and its glue has
+   `_emscripten_has_threading_support = () => !!globalThis.SharedArrayBuffer` plus explicit
+   `isSharedArrayBuffer` handling — the threaded WASM heap **is** a SharedArrayBuffer, so
+   `sharp(...).toBuffer()` on the wasm build returns bytes over it.
+4. `HANDOFF_S3_*` is configured, so `storeImageAsset` takes the S3 branch and hands exactly those sharp
+   outputs (the webp body and the thumbnail) to `putToS3` → SDK → `toBase64` → throw.
+
+That is also why it never reproduces in dev: locally sharp resolves to `sharp-darwin-arm64` (native), and
+every buffer here is ArrayBuffer-backed — confirmed by running the whole byte pipeline (sharp 0.35.2 webp
++ metadata + thumbnail + sha256 + base64) with clean results, and by checking `Buffer.allocUnsafe` and
+`createHash().digest()` backing stores. No failed job row exists in the dev DB either, which fits: the
+failure happened where the wasm variant is in use.
+
+**Fix:** `toPlainBuffer` in `image-bytes.ts` — returns the buffer untouched when its backing store is
+already an `ArrayBuffer`, otherwise copies the *view* (not the whole heap) onto
+`Buffer.from(new ArrayBuffer(n))`, which is plain by construction. Applied in `putToS3`, the single point
+where bytes enter the SDK, so every caller and both uploads are covered. Five tests, including one that
+builds a genuinely shared-backed Buffer and asserts the SDK's own check would have rejected it first.
+
+**Worth chasing separately:** the deploy is evidently using sharp's **wasm** build. That is not just this
+bug's cause, it is also several times slower than native for every resize. The native Linux binary
+(`@img/sharp-linux-x64`) should be present in the deployment install — worth checking whether optional
+dependencies or a platform mismatch are dropping it.
+
+Also, post-merge fallout worth noting: the ESLint flat-config work renamed `usePostgres` → `isPostgres`
+(because `useX` tripped the react-hooks rule), so the Slice 2 code written before that merge no longer
+compiled. Four call sites updated. And `npm run lint` works now — 0 errors repo-wide, and the review UI is
+warning-free after moving its initial queue fetch into the (already maintainer-gated) server component
+instead of a mount effect, which also removed a real missing-cancellation bug.
+
+---
+
 ## 2026-08-05 — Slice 2: the review inbox, and moving the approve gate so MCP could exist
 
 `/review` + `GET/POST /api/handoff/review[/id]` + `handoff_list_review_queue` / `handoff_review_page`.

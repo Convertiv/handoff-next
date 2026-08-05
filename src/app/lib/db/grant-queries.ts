@@ -376,7 +376,7 @@ export interface ReviewQueueRow {
  * Uses the `pattern_status_idx` added in `0027_guest_authoring`; before that this was a full scan.
  */
 export async function listReviewQueue(limit = 100): Promise<ReviewQueueRow[]> {
-  if (!usePostgres()) return [];
+  if (!isPostgres()) return [];
   const db = getDb();
   const capped = Math.min(Math.max(1, Math.trunc(limit)), 200);
 

@@ -79,6 +79,39 @@ export function decodeImageDataUrl(value: unknown): DecodedImage | null {
  * compression is wrong for authored artwork — a logo or a screenshot with text should be stored as
  * given, which is why callers can opt out rather than this being unconditional.
  */
+/**
+ * Copy bytes onto a backing store the AWS SDK will accept.
+ *
+ * **The bug this fixes.** `@smithy/core`'s `toBase64` — reached whenever the SDK base64s a body or a
+ * checksum — does this, with no `Buffer.isBuffer` short-circuit:
+ *
+ * ```js
+ * return fromArrayBuffer(input.buffer, input.byteOffset, input.byteLength).toString('base64');
+ * ```
+ *
+ * and `fromArrayBuffer` throws on anything failing `instanceof ArrayBuffer`:
+ *
+ *     The "input" argument must be ArrayBuffer. Received type object ([object SharedArrayBuffer])
+ *
+ * A `Buffer` whose backing store is a **SharedArrayBuffer** is a completely valid Buffer, so nothing in
+ * our code is wrong — but the SDK rejects it. Whether Node's Buffer pool is shared depends on the
+ * runtime: it is a plain ArrayBuffer on a normal local Node (which is why this reproduces only on some
+ * deployments and never in dev), and the bytes here pass through OpenAI, base64, and sharp before
+ * reaching S3, any of which may hand back a pooled Buffer.
+ *
+ * Cheapest correct fix: hand the SDK bytes we allocated ourselves. `Buffer.from(new ArrayBuffer(n))` is a
+ * view over a plain ArrayBuffer by construction, so the check cannot fail. The copy is skipped entirely
+ * when the backing store is already fine, which is the normal case.
+ */
+export function toPlainBuffer(bytes: Buffer | Uint8Array): Buffer {
+  // `instanceof` is the same test the SDK applies, so agreeing with it is the point.
+  if (Buffer.isBuffer(bytes) && bytes.buffer instanceof ArrayBuffer) return bytes;
+
+  const copy = Buffer.from(new ArrayBuffer(bytes.byteLength));
+  copy.set(bytes);
+  return copy;
+}
+
 export function shouldReencodeToWebp(mimeType: StorableImageMimeType, requested = true): boolean {
   if (!requested) return false;
   return mimeType === 'image/png' || mimeType === 'image/jpeg';

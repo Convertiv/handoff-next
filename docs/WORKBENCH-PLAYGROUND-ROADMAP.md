@@ -261,6 +261,63 @@ first-50 `// TODO` removed). Remaining C.2: folders/collections, tags, bulk acti
 - **C.4 Attribution & activity:** show owner/last-editor, recent activity, and per-object history
   (surfacing `edit_history` / `*_change` tables that already exist).
 
+## Phase E — Pages as documents, and templates as the thing you share (Brad, 2026-08-05)
+
+Raised while testing guest authoring. Guest authoring (`docs/GUEST-AUTHORING.md`) built the *back* of this
+flow — write-capable links, a review queue — on top of a playground front end that still behaves like a
+scratchpad. These three close that gap. **E.2 and E.3 are the substantial ones; E.1 is a gap in what
+already exists.**
+
+### E.1 — Surface what Slices 1–2 built (nothing links to it)
+
+Correct observation: the backend exists and **no UI reaches it**. Missing, all small:
+
+- **Nav entry for `/review`**, badged with the pending count. Maintainer-only (the page and every endpoint
+  behind it already enforce `canApprove`, so this is discoverability, not a boundary).
+- **A share control that can mint a write-capable link.** `POST /api/handoff/share` accepts
+  `capabilities`, `label` and `maxUses` today, and nothing calls it with them. Needs: a capability picker
+  (default = the `AUTHORING_CAPABILITIES` set), an expiry (defaults to 14 days), optional max-uses, and a
+  copy-once affordance — **the secret is unrecoverable after creation**, so the UI must say so and offer
+  revoke-and-remint rather than pretending it can show the link again (`GET` returns
+  `secretRecoverable: false` precisely so it can).
+- **A links list per template** — label, capabilities, uses/max, expiry, revoke.
+- Keep guest submissions visible in `/library` under a filter, not only in the review queue.
+
+### E.2 — One save path: everything lands in the library
+
+Drop the "save pattern" control/dropdown. It presents saving as an occasional export when it should be the
+default state of the document.
+
+- Saving is **implicit** (see E.3): there is no save button to find.
+- The library is the single home for pages, so "where did my page go" stops being a question.
+- **Promote-to-template is the headline action on a saved page.** Today `source: 'template'` and
+  `template_id` exist and nothing sets them from the UI — a saved page becomes a template by being marked
+  one, then it can carry a share link. The flow should read: *save (automatic) → mark as template → get a
+  link to send*, with the guardrail editor (Slice 3) attached to the template, since that is the object
+  whose limits matter.
+- A template needs a visibly different identity from an ordinary page in the library — it is the thing
+  strangers will build from.
+
+### E.3 — `playground/{page}` as a real route, autosaved, no local storage
+
+The current playground keeps working state client-side and reloads "old stuff" on entry. Make a page a
+document:
+
+- **Real route** `/playground/{id}` for an existing page; `/playground/new` (or a redirect after creating
+  the record) for a fresh one. A page has a URL that can be linked, bookmarked and shared internally.
+- **Autosave to the record**, debounced, with a visible saved/saving state — the guest authoring surface
+  already does exactly this against `PATCH …/guest/submission` and is the smaller proof of the pattern.
+- **Remove the local-storage rehydrate.** "New" must mean a clean canvas; today's behaviour of restoring
+  prior work is the single most confusing thing about the surface.
+- **Migration care:** anyone with unsaved local state loses it on deploy unless it is drained once into a
+  real record on first load. Worth a one-time "we saved your working draft as …" rather than silence.
+- This also fixes a real bug class: local-only state cannot be reviewed, shared, or recovered on another
+  device, and every feature after this one (review, templates, guest links) assumes a record exists.
+
+**Sequencing:** E.1 first (hours, and it makes Slices 1–2 usable at all). E.3 before E.2, because "one
+save path" is only coherent once the record is the source of truth. Guardrails (Slice 3, below) attach to
+templates, so they are usable before E.2 and better after it.
+
 ## Phase D — Outbound export (ship assets to Jira / Asana / CMS / Figma)
 
 Nothing exists today (Figma is inbound-only; sync is Handoff-internal registry ⇄ workspace). Build a
@@ -317,6 +374,7 @@ install needs a Blob store from first boot — 3.1 provisions it as a standard p
 | B | Visibility enum + share links + grants | A done |
 | C | Lifecycle, library org, concurrency, attribution | A done (B parallel) |
 | D | Outbound export adapters on the event backbone | A done; demand-driven |
+| E | Pages as documents; one save path; templates as the shared object | B done; E.1 → E.3 → E.2 |
 
 **Open decisions (not blocking Phase 0):**
 - C.3 concurrency: optimistic-lock only, or invest in real-time multiplayer? (Recommend lock-first.)

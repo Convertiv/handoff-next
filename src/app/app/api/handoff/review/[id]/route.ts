@@ -5,6 +5,7 @@ import { getActorGrant } from '@/lib/db/grant-queries';
 import { reviewPattern } from '@/lib/db/pattern-write';
 import { getDbPatternById } from '@/lib/db/queries';
 import { diffSubmissionAgainstTemplate, type PatternComponentEntry } from '@/lib/guest-editable';
+import { checkGuardrails, guardrailsFromPatternData } from '@/lib/authoring-guardrails';
 
 /**
  * What did the author actually change?
@@ -38,6 +39,16 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const blocks = diffSubmissionAgainstTemplate(submissionBlocks, templateBlocks, values);
 
+  /**
+   * Guardrail findings as annotations, not gates. Blocking ones cannot normally survive to review (the
+   * submit path refuses them), so any that appear here mean the rules changed *after* submission — worth
+   * showing a reviewer rather than hiding. Advisory ones — a missing alt, weak link text — are exactly
+   * what a human should weigh.
+   */
+  const fromTemplate = guardrailsFromPatternData(template?.data);
+  const config = Object.keys(fromTemplate).length ? fromTemplate : guardrailsFromPatternData(row.data);
+  const findings = checkGuardrails(submissionBlocks, values, config);
+
   return NextResponse.json({
     submission: {
       id: row.id,
@@ -51,6 +62,7 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     },
     blocks,
     changedCount: blocks.reduce((n, b) => n + b.changes.length, 0),
+    findings,
   });
 }
 

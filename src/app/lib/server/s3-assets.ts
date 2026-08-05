@@ -1,6 +1,7 @@
 import { CloudFrontClient, CreateInvalidationCommand } from '@aws-sdk/client-cloudfront';
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { toPlainBuffer } from '@/lib/image-bytes';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -112,7 +113,13 @@ export async function putToS3(
     new PutObjectCommand({
       Bucket: cfg.bucket,
       Key: key,
-      Body: buffer,
+      /**
+       * Normalized because the SDK's `toBase64` reads `Body.buffer` and requires it to be an
+       * `ArrayBuffer` — a Buffer over a *shared* pool throws "The \"input\" argument must be
+       * ArrayBuffer. Received type object ([object SharedArrayBuffer])" even though the Buffer is
+       * perfectly valid. Done here, at the one place bytes enter the SDK, rather than at each caller.
+       */
+      Body: toPlainBuffer(buffer),
       ContentType: contentType,
       CacheControl: 'public, max-age=31536000, immutable',
     })

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { handoffApiUrl } from '@/lib/api-path';
 
 /**
@@ -34,14 +34,26 @@ interface Change {
   kind: 'text' | 'image';
 }
 
+interface Finding {
+  label: string;
+  severity: 'blocking' | 'advisory';
+  code: string;
+  message: string;
+}
+
 interface Detail {
   blocks: { componentId: string; index: number; changes: Change[] }[];
   changedCount: number;
+  findings?: Finding[];
 }
 
-export default function ReviewQueueClient() {
-  const [rows, setRows] = useState<QueueRow[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function ReviewQueueClient({ initialRows }: { initialRows: QueueRow[] }) {
+  /**
+   * Seeded from the server component, which is already maintainer-gated and can query the queue
+   * directly — so there is no fetch-on-mount, no loading flash, and nothing setting state from an
+   * effect. `load` remains for refreshing after a conflict, where it runs from an event handler.
+   */
+  const [rows, setRows] = useState<QueueRow[]>(initialRows);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, Detail>>({});
@@ -49,24 +61,21 @@ export default function ReviewQueueClient() {
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, string>>({});
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  /** Refresh after a conflict. Leaves the current rows on screen rather than flashing a loading state. */
+  const load = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(handoffApiUrl('/api/handoff/review'), { credentials: 'include' });
+      const res = await fetch(handoffApiUrl('/api/handoff/review'), { credentials: 'include', signal });
       const json = (await res.json()) as { submissions?: QueueRow[]; error?: string };
+      if (signal?.aborted) return;
       if (!res.ok) throw new Error(json.error || 'Could not load the review queue.');
       setRows(json.submissions ?? []);
+      setError(null);
     } catch (e) {
+      // An abort is an unmount, not a failure to report.
+      if (signal?.aborted || (e instanceof DOMException && e.name === 'AbortError')) return;
       setError(e instanceof Error ? e.message : 'Could not load the review queue.');
-    } finally {
-      setLoading(false);
     }
   }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const toggle = async (id: string) => {
     if (openId === id) {
@@ -111,14 +120,6 @@ export default function ReviewQueueClient() {
       setBusy(null);
     }
   };
-
-  if (loading) {
-    return (
-      <p className="text-sm text-muted-foreground" role="status">
-        Loading the review queue…
-      </p>
-    );
-  }
 
   return (
     <div className="space-y-4">
@@ -211,6 +212,28 @@ export default function ReviewQueueClient() {
                         </div>
                       ))
                   )}
+
+                  {detail?.findings?.length ? (
+                    <div>
+                      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Worth a look
+                      </h3>
+                      <ul className="mt-2 space-y-1">
+                        {detail.findings.map((f, i) => (
+                          <li key={`${f.code}-${i}`} className="text-sm text-muted-foreground">
+                            <span className={f.severity === 'blocking' ? 'text-amber-700' : ''}>
+                              {f.severity === 'blocking' ? '!' : '•'}
+                            </span>{' '}
+                            {f.message}
+                          </li>
+                        ))}
+                      </ul>
+                      {/* Advisory by design: these annotate the decision, they do not make it. */}
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        These don’t block approval — they’re for you to weigh.
+                      </p>
+                    </div>
+                  ) : null}
 
                   <div className="space-y-2">
                     <label htmlFor={`note-${row.id}`} className="block text-sm font-medium">

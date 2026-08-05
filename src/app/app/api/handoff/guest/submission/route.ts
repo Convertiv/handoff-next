@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { isAuthorizationError } from '@/lib/authz/policy';
 import { createGuestSubmission, patchGuestSubmission } from '@/lib/db/pattern-write';
 import { getDbPatternById } from '@/lib/db/queries';
+import { guardrailsFromPatternData } from '@/lib/authoring-guardrails';
 import { readGuestContext, type GuestContext } from '@/lib/server/guest-context';
 import { guestCookieName, guestCookieOptions, issueGuestSession } from '@/lib/server/guest-session';
 
@@ -150,6 +151,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ submission: null });
   }
 
+  /**
+   * The guardrail config travels with the submission so the editor enforces exactly what the server will
+   * at submit — resolved from the **template**, which is where limits are authored. Sending the resolved
+   * config rather than letting the client find it means one resolution rule, not two.
+   */
+  const template = row.templateId ? await getDbPatternById(row.templateId) : null;
+  const fromTemplate = guardrailsFromPatternData(template?.data);
+  const guardrails = Object.keys(fromTemplate).length ? fromTemplate : guardrailsFromPatternData(row.data);
+
   return NextResponse.json({
     submission: {
       id: row.id,
@@ -161,5 +171,6 @@ export async function GET(request: NextRequest) {
       updatedAt: row.updatedAt,
     },
     capabilities: ctx.guest.capabilities,
+    guardrails,
   });
 }

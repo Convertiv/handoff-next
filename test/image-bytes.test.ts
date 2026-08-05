@@ -7,6 +7,7 @@ import {
   extensionForMimeType,
   isStorableImageMimeType,
   shouldReencodeToWebp,
+  toPlainBuffer,
 } from '../src/app/lib/image-bytes';
 
 const png = (payload: string) => `data:image/png;base64,${Buffer.from(payload).toString('base64')}`;
@@ -138,5 +139,63 @@ describe('asset dedupe and missing bytes', () => {
     const id = assetIdForBytes(Buffer.from('x'));
     assert.match(id, /^img_[0-9a-f]{12}$/);
     assert.equal(`/api/handoff/assets/${id}/raw`.includes(id), true);
+  });
+});
+
+describe('toPlainBuffer', () => {
+  /**
+   * The reported failure: "The \"input\" argument must be ArrayBuffer. Received type object
+   * ([object SharedArrayBuffer])" from `@smithy/core`'s `toBase64`, which reads `input.buffer` and
+   * requires `instanceof ArrayBuffer` — with no `Buffer.isBuffer` short-circuit. A Buffer over a shared
+   * pool is valid but rejected, and whether the pool is shared depends on the runtime, so this cannot be
+   * reproduced by allocating normally. It is constructed explicitly instead.
+   */
+  const sharedBacked = (bytes: number[]): Buffer => {
+    const sab = new SharedArrayBuffer(bytes.length);
+    const view = new Uint8Array(sab);
+    view.set(bytes);
+    return Buffer.from(sab) as Buffer;
+  };
+
+  /** The SDK's own check, copied so the test fails for the same reason the SDK would. */
+  const sdkWouldAccept = (b: Buffer) => b.buffer instanceof ArrayBuffer;
+
+  it('rehomes a shared-backed buffer so the SDK check passes', () => {
+    const shared = sharedBacked([1, 2, 3, 250]);
+    assert.equal(sdkWouldAccept(shared), false, 'precondition: the SDK would reject this');
+
+    const plain = toPlainBuffer(shared);
+    assert.equal(sdkWouldAccept(plain), true);
+    assert.ok(Buffer.isBuffer(plain));
+    assert.deepEqual([...plain], [1, 2, 3, 250], 'contents must survive the copy');
+  });
+
+  it('returns an already-plain buffer untouched, with no copy', () => {
+    const plain = Buffer.from([9, 8, 7]);
+    assert.strictEqual(toPlainBuffer(plain), plain);
+  });
+
+  it('rehomes a plain Uint8Array into a real Buffer', () => {
+    const view = new Uint8Array([4, 5, 6]);
+    const out = toPlainBuffer(view);
+    assert.ok(Buffer.isBuffer(out));
+    assert.deepEqual([...out], [4, 5, 6]);
+  });
+
+  it('copies only the view, not the whole shared pool', () => {
+    // A pooled Buffer is a window onto a much larger allocation; copying the backing store instead of
+    // the view would both waste memory and change the bytes.
+    const sab = new SharedArrayBuffer(64);
+    new Uint8Array(sab).set([1, 2, 3, 4, 5, 6, 7, 8]);
+    const window = Buffer.from(sab, 2, 3) as Buffer;
+    const out = toPlainBuffer(window);
+    assert.equal(out.byteLength, 3);
+    assert.deepEqual([...out], [3, 4, 5]);
+  });
+
+  it('handles empty input', () => {
+    const out = toPlainBuffer(sharedBacked([]));
+    assert.equal(out.byteLength, 0);
+    assert.equal(out.buffer instanceof ArrayBuffer, true);
   });
 });

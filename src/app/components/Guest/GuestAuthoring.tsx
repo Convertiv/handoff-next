@@ -11,6 +11,14 @@ import {
   type PatternComponentEntry,
 } from '@/lib/guest-editable';
 import type { ShareCapability } from '@/lib/authz/vocab';
+import {
+  blockingFindings,
+  checkGuardrails,
+  resolveFieldGuardrail,
+  summarizeBlocking,
+  type GuardrailConfig,
+  type GuardrailFinding,
+} from '@/lib/authoring-guardrails';
 
 /**
  * Guest authoring surface for a shared template — the browser half of `docs/GUEST-AUTHORING.md`.
@@ -58,6 +66,8 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
   const [components, setComponents] = useState<PatternComponentEntry[]>([]);
   const [values, setValues] = useState<Record<string, unknown>[]>([]);
   const [pageData, setPageData] = useState<Record<string, unknown>>({});
+  /** Authored on the template and resolved server-side, so the editor and the submit check agree. */
+  const [guardrails, setGuardrails] = useState<GuardrailConfig>({});
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'failed'>('idle');
   const [submitMessage, setSubmitMessage] = useState('');
 
@@ -128,6 +138,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
         components?: unknown;
         data?: unknown;
       } | null;
+      guardrails?: GuardrailConfig;
       error?: string;
     };
     if (!res.ok || !json.submission) throw new Error(json.error || 'Could not load the page.');
@@ -143,6 +154,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
     setComponents(comps);
     setValues(vals);
     setPageData(data);
+    setGuardrails(json.guardrails ?? {});
     latest.current = { values: vals, data };
     setPhase(json.submission.status === 'draft' ? 'editing' : 'submitted');
   };
@@ -248,6 +260,24 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
     }
   };
 
+  /**
+   * The same check the server runs at submit, over the same merged values — so what the editor shows and
+   * what the server enforces cannot disagree. Advisory findings are surfaced but never block.
+   */
+  const findings = useMemo(
+    () => checkGuardrails(components, values, guardrails),
+    [components, values, guardrails]
+  );
+  const blocking = useMemo(() => blockingFindings(findings), [findings]);
+  const blockingByPath = useMemo(() => {
+    const map = new Map<string, GuardrailFinding[]>();
+    for (const f of findings) {
+      const key = `${f.blockIndex}:${f.path ?? ''}`;
+      map.set(key, [...(map.get(key) ?? []), f]);
+    }
+    return map;
+  }, [findings]);
+
   const canSubmit = capabilities.includes('submit_for_review');
   const canUseAssets = capabilities.includes('use_asset_library');
 
@@ -344,6 +374,8 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
             onEdit={edit}
             linkId={linkId}
             canUseAssets={canUseAssets}
+            guardrails={guardrails}
+            findingsFor={(path) => blockingByPath.get(`${index}:${path}`) ?? []}
           />
         ))}
 
@@ -360,13 +392,23 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
             className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
           />
           {canSubmit ? (
-            <button
-              type="button"
-              onClick={submit}
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
-            >
-              Submit for review
-            </button>
+            <>
+              {blocking.length ? (
+                <p role="alert" className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  {summarizeBlocking(findings)}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={submit}
+                disabled={blocking.length > 0}
+                /* Disabled *and* explained: the server refuses these too, so letting the click through
+                   would only trade a clear message for a round trip and an error. */
+                className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+              >
+                Submit for review
+              </button>
+            </>
           ) : (
             <p className="text-sm text-slate-500">
               This link doesn’t include submitting — your work is saved and the owner can pick it up.
@@ -387,6 +429,8 @@ function BlockEditor({
   onEdit,
   linkId,
   canUseAssets,
+  guardrails,
+  findingsFor,
 }: {
   entry: PatternComponentEntry;
   index: number;
@@ -394,6 +438,8 @@ function BlockEditor({
   onEdit: (index: number, path: (string | number)[], value: unknown) => void;
   linkId: string;
   canUseAssets: boolean;
+  guardrails: GuardrailConfig;
+  findingsFor: (path: string) => GuardrailFinding[];
 }) {
   const merged = useMemo(() => mergeBlockArgs(entry, override), [entry, override]);
   const texts = useMemo(() => collectEditableText(merged), [merged]);
@@ -408,14 +454,23 @@ function BlockEditor({
       <div className="mt-3 space-y-3">
         {texts.map((field) => {
           const id = `f-${index}-${field.path.join('-')}`;
+          const path = field.path.join('.');
           const multiline = field.value.length > 90;
+          const rule = resolveFieldGuardrail(guardrails, path);
+          const issues = findingsFor(path);
+          const over = rule.maxLength ? field.value.length > rule.maxLength : false;
           return (
             <div key={id}>
               <label htmlFor={id} className="flex items-baseline justify-between text-sm font-medium text-slate-800">
-                <span>{field.label}</span>
-                {/* A count, not a limit: real per-field constraints arrive with Slice 3's guardrails. */}
-                <span className="text-xs font-normal text-slate-400">{field.value.length}</span>
+                <span>
+                  {field.label}
+                  {rule.required ? <span className="text-amber-700"> *</span> : null}
+                </span>
+                <span className={`text-xs font-normal ${over ? 'text-amber-700' : 'text-slate-400'}`}>
+                  {rule.maxLength ? `${field.value.length}/${rule.maxLength}` : field.value.length}
+                </span>
               </label>
+              {rule.help ? <p className="mt-0.5 text-xs text-slate-500">{rule.help}</p> : null}
               {multiline ? (
                 <textarea
                   id={id}
@@ -432,6 +487,16 @@ function BlockEditor({
                   className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
                 />
               )}
+              {/* No `maxLength` on the input: silently truncating pasted copy loses text without saying
+                  so. The count turns amber, the message says what to do, and submit stays blocked. */}
+              {issues.map((issue) => (
+                <p
+                  key={issue.code}
+                  className={`mt-1 text-xs ${issue.severity === 'blocking' ? 'text-amber-700' : 'text-slate-500'}`}
+                >
+                  {issue.message}
+                </p>
+              ))}
             </div>
           );
         })}
@@ -501,11 +566,16 @@ function ImageSlot({
     [linkId]
   );
 
-  useEffect(() => {
-    if (open) void load(search);
-    // Intentionally not keyed on `search`: typing shouldn't fire a request per character. The form below
-    // submits to search.
-  }, [open, load]); // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * Loaded from the click that opens the picker rather than from an effect on `open`: the fetch is a
+   * response to an interaction, not state synchronization, and doing it here means no setState from an
+   * effect body. Typing does not refetch — the form below submits to search.
+   */
+  const toggleOpen = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && !assets.length) void load(search);
+  };
 
   return (
     <div className="rounded-md border border-slate-200 p-3">
@@ -521,7 +591,7 @@ function ImageSlot({
         {canUseAssets ? (
           <button
             type="button"
-            onClick={() => setOpen((v) => !v)}
+            onClick={toggleOpen}
             className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-800"
           >
             {open ? 'Close' : 'Change'}

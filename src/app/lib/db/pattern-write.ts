@@ -16,6 +16,13 @@ import {
   type ResourceGrant,
 } from '../authz/policy';
 import {
+  blockingFindings,
+  checkGuardrails,
+  guardrailsFromPatternData,
+  summarizeBlocking,
+} from '../authoring-guardrails';
+import type { PatternComponentEntry } from '../guest-editable';
+import {
   decidePatternMetaChange,
   decideReview,
   isMetaDenied,
@@ -408,6 +415,48 @@ async function guestPatternRef(
 }
 
 /**
+ * Run a page's guardrails, reading the rules from **its template**.
+ *
+ * The template is where limits are authored — by the same person who built it — so a page inherits the
+ * rules of what it was made from. A page with no template falls back to its own `data.guardrails`, which
+ * is what makes the check meaningful for a page promoted to a template later.
+ */
+async function checkPatternGuardrails(
+  db: ReturnType<typeof getDb>,
+  id: string
+): Promise<ReturnType<typeof checkGuardrails>> {
+  const [page] = await db
+    .select({
+      components: handoffPatterns.components,
+      data: handoffPatterns.data,
+      templateId: handoffPatterns.templateId,
+    })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.id, id))
+    .limit(1);
+  if (!page) return [];
+
+  let config = guardrailsFromPatternData(page.data);
+  if (page.templateId) {
+    const [template] = await db
+      .select({ data: handoffPatterns.data })
+      .from(handoffPatterns)
+      .where(eq(handoffPatterns.id, page.templateId))
+      .limit(1);
+    const fromTemplate = guardrailsFromPatternData(template?.data);
+    // The template wins when it declares anything; a page's own copy is the fallback, not an override —
+    // otherwise a guest could relax their own limits by writing to `data`.
+    if (Object.keys(fromTemplate).length) config = fromTemplate;
+  }
+  if (!Object.keys(config).length) return [];
+
+  const blocks = (Array.isArray(page.components) ? page.components : []) as PatternComponentEntry[];
+  const overrides = ((page.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
+    []) as unknown[];
+  return checkGuardrails(blocks, overrides, config);
+}
+
+/**
  * Create a guest's draft from the template their link points at.
  *
  * `ownerUserId` is the link's creator: the page has to belong to a real user so it lands in a library,
@@ -545,6 +594,20 @@ export async function submitGuestSubmission(
   const ref = await guestPatternRef(db, id);
   if (!ref) throw new AuthorizationError('This page cannot be submitted with this link.');
   assertGuestCanSubmitPattern(guest, ref);
+
+  /**
+   * Guardrails, enforced here because this is the only place that counts. The authoring UI checks the same
+   * rules as you type, but a limit enforced only in a browser is a suggestion — and the guest write
+   * surface is reachable by anyone holding the link.
+   *
+   * Advisory findings deliberately do not block; they travel to the review queue instead. See
+   * `authoring-guardrails.ts`.
+   */
+  const blocking = blockingFindings(await checkPatternGuardrails(db, id));
+  if (blocking.length) {
+    // A plain Error, not AuthorizationError: the caller has permission, the content does not pass.
+    throw new Error(summarizeBlocking(blocking));
+  }
 
   const [owner] = await db
     .select({ userId: handoffPatterns.userId })
