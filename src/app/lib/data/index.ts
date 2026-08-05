@@ -1,4 +1,4 @@
-import { usePostgres } from '../db/dialect';
+import { isPostgres } from '../db/dialect';
 import { DynamicDataProvider } from './dynamic-provider';
 import { HybridDataProvider } from './hybrid-provider';
 import { StaticDataProvider } from './static-provider';
@@ -18,7 +18,7 @@ let cached: DataProvider | null = null;
 
 export function getDataProvider(): DataProvider {
   if (cached) return cached;
-  cached = usePostgres() ? new DynamicDataProvider() : new StaticDataProvider();
+  cached = isPostgres() ? new DynamicDataProvider() : new StaticDataProvider();
   return cached;
 }
 

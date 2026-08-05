@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 import { resolveChangeWhy, type ChangeEntityType } from '@/lib/server/change-why';
 
 export const runtime = 'nodejs';
@@ -17,7 +17,7 @@ const VALID: ChangeEntityType[] = ['component', 'token', 'page'];
 export async function POST(request: Request): Promise<Response> {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!usePostgres()) return NextResponse.json({ summary: null, source: 'none', aiEnabled: false });
+  if (!isPostgres()) return NextResponse.json({ summary: null, source: 'none', aiEnabled: false });
 
   let body: { entityType?: unknown; id?: unknown };
   try {

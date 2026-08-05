@@ -1,6 +1,6 @@
 import 'server-only';
 import { getClientRuntimeConfig } from '../../components/util';
-import { usePostgres } from '../db/dialect';
+import { isPostgres } from '../db/dialect';
 import type { ClientConfig } from '@handoff/types/config';
 
 /**
@@ -18,7 +18,7 @@ import type { ClientConfig } from '@handoff/types/config';
  */
 export async function getMergedRuntimeConfig(): Promise<ClientConfig> {
   const staticConfig = getClientRuntimeConfig();
-  if (!usePostgres()) return staticConfig;
+  if (!isPostgres()) return staticConfig;
 
   try {
     // Cached read: the root layout calls this on every request, so an uncached

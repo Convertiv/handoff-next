@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 import { isServerAiConfigured } from '@/lib/server/ai-client';
 
 export async function GET(request: Request) {
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return NextResponse.json({ changes: [], total: 0, aiEnabled: false });
   }
   const aiEnabled = isServerAiConfigured();

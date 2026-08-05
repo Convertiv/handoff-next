@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 
 /**
  * GET /api/handoff/components/history?id=<componentId>&limit=<n>
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing id parameter' }, { status: 400 });
   }
 
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return NextResponse.json({ versions: [], total: 0, aiEnabled: false });
   }
 

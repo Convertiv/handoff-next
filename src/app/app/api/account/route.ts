@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { usePostgres } from '@/lib/db/dialect';
+import { isPostgres } from '@/lib/db/dialect';
 import { getDb } from '@/lib/db/index';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -10,7 +10,7 @@ export async function PUT(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (!usePostgres()) {
+  if (!isPostgres()) {
     return NextResponse.json({ error: 'Postgres required' }, { status: 400 });
   }
 
