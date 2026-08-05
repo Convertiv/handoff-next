@@ -12,13 +12,6 @@ import { handoffApiUrl } from '@/lib/api-path';
 import { renderPreview } from './Preview';
 import type { BulkComponentEntry, PlaygroundComponent, SelectedPlaygroundComponent } from './types';
 
-interface Template {
-  name: string;
-  components: SelectedPlaygroundComponent[];
-  created_at: string;
-  updated_at: string;
-}
-
 export type { BulkComponentEntry };
 
 interface PlaygroundContextType {
@@ -53,10 +46,6 @@ interface PlaygroundContextType {
   recoveredDraft: { count: number } | null;
   restoreRecoveredDraft: () => void;
   discardRecoveredDraft: () => void;
-  templates: Template[];
-  saveAsTemplate: (templateName: string) => void;
-  loadTemplate: (templateName: string) => void;
-  deleteTemplate: (templateName: string) => void;
   isDynamicApp: boolean;
 }
 
@@ -134,7 +123,6 @@ export function PlaygroundProvider({
   const [selectedComponents, setSelectedComponents] = useState<SelectedPlaygroundComponent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<Template[]>([]);
   const [activeComponentId, setActiveComponentId] = useState<string | null>(null);
   const [editingPatternId, setEditingPatternId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'off' | 'idle' | 'saving' | 'saved' | 'failed'>('off');
@@ -170,7 +158,7 @@ export function PlaygroundProvider({
     };
 
     loadComponents();
-    setTemplates(getTemplatesFromStorage());
+    purgeRetiredLocalTemplates();
   }, [basePath]);
 
   /**
@@ -489,41 +477,6 @@ export function PlaygroundProvider({
     }
   }, []);
 
-  const saveAsTemplate = useCallback(
-    (templateName: string) => {
-      if (isDynamicApp) {
-        return;
-      }
-      const template: Template = {
-        name: templateName,
-        components: selectedComponents,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      setTemplates((prev) => [...prev, template]);
-      localStorage.setItem(`${TEMPLATE_PREFIX}${templateName}`, JSON.stringify(template));
-    },
-    [selectedComponents, isDynamicApp]
-  );
-
-  const loadTemplate = useCallback((templateName: string) => {
-    const raw = localStorage.getItem(`${TEMPLATE_PREFIX}${templateName}`);
-    if (raw) {
-      try {
-        const template = JSON.parse(raw);
-        setSelectedComponents(template.components || []);
-        setEditingPatternId(null);
-      } catch {
-        // ignore
-      }
-    }
-  }, []);
-
-  const deleteTemplate = useCallback((templateName: string) => {
-    setTemplates((prev) => prev.filter((t) => t.name !== templateName));
-    localStorage.removeItem(`${TEMPLATE_PREFIX}${templateName}`);
-  }, []);
-
   return (
     <PlaygroundContext.Provider
       value={{
@@ -541,16 +494,12 @@ export function PlaygroundProvider({
         removeComponent,
         updateComponent,
         onDragEnd,
-        templates,
-        saveAsTemplate,
         saveState,
         isTemplate,
         cloneToNewPage,
         recoveredDraft,
         restoreRecoveredDraft,
         discardRecoveredDraft,
-        loadTemplate,
-        deleteTemplate,
         isDynamicApp,
       }}
     >
@@ -559,29 +508,27 @@ export function PlaygroundProvider({
   );
 }
 
-function getTemplatesFromStorage(): Template[] {
-  const templates: Template[] = [];
-  if (typeof localStorage === 'undefined') return templates;
-  for (let i = 0; i < localStorage.length; i++) {
+/**
+ * One-time cleanup for the retired browser-local "templates" feature (roadmap E.2d).
+ *
+ * That feature stored canvases under `handoff-playground-template-*` in a single browser — invisible to
+ * sharing, review, and every other machine — and it now collides with real templates
+ * (`savePageAsTemplate`). It is gone, and its keys go with it rather than lingering in people's browsers
+ * forever.
+ *
+ * Accepting the data loss is a deliberate call (Brad, 2026-08-05) on the grounds that creating one was
+ * already impossible: `saveAsTemplate` returned early whenever `isDynamicApp`, which has been hardcoded
+ * true since static export mode was removed. Only a pre-removal build could have written one.
+ */
+function purgeRetiredLocalTemplates(): void {
+  if (typeof localStorage === 'undefined') return;
+  const stale: string[] = [];
+  for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
-    if (key && key.startsWith(TEMPLATE_PREFIX)) {
-      try {
-        const raw = localStorage.getItem(key);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          templates.push({
-            name: key.replace(TEMPLATE_PREFIX, ''),
-            components: parsed.components || [],
-            created_at: parsed.created_at || new Date().toISOString(),
-            updated_at: parsed.updated_at || new Date().toISOString(),
-          });
-        }
-      } catch {
-        // ignore
-      }
-    }
+    if (key?.startsWith(TEMPLATE_PREFIX)) stale.push(key);
   }
-  return templates;
+  // Collected first: removing while iterating shifts the indices underneath the loop.
+  for (const key of stale) localStorage.removeItem(key);
 }
 
 export function usePlayground() {

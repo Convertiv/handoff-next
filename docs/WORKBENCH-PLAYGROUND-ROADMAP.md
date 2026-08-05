@@ -305,9 +305,11 @@ save button, clone-of-a-template recording `template_id`, and "page" wording.
 - **E.2c — Drop the "Saved pages" control.** Opening a page belongs in the library, not in a modal inside
   the builder. Remove the `FolderOpen` control and retire `PatternPicker` once E.2a means the library can
   open *and* share. (This is the control Brad asked to drop; it is still there.)
-- **E.2d — Remove the browser-local template code path** (`saveAsTemplate`/`loadTemplate`/`deleteTemplate`,
-  `TemplateManager`'s local section). Creation is already disabled; existing local templates stay loadable
-  so they can be converted first.
+- **E.2d — ✅ DONE 2026-08-05.** `TemplateManager`, `saveAsTemplate`/`loadTemplate`/`deleteTemplate`, the
+  `templates` state and the `Template` type are gone, plus a one-time `purgeRetiredLocalTemplates()` sweep of
+  the `handoff-playground-template-*` keys. Data loss accepted deliberately: `saveAsTemplate` returned early
+  whenever `isDynamicApp`, which has been hardcoded `true` since static export was removed — so only a
+  pre-removal build could ever have written one.
 
 ### E.3 — `playground/{page}` as a real route, autosaved, no local storage
 
