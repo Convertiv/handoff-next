@@ -327,7 +327,7 @@ document:
 - This also fixes a real bug class: local-only state cannot be reviewed, shared, or recovered on another
   device, and every feature after this one (review, templates, guest links) assumes a record exists.
 
-### E.5 — Guests use the real editor (Brad, 2026-08-05)
+### E.5 — Guests use the real editor — ✅ DONE 2026-08-05
 
 > "It's weird to edit the field with no preview. We've already built an editor, we should reuse. Rising tide
 > lifts all boats."
@@ -354,8 +354,10 @@ What actually has to change, all in two files:
   `(blocks, overrides, config)`, so the same per-field limits, counters and blocked submit work in the reused
   editor without change.
 
-Retire `GuestAuthoring`'s hand-rolled field list once the reused editor covers it; keep its shell (name gate,
-submit-with-note, session handling), which is guest-specific and correct.
+**Shipped exactly this.** `GuestEditor` injects the adapter; `GuestAuthoring` kept its shell and lost 373
+lines. Two follow-ons worth knowing: the same `structuralEditing: false` mode fixed the frozen-template view
+(previously a banner over an interactive canvas), and per-field guardrail *hinting* regressed to
+server-enforcement-only until the shared block editor learns about guardrails — folded into E.4.
 
 **Why it is worth doing beyond the guest flow:** the same "no structural editing" mode is what makes a frozen
 template view honest, and every future improvement to the block editor reaches guests automatically.

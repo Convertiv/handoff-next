@@ -14,6 +14,23 @@ import type { BulkComponentEntry, PlaygroundComponent, SelectedPlaygroundCompone
 
 export type { BulkComponentEntry };
 
+/**
+ * How a surface loads and saves the canvas (roadmap E.5).
+ *
+ * The editor used to hardcode the authenticated path — session-gated, pattern detail endpoint, `updatePattern`
+ * server action. A guest filling in a template needs the identical lifecycle against the guest endpoints, and
+ * building a *second* editor for them is how the two drift (which is exactly what the hand-rolled fields-only
+ * guest form was). So persistence is injected and everything above it is shared.
+ *
+ * Omit it and the authenticated behaviour applies unchanged.
+ */
+export interface PlaygroundPersistence {
+  /** Blocks + per-block override values for the record this surface owns. Null if there is nothing yet. */
+  hydrate: () => Promise<{ components: PatternComponentEntry[]; values: Record<string, unknown>[] } | null>;
+  /** Save the canvas. Throwing marks the save failed; the canvas keeps the work either way. */
+  persist: (blocks: SelectedPlaygroundComponent[]) => Promise<void>;
+}
+
 interface PlaygroundContextType {
   components: PlaygroundComponent[];
   selectedComponents: SelectedPlaygroundComponent[];
@@ -41,6 +58,17 @@ interface PlaygroundContextType {
   saveState: 'off' | 'idle' | 'saving' | 'saved' | 'failed';
   /** True when the open record is a frozen template: read-only, clone to edit. */
   isTemplate: boolean;
+  /**
+   * Whether the *structure* of the page may change — add, remove, reorder blocks. False for a guest filling
+   * in a template and for a frozen template being viewed (roadmap E.5). Content editing is unaffected: the
+   * point is one editor with one capability switch, not a second editor.
+   */
+  structuralEditing: boolean;
+  /**
+   * Whether the AI builder is offered. False for guests: every endpoint it calls requires a session, so the
+   * control would be an invitation to a 401.
+   */
+  aiAssistantEnabled: boolean;
   /** Copy this template into a new editable page and go there. Resolves to the new page id. */
   cloneToNewPage: () => Promise<string | null>;
   recoveredDraft: { count: number } | null;
@@ -109,10 +137,18 @@ export function PlaygroundProvider({
   children,
   initialPatternId,
   initialIsTemplate = false,
+  structuralEditing: structuralEditingProp,
+  persistence,
+  aiAssistantEnabled = true,
 }: {
   children: ReactNode;
   initialPatternId?: string;
   initialIsTemplate?: boolean;
+  /** Defaults to "allowed, unless this is a frozen template". */
+  structuralEditing?: boolean;
+  /** Injected by surfaces that are not the authenticated playground — see `PlaygroundPersistence`. */
+  persistence?: PlaygroundPersistence;
+  aiAssistantEnabled?: boolean;
 }) {
   const { status } = useSession();
   /** Full Handoff server (DB-backed patterns, etc.); static export mode has been removed. */
@@ -132,6 +168,8 @@ export function PlaygroundProvider({
    * and silently isn't.
    */
   const [isTemplate] = useState(initialIsTemplate);
+  // A template is never structurally editable; otherwise the surface decides.
+  const structuralEditing = isTemplate ? false : (structuralEditingProp ?? true);
   const [recoveredDraft, setRecoveredDraft] = useState<{ count: number } | null>(null);
   /** Held outside state: it is data to restore on request, not something the canvas renders. */
   const recoveredRef = useRef<SelectedPlaygroundComponent[] | null>(null);
@@ -264,7 +302,12 @@ export function PlaygroundProvider({
   const creatingRef = useRef(false);
 
   useEffect(() => {
-    if (!isDynamicApp || status !== 'authenticated') {
+    /**
+     * An injected adapter is its own authorization: a guest has no session but does have a signed cookie and
+     * a record to write to. Only the built-in (authenticated) path needs the session check.
+     */
+    const canPersist = persistence ? true : isDynamicApp && status === 'authenticated';
+    if (!canPersist) {
       setSaveState('off');
       persistedRef.current = null;
       return;
@@ -286,7 +329,7 @@ export function PlaygroundProvider({
      * Guarded by a ref rather than state so two quick edits cannot race into two records — the first
      * block creates exactly one page.
      */
-    if (!editingPatternId) {
+    if (!editingPatternId && !persistence) {
       if (!selectedComponents.length || creatingRef.current) {
         setSaveState('off');
         return;
@@ -314,6 +357,12 @@ export function PlaygroundProvider({
       return;
     }
 
+    // With an adapter the record is whatever the adapter owns, so there is no id to wait for.
+    if (persistence && !selectedComponents.length) {
+      setSaveState('off');
+      return;
+    }
+
     const snapshot = JSON.stringify(selectedComponents);
     if (persistedRef.current === null) {
       // First observation for this record: treat what is on screen as already saved.
@@ -329,18 +378,22 @@ export function PlaygroundProvider({
       void (async () => {
         setSaveState('saving');
         try {
-          const { components, payload } = buildPatternPayload(
-            editingPatternId,
-            '',
-            '',
-            '',
-            [],
-            selectedComponents,
-            basePath
-          );
-          // Title/description/group/tags are deliberately NOT sent: they are edited elsewhere, and an
-          // empty string here would wipe them. Autosave owns the canvas, nothing else.
-          await updatePattern(editingPatternId, { components, data: payload });
+          if (persistence) {
+            await persistence.persist(selectedComponents);
+          } else {
+            const { components, payload } = buildPatternPayload(
+              editingPatternId!,
+              '',
+              '',
+              '',
+              [],
+              selectedComponents,
+              basePath
+            );
+            // Title/description/group/tags are deliberately NOT sent: they are edited elsewhere, and an
+            // empty string here would wipe them. Autosave owns the canvas, nothing else.
+            await updatePattern(editingPatternId!, { components, data: payload });
+          }
           persistedRef.current = snapshot;
           setSaveState('saved');
         } catch (e) {
@@ -353,7 +406,7 @@ export function PlaygroundProvider({
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath, router, isTemplate]);
+  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath, router, isTemplate, persistence]);
 
   const bulkAddComponents = useCallback(
     async (entries: BulkComponentEntry[], replace = true) => {
@@ -434,9 +487,33 @@ export function PlaygroundProvider({
   );
 
   useEffect(() => {
+    /**
+     * With an adapter the surface owns loading: a guest hydrates from the guest endpoint, which needs no
+     * session and no pattern id in the URL. Same merge as `loadPatternById` — template args underneath, the
+     * override layer on top — so the canvas is identical either way.
+     */
+    if (persistence) {
+      void (async () => {
+        try {
+          const loaded = await persistence.hydrate();
+          if (!loaded) return;
+          const entries: BulkComponentEntry[] = loaded.components.map((c, i) => ({
+            componentId: c.id,
+            data: {
+              ...(typeof c.args === 'object' && c.args !== null ? c.args : {}),
+              ...(loaded.values[i] && typeof loaded.values[i] === 'object' ? loaded.values[i] : {}),
+            } as Record<string, any>,
+          }));
+          await bulkAddComponents(entries, true);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Could not load this page.');
+        }
+      })();
+      return;
+    }
     if (!initialPatternId || !isDynamicApp || status === 'loading' || status === 'unauthenticated') return;
     void loadPatternById(initialPatternId, true);
-  }, [initialPatternId, isDynamicApp, status, loadPatternById]);
+  }, [initialPatternId, isDynamicApp, status, loadPatternById, persistence, bulkAddComponents]);
 
   const addComponent = useCallback(
     async (component: PlaygroundComponent) => {
@@ -496,6 +573,8 @@ export function PlaygroundProvider({
         onDragEnd,
         saveState,
         isTemplate,
+        structuralEditing,
+        aiAssistantEnabled,
         cloneToNewPage,
         recoveredDraft,
         restoreRecoveredDraft,

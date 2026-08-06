@@ -135,6 +135,8 @@ export default function PlaygroundBuilder() {
     updateComponent,
     saveState,
     isTemplate,
+    structuralEditing,
+    aiAssistantEnabled,
     cloneToNewPage,
     recoveredDraft,
     restoreRecoveredDraft,
@@ -152,7 +154,7 @@ export default function PlaygroundBuilder() {
   // Open when starting a new page, closed when opening an existing pattern. A blank canvas has nothing
   // to look at yet, so the chat IS the starting point; arriving to edit a saved pattern is a different
   // intent and shouldn't have the preview narrowed for it.
-  const [aiPanelOpen, setAiPanelOpen] = useState(() => !editingPatternId);
+  const [aiPanelOpen, setAiPanelOpen] = useState(() => aiAssistantEnabled && !editingPatternId);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   const previewContainerRef = useRef<HTMLDivElement>(null);
   // The canvas preview iframe — shared with the right-panel editor so field
@@ -196,12 +198,16 @@ export default function PlaygroundBuilder() {
   useEffect(() => {
     const render = async () => {
       setLoadingHtml(true);
-      const result = await constructComponentPreview(selectedComponents, basePath, { injectBlockControls: true });
+      const result = await constructComponentPreview(selectedComponents, basePath, {
+        injectBlockControls: true,
+        // Edit yes, remove no, when the structure is fixed (roadmap E.5).
+        allowDelete: structuralEditing,
+      });
       setHtml(result);
       setLoadingHtml(false);
     };
     render();
-  }, [selectedComponents, basePath]);
+  }, [selectedComponents, basePath, structuralEditing]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -209,14 +215,15 @@ export default function PlaygroundBuilder() {
         const { action, blockId } = event.data;
         if (action === 'edit') {
           setActiveComponentId(blockId);
-        } else if (action === 'delete') {
+        } else if (action === 'delete' && structuralEditing) {
+          // Gated here as well as in the injected script: the iframe's messages are input, not instructions.
           removeComponent(blockId);
         }
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [setActiveComponentId, removeComponent]);
+  }, [setActiveComponentId, removeComponent, structuralEditing]);
 
   if (loading) {
     return (
@@ -385,20 +392,22 @@ export default function PlaygroundBuilder() {
             </>
           )}
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 w-8 p-0"
-                onClick={() => setAiPanelOpen((v) => !v)}
-                aria-label={aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}
-              >
-                <SparklesIcon className={cn('h-4 w-4 transition-colors', aiPanelOpen && 'text-primary')} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}</TooltipContent>
-          </Tooltip>
+          {aiAssistantEnabled ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0"
+                  onClick={() => setAiPanelOpen((v) => !v)}
+                  aria-label={aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}
+                >
+                  <SparklesIcon className={cn('h-4 w-4 transition-colors', aiPanelOpen && 'text-primary')} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{aiPanelOpen ? 'Hide AI builder' : 'Build with AI'}</TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
 
         {/* Center group — viewport controls */}
@@ -532,7 +541,11 @@ export default function PlaygroundBuilder() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-2">
-              {selectedComponents.length === 0 ? (
+              {selectedComponents.length === 0 && !structuralEditing ? (
+                <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+                  This page has no blocks yet.
+                </p>
+              ) : selectedComponents.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center px-4">
                   <ComponentLibrary
                     trigger={
@@ -549,36 +562,63 @@ export default function PlaygroundBuilder() {
                   />
                 </div>
               ) : (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                  <SortableContext items={selectedComponents.map((c) => c.uniqueId)} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-0.5">
-                      {selectedComponents.map((component) => (
-                        <SortableItem
-                          key={component.uniqueId}
-                          component={component}
-                          isActive={component.uniqueId === activeComponentId}
-                          onClick={() => setActiveComponentId(
-                            component.uniqueId === activeComponentId ? null : component.uniqueId
-                          )}
-                          onRemove={removeComponent}
-                        />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
+                /**
+                 * Same rail either way, minus the drag context and the remove control when the structure is
+                 * fixed. Wrapping in DndContext but ignoring drops would still show grab cursors and drag
+                 * shadows for something that cannot happen.
+                 */
+                (structuralEditing ? (
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                    <SortableContext items={selectedComponents.map((c) => c.uniqueId)} strategy={verticalListSortingStrategy}>
+                      <div className="space-y-0.5">
+                        {selectedComponents.map((component) => (
+                          <SortableItem
+                            key={component.uniqueId}
+                            component={component}
+                            isActive={component.uniqueId === activeComponentId}
+                            onClick={() => setActiveComponentId(
+                              component.uniqueId === activeComponentId ? null : component.uniqueId
+                            )}
+                            onRemove={removeComponent}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
+                ) : (
+                  <div className="space-y-0.5">
+                    {selectedComponents.map((component) => (
+                      <button
+                        key={component.uniqueId}
+                        type="button"
+                        onClick={() => setActiveComponentId(
+                          component.uniqueId === activeComponentId ? null : component.uniqueId
+                        )}
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm',
+                          component.uniqueId === activeComponentId ? 'bg-muted font-medium' : 'hover:bg-muted/50'
+                        )}
+                      >
+                        <span className="truncate">{component.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                ))
               )}
             </div>
 
-            <div className="border-t p-3">
-              <ComponentLibrary
-                trigger={
-                  <Button variant="outline" size="sm" className="w-full gap-2 border-dashed">
-                    <Plus className="h-4 w-4" />
-                    Add Block
-                  </Button>
-                }
-              />
-            </div>
+            {structuralEditing ? (
+              <div className="border-t p-3">
+                <ComponentLibrary
+                  trigger={
+                    <Button variant="outline" size="sm" className="w-full gap-2 border-dashed">
+                      <Plus className="h-4 w-4" />
+                      Add Block
+                    </Button>
+                  }
+                />
+              </div>
+            ) : null}
               </>
             )}
           </div>
@@ -614,7 +654,7 @@ export default function PlaygroundBuilder() {
           </div>
         </div>
 
-        {aiPanelOpen && <AiChatPanel />}
+        {aiAssistantEnabled && aiPanelOpen && <AiChatPanel />}
       </div>
 
     </div>

@@ -236,7 +236,14 @@ const BLOCK_CONTROLS_CSS = `
 .playground-block-btn.delete:hover{background:#fef2f2;border-color:#fca5a5;color:#ef4444}
 `;
 
-function getBlockControlsScript(): string {
+/**
+ * `allowDelete: false` renders the hover toolbar with **edit only**.
+ *
+ * Used by the read-only-structure surfaces (roadmap E.5): a guest filling in a template, and a frozen
+ * template being viewed. They still need to click a block to edit its content — they must not be able to
+ * remove it, and offering a control that will be refused is worse than not offering it.
+ */
+function getBlockControlsScript(allowDelete = true): string {
   const editSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
   const trashSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
 
@@ -249,7 +256,7 @@ function getBlockControlsScript(): string {
     tb.className='playground-block-toolbar';
     tb.innerHTML='<span class="playground-block-title">'+title+'</span>'
       +'<button class="playground-block-btn edit" title="Edit">${editSvg}</button>'
-      +'<button class="playground-block-btn delete" title="Remove">${trashSvg}</button>';
+      +${allowDelete ? `'<button class="playground-block-btn delete" title="Remove">${trashSvg}</button>'` : "''"};
     block.insertBefore(tb,block.firstChild);
     tb.addEventListener('click',function(e){
       var btn=e.target.closest('.playground-block-btn');
@@ -277,7 +284,7 @@ function getBlockControlsScript(): string {
 export async function constructComponentPreview(
   components: SelectedPlaygroundComponent[],
   basePath: string = '',
-  options?: { injectBlockControls?: boolean }
+  options?: { injectBlockControls?: boolean; allowDelete?: boolean }
 ): Promise<string> {
   let bodyInner = '';
   const reactScripts: string[] = [];
@@ -354,7 +361,9 @@ export async function constructComponentPreview(
     .join('');
 
   const controlsStyle = injectControls ? `<style>${BLOCK_CONTROLS_CSS}</style>` : '';
-  const controlsScript = injectControls ? `<script>${getBlockControlsScript()}</script>` : '';
+  const controlsScript = injectControls
+    ? `<script>${getBlockControlsScript(options?.allowDelete ?? true)}</script>`
+    : '';
 
   return `<html>
     <head>
