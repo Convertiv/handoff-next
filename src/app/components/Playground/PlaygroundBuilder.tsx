@@ -679,6 +679,21 @@ export default function PlaygroundBuilder() {
                 <div className="flex h-full items-center justify-center">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary"></div>
                 </div>
+              ) : selectedComponents.length === 0 ? (
+                /**
+                 * A muted placeholder rather than the blank white document an empty preview renders as — which
+                 * read as a broken canvas in dark mode. Keyed on the blocks, not on `html`:
+                 * `constructComponentPreview([])` returns a complete-but-empty document, so `html` is always
+                 * truthy. The iframe's *contents* keep their own theme once there is something to show; this is
+                 * only what fills the space when there is not.
+                 */
+                <div className="flex h-full items-center justify-center bg-muted/30 p-8">
+                  <p className="max-w-sm text-center text-sm text-muted-foreground">
+                    {structuralEditing
+                      ? 'Add a block to see it here.'
+                      : 'Nothing to preview yet — this page has no blocks.'}
+                  </p>
+                </div>
               ) : (
                 <Preview html={html} className="h-full" iframeRef={canvasIframeRef} />
               )}

@@ -158,6 +158,10 @@ editor. **Sticky footer**: page title · "Editing as {name}" · **Submit for rev
 **required** note (client-side enforcement is enough for now). E.5 already reused the editor; this is its
 chrome.
 
+Submitting is a deliberate two-step. The note used to be an always-visible "optional" textarea, which is how
+optional fields go unfilled — it now opens as a panel on demand with the send button disabled until something
+is written, so the prompt does the work rather than the validation.
+
 ---
 
 ## Soft delete replaces hard delete
@@ -230,7 +234,11 @@ Five substantial pieces arrived at once; this is the order that keeps a demo-abl
 3. **Brief viewer + built-page viewer**, with approve/reject moved in. ✅ 2026-08-05 — `/briefs/{id}`
    (its own route, not `/playground/{id}`), one 30/70 shell with a swappable left panel, approve/reject in the
    built-page panel, JSON + HTML download, and the empty-preview placeholder.
-4. **Guest builder chrome** — sticky footer, required note.
+4. **Guest builder chrome** — sticky footer, required note. ✅ 2026-08-05 — full-viewport layout (the editor
+   was previously boxed in a `max-w-3xl` column at 70vh), a collapsible instructions strip, and a sticky footer
+   carrying the page title, "Editing as {name}", and Submit for review. **The brief's instructions are now
+   actually shown to the builder** — they were collected in the wizard and stored on the brief, and nothing
+   displayed them, which made wizard step 1 write-only.
 5. **Soft delete** — small, independent, can land anywhere after 1.
 6. **Notifications** — its own slice, off the critical path.
 

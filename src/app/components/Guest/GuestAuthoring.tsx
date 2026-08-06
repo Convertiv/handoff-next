@@ -33,6 +33,8 @@ interface Props {
   token: string;
   templateTitle: string;
   templateDescription?: string | null;
+  /** The brief's instructions to the builder, written in the invite wizard. */
+  instructions?: string | null;
 }
 
 type Phase = 'name' | 'working' | 'editing' | 'submitted';
@@ -40,7 +42,7 @@ type Phase = 'name' | 'working' | 'editing' | 'submitted';
 /** Autosave delay. Long enough not to PATCH on every keystroke, short enough to survive a closed tab. */
 const SAVE_DEBOUNCE_MS = 1200;
 
-export default function GuestAuthoring({ token, templateTitle, templateDescription }: Props) {
+export default function GuestAuthoring({ token, templateTitle, templateDescription, instructions }: Props) {
   const [phase, setPhase] = useState<Phase>('name');
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +55,9 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
   const [linkId, setLinkId] = useState('');
   const [capabilities, setCapabilities] = useState<Capabilities>([]);
   const [submitMessage, setSubmitMessage] = useState('');
+  const [submitOpen, setSubmitOpen] = useState(false);
+  // Open by default: the instructions are the reason they are here, so they should not have to go looking.
+  const [instructionsOpen, setInstructionsOpen] = useState(true);
 
 
   const api = useCallback((path: string) => handoffApiUrl(path), []);
@@ -298,62 +303,115 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
     );
   }
 
+  /**
+   * The building surface: **full viewport**, not a column in a page (roadmap E.6 step 4).
+   *
+   * The editor takes all the room it can get — it is a 30/70 canvas, and squeezing it into a narrow document
+   * shell was the reason it felt like a form with a picture next to it. Identity and the one action that ends
+   * the session live in a sticky footer instead, so they are reachable without scrolling past the canvas.
+   */
   return (
-    <Shell title={templateTitle} subtitle={templateDescription}>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3 border-b border pb-3">
-          <p className="text-sm text-muted-foreground">
-            Editing as <span className="font-medium text-foreground">{name}</span>
-          </p>
-          {/* The editor shows its own save state in its toolbar — one indicator, not two disagreeing. */}
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-2">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">You were invited to build</p>
+          <h1 className="truncate text-sm font-semibold">{templateTitle}</h1>
         </div>
+        {instructions ? (
+          <button
+            type="button"
+            onClick={() => setInstructionsOpen((v) => !v)}
+            className="rounded-md border px-3 py-1.5 text-xs"
+            aria-expanded={instructionsOpen}
+          >
+            {instructionsOpen ? 'Hide instructions' : 'Instructions'}
+          </button>
+        ) : null}
+      </header>
 
-        {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
-        {error ? <Alert>{error}</Alert> : null}
-
-        {/**
-          * The real editor (roadmap E.5) — same block editing and same live preview an internal user gets,
-          * with structural editing switched off. It replaced a hand-rolled field list that had no preview:
-          * "we've already built an editor, we should reuse."
-          */}
-        <div className="-mx-4 h-[70vh] overflow-hidden rounded-lg border border sm:mx-0">
-          <GuestEditor linkId={linkId} />
+      {/**
+        * The brief's instructions, shown to the person doing the work. They were collected in the wizard and
+        * stored on the brief, and until now nothing displayed them — which made the whole first step of the
+        * wizard write-only.
+        */}
+      {instructions && instructionsOpen ? (
+        <div className="shrink-0 border-b bg-muted/40 px-4 py-3">
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">{instructions}</p>
         </div>
+      ) : null}
 
-        <div className="space-y-3 border-t border pt-4">
-          <label htmlFor="submit-note" className="block text-sm font-medium text-foreground">
-            Note for the reviewer <span className="font-normal text-muted-foreground">(optional)</span>
+      {notice ? <p className="shrink-0 border-b px-4 py-2 text-sm text-muted-foreground">{notice}</p> : null}
+      {error ? (
+        <p role="alert" className="shrink-0 border-b bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          {error}
+        </p>
+      ) : null}
+
+      {/* The real editor (roadmap E.5), given the whole remaining height. */}
+      <div className="min-h-0 flex-1">
+        <GuestEditor linkId={linkId} />
+      </div>
+
+      {/**
+        * Submitting is deliberately a two-step: the note is **required**, so it opens as a panel rather than
+        * riding along as an optional field nobody fills in. Client-side enforcement is enough for now (Brad,
+        * 2026-08-05) — the value is prompting the thought, not proving it happened.
+        */}
+      {submitOpen ? (
+        <div className="shrink-0 border-t bg-muted/30 px-4 py-3">
+          <label htmlFor="submit-note" className="block text-sm font-medium">
+            What should the reviewer know? <span className="text-amber-700 dark:text-amber-400">*</span>
           </label>
           <textarea
             id="submit-note"
+            autoFocus
             value={submitMessage}
             onChange={(e) => setSubmitMessage(e.target.value)}
             rows={3}
             maxLength={1000}
-            className="w-full rounded-md border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none bg-background text-foreground"
+            placeholder="What you changed, and anything you want them to look at."
+            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none"
           />
-          {canSubmit ? (
-            /**
-             * The button is no longer pre-disabled by guardrails: the canvas lives in the editor now, so this
-             * component cannot evaluate them. `submitGuestSubmission` refuses a submission that breaks them and
-             * returns the reason, which surfaces in `error` above. Showing per-field limits inside the shared
-             * block editor is the follow-up (see E.4) — it is a regression in *hinting*, not in enforcement.
-             */
+          <div className="mt-2 flex items-center gap-2">
             <button
               type="button"
               onClick={submit}
-              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              disabled={!submitMessage.trim()}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40"
             >
-              Submit for review
+              Send for review
             </button>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              This link doesn’t include submitting — your work is saved and the owner can pick it up.
-            </p>
-          )}
+            <button type="button" onClick={() => setSubmitOpen(false)} className="px-3 py-2 text-sm text-muted-foreground">
+              Cancel
+            </button>
+            <span className="text-xs text-muted-foreground">
+              Once sent, this page is locked while it is reviewed.
+            </span>
+          </div>
         </div>
-      </div>
-    </Shell>
+      ) : null}
+
+      <footer className="sticky bottom-0 flex shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-background px-4 py-2">
+        <p className="truncate text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">{templateTitle}</span> · Editing as{' '}
+          <span className="font-medium text-foreground">{name}</span>
+        </p>
+        {canSubmit ? (
+          <button
+            type="button"
+            onClick={() => setSubmitOpen(true)}
+            disabled={submitOpen}
+            className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-40"
+          >
+            Submit for review
+          </button>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            This link doesn’t include submitting — your work is saved and the owner can pick it up.
+          </p>
+        )}
+      </footer>
+    </div>
   );
 }
 

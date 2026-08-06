@@ -135,8 +135,15 @@ export default async function PublicSharePage({ params }: PageProps) {
      * their address bar; `/api/handoff/guest/enter` exchanges it for a signed session cookie.
      */
     if (isWriteCapable(shareLinkCapabilities(link))) {
+      // The brief's instructions live in its own `data.brief` block, written by the invite wizard.
+      const briefData = (row.data ?? {}) as { brief?: { instructions?: string } };
       return (
-        <GuestAuthoring token={token} templateTitle={row.title || 'Untitled template'} templateDescription={row.description} />
+        <GuestAuthoring
+          token={token}
+          templateTitle={row.title || 'Untitled invitation'}
+          templateDescription={row.description}
+          instructions={briefData.brief?.instructions ?? null}
+        />
       );
     }
 
