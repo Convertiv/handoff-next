@@ -380,7 +380,7 @@ export default function PlaygroundBuilder() {
                         {briefs.map((brief) => (
                           <DropdownMenuItem
                             key={brief.id}
-                            onClick={() => router.push(`${basePath}/playground/${encodeURIComponent(brief.id)}`)}
+                            onClick={() => router.push(`${basePath}/briefs/${encodeURIComponent(brief.id)}`)}
                             className="flex flex-col items-start gap-0.5"
                           >
                             <span className="text-sm font-medium">

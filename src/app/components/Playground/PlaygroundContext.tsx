@@ -105,7 +105,11 @@ const componentCache: Record<string, PlaygroundComponent> = {};
 // component) so a parallel bulk load issues one network request per unique id.
 const inFlightFetches: Record<string, Promise<PlaygroundComponent>> = {};
 
-async function fetchComponentDetail(id: string, basePath: string): Promise<PlaygroundComponent> {
+/**
+ * Exported because the brief/built-page export path needs the same hydration the canvas does — a second
+ * fetch-and-shape would be a second thing to keep in step with the component API.
+ */
+export async function fetchComponentDetail(id: string, basePath: string): Promise<PlaygroundComponent> {
   if (componentCache[id]) {
     return { ...componentCache[id] };
   }

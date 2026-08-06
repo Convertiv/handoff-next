@@ -1,4 +1,4 @@
-import { notFound } from 'next/navigation';
+import { notFound, redirect } from 'next/navigation';
 import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
 import { getDbPatternById, listBriefsForPage } from '../../../lib/db/queries';
 import { isPostgres } from '../../../lib/db/dialect';
@@ -29,6 +29,7 @@ export default async function PlaygroundPageById({ params }: { params: Promise<{
   const { props } = await fetchDocPageMarkdownAsync('docs/', 'playground', '/playground');
   const config = getClientRuntimeConfig();
 
+  const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   let isTemplate = false;
   let pageTitle = '';
   let initialBriefs: Awaited<ReturnType<typeof listBriefsForPage>> = [];
@@ -39,6 +40,9 @@ export default async function PlaygroundPageById({ params }: { params: Promise<{
     // refused save. See `savePageAsTemplate`: templates are frozen by design.
     isTemplate = row.source === 'template';
     pageTitle = row.title ?? '';
+
+    // A brief has its own surface; anything still pointing here is sent there rather than 404ing.
+    if (isTemplate) redirect(`${basePath}/briefs/${encodeURIComponent(id)}`);
     // Fetched server-side so the invitations dropdown is correct on first paint and nothing sets state from
     // an effect. A brief has no invitations of its own, so only a page asks.
     if (!isTemplate) initialBriefs = await listBriefsForPage(id).catch(() => []);

@@ -140,6 +140,11 @@ All three share **one 30/70 shell** with a swappable left panel.
 **1. The page** (`/playground/{id}`) — unchanged editing, plus the two dropdowns, **Invite to build**, and
 the briefs list.
 
+**Route:** `/briefs/{id}`, not `/playground/{id}`. A brief is a distinct object, and sharing the playground path
+made this surface indistinguishable from an editable one — which is exactly how the global design-system
+assistant ended up rendering on a read-only review screen. `/playground/{briefId}` redirects here, so older
+links keep working.
+
 **2. Brief viewer** — static, uneditable. Right 70%: the frozen preview. Left 30%: **built pages** (author
 name + date). No chat, no block list. Empty state matters: most briefs have nothing yet.
 
@@ -222,7 +227,9 @@ Five substantial pieces arrived at once; this is the order that keeps a demo-abl
    tests), passphrase enforced at `/enter`, builder email captured at entry with disclosure, `createInvitation`
    (brief + first link in one call), `InviteWizard` as a full-page takeover, and the invitations dropdown fed
    server-side from `listBriefsForPage`.
-3. **Brief viewer + built-page viewer**, with approve/reject moved in.
+3. **Brief viewer + built-page viewer**, with approve/reject moved in. ✅ 2026-08-05 — `/briefs/{id}`
+   (its own route, not `/playground/{id}`), one 30/70 shell with a swappable left panel, approve/reject in the
+   built-page panel, JSON + HTML download, and the empty-preview placeholder.
 4. **Guest builder chrome** — sticky footer, required note.
 5. **Soft delete** — small, independent, can land anywhere after 1.
 6. **Notifications** — its own slice, off the critical path.

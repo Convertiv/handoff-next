@@ -169,6 +169,8 @@ export interface TemplateSubmission {
   /** Self-declared name of whoever built it, from the guest change row. Unverified. */
   submittedByName: string | null;
   shareLinkToken: string | null;
+  /** The author's note to the reviewer, from the submitting change row. */
+  submittedMessage: string | null;
 }
 
 /**
@@ -182,10 +184,10 @@ export async function listTemplateSubmissions(templateId: string): Promise<Templ
   if (!isPostgres()) return [];
   const db = getDb();
   const result = await db.execute(sql`
-    SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name
+    SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name, c.message
     FROM handoff_pattern p
     LEFT JOIN LATERAL (
-      SELECT pc.pushed_by_name
+      SELECT pc.pushed_by_name, pc.message
       FROM handoff_pattern_change pc
       WHERE pc.pattern_id = p.id AND pc.trigger = 'guest'
       ORDER BY pc.pushed_at DESC
@@ -206,6 +208,7 @@ export async function listTemplateSubmissions(templateId: string): Promise<Templ
       // `guest:` is a provenance prefix, not part of anyone's name — same strip as the review queue.
       submittedByName: name?.startsWith('guest:') ? name.slice('guest:'.length).trim() || null : name,
       shareLinkToken: (r.share_link_token as string | null) ?? null,
+      submittedMessage: (r.message as string | null) ?? null,
     };
   });
 }

@@ -43,7 +43,13 @@ export default function Providers({
    * `usePathname()` returns the path without the app base path, so this comparison is base-path safe.
    */
   const pathname = usePathname();
-  const isPublicShare = pathname === '/s' || pathname?.startsWith('/s/');
+  /**
+   * Surfaces that deliberately carry no app chrome: the public share pages (`/s/*`) and the brief/built-page
+   * viewer (`/briefs/*`), which is a read-only review screen — "we don't want the chat or the blocks list"
+   * (Brad, 2026-08-05). Both are reading surfaces where an authoring assistant is noise at best.
+   */
+  const isChromeless =
+    pathname === '/s' || pathname?.startsWith('/s/') || pathname === '/briefs' || pathname?.startsWith('/briefs/');
 
   return (
     <SessionProvider session={session ?? undefined}>
@@ -53,8 +59,8 @@ export default function Providers({
             <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
               <ChatProvider>
                 {children}
-                {capabilities.aiFeatures && !isPublicShare && <ChatDrawer basePath={basePath} />}
-                {!isPublicShare && <ChatFab />}
+                {capabilities.aiFeatures && !isChromeless && <ChatDrawer basePath={basePath} />}
+                {!isChromeless && <ChatFab />}
               </ChatProvider>
             </ThemeProvider>
           </ConfigContextProvider>
