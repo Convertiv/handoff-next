@@ -7,6 +7,7 @@ import { buildPatternPayload } from '@/lib/pattern-payload';
 import PlaygroundBuilder from '@/components/Playground/PlaygroundBuilder';
 import { PlaygroundProvider, type PlaygroundPersistence } from '@/components/Playground/PlaygroundContext';
 import type { PatternComponentEntry } from '@/lib/guest-editable';
+import type { GuardrailConfig } from '@/lib/authoring-guardrails';
 
 /**
  * A guest editing their page **in the real editor** (roadmap E.5).
@@ -45,6 +46,7 @@ export default function GuestEditor({ linkId }: Props) {
         });
         const json = (await res.json()) as {
           submission?: { id: string; components?: unknown; data?: unknown } | null;
+          guardrails?: GuardrailConfig;
           error?: string;
         };
         if (!res.ok) throw new Error(json.error || 'Could not load this page.');
@@ -56,7 +58,9 @@ export default function GuestEditor({ linkId }: Props) {
         const values = Array.isArray(data.previews?.default?.values)
           ? (data.previews!.default!.values as Record<string, unknown>[])
           : [];
-        return { components, values };
+        // The endpoint resolves guardrails from the brief; carrying them here is what lets the field editor
+        // show the same limits the submit check enforces.
+        return { components, values, guardrails: json.guardrails };
       },
 
       persist: async (blocks) => {

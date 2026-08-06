@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { createPattern, updatePattern } from '@/app/actions/patterns';
 import { buildPatternPayload } from '@/lib/pattern-payload';
+import type { GuardrailConfig } from '@/lib/authoring-guardrails';
+import { FieldGuardrailsProvider } from './FieldGuardrailsContext';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { handoffApiUrl } from '@/lib/api-path';
 import { renderPreview } from './Preview';
@@ -35,8 +37,17 @@ export interface BriefListEntry {
 }
 
 export interface PlaygroundPersistence {
-  /** Blocks + per-block override values for the record this surface owns. Null if there is nothing yet. */
-  hydrate: () => Promise<{ components: PatternComponentEntry[]; values: Record<string, unknown>[] } | null>;
+  /**
+   * Blocks + per-block override values for the record this surface owns. Null if there is nothing yet.
+   *
+   * May also return the resolved guardrails, which the guest endpoint already sends with the submission —
+   * returning them here avoids a second request and, more importantly, a second resolution rule.
+   */
+  hydrate: () => Promise<{
+    components: PatternComponentEntry[];
+    values: Record<string, unknown>[];
+    guardrails?: GuardrailConfig;
+  } | null>;
   /** Save the canvas. Throwing marks the save failed; the canvas keeps the work either way. */
   persist: (blocks: SelectedPlaygroundComponent[]) => Promise<void>;
 }
@@ -70,6 +81,11 @@ interface PlaygroundContextType {
   isTemplate: boolean;
   /** This page's own title, for surfaces that need to name it (the invite wizard). */
   pageTitle: string;
+  /**
+   * Content rules for this page, authored on the brief it came from. The field editor reads them to show
+   * limits as you type; the server enforces the same config at submit.
+   */
+  guardrails: GuardrailConfig;
   /** Invitations (briefs) created from this page, newest version first. */
   briefs: BriefListEntry[];
   /** Refetch after creating one. Called from an event handler, never an effect. */
@@ -85,8 +101,6 @@ interface PlaygroundContextType {
    * control would be an invitation to a 401.
    */
   aiAssistantEnabled: boolean;
-  /** Copy this template into a new editable page and go there. Resolves to the new page id. */
-  cloneToNewPage: () => Promise<string | null>;
   recoveredDraft: { count: number } | null;
   restoreRecoveredDraft: () => void;
   discardRecoveredDraft: () => void;
@@ -194,6 +208,7 @@ export function PlaygroundProvider({
    */
   const [isTemplate] = useState(initialIsTemplate);
   const [briefs, setBriefs] = useState<BriefListEntry[]>(initialBriefs);
+  const [guardrails, setGuardrails] = useState<GuardrailConfig>({});
 
   /** Refetch invitations. Event-driven (after the wizard finishes), so no state is set from an effect. */
   const refreshBriefs = useCallback(async () => {
@@ -275,31 +290,6 @@ export function PlaygroundProvider({
       localStorage.removeItem(STORAGE_KEY);
     }
   }, [selectedComponents]);
-
-  /**
-   * "Use this template" — clone it into a new page and open that.
-   *
-   * Reuses the existing `/clone` route, which already copies blocks + values and (since E.2) stamps
-   * `template_id` on the copy, so an editor-made page is diffable against its template exactly like a
-   * guest submission.
-   */
-  const cloneToNewPage = useCallback(async (): Promise<string | null> => {
-    if (!editingPatternId) return null;
-    try {
-      const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(editingPatternId)}/clone`), {
-        method: 'POST',
-        credentials: 'include',
-      });
-      const json = (await res.json()) as { id?: string; pattern?: { id?: string }; error?: string };
-      const newId = json.id ?? json.pattern?.id ?? null;
-      if (!res.ok || !newId) throw new Error(json.error || 'Could not create a page from this template.');
-      router.push(`${basePath}/playground/${newId}`);
-      return newId;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not create a page from this template.');
-      return null;
-    }
-  }, [editingPatternId, router, basePath]);
 
   const restoreRecoveredDraft = useCallback(() => {
     const draft = recoveredRef.current;
@@ -537,6 +527,7 @@ export function PlaygroundProvider({
         try {
           const loaded = await persistence.hydrate();
           if (!loaded) return;
+          if (loaded.guardrails) setGuardrails(loaded.guardrails);
           const entries: BulkComponentEntry[] = loaded.components.map((c, i) => ({
             componentId: c.id,
             data: {
@@ -614,18 +605,20 @@ export function PlaygroundProvider({
         saveState,
         isTemplate,
         pageTitle,
+        guardrails,
         briefs,
         refreshBriefs,
         structuralEditing,
         aiAssistantEnabled,
-        cloneToNewPage,
         recoveredDraft,
         restoreRecoveredDraft,
         discardRecoveredDraft,
         isDynamicApp,
       }}
     >
-      {children}
+      {/* Also published through their own context so individual fields can read them without importing this
+          module — see `FieldGuardrailsContext` for why that separation matters. */}
+      <FieldGuardrailsProvider value={guardrails}>{children}</FieldGuardrailsProvider>
     </PlaygroundContext.Provider>
   );
 }

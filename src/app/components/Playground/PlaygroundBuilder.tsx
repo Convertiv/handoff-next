@@ -136,13 +136,11 @@ export default function PlaygroundBuilder() {
     isDynamicApp,
     updateComponent,
     saveState,
-    isTemplate,
     pageTitle,
     briefs,
     refreshBriefs,
     structuralEditing,
     aiAssistantEnabled,
-    cloneToNewPage,
     recoveredDraft,
     restoreRecoveredDraft,
     discardRecoveredDraft,
@@ -150,7 +148,6 @@ export default function PlaygroundBuilder() {
 
   const [html, setHtml] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
-  const [cloning, setCloning] = useState(false);
   const router = useRouter();
   const [shareOpen, setShareOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -282,14 +279,6 @@ export default function PlaygroundBuilder() {
    * was invisible to sharing and review. This creates a real record others can clone from and guests can
    * build from, and leaves this page alone.
    */
-  const handleUseTemplate = async () => {
-    setCloning(true);
-    // No reset on success: the clone navigates away, and re-enabling the button first would invite a
-    // second click that creates a second page.
-    const id = await cloneToNewPage();
-    if (!id) setCloning(false);
-  };
-
   if (wizardOpen && editingPatternId) {
     return (
       <InviteWizard
@@ -341,15 +330,11 @@ export default function PlaygroundBuilder() {
                       <span className="text-xs">Share</span>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {isTemplate
-                      ? 'Invite someone to build from this template, or share it read-only'
-                      : 'Share this page read-only'}
-                  </TooltipContent>
+                  <TooltipContent side="bottom">Share this page read-only</TooltipContent>
                 </Tooltip>
               )}
 
-              {selectedComponents.length > 0 && editingPatternId && !isTemplate && (
+              {selectedComponents.length > 0 && editingPatternId && (
                 <div className="flex items-center">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -503,18 +488,6 @@ export default function PlaygroundBuilder() {
           </Button>
           <Button size="sm" variant="ghost" onClick={discardRecoveredDraft}>
             Start fresh
-          </Button>
-        </div>
-      ) : null}
-
-      {isTemplate ? (
-        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm">
-          <span>
-            <strong>This is a template.</strong> It’s frozen so that pages built from it — and the reviews of
-            those pages — stay stable. Make a page from it to edit.
-          </span>
-          <Button size="sm" variant="secondary" disabled={cloning} onClick={() => void handleUseTemplate()}>
-            {cloning ? 'Creating…' : 'Use this template'}
           </Button>
         </div>
       ) : null}
