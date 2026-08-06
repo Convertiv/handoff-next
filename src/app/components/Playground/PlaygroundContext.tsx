@@ -107,16 +107,22 @@ interface PlaygroundContextType {
    * control would be an invitation to a 401.
    */
   aiAssistantEnabled: boolean;
-  recoveredDraft: { count: number } | null;
-  restoreRecoveredDraft: () => void;
-  discardRecoveredDraft: () => void;
   isDynamicApp: boolean;
 }
 
-const STORAGE_KEY = 'handoff-playground-components';
 /** Generous on purpose: a save is a full pattern replace plus an audit row, and edits arrive in bursts. */
 const AUTOSAVE_DEBOUNCE_MS = 2000;
 const TEMPLATE_PREFIX = 'handoff-playground-template-';
+/**
+ * The canvas key from before pages autosaved. Purged, not read.
+ *
+ * It backed a "you have an unsaved canvas from a previous visit" bar, which stopped being useful the moment a
+ * page became a real record that saves itself — by then the only thing it could offer was a stale copy of work
+ * already in the database, and it interrupted every visit to the new-page canvas to say so (Brad, 2026-08-06).
+ * Worth knowing: it was also *written* on every canvas change with no guard, so every edit to every saved page
+ * was serialising the whole canvas into local storage for nobody to read.
+ */
+const RETIRED_CANVAS_KEY = 'handoff-playground-components';
 
 const PlaygroundContext = createContext<PlaygroundContextType | undefined>(undefined);
 
@@ -231,9 +237,7 @@ export function PlaygroundProvider({
   }, [initialPatternId]);
   // A template is never structurally editable; otherwise the surface decides.
   const structuralEditing = isTemplate ? false : (structuralEditingProp ?? true);
-  const [recoveredDraft, setRecoveredDraft] = useState<{ count: number } | null>(null);
   /** Held outside state: it is data to restore on request, not something the canvas renders. */
-  const recoveredRef = useRef<SelectedPlaygroundComponent[] | null>(null);
 
   const basePath = typeof process !== 'undefined' ? process.env.HANDOFF_APP_BASE_PATH ?? '' : '';
 
@@ -259,59 +263,6 @@ export function PlaygroundProvider({
     loadComponents();
     purgeRetiredLocalTemplates();
   }, [basePath]);
-
-  /**
-   * Local storage is read **once, into a recovery offer** — never applied to the canvas.
-   *
-   * The old behaviour restored it automatically, which meant clicking "New" reopened whatever was last on
-   * screen, and there was no way to get a blank canvas. Deleting the key outright would have thrown away
-   * unsaved work on the deploy that shipped it, so the draft is surfaced and the user decides. Either
-   * choice clears the key, so the offer appears at most once.
-   *
-   * A page opened by id skips the offer entirely: the record is the truth there, and a stale local canvas
-   * must never be mistaken for it.
-   */
-  useEffect(() => {
-    if (initialPatternId) return;
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return;
-    try {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        recoveredRef.current = parsed as SelectedPlaygroundComponent[];
-        setRecoveredDraft({ count: parsed.length });
-      } else {
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    } catch {
-      // Corrupt data is not recoverable and not worth offering.
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, [initialPatternId]);
-
-  useEffect(() => {
-    if (selectedComponents.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedComponents));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-  }, [selectedComponents]);
-
-  const restoreRecoveredDraft = useCallback(() => {
-    const draft = recoveredRef.current;
-    recoveredRef.current = null;
-    setRecoveredDraft(null);
-    // Cleared before applying: restoring is a one-time recovery, and the canvas write below re-persists it.
-    localStorage.removeItem(STORAGE_KEY);
-    if (draft?.length) setSelectedComponents(draft);
-  }, []);
-
-  const discardRecoveredDraft = useCallback(() => {
-    recoveredRef.current = null;
-    setRecoveredDraft(null);
-    localStorage.removeItem(STORAGE_KEY);
-  }, []);
-
 
   /* ------------------------------------------------------------------ autosave -- */
 
@@ -616,9 +567,6 @@ export function PlaygroundProvider({
         refreshBriefs,
         structuralEditing,
         aiAssistantEnabled,
-        recoveredDraft,
-        restoreRecoveredDraft,
-        discardRecoveredDraft,
         isDynamicApp,
       }}
     >
@@ -650,7 +598,7 @@ function purgeRetiredLocalTemplates(): void {
   const stale: string[] = [];
   for (let i = 0; i < localStorage.length; i += 1) {
     const key = localStorage.key(i);
-    if (key?.startsWith(TEMPLATE_PREFIX)) stale.push(key);
+    if (key?.startsWith(TEMPLATE_PREFIX) || key === RETIRED_CANVAS_KEY) stale.push(key);
   }
   // Collected first: removing while iterating shifts the indices underneath the loop.
   for (const key of stale) localStorage.removeItem(key);

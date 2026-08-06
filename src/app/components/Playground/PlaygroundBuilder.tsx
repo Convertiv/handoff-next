@@ -168,9 +168,6 @@ export default function PlaygroundBuilder({
     refreshBriefs,
     structuralEditing,
     aiAssistantEnabled,
-    recoveredDraft,
-    restoreRecoveredDraft,
-    discardRecoveredDraft,
   } = usePlayground();
 
   const [html, setHtml] = useState('');
@@ -560,23 +557,6 @@ export default function PlaygroundBuilder({
 
         </div>
       </div>
-
-      {/* Recovery offer for a canvas left in local storage by an older build (roadmap E.3). Shown instead
-          of silently restoring it, which is what made "New" reopen old work. Either action clears it. */}
-      {recoveredDraft ? (
-        <div className="flex flex-wrap items-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm">
-          <span>
-            You have an unsaved canvas from a previous visit ({recoveredDraft.count} block
-            {recoveredDraft.count === 1 ? '' : 's'}).
-          </span>
-          <Button size="sm" variant="secondary" onClick={restoreRecoveredDraft}>
-            Restore it
-          </Button>
-          <Button size="sm" variant="ghost" onClick={discardRecoveredDraft}>
-            Start fresh
-          </Button>
-        </div>
-      ) : null}
 
       {templateNotice ? (
         <div className="flex items-center gap-3 border-b bg-muted/40 px-4 py-2 text-sm">

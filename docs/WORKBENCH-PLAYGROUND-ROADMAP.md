@@ -307,7 +307,7 @@ save button, clone-of-a-template recording `template_id`, and "page" wording.
   whenever `isDynamicApp`, which has been hardcoded `true` since static export was removed — so only a
   pre-removal build could ever have written one.
 
-### E.3 — `playground/{page}` as a real route, autosaved, no local storage
+### E.3 — `playground/{page}` as a real route, autosaved, no local storage — ✅ DONE (local storage fully gone 2026-08-06)
 
 The current playground keeps working state client-side and reloads "old stuff" on entry. Make a page a
 document:
@@ -322,6 +322,21 @@ document:
   real record on first load. Worth a one-time "we saved your working draft as …" rather than silence.
 - This also fixes a real bug class: local-only state cannot be reviewed, shared, or recovered on another
   device, and every feature after this one (review, templates, guest links) assumes a record exists.
+
+**Closed out 2026-08-06 — local storage is gone entirely.** The "migration care" bullet above shipped as a
+recovery *offer* ("You have an unsaved canvas from a previous visit (3 blocks)"), which was right for the one
+deploy that retired the auto-restore and pointless after it: once a page is a real record that saves itself,
+the only thing the offer can surface is a stale copy of work already in the database — and it interrupted every
+visit to the new-page canvas to do it (Brad: "annoying and not useful").
+
+Removed: `STORAGE_KEY`, both effects, `recoveredDraft` / `restoreRecoveredDraft` / `discardRecoveredDraft`, and
+the bar. The old key is added to `purgeRetiredLocalTemplates` so it is cleared from browsers rather than left
+forever. **Worth knowing:** the *write* effect had no `initialPatternId` guard, so every edit to every saved
+page was serialising the whole canvas into local storage for nobody to read — that waste is gone too.
+
+Nothing backstops autosave now, and it does not need one: a new canvas mints its record on the first block
+(guarded so a burst cannot create two, and the guard **resets on failure** so the next edit retries), a saved
+page debounces at 2s, and a failed write shows "Not saved" rather than retrying silently.
 
 ### E.5 — Guests use the real editor — ✅ DONE 2026-08-05
 
