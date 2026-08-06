@@ -851,6 +851,59 @@ export async function submitGuestSubmission(
  * The sync event still says `delete`: to a downstream consumer the page *has* gone away, and telling it
  * otherwise would leave the page visible in every synced client.
  */
+/**
+ * Edit a brief's **instructions** — the one editorial field on a frozen object (roadmap E.8b).
+ *
+ * A dedicated write rather than a `patchPattern` call, because `data` is in `CONTENT_FIELDS` and the freeze
+ * guard refuses it outright. That guard is right: `data.previews` is the snapshot builders work against, and
+ * changing it under them would shift every diff already taken. But the *instructions* are not the artifact —
+ * they are what you tell someone about it, and getting them wrong should not force a new brief version.
+ *
+ * So this reaches exactly one key. `components` and `data.previews` are re-read and written back untouched,
+ * which means a bug here cannot silently rewrite the frozen content even if the merge is wrong.
+ */
+export async function updateBriefInstructions(
+  id: string,
+  instructions: string | null,
+  actor: PatternWriteActor
+): Promise<void> {
+  const db = getDb();
+
+  const [existing] = await db
+    .select({ userId: handoffPatterns.userId, source: handoffPatterns.source, data: handoffPatterns.data })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.id, id))
+    .limit(1);
+  if (!existing) throw new AuthorizationError('Invitation not found.');
+  assertCanMutatePattern(actor, existing.userId);
+  // Only a brief has instructions. Refusing here stops this becoming a back door into a page's `data`.
+  if (existing.source !== 'template') {
+    throw new AuthorizationError('Only an invitation has instructions.');
+  }
+
+  const current = (existing.data ?? {}) as Record<string, unknown>;
+  const brief = (current.brief ?? {}) as Record<string, unknown>;
+  const trimmed = instructions?.trim() ? instructions.trim().slice(0, 4000) : null;
+
+  const nextData: Record<string, unknown> = {
+    ...current,
+    brief: { ...brief, ...(trimmed ? { instructions: trimmed } : {}) },
+  };
+  // Cleared rather than left stale when emptied — an empty string would still render as an instructions block.
+  if (!trimmed) delete (nextData.brief as Record<string, unknown>).instructions;
+
+  await db.update(handoffPatterns).set({ data: nextData, updatedAt: new Date() }).where(eq(handoffPatterns.id, id));
+
+  await db.insert(editHistory).values({
+    entityType: 'pattern',
+    entityId: id,
+    userId: historyUserId(actor),
+    diff: { action: 'brief-instructions', by: actor.historyLabel ?? null, cleared: trimmed == null },
+  });
+
+  await recordPatternChange(db, { patternId: id, action: 'updated', actor });
+}
+
 export async function removePattern(id: string, actor: PatternWriteActor): Promise<void> {
   const db = getDb();
 

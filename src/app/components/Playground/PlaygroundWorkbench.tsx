@@ -131,6 +131,7 @@ export default function PlaygroundWorkbench({
         selectedBuildId={null}
         onSelectBuild={(id) => go({ build: id })}
         onBackToPage={() => go({ brief: null, build: null })}
+        basePath={basePath}
       />
     ) : showPageBuilds ? (
       <div className="flex min-h-0 flex-1 flex-col">

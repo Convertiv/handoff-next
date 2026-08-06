@@ -1,7 +1,11 @@
 'use client';
 
+import { useCallback, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { ChevronLeft } from 'lucide-react';
 import { Button } from '../ui/button';
+import { Textarea } from '../ui/textarea';
+import { deactivateInvite, editBriefInstructions, regenerateInvite } from '@/app/actions/patterns';
 import BuildList, { type BuildRow } from './BuildList';
 
 /**
@@ -47,6 +51,7 @@ export default function BriefPanel({
   selectedBuildId,
   onSelectBuild,
   onBackToPage,
+  basePath = '',
 }: {
   brief: BriefMeta;
   links: BriefLinkStatus[];
@@ -54,8 +59,62 @@ export default function BriefPanel({
   selectedBuildId: string | null;
   onSelectBuild: (id: string) => void;
   onBackToPage: () => void;
+  /** For building the copyable invite URL after a regenerate. */
+  basePath?: string;
 }) {
+  const router = useRouter();
   const invites = links.filter((l) => l.writeCapable);
+
+  const [busy, setBusy] = useState<null | 'regenerate' | 'deactivate' | 'save'>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(brief.instructions ?? '');
+  /**
+   * The freshly minted credentials, held in state and **never re-fetched**.
+   *
+   * This is the only moment they exist in plaintext anywhere; a refresh loses them for good, which is why the
+   * panel says so next to them rather than offering a copy button that would later fail silently.
+   */
+  const [minted, setMinted] = useState<{ url: string; passphrase: string | null } | null>(null);
+
+  const run = useCallback(
+    async (kind: 'regenerate' | 'deactivate' | 'save', fn: () => Promise<void>) => {
+      setBusy(kind);
+      setError(null);
+      try {
+        await fn();
+        // Server-rendered props: refresh so link status, instructions and counts all come back consistent.
+        router.refresh();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'That did not work.');
+      } finally {
+        setBusy(null);
+      }
+    },
+    [router]
+  );
+
+  const onRegenerate = () =>
+    void run('regenerate', async () => {
+      const res = await regenerateInvite(brief.id);
+      setMinted({
+        url: `${window.location.origin}${basePath}/s/${res.urlToken}`,
+        passphrase: res.passphrase ?? null,
+      });
+    });
+
+  const onDeactivate = () =>
+    void run('deactivate', async () => {
+      await deactivateInvite(brief.id);
+      // Any previously revealed credentials are now dead; keeping them on screen would invite a paste.
+      setMinted(null);
+    });
+
+  const onSaveInstructions = () =>
+    void run('save', async () => {
+      await editBriefInstructions(brief.id, draft);
+      setEditing(false);
+    });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -80,14 +139,47 @@ export default function BriefPanel({
 
         {brief.description ? <p className="text-sm text-muted-foreground">{brief.description}</p> : null}
 
-        {brief.instructions ? (
-          <section className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Instructions given
-            </p>
+        <section className="space-y-1.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Instructions given
+          </p>
+          {editing ? (
+            <div className="space-y-1.5">
+              <Textarea
+                aria-label="Instructions"
+                rows={5}
+                maxLength={4000}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <div className="flex gap-1.5">
+                <Button size="sm" className="h-7 text-xs" disabled={busy !== null} onClick={onSaveInstructions}>
+                  {busy === 'save' ? 'Saving…' : 'Save'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 text-xs"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    setDraft(brief.instructions ?? '');
+                    setEditing(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              {/* Says what it does and does not touch, because a frozen object accepting a write needs to. */}
+              <p className="text-xs text-muted-foreground">
+                Editing instructions doesn’t change the page builders work from — that stays frozen.
+              </p>
+            </div>
+          ) : brief.instructions ? (
             <p className="whitespace-pre-wrap text-sm text-muted-foreground">{brief.instructions}</p>
-          </section>
-        ) : null}
+          ) : (
+            <p className="text-sm text-muted-foreground">No instructions given.</p>
+          )}
+        </section>
 
         {/**
          * Link **status**, never the link or the passphrase.
@@ -123,20 +215,91 @@ export default function BriefPanel({
               ))}
             </ul>
           )}
-          {/* Both actions are E.8b/E.8 work, wired next. Shown disabled so the panel does not imply they are
-              missing — and deliberately two buttons, because deactivating an invite and archiving the brief are
-              different verbs with different consequences. */}
+          {/**
+            * The one moment the credentials exist in plaintext. Shown with the warning attached rather than
+            * behind a copy button, because after this render they are gone for good — the token is hashed and
+            * so is the passphrase.
+            */}
+          {minted ? (
+            <div className="space-y-1.5 rounded-md border border-amber-500/40 bg-amber-50 p-2 dark:bg-amber-500/10">
+              <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+                Copy these now — they can’t be shown again.
+              </p>
+              <input
+                readOnly
+                value={minted.url}
+                onFocus={(e) => e.currentTarget.select()}
+                aria-label="New invite link"
+                className="w-full rounded border bg-background px-2 py-1 text-xs text-foreground"
+              />
+              {minted.passphrase ? (
+                <input
+                  readOnly
+                  value={minted.passphrase}
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="New passphrase"
+                  className="w-full rounded border bg-background px-2 py-1 font-mono text-xs text-foreground"
+                />
+              ) : null}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() =>
+                  void navigator.clipboard.writeText(
+                    minted.passphrase ? `${minted.url}\nPassphrase: ${minted.passphrase}` : minted.url
+                  )
+                }
+              >
+                Copy both
+              </Button>
+            </div>
+          ) : null}
+
+          {error ? (
+            <p role="alert" className="text-xs text-amber-700 dark:text-amber-400">
+              {error}
+            </p>
+          ) : null}
+
+          {/* Three distinct decisions. "Deactivate" closes the door; archiving the brief (E.6.5) hides it and
+              its builds — different consequences, so never the same button. */}
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" className="h-7 text-xs" disabled>
-              Regenerate
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs"
+              disabled={busy !== null}
+              onClick={onRegenerate}
+            >
+              {busy === 'regenerate' ? 'Regenerating…' : invites.length ? 'Regenerate' : 'Create a link'}
             </Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs" disabled>
-              Edit instructions
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-xs" disabled>
-              Deactivate invite
-            </Button>
+            {!editing ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                disabled={busy !== null}
+                onClick={() => setEditing(true)}
+              >
+                Edit instructions
+              </Button>
+            ) : null}
+            {invites.length > 0 ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs"
+                disabled={busy !== null}
+                onClick={onDeactivate}
+              >
+                {busy === 'deactivate' ? 'Deactivating…' : 'Deactivate invite'}
+              </Button>
+            ) : null}
           </div>
+          <p className="text-xs text-muted-foreground">
+            Regenerating replaces the current link — anyone still holding the old one loses access.
+          </p>
         </section>
 
         <section className="space-y-2 border-t pt-4">

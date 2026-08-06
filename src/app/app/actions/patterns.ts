@@ -7,10 +7,11 @@ import {
   removePattern,
   reviewPattern,
   savePageAsTemplate,
+  updateBriefInstructions,
   writePattern,
   type PatternWriteActor,
 } from '../../lib/db/pattern-write';
-import { createShareLink, getActorGrant } from '../../lib/db/grant-queries';
+import { createShareLink, getActorGrant, listShareLinks, revokeShareLink } from '../../lib/db/grant-queries';
 import { AUTHORING_CAPABILITIES } from '../../lib/authz/vocab';
 import { generatePassphrase } from '../../lib/server/passphrase';
 
@@ -170,4 +171,85 @@ export async function createInvitation(
     linkId: link.token,
     expiresAt: link.expiresAt,
   };
+}
+
+/**
+ * Revoke every active write-capable link on a brief.
+ *
+ * Only the *write-capable* ones: a brief can also carry a read-only viewer link, and "stop people building
+ * from this" should not quietly stop people looking at it. Returns how many were revoked so the caller can
+ * tell "deactivated" from "there was nothing active".
+ */
+async function revokeInviteLinks(briefId: string, actor: PatternWriteActor): Promise<number> {
+  const links = await listShareLinks('pattern', briefId);
+  const mutateActor = { userId: actor.userId, role: actor.role ?? null };
+  let revoked = 0;
+  for (const link of links) {
+    if (!link.writeCapable) continue;
+    // `listShareLinks` already filters to active links, so each of these is a real state change.
+    if (await revokeShareLink(link.id, mutateActor)) revoked += 1;
+  }
+  return revoked;
+}
+
+/**
+ * Replace a brief's invitation with a fresh link and passphrase (roadmap E.8b).
+ *
+ * This exists because neither secret is recoverable — a write-capable token is SHA-256 hashed and a passphrase
+ * is scrypt-hashed, so there is no "show it again". Regenerating is the honest version of that: the old link
+ * stops working, a new one is minted, and it is returned **once**.
+ *
+ * The old links are revoked *first*. If minting then failed we would rather leave the brief with no working
+ * invitation than with the old one still live after the user was told it was replaced.
+ */
+export async function regenerateInvite(
+  briefId: string,
+  input: { expiresInDays?: number; maxUses?: number | null; usePassphrase?: boolean } = {}
+) {
+  const actor = await requireActor();
+  const revoked = await revokeInviteLinks(briefId, actor);
+
+  const days = Number.isFinite(input.expiresInDays) ? Math.max(1, Math.trunc(input.expiresInDays!)) : 14;
+  const passphrase = input.usePassphrase === false ? null : generatePassphrase();
+
+  const { link, urlToken } = await createShareLink(
+    'pattern',
+    briefId,
+    { userId: actor.userId, role: actor.role ?? null },
+    {
+      capabilities: [...AUTHORING_CAPABILITIES],
+      maxUses: input.maxUses ?? null,
+      expiresAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
+      passphrase,
+    }
+  );
+
+  return {
+    success: true,
+    revoked,
+    /** Shown once. Not recoverable afterwards — the UI must say so. */
+    urlToken,
+    passphrase,
+    linkId: link.token,
+    expiresAt: link.expiresAt,
+  };
+}
+
+/**
+ * Stop new builds without destroying the record of what was sent (roadmap E.8b).
+ *
+ * Deliberately **not** the same as archiving the brief: archiving hides the brief and its builds
+ * (`removePattern`), while this leaves everything visible and reviewable and only closes the door. They are
+ * different decisions and the panel offers them as different buttons.
+ */
+export async function deactivateInvite(briefId: string) {
+  const actor = await requireActor();
+  return { success: true, revoked: await revokeInviteLinks(briefId, actor) };
+}
+
+/** Edit the instructions on a frozen brief — see `updateBriefInstructions` for why this is not `patchPattern`. */
+export async function editBriefInstructions(briefId: string, instructions: string) {
+  const actor = await requireActor();
+  await updateBriefInstructions(briefId, instructions, actor);
+  return { success: true };
 }

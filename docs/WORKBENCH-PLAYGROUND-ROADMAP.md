@@ -461,7 +461,7 @@ loading/error branches replaced the *whole* shell, which at brief level would st
 - **The right sidebar** becomes a second slot in the same shell, available at brief and build level, rather
   than a new layout concept.
 
-### E.8b — Regenerate, because secrets are not recoverable — **DECIDED (Brad, 2026-08-06)**
+### E.8b — Regenerate, because secrets are not recoverable — ✅ SHIPPED 2026-08-06
 
 The original ask was to show "the link to the builder, the password" in the brief panel. **Neither can be
 displayed, by design:** passphrases are `scrypt`-hashed with a salt, and write-capable link secrets are
@@ -473,6 +473,27 @@ there is.
 expires in 6 days · passphrase set — plus a **Regenerate** action that revokes the old link, mints a fresh
 link + passphrase, and shows them once. Same information value, no security fiction, and the hashing keeps the
 property that a database leak yields no usable invites.
+
+**As built.** Three server actions in `app/actions/patterns.ts`: `regenerateInvite`, `deactivateInvite`,
+`editBriefInstructions`. Notes worth keeping:
+
+- **Only write-capable links are revoked.** A brief can also carry a read-only viewer link, and "stop people
+  building from this" must not quietly stop people *looking* at it. Verified: two invites revoked, the
+  view-only link survived.
+- **Revoke happens before minting.** If minting then fails, a brief with no working invitation is better than
+  one whose old link is still live after the user was told it was replaced.
+- **Instructions are editable on a frozen object via a dedicated write** (`updateBriefInstructions`), not
+  `patchPattern` — `data` is in `CONTENT_FIELDS` and the freeze guard refuses it outright, correctly, because
+  `data.previews` is the snapshot builders work against. The dedicated write touches one key, re-writing
+  `components` and `data.previews` untouched. Verified: instructions saved and trimmed, previews/guardrails/
+  components unchanged, clearing removes the key rather than leaving an empty string, the freeze still refuses
+  a content write on the same object, and a non-brief refuses instructions (no back door into a page's `data`).
+- **"Deactivate invite" ≠ "archive brief"** — separate buttons, and `resolveShareLink` checks `revokedAt`, so a
+  revoked invite genuinely stops resolving.
+
+**Gap, deliberately not filled:** per-field **help text** has no author path anywhere. `resolveFieldGuardrail`
+reads `help` and `TextField` renders it, but the invite wizard only captures `maxLength`/`required` — so there
+is nothing to edit yet. It belongs with E.9, which is already opening up the same guardrails structure.
 
 ### E.9 — Content length from the field spec, not just from a brief (Brad, 2026-08-06)
 
