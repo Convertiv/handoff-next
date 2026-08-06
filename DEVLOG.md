@@ -5,6 +5,60 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-05 (evening) — Invite-to-build QA: controls moved to the page; two items queued for tomorrow
+
+**Start here tomorrow: E.7 in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md`.** Two decisions from Brad, both already
+written up there; this entry is the why.
+
+**What shipped today (QA-driven, on top of E.6):**
+
+- **Visibility + lifecycle now live on the page** — `components/Playground/PageMetaControl.tsx`, replacing the
+  old toolbar "Share" button. Reuses the existing `VisibilityPicker`/`LifecyclePicker` and reads `permissions`
+  from the pattern detail endpoint, so it can never offer a change `applyPatternMeta` would refuse.
+- **Share controls removed from `/library`** — the whole share section, plus the dead `shareUrl` /
+  `onCreateShare` / `onRevokeShare` props and the `CopyButton` helper, out of `AssetInspector`.
+- **Guests can finally reach the asset library.** The endpoint (`/api/handoff/guest/assets`) had existed since
+  slice 1 — `MediaBrowser` just never called it. It asked the authenticated route, got a 401, silently fell
+  back to static workspace assets, found none, and landed on the Placeholder tab. Verified end-to-end against
+  a real invite link: 60 assets, picker opens on "Asset Library".
+- **Bug found while testing that:** the image field offered guests a **"Generate"** button, posting to a
+  session-only endpoint — against the explicit "asset library only, no generating" rule *and* a guaranteed 401.
+  `aiAssistantEnabled: false` never reached the field layer.
+
+**The load-bearing lesson, worth not re-deriving — the field layer has two hard constraints:**
+
+1. **Fields must not import `PlaygroundContext`.** It imports `@/app/actions/patterns` (server actions →
+   `server-only`), so importing it from a field drags that graph into *every* consumer of `renderFormFields`
+   and they stop loading entirely. `tsc` does **not** catch this; `test/field-array-coercion.test.ts` did.
+2. **Fields render outside any playground.** `ComponentWorkbenchDialog` renders `renderFormFields` and
+   `MediaBrowser` in the component docs with no provider above them, and `usePlayground()` *throws* there.
+
+Both are why surface-dependent state reaches fields through small provider-optional contexts whose defaults
+describe the no-provider case — `FieldGuardrailsContext` (content limits) and `FieldMediaContext` (asset
+source + whether generation is offered). `test/field-guardrails-context.test.ts` guards both constraints;
+the module-graph assertion there was confirmed to actually fail when the coupling is reintroduced.
+
+**Queued for tomorrow (E.7):**
+
+- **E.7a — finish moving visibility + lifecycle out of the library.** Half-done today: the page editor has
+  them, but `AssetInspector` still sets them too — the duplication the spec was written to prevent. **The
+  thing to decide first:** design artifacts have no page view, so that sidebar is currently their *only*
+  visibility/lifecycle control. Removing it outright strands them.
+- **E.7b — `public` needs a copy-link affordance.** Taking share out of both surfaces left no UI that hands
+  out a URL, so `public` ("anyone with the link, view only") has no delivery mechanism. Just the link,
+  copyable, next to the visibility setting — not a return of the capability-picking panel. `ShareLinkPanel`
+  now has zero consumers and is either the basis for this or gets deleted.
+
+**Gotcha (local dev, cost ~20 min):** `.env` sits at the repo root but the dev server runs with cwd
+`src/app`, so `next dev` never loads it — auth throws `ClientFetchError` and every page stalls at
+"Loading...". Fixed with a gitignored `src/app/.env.local` symlink to the root `.env`.
+
+Also still open in Phase E, unchanged: soft delete (`removePattern` is a real hard delete, reachable from
+`PatternBrowserClient`), notifications, and the `handoff_publication` table — created in migration 0028 but
+absent from `schema.ts` with zero readers or writers, so the derived "Published" chip cannot work yet.
+
+---
+
 ## 2026-08-05 — Design note: direct manipulation in the playground editor (Phase F)
 
 Design only, no code. `docs/PLAYGROUND-DIRECT-MANIPULATION.md` + Phase F in

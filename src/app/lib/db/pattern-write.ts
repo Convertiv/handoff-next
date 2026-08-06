@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
 import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
@@ -638,6 +638,25 @@ export async function createGuestSubmission(
 ): Promise<void> {
   assertGuestCanCreateFromTemplate(guest, input.templateId);
   const db = getDb();
+
+  /**
+   * An archived brief accepts no new builds.
+   *
+   * Checked here rather than only in the enter route because archiving is what "delete this page" now does
+   * (`removePattern`), and the invite links it was sent with keep resolving — the token is still valid, the
+   * row is still there. Without this an outsider could start a fresh page against something the team believes
+   * they have removed. Existing drafts need no check: the archive cascade moves them off `draft`, and
+   * `canGuestEditPattern` already requires `draft`.
+   */
+  const [brief] = await db
+    .select({ status: handoffPatterns.status })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.id, input.templateId))
+    .limit(1);
+  if (brief?.status === 'archived') {
+    throw new AuthorizationError('This invitation is no longer accepting new pages.');
+  }
+
   const actor = guestWriteActor(guest, ownerUserId);
 
   await db.insert(handoffPatterns).values({
@@ -813,10 +832,29 @@ export async function submitGuestSubmission(
   });
 }
 
+/**
+ * Archive a page. **Not a delete** (roadmap E.6 step 5).
+ *
+ * This used to be `DELETE FROM handoff_pattern`, reachable from the library's delete button. On a page that
+ * had been sent out that destroyed the only record of what outsiders were invited to build from, and orphaned
+ * their submitted work — while the invite links themselves kept resolving. Archiving keeps the record and
+ * takes the page out of every list.
+ *
+ * **The cascade matters.** A brief is a frozen snapshot of *this* page and a built page is someone's work
+ * against that brief; leaving them listed after the page is gone is how you get rows pointing at nothing. So
+ * archiving a page archives its briefs and, through them, the pages built from them.
+ *
+ * Cascading at write time rather than deriving "hidden" from the parent on every read keeps the read paths to
+ * a single `status <> 'archived'` predicate. The trade is that un-archiving would have to un-cascade
+ * deliberately — there is no un-archive path yet, and this comment is the warning for whoever adds one.
+ *
+ * The sync event still says `delete`: to a downstream consumer the page *has* gone away, and telling it
+ * otherwise would leave the page visible in every synced client.
+ */
 export async function removePattern(id: string, actor: PatternWriteActor): Promise<void> {
   const db = getDb();
 
-  // Authorize BEFORE deleting: owner or admin only (null-owner = team-editable).
+  // Authorize BEFORE writing: owner or admin only (null-owner = team-editable).
   const [existing] = await db
     .select({ userId: handoffPatterns.userId })
     .from(handoffPatterns)
@@ -832,13 +870,40 @@ export async function removePattern(id: string, actor: PatternWriteActor): Promi
     userId: actor.userId,
   });
 
-  await db.delete(handoffPatterns).where(eq(handoffPatterns.id, id));
+  const archived = { status: 'archived' as const, updatedAt: new Date() };
+
+  // Briefs snapshotted from this page, collected before their status changes so the built-page step below
+  // still finds them.
+  const briefs = await db
+    .select({ id: handoffPatterns.id })
+    .from(handoffPatterns)
+    .where(and(eq(handoffPatterns.sourcePageId, id), eq(handoffPatterns.source, 'template')));
+  const briefIds = briefs.map((b) => b.id);
+
+  if (briefIds.length) {
+    // `ne(status, 'archived')` so a re-archive does not re-stamp `updatedAt` on rows already settled.
+    await db
+      .update(handoffPatterns)
+      .set(archived)
+      .where(and(inArray(handoffPatterns.templateId, briefIds), ne(handoffPatterns.status, 'archived')));
+    await db
+      .update(handoffPatterns)
+      .set(archived)
+      .where(and(inArray(handoffPatterns.id, briefIds), ne(handoffPatterns.status, 'archived')));
+  }
+
+  await db.update(handoffPatterns).set(archived).where(eq(handoffPatterns.id, id));
 
   await db.insert(editHistory).values({
     entityType: 'pattern',
     entityId: id,
     userId: historyUserId(actor),
-    diff: { action: 'delete', by: actor.historyLabel ?? null },
+    diff: {
+      action: 'archive',
+      by: actor.historyLabel ?? null,
+      // Recorded so the history explains why other rows moved at the same moment.
+      cascadedBriefs: briefIds,
+    },
   });
 
   await recordPatternChange(db, { patternId: id, action: 'deleted', actor });

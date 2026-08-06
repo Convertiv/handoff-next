@@ -120,9 +120,19 @@ export async function getDbComponentById(id: string) {
   return rows[0] ?? null;
 }
 
+/**
+ * Archived pages are excluded here and in every other list.
+ *
+ * `removePattern` archives rather than deletes (see `pattern-write.ts`), so without this predicate a
+ * "deleted" page would keep appearing everywhere — the delete button would look broken. Direct lookup by id
+ * (`getDbPatternById`) is deliberately NOT filtered: a URL someone already holds still resolves, which is
+ * what makes archiving recoverable rather than a slower delete.
+ */
+const NOT_ARCHIVED = ne(handoffPatterns.status, 'archived');
+
 export async function getDbPatterns() {
   const db = getDb();
-  return db.select().from(handoffPatterns);
+  return db.select().from(handoffPatterns).where(NOT_ARCHIVED);
 }
 
 export type DbPatternFilter = {
@@ -133,7 +143,7 @@ export type DbPatternFilter = {
 
 export async function getDbPatternsFiltered(filters: DbPatternFilter) {
   const db = getDb();
-  const clauses = [];
+  const clauses = [NOT_ARCHIVED];
   if (filters.source?.trim()) {
     clauses.push(eq(handoffPatterns.source, filters.source.trim()));
   }
@@ -150,9 +160,6 @@ export async function getDbPatternsFiltered(filters: DbPatternFilter) {
         sql`(lower(${handoffPatterns.title}) like lower(${like}) escape '\\' or lower(${handoffPatterns.description}) like lower(${like}) escape '\\')`
       );
     }
-  }
-  if (clauses.length === 0) {
-    return db.select().from(handoffPatterns).orderBy(desc(handoffPatterns.updatedAt));
   }
   return db
     .select()
@@ -240,7 +247,7 @@ export async function listBriefsForPage(pageId: string): Promise<BriefSummary[]>
         WHERE l."resource_type" = 'pattern' AND l."resource_id" = b."id"
           AND l."revoked_at" IS NULL AND (l."expires_at" IS NULL OR l."expires_at" > now())) AS link_count
     FROM handoff_pattern b
-    WHERE b."source" = 'template' AND b."source_page_id" = ${pageId}
+    WHERE b."source" = 'template' AND b."source_page_id" = ${pageId} AND b."status" <> 'archived'
     ORDER BY b."brief_version" DESC NULLS LAST, b."created_at" DESC
     LIMIT 100
   `);

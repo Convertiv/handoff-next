@@ -12,6 +12,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Textarea } from '@/components/ui/textarea';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { LifecycleBadge, OwnerAttribution, VisibilityBadge } from '@/components/library';
+import MetaControl from '@/components/library/MetaControl';
 import {
   DevHandoffPanel,
   DevHandoffProgress,
@@ -593,6 +594,13 @@ export default function SavedDesignDetailClient({ config, menu, metadata, artifa
                     )}
                     {visibilityV ? <VisibilityBadge visibility={visibilityV} /> : null}
                   </div>
+                  {/**
+                    * Settable here, on the artifact's own view (roadmap E.7a). It used to be settable only from
+                    * the library's sidebar — and that never actually worked: it PATCHed
+                    * `/design-artifact/[id]`, which has no PATCH handler, so every change 405'd and surfaced as
+                    * "Could not update." The badges above stay as the at-a-glance read.
+                    */}
+                  <MetaControl resourceType="design_artifact" resourceId={artifact.id} basePath={basePath} />
                   <OwnerAttribution owner={owner} isMe={isMe} />
                   <p className="text-xs text-muted-foreground">Created {formatDate(artifact.createdAt)}</p>
                 </div>

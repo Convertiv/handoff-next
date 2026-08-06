@@ -10,8 +10,6 @@ import type { Lifecycle, ResourcePermissions, Visibility } from '@/lib/authz/voc
 import { LifecycleBadge } from './LifecycleBadge';
 import { VisibilityBadge } from './VisibilityBadge';
 import { OwnerAttribution } from './OwnerAttribution';
-import { LifecyclePicker } from './LifecyclePicker';
-import { VisibilityPicker } from './VisibilityPicker';
 
 type InspectorAsset = {
   id: string;
@@ -32,8 +30,6 @@ type Props = {
   onOpenChange: (o: boolean) => void;
   asset: InspectorAsset | null;
   permissions: ResourcePermissions | null;
-  onSetLifecycle: (s: Lifecycle) => void;
-  onSetVisibility: (v: Visibility) => void;
   onOpen?: () => void;
   onDuplicate?: () => void;
   /**
@@ -58,19 +54,12 @@ export function AssetInspector({
   onOpenChange,
   asset,
   permissions,
-  onSetLifecycle,
-  onSetVisibility,
   onOpen,
   onDuplicate,
   submissions = null,
   busy,
 }: Props) {
   const canEdit = Boolean(permissions?.canEdit);
-  const canApprove = Boolean(permissions?.canApprove);
-  const canChangeVisibility = Boolean(permissions?.canChangeVisibility);
-
-  const showNudge =
-    asset?.status === 'review' && (asset.visibility === 'private' || asset.visibility === 'shared');
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -136,42 +125,13 @@ export function AssetInspector({
                 ) : null}
               </Section>
 
-              {/* Lifecycle */}
-              <Section title="Lifecycle">
-                <LifecyclePicker
-                  value={asset.status}
-                  onChange={onSetLifecycle}
-                  canApprove={canApprove}
-                  disabled={!canEdit || busy}
-                />
-              </Section>
-
-              {/* Visibility & access */}
-              <Section title="Visibility & access">
-                <VisibilityPicker
-                  value={asset.visibility}
-                  onChange={onSetVisibility}
-                  disabled={!canChangeVisibility || busy}
-                />
-              </Section>
-
-              {/* Nudge: in review but not yet team-visible */}
-              {showNudge ? (
-                <div className="rounded-md border border-amber-500/30 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
-                  <p className="mb-2">
-                    This is ready for review but only you (and people you picked) can see it. Share it with the
-                    team so reviewers can reach it.
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!canChangeVisibility || busy}
-                    onClick={() => onSetVisibility('team')}
-                  >
-                    Share with team
-                  </Button>
-                </div>
-              ) : null}
+              {/**
+                * **No visibility or lifecycle pickers here.** They belong to the object's own view — the page
+                * editor for a page, the saved-design detail page for an artifact (roadmap E.7a, and the rule
+                * in `INVITE-TO-BUILD.md`). A browse surface listing many things is the wrong place to own one
+                * thing's settings, and while both existed a page had two controls that could disagree.
+                * The badges above stay: reading state while browsing is the point of this panel.
+                */}
 
               {submissions && submissions.length > 0 ? (
                 <Section title={`Built from this (${submissions.length})`}>

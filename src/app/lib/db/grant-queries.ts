@@ -270,7 +270,8 @@ export async function listPatternsByLane(args: LaneListArgs): Promise<LanePage<P
   const limit = clampLimit(args.limit);
   const isAdmin = args.actorRole === 'admin';
 
-  const clauses = [];
+  // Archived = removed, as far as every list is concerned. See `removePattern`.
+  const clauses = [ne(handoffPatterns.status, 'archived')];
   const laneClause = patternLaneClause(args.lane, args.actorUserId, isAdmin);
   if (laneClause) clauses.push(laneClause);
   if (args.source?.trim()) clauses.push(eq(handoffPatterns.source, args.source.trim()));

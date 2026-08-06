@@ -36,7 +36,7 @@ import Preview, { constructComponentPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
 import { useRouter } from 'next/navigation';
 import InviteWizard from './InviteWizard';
-import PageMetaControl from './PageMetaControl';
+import MetaControl from '../library/MetaControl';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
 import type { PlaygroundPageExport, SelectedPlaygroundComponent } from './types';
@@ -317,7 +317,7 @@ export default function PlaygroundBuilder() {
                 */}
               {/* Visibility + lifecycle, where the page is. Replaces the old read-only "Share" link control:
                   handing a page to someone is "Invite to build", and who may see it is this. */}
-              {editingPatternId && <PageMetaControl patternId={editingPatternId} />}
+              {editingPatternId && <MetaControl resourceType="pattern" resourceId={editingPatternId} basePath={basePath} />}
 
               {selectedComponents.length > 0 && editingPatternId && (
                 <div className="flex items-center">

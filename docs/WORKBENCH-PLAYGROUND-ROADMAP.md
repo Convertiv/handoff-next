@@ -283,28 +283,24 @@ Correct observation: the backend exists and **no UI reaches it**. Missing, all s
 - **A links list per template** — label, capabilities, uses/max, expiry, revoke.
 - Keep guest submissions visible in `/library` under a filter, not only in the review queue.
 
-### E.2 — One save path; templates as the shared object
+### E.2 — One save path; templates as the shared object — ✅ DONE 2026-08-05
 
-**Partly shipped 2026-08-05, with three corrections outstanding** (found by Brad testing it).
+All four sub-items shipped. Two were later **superseded** rather than completed as written — noted inline
+below, because the original text describes a product shape that no longer exists (E.6 replaced "template"
+with brief + invite link + built page).
 
 Shipped: `savePageAsTemplate` (a separate, **frozen**, team-visible copy — the page carries on as the
 author's own), the freeze guard in `patchPattern`, save-on-first-block + autosave so dynamic mode has no
 save button, clone-of-a-template recording `template_id`, and "page" wording.
 
-**Still to do, in this order:**
-
-- **E.2a — Share from the library.** The blocker: `AssetInspector` (which now hosts `ShareLinkPanel`) is
-  consumed *only* by the playground's `PatternPicker` dialog. The library has no inspector and therefore no
-  way to share anything — so a template, the object whose whole purpose is being sent out, cannot be shared
-  from the place it lives. Wire the inspector (or at least the share panel) into `/library`, and give
-  templates a visible identity + filter there.
-- **E.2b — Templates are read-only in the editor.** The freeze is enforced server-side but nothing says so
-  in the UI: you can edit a template's canvas, and the refused write surfaces only as "Not saved". Opening a
-  template must present a read-only canvas plus **Use this template** (clone → new page, which the existing
-  `/clone` route already does), and autosave must not attempt a write it knows will be refused.
-- **E.2c — Drop the "Saved pages" control.** Opening a page belongs in the library, not in a modal inside
-  the builder. Remove the `FolderOpen` control and retire `PatternPicker` once E.2a means the library can
-  open *and* share. (This is the control Brad asked to drop; it is still there.)
+- **E.2a — ⚠️ SUPERSEDED.** Shipped as "share from the library", then **removed again** — sharing does not
+  belong on a browse surface (Brad, 2026-08-05). Sending a page out is one flow, "Invite to build", on the
+  page. The library keeps a details sidebar; see **E.7a** for what still has to come out of it.
+- **E.2b — ⚠️ SUPERSEDED.** The read-only-template canvas was built, then became unreachable when briefs got
+  their own route (`/briefs/{id}`), which is a purpose-built review surface rather than a disabled editor.
+  The dead code is gone; `structuralEditing: false` (from E.5) is what survives of it.
+- **E.2c — ✅ DONE.** The `FolderOpen` control and `PatternPicker` are gone; `/library` is the only way to
+  open a page.
 - **E.2d — ✅ DONE 2026-08-05.** `TemplateManager`, `saveAsTemplate`/`loadTemplate`/`deleteTemplate`, the
   `templates` state and the `Template` type are gone, plus a one-time `purgeRetiredLocalTemplates()` sweep of
   the `handoff-playground-template-*` keys. Data loss accepted deliberately: `saveAsTemplate` returned early
@@ -380,8 +376,47 @@ Three decisions worth reading even if you skip the spec:
 - **`removePattern` becomes an archive.** It hard-deletes today, reachable from `PatternBrowserClient`.
   Archiving a page hides its briefs and built pages without destroying the record of what outsiders were sent.
 
-Sequencing: brief+versioning → wizard → brief/built-page viewers (approve/reject moves in) → guest chrome →
-soft delete → notifications (off the critical path; a transactional sender already exists).
+Sequencing: brief+versioning ✅ → wizard ✅ → brief/built-page viewers ✅ (approve/reject moved in) → guest
+chrome ✅ → **soft delete ✅ 2026-08-06** → notifications (the only step left; off the critical path, and
+`lib/email.ts` on Resend already exists).
+
+**Soft delete, as built.** `removePattern` now sets `status: 'archived'` instead of `DELETE`, and **cascades**
+to the page's briefs (`source_page_id`) and, through them, the pages built from them (`template_id`). Four read
+paths gained a `status <> 'archived'` predicate — `getDbPatterns`, `getDbPatternsFiltered`,
+`listPatternsByLane`, `listBriefsForPage` — while **`getDbPatternById` stays unfiltered on purpose**, so a URL
+someone already holds still resolves and archiving is recoverable rather than a slower delete. The review queue
+needed no change: it selects `status = 'review'`, so cascaded submissions drop out on their own.
+
+Two things worth knowing about it:
+- **New builds against an archived brief are refused** in `createGuestSubmission`, not just in the route. The
+  invite token is still valid and the row is still there, so without that check an outsider could start a fresh
+  page against something the team believes it removed. Existing drafts need no check — the cascade moves them
+  off `draft`, which `canGuestEditPattern` already requires.
+- **Un-archiving would have to un-cascade deliberately.** There is no un-archive path yet; cascading at write
+  time is what keeps the read side to a single predicate, and the code says so where it matters.
+
+### E.7 — Page-owned visibility & lifecycle, and a copy link for `public` — ✅ DONE 2026-08-06
+
+Two corrections from QA. Both follow from a rule already in
+[INVITE-TO-BUILD.md](INVITE-TO-BUILD.md#lifecycle-and-visibility-two-dropdowns-and-one-thing-that-is-neither):
+**a page's visibility and lifecycle belong to the page**, not to a browse surface.
+
+- **E.7a — ✅ Meta lives on each object's own view.** One shared `components/library/MetaControl.tsx`, used by
+  the page editor (`resourceType: 'pattern'`) and the saved-design detail page (`'design_artifact'`); both
+  pickers and the review nudge are gone from `AssetInspector`, which keeps the badges as the browse-time read.
+  - **The "stranded artifacts" worry was unfounded, for a worse reason:** artifacts' library controls had
+    *never worked*. They PATCHed `/api/handoff/ai/design-artifact/[id]`, which has **no PATCH handler** —
+    verified 405 against a running server, while the collection route returns 401. `applyMeta` swallowed it
+    into `console.error`, so every change failed silently. The shared control targets the collection route,
+    where the `computePermissions` gate actually lives.
+  - The public copy link is **pattern-only**: an artifact already has its own `publicAccess` sharing control on
+    its detail page, and a second link mechanism would re-create the duplication this phase removed.
+- **E.7b — ✅ `public` has a copy link.** In `MetaControl`, under the visibility picker, once `public` is
+  selected. Reads the existing view-only link and mints one only if there is none. This works — rather than
+  being a copy-it-now-or-lose-it secret — because `createShareLink` hashes only *write-capable* tokens, so a
+  view-only link stays recoverable on every later visit. Verified end-to-end: the minted URL resolves 200 for
+  an unauthenticated recipient and lands on the read-only viewer, not the build surface. `ShareLinkPanel` had
+  zero consumers and is **deleted**; capability picking, expiry and max-uses belong to "Invite to build".
 
 ### E.4 — Guardrail editor for templates — ⤵ ABSORBED into E.6
 
