@@ -6,7 +6,7 @@ import { ChevronDown, Info, Loader2, PlusIcon, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AssetCard, AssetInspector, type LibraryAsset } from '@/components/library';
+import { AssetCard, type LibraryAsset } from '@/components/library';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -271,54 +271,26 @@ export default function LibraryClient({
   }, []);
 
   /**
-   * The inspector is where sharing lives (roadmap E.2a). It was previously reachable only from a dialog
-   * inside the playground, which meant a template — the object whose entire purpose is being sent to
-   * someone — could not be shared from the place it lives.
-   */
-  const [inspected, setInspected] = useState<LibraryAsset | null>(null);
-  const [inspectorBusy, setInspectorBusy] = useState(false);
-  const [submissions, setSubmissions] = useState<
-    { id: string; title: string; status: string; submittedByName: string | null }[] | null
-  >(null);
-
-  /** A template's children, fetched when it is inspected. Loaded on demand — most assets have none. */
-  const inspect = useCallback((asset: LibraryAsset) => {
-    setInspected(asset);
-    setSubmissions(null);
-    if (asset.type !== 'pattern' || asset.source !== 'template') return;
-    void (async () => {
-      try {
-        const res = await fetch(handoffApiUrl(`/api/handoff/templates/${encodeURIComponent(asset.id)}/submissions`), {
-          credentials: 'include',
-        });
-        const json = (await res.json()) as { submissions?: typeof submissions };
-        if (res.ok) setSubmissions(json.submissions ?? []);
-      } catch {
-        /* quiet: the panel simply shows nothing */
-      }
-    })();
-  }, []);
-
-  /**
    * Clone a page into one of your own — how an internal user starts from someone else's team or public page
    * (E.6). Reuses `/clone`, which copies blocks + values and stamps `template_id` when the source is a brief.
    */
-  const duplicate = useCallback(async () => {
-    if (!inspected || inspected.type !== 'pattern') return;
-    setInspectorBusy(true);
-    try {
-      const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(inspected.id)}/clone`), {
-        method: 'POST',
-        credentials: 'include',
-      });
-      const json = (await res.json()) as { id?: string; error?: string };
-      if (!res.ok || !json.id) throw new Error(json.error || 'Could not duplicate this page.');
-      router.push(`${basePath}/playground/${encodeURIComponent(json.id)}`);
-    } catch (e) {
-      console.error('[library] duplicate failed', e);
-      setInspectorBusy(false);
-    }
-  }, [inspected, router, basePath]);
+  const duplicate = useCallback(
+    async (asset: LibraryAsset) => {
+      if (asset.type !== 'pattern') return;
+      try {
+        const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(asset.id)}/clone`), {
+          method: 'POST',
+          credentials: 'include',
+        });
+        const json = (await res.json()) as { id?: string; error?: string };
+        if (!res.ok || !json.id) throw new Error(json.error || 'Could not duplicate this page.');
+        router.push(`${basePath}/playground/${encodeURIComponent(json.id)}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not duplicate this page.');
+      }
+    },
+    [router, basePath],
+  );
 
   const openAsset = useCallback(
     (asset: LibraryAsset) => {
@@ -474,7 +446,8 @@ export default function LibraryClient({
                     key={keyOf(asset)}
                     asset={asset}
                     onOpen={() => openAsset(asset)}
-                    onDetails={() => inspect(asset)}
+                    /* Design artifacts have no clone route, so the action only appears on pages. */
+                    onDuplicate={asset.type === 'pattern' ? () => void duplicate(asset) : undefined}
                   />
                 ))}
               </ul>
@@ -505,36 +478,6 @@ export default function LibraryClient({
       </div>
     </div>
 
-      {/**
-        * **No share controls here** (Brad, 2026-08-05). Sending a page out is now one flow — "Invite to
-        * build" on the page itself — and a second, lower-level "mint a link" control in the library was a
-        * competing way to do the same thing with different semantics. This inspector is for *what a thing
-        * is*: who owns it, how visible it is, where it sits in its lifecycle.
-        */}
-      <AssetInspector
-        open={inspected !== null}
-        onOpenChange={(o) => !o && setInspected(null)}
-        asset={
-          inspected
-            ? {
-                id: inspected.id,
-                title: inspected.title,
-                thumbnailUrl: inspected.thumbnailUrl,
-                owner: inspected.owner,
-                isMe: inspected.isMe,
-                visibility: inspected.visibility,
-                status: inspected.status,
-                surface: inspected.type,
-              }
-            : null
-        }
-        permissions={inspected?.permissions ?? null}
-        busy={inspectorBusy}
-        onOpen={() => inspected && openAsset(inspected)}
-        /* Pages can be duplicated; design artifacts have no clone route, so the button stays hidden there. */
-        onDuplicate={inspected?.type === 'pattern' ? () => void duplicate() : undefined}
-        submissions={submissions}
-      />
     </>
   );
 }

@@ -53,12 +53,19 @@ function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined 
 export function AssetCard({
   asset,
   onOpen,
-  onDetails,
+  onDuplicate,
 }: {
   asset: LibraryAsset;
   onOpen: () => void;
-  /** Opens the inspector — where visibility, lifecycle and **sharing** live. */
-  onDetails?: () => void;
+  /**
+   * Clone this into a page of your own — the one action the library still owns, because starting from
+   * someone else's team or public page is a *browse-time* intent (E.6).
+   *
+   * There is deliberately **no "details" affordance here.** The library used to have a `⋯` button opening a
+   * right-hand inspector that owned visibility, lifecycle and sharing; all of that now lives on the object's
+   * own view (roadmap E.7a). A grid of many things is the wrong place to configure one of them.
+   */
+  onDuplicate?: () => void;
 }) {
   const { Icon: TypeIcon } = TYPE_META[asset.type];
   const typeLabel = assetTypeLabel(asset);
@@ -115,18 +122,16 @@ export function AssetCard({
         </div>
       </button>
 
-      {/**
-       * Outside the open-button, deliberately: nesting a button inside a button is invalid, and "look at
-       * details / share this" is a different intent from "open it".
-       */}
-      {onDetails ? (
+      {/* Outside the open-button: nesting a button inside a button is invalid HTML. */}
+      {onDuplicate ? (
         <button
           type="button"
-          onClick={onDetails}
-          aria-label={`Details and sharing for ${asset.title}`}
+          onClick={onDuplicate}
+          aria-label={`Duplicate ${asset.title}`}
+          title="Duplicate"
           className="shrink-0 border-l px-2 text-xs text-muted-foreground hover:bg-muted/50"
         >
-          ⋯
+          Duplicate
         </button>
       ) : null}
     </li>
