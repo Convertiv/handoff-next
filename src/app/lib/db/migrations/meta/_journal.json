@@ -183,6 +183,13 @@
       "when": 1783500000000,
       "tag": "0027_guest_authoring",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1783600000000,
+      "tag": "0028_invite_to_build",
+      "breakpoints": true
     }
   ]
 }

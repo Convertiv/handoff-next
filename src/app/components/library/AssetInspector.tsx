@@ -277,18 +277,24 @@ export function AssetInspector({
                   <Button className="w-full" disabled={busy} onClick={onOpen}>
                     Open
                   </Button>
-                  <Button variant="secondary" className="w-full" disabled={busy} onClick={onDuplicate}>
-                    Duplicate
-                  </Button>
+                  {/* Only rendered when a caller can actually handle it. It was previously always shown, so
+                      in the library — which never passed the prop — clicking it silently did nothing. */}
+                  {onDuplicate ? (
+                    <Button variant="secondary" className="w-full" disabled={busy} onClick={onDuplicate}>
+                      Duplicate
+                    </Button>
+                  ) : null}
                 </>
               ) : (
                 <>
                   <Button variant="outline" className="w-full" disabled={busy} onClick={onOpen}>
                     Open (view only)
                   </Button>
-                  <Button className="w-full" disabled={busy} onClick={onDuplicate}>
-                    Duplicate to yours
-                  </Button>
+                  {onDuplicate ? (
+                    <Button className="w-full" disabled={busy} onClick={onDuplicate}>
+                      Duplicate to yours
+                    </Button>
+                  ) : null}
                 </>
               )}
             </div>

@@ -65,14 +65,17 @@ function normalizeDesign(row: DesignRow): LibraryAsset {
 }
 
 /**
- * Guest submissions do not belong in the library grid.
+ * Rows that are not first-class library objects (E.6).
  *
- * They are someone else's work-in-progress against *your* template, not an asset of yours — showing them
- * beside your own pages makes the library read as a shared inbox. Their home is the review queue, and their
- * relationship is to the template they were built from (`template_id`), which is where they are surfaced.
+ * - **Guest submissions** (`built pages`) are someone else's work against your brief, not an asset of yours;
+ *   showing them beside your own pages makes the library read as a shared inbox. They belong to the brief they
+ *   were built from and are surfaced there and in the review queue.
+ * - **Briefs** (`source: 'template'`) are frozen snapshots attached to the page that produced them, reached
+ *   from that page's invitations list. They also have no independent visibility — they inherit their parent's
+ *   (Brad, 2026-08-05) — so listing them separately would imply a sharing state they do not own.
  */
-function isGuestSubmission(row: PatternRow): boolean {
-  return row._source === 'guest';
+function isNotALibraryObject(row: PatternRow): boolean {
+  return row._source === 'guest' || row._source === 'template';
 }
 
 function normalizePattern(row: PatternRow): LibraryAsset {
@@ -165,7 +168,7 @@ export default function LibraryClient({
       if (!patternRes.ok) throw new Error(patternJson.error || `Failed to load patterns (${patternRes.status})`);
 
       setDesignAssets((designJson.artifacts ?? []).map(normalizeDesign));
-      setPatternAssets((patternJson.patterns ?? []).filter((r) => !isGuestSubmission(r)).map(normalizePattern));
+      setPatternAssets((patternJson.patterns ?? []).filter((r) => !isNotALibraryObject(r)).map(normalizePattern));
       setDesignCursor(designJson.nextCursor ?? null);
       setPatternCursor(patternJson.nextCursor ?? null);
     } catch (e) {
@@ -226,7 +229,7 @@ export default function LibraryClient({
             if (!res.ok) throw new Error(json.error || `Failed to load patterns (${res.status})`);
             setPatternAssets((prev) => [
               ...prev,
-              ...(json.patterns ?? []).filter((r) => !isGuestSubmission(r)).map(normalizePattern),
+              ...(json.patterns ?? []).filter((r) => !isNotALibraryObject(r)).map(normalizePattern),
             ]);
             setPatternCursor(json.nextCursor ?? null);
           })(),
@@ -326,6 +329,27 @@ export default function LibraryClient({
     },
     [inspected],
   );
+
+  /**
+   * Clone a page into one of your own — how an internal user starts from someone else's team or public page
+   * (E.6). Reuses `/clone`, which copies blocks + values and stamps `template_id` when the source is a brief.
+   */
+  const duplicate = useCallback(async () => {
+    if (!inspected || inspected.type !== 'pattern') return;
+    setInspectorBusy(true);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(inspected.id)}/clone`), {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const json = (await res.json()) as { id?: string; error?: string };
+      if (!res.ok || !json.id) throw new Error(json.error || 'Could not duplicate this page.');
+      router.push(`${basePath}/playground/${encodeURIComponent(json.id)}`);
+    } catch (e) {
+      console.error('[library] duplicate failed', e);
+      setInspectorBusy(false);
+    }
+  }, [inspected, router, basePath]);
 
   const openAsset = useCallback(
     (asset: LibraryAsset) => {
@@ -539,6 +563,8 @@ export default function LibraryClient({
         onSetLifecycle={(status) => void applyMeta({ status })}
         onSetVisibility={(visibility) => void applyMeta({ visibility })}
         onOpen={() => inspected && openAsset(inspected)}
+        /* Pages can be duplicated; design artifacts have no clone route, so the button stays hidden there. */
+        onDuplicate={inspected?.type === 'pattern' ? () => void duplicate() : undefined}
         submissions={submissions}
         shareResource={
           inspected

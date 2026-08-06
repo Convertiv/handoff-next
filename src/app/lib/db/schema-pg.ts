@@ -137,8 +137,18 @@ export const handoffPatterns = pgTable('handoff_pattern', {
   visibility: text('visibility').notNull().default('private'),
   /** Lifecycle: prototype | draft | review | approved | archived (Phase B). */
   status: text('status').notNull().default('draft'),
-  /** The template this page was built from, if any — drives the review diff. */
+  /** For a **built page**: the brief it was built from — drives the review diff. */
   templateId: text('template_id'),
+  /**
+   * For a **brief**: the page it was snapshotted from. Opposite direction to `templateId`; conflating the two
+   * would invert every diff that reads it. SET NULL on delete — a brief outlives its parent because it records
+   * what outsiders were sent.
+   */
+  sourcePageId: text('source_page_id'),
+  /** For a brief: its stable version number within the parent page. Stored, never derived. */
+  briefVersion: integer('brief_version'),
+  /** For a built page: the author's email, for state-change notifications. */
+  submittedByEmail: text('submitted_by_email'),
   /**
    * The share link this page was created through. Scopes a guest to their own submission, since
    * guest pages are owned by the link's creator and ownership therefore can't. Provenance that
@@ -239,6 +249,12 @@ export const handoffShareLinks = pgTable(
     tokenHash: text('token_hash'),
     /** Operator-facing name, so a list of links is readable. */
     label: text('label'),
+    /** scrypt — NOT the SHA-256 used for the link secret. See `docs/INVITE-TO-BUILD.md`. */
+    passphraseHash: text('passphrase_hash'),
+    passphraseSalt: text('passphrase_salt'),
+    /** Failed passphrase attempts, and a resettable temporary lock (never a permanent ban). */
+    attemptCount: integer('attempt_count').notNull().default(0),
+    lockedUntil: timestamp('locked_until'),
     maxUses: integer('max_uses'),
     useCount: integer('use_count').notNull().default(0),
     lastUsedAt: timestamp('last_used_at'),

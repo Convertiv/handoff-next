@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
 import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
@@ -283,7 +283,7 @@ export async function savePageAsTemplate(
   pageId: string,
   actor: PatternWriteActor,
   opts: { title?: string | null } = {}
-): Promise<{ id: string; title: string }> {
+): Promise<{ id: string; title: string; version: number }> {
   const db = getDb();
   const [page] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, pageId)).limit(1);
   if (!page) throw new Error('Page not found.');
@@ -294,6 +294,19 @@ export async function savePageAsTemplate(
   if (page.source === 'template') {
     throw new Error('This is already a template. Save a template from the page instead.');
   }
+
+  /**
+   * Next version for this page. Read-then-write rather than a sequence: versions are per-parent, and two briefs
+   * created from one page in the same second would be a person clicking twice — the unique index below is what
+   * actually prevents a duplicate, and it turns that race into an error instead of two v3s.
+   */
+  const [latest] = await db
+    .select({ v: handoffPatterns.briefVersion })
+    .from(handoffPatterns)
+    .where(and(eq(handoffPatterns.sourcePageId, pageId), eq(handoffPatterns.source, 'template')))
+    .orderBy(desc(handoffPatterns.briefVersion))
+    .limit(1);
+  const briefVersion = (latest?.v ?? 0) + 1;
 
   const title = (opts.title?.trim() || page.title || 'Untitled').slice(0, 200);
   const slug =
@@ -315,12 +328,14 @@ export async function savePageAsTemplate(
     data: page.data ?? {},
     userId: actor.userId,
     source: 'template',
+    sourcePageId: pageId,
+    briefVersion,
     /**
-     * Team-visible by construction — being findable is the point of a template, and unlike promoting a
-     * page in place this widens nothing the author already had. Sending it *outside* the team is still a
-     * separate, separately-gated act (a share link).
+     * Briefs have **no independent visibility** — they inherit their parent page's (Brad, 2026-08-05), and they
+     * are not listed in the library at all. The column is set to match the page so nothing reads a contradiction
+     * out of it, but reachability comes from the parent and from invite links, never from this value.
      */
-    visibility: 'team',
+    visibility: page.visibility ?? 'private',
     /**
      * Left as `draft`, deliberately: `approved` is maintainer-gated everywhere else (`canApprove`), and
      * setting it here would be a way around that gate. A maintainer can approve a template through the
@@ -358,7 +373,7 @@ export async function savePageAsTemplate(
     actor: { ...actor, message: actor.message ?? `Saved as a template from ${pageId}` },
   });
 
-  return { id, title };
+  return { id, title, version: briefVersion };
 }
 
 /* -------------------------------------------------------------------------- */

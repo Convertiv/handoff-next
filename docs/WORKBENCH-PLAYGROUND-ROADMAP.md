@@ -362,7 +362,28 @@ server-enforcement-only until the shared block editor learns about guardrails �
 **Why it is worth doing beyond the guest flow:** the same "no structural editing" mode is what makes a frozen
 template view honest, and every future improvement to the block editor reaches guests automatically.
 
-### E.4 — Guardrail editor for templates
+### E.6 — Invite to Build (briefs, built pages, publication record)
+
+**Spec: [INVITE-TO-BUILD.md](INVITE-TO-BUILD.md)** (2026-08-05, decisions locked). Supersedes the "template"
+product vocabulary; **absorbs E.4** (guardrails move into the invite wizard).
+
+Page → **Build brief** (frozen, versioned) → **invite links** (many per brief, resharable) → **Built pages**
+(standalone — no merge back). Four product nouns; storage keeps saying `template`.
+
+Three decisions worth reading even if you skip the spec:
+
+- **"Published" is not a lifecycle state** — it is a `handoff_publication` record (destination, external URL,
+  status). One enum value cannot express "pushed to WordPress, failed on HubSpot, later reverted", and the
+  plugin roadmap guarantees more than one destination. The chip is derived. This is the Phase D seam.
+- **Invitations are not a visibility level.** `public` already means "anyone with the link, read-only"; if
+  invites live in that dropdown, "Public" reads as "this is how outsiders build", which is wrong and unsafe.
+- **`removePattern` becomes an archive.** It hard-deletes today, reachable from `PatternBrowserClient`.
+  Archiving a page hides its briefs and built pages without destroying the record of what outsiders were sent.
+
+Sequencing: brief+versioning → wizard → brief/built-page viewers (approve/reject moves in) → guest chrome →
+soft delete → notifications (off the critical path; a transactional sender already exists).
+
+### E.4 — Guardrail editor for templates — ⤵ ABSORBED into E.6
 
 Slice 3 enforces `template.data.guardrails` in three places (editor, submit, review) but nothing *sets* it
 from the browser — today it is a JSON field. Now that a template is a real, frozen object with its own
@@ -476,7 +497,8 @@ install needs a Blob store from first boot — 3.1 provisions it as a standard p
 | B | Visibility enum + share links + grants | A done |
 | C | Lifecycle, library org, concurrency, attribution | A done (B parallel) |
 | D | Outbound export adapters on the event backbone | A done; demand-driven |
-| E | Pages as documents; one save path; templates as the shared object | B done; E.1 → E.3 → E.2 |
+| E | Pages as documents; one save path; templates as the shared object | B done; E.1 → E.3 → E.2 → E.5 |
+| E.6 | Invite to Build: briefs, built pages, publication record ([spec](INVITE-TO-BUILD.md)) | E.5 done |
 | F | Direct manipulation: form polish → rendered option pickers → field tracer → inline editing | none for F.0/F.1/F.4; F.2 after F.1; F.3 needs F.2 coverage + preview-capture fix |
 
 **Open decisions (not blocking Phase 0):**
