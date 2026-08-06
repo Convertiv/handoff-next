@@ -50,23 +50,17 @@ function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined 
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function AssetCard({
-  asset,
-  onOpen,
-  onDuplicate,
-}: {
-  asset: LibraryAsset;
-  onOpen: () => void;
-  /**
-   * Clone this into a page of your own — the one action the library still owns, because starting from
-   * someone else's team or public page is a *browse-time* intent (E.6).
-   *
-   * There is deliberately **no "details" affordance here.** The library used to have a `⋯` button opening a
-   * right-hand inspector that owned visibility, lifecycle and sharing; all of that now lives on the object's
-   * own view (roadmap E.7a). A grid of many things is the wrong place to configure one of them.
-   */
-  onDuplicate?: () => void;
-}) {
+/**
+ * **A card is a link. It takes no actions.**
+ *
+ * This has been walked back three times — a `⋯` details/sharing panel, then a Duplicate button — and each time
+ * the reason was "this feature needs somewhere to live", which is not a reason to put it on a card (Brad,
+ * repeatedly, through 2026-08-06). Everything you can *do* to an object lives on that object's own view:
+ * visibility and lifecycle in `MetaControl`, duplicate in the page editor, invitations in the wizard.
+ *
+ * If something seems to need a card affordance, it needs a home on the object instead.
+ */
+export function AssetCard({ asset, onOpen }: { asset: LibraryAsset; onOpen: () => void }) {
   const { Icon: TypeIcon } = TYPE_META[asset.type];
   const typeLabel = assetTypeLabel(asset);
   const editedLabel = formatEdited(asset.updatedAt);
@@ -121,19 +115,6 @@ export function AssetCard({
         </div>
         </div>
       </button>
-
-      {/* Outside the open-button: nesting a button inside a button is invalid HTML. */}
-      {onDuplicate ? (
-        <button
-          type="button"
-          onClick={onDuplicate}
-          aria-label={`Duplicate ${asset.title}`}
-          title="Duplicate"
-          className="shrink-0 border-l px-2 text-xs text-muted-foreground hover:bg-muted/50"
-        >
-          Duplicate
-        </button>
-      ) : null}
     </li>
   );
 }

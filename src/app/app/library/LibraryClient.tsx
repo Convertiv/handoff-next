@@ -270,28 +270,6 @@ export default function LibraryClient({
     setError(null);
   }, []);
 
-  /**
-   * Clone a page into one of your own — how an internal user starts from someone else's team or public page
-   * (E.6). Reuses `/clone`, which copies blocks + values and stamps `template_id` when the source is a brief.
-   */
-  const duplicate = useCallback(
-    async (asset: LibraryAsset) => {
-      if (asset.type !== 'pattern') return;
-      try {
-        const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(asset.id)}/clone`), {
-          method: 'POST',
-          credentials: 'include',
-        });
-        const json = (await res.json()) as { id?: string; error?: string };
-        if (!res.ok || !json.id) throw new Error(json.error || 'Could not duplicate this page.');
-        router.push(`${basePath}/playground/${encodeURIComponent(json.id)}`);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not duplicate this page.');
-      }
-    },
-    [router, basePath],
-  );
-
   const openAsset = useCallback(
     (asset: LibraryAsset) => {
       if (asset.type === 'design') {
@@ -446,8 +424,6 @@ export default function LibraryClient({
                     key={keyOf(asset)}
                     asset={asset}
                     onOpen={() => openAsset(asset)}
-                    /* Design artifacts have no clone route, so the action only appears on pages. */
-                    onDuplicate={asset.type === 'pattern' ? () => void duplicate(asset) : undefined}
                   />
                 ))}
               </ul>

@@ -13,6 +13,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import {
   ChevronDown,
+  CopyIcon,
   FileCodeIcon,
   Layers,
   Maximize,
@@ -35,6 +36,7 @@ import SortableItem from './SortableItem';
 import Preview, { constructComponentPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
 import { useRouter } from 'next/navigation';
+import { handoffApiUrl } from '@/lib/api-path';
 import InviteWizard from './InviteWizard';
 import MetaControl from '../library/MetaControl';
 import MediaBrowser from './MediaBrowser';
@@ -150,6 +152,7 @@ export default function PlaygroundBuilder() {
   const router = useRouter();
   const [wizardOpen, setWizardOpen] = useState(false);
   const [templateNotice, setTemplateNotice] = useState<string | null>(null);
+
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   // Open when starting a new page, closed when opening an existing pattern. A blank canvas has nothing
@@ -157,6 +160,32 @@ export default function PlaygroundBuilder() {
   // intent and shouldn't have the preview narrowed for it.
   const [aiPanelOpen, setAiPanelOpen] = useState(() => aiAssistantEnabled && !editingPatternId);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+
+  const [duplicating, setDuplicating] = useState(false);
+
+  /**
+   * Clone this page into one of your own (E.6) — how an internal user starts from someone else's team or
+   * public page.
+   *
+   * Lives on the page, not on the library card. It was briefly a card affordance and that was wrong twice
+   * over: a card is a link, and "duplicate this" is something you decide *after* looking at the thing.
+   */
+  const duplicatePage = useCallback(async () => {
+    if (!editingPatternId) return;
+    setDuplicating(true);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(editingPatternId)}/clone`), {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const json = (await res.json()) as { id?: string; error?: string };
+      if (!res.ok || !json.id) throw new Error(json.error || 'Could not duplicate this page.');
+      router.push(`${basePath}/playground/${encodeURIComponent(json.id)}`);
+    } catch (e) {
+      setTemplateNotice(e instanceof Error ? e.message : 'Could not duplicate this page.');
+      setDuplicating(false);
+    }
+  }, [editingPatternId, router, basePath]);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   // The canvas preview iframe — shared with the right-panel editor so field
   // edits live-update the real page via postMessage (no full canvas rebuild).
@@ -318,6 +347,24 @@ export default function PlaygroundBuilder() {
               {/* Visibility + lifecycle, where the page is. Replaces the old read-only "Share" link control:
                   handing a page to someone is "Invite to build", and who may see it is this. */}
               {editingPatternId && <MetaControl resourceType="pattern" resourceId={editingPatternId} basePath={basePath} />}
+
+              {editingPatternId && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1 px-2"
+                      disabled={duplicating}
+                      onClick={() => void duplicatePage()}
+                    >
+                      <CopyIcon className="h-4 w-4" />
+                      <span className="text-xs">Duplicate</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Make your own copy of this page</TooltipContent>
+                </Tooltip>
+              )}
 
               {selectedComponents.length > 0 && editingPatternId && (
                 <div className="flex items-center">

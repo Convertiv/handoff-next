@@ -418,6 +418,94 @@ Two corrections from QA. Both follow from a rule already in
   an unauthenticated recipient and lands on the read-only viewer, not the build surface. `ShareLinkPanel` had
   zero consumers and is **deleted**; capability picking, expiry and max-uses belong to "Invite to build".
 
+### E.8 — One shell, three levels: page → brief → build (Brad, 2026-08-06)
+
+**The problem, in Brad's words:** "It makes it unclear what's happening… not a bunch of different interfaces
+but the same thing — drilling down as people iterate over it."
+
+He is right, and the fault is in how E.6 shipped: `/briefs/[id]` got its **own route and its own shell**, so a
+brief reads as a third product rather than a deeper view of a page. The parts needed to fix it already exist —
+`PlaygroundProvider` takes an injected `{hydrate, persist}` adapter plus a `structuralEditing` flag (that *is*
+"same canvas, different write capability"), and `BriefViewer` already proved the swappable-left-panel,
+select-a-build-and-both-panels-change interaction. This collapses three shells into one; it is not new UI.
+
+**The model — one shell, the left panel switches on level:**
+
+| Level | Canvas | Left sidebar |
+|---|---|---|
+| Page | editable, autosaves | blocks / field editor (today) |
+| Brief | frozen | brief meta + the builds made from it |
+| Build | someone else's, read-only | their notes + audit results |
+
+- **URL: query params on the existing route** — `/playground/{pageId}?brief={id}&build={id}`. One route, so
+  back/forward work and the provider stays mounted per level. Deep links matter more than they look: the review
+  queue links straight to a build today and notifications will later. Keep `/briefs/{id}` as a **redirect** into
+  the unified URL rather than deleting it — links to it already exist.
+- **⚠️ The provider MUST remount per selection (keyed), not just re-hydrate.** The page level autosaves. Swap
+  the canvas to a brief or a build under a live provider and an in-flight autosave can write that content back
+  onto the page — silent data loss. `BriefViewer` already keys on the record id; keep doing that.
+- **Brief meta panel:** creator, version, date, instructions + help text, invite-link *status*, passphrase
+  *status*, "Edit metadata" (instructions/help text), and two distinct verbs — **deactivate the invite**
+  (revoke the link) vs **archive the brief** (E.6.5). They are different actions and must not share a button.
+- **Build list is one component, mounted twice.** Also reachable straight from the page level (Brad: "so you
+  don't have to go through the brief just to go open the build"). Same component, two mount points — this is
+  what makes "quick to get to what I need" real rather than aspirational.
+- **The right sidebar** becomes a second slot in the same shell, available at brief and build level, rather
+  than a new layout concept.
+
+### E.8b — Regenerate, because secrets are not recoverable — **DECIDED (Brad, 2026-08-06)**
+
+The original ask was to show "the link to the builder, the password" in the brief panel. **Neither can be
+displayed, by design:** passphrases are `scrypt`-hashed with a salt, and write-capable link secrets are
+SHA-256 hashed — which is why `GET /api/handoff/share` returns `secretRecoverable: false` rather than handing
+back the id and letting the UI pretend it is a working URL. The wizard shows the URL once because once is all
+there is.
+
+**Decision: regenerate, do not store recoverably.** The panel shows *status* — link active · 3 of 10 uses ·
+expires in 6 days · passphrase set — plus a **Regenerate** action that revokes the old link, mints a fresh
+link + passphrase, and shows them once. Same information value, no security fiction, and the hashing keeps the
+property that a database leak yields no usable invites.
+
+### E.9 — Content length from the field spec, not just from a brief (Brad, 2026-08-06)
+
+Today `maxLength` only exists **per brief** (`guardrails.fields[path].maxLength`, authored in the invite
+wizard, enforced in three places, surfaced by `TextField`'s counter). So an internal author gets no limits at
+all, because guardrails arrive with an invitation.
+
+**What is actually true about the "existing field spec" — worth reading before starting.** A property can
+carry a `rules` object, and `Wizard/prompt-builder.ts:23` already reads **`value.rules.maxLength`** to build
+LLM context. But `IHandoffPropertyRules` (`lib/figma-plugin-contract.ts`) declares only `required` and
+`dimensions` — **`maxLength` is not in the type and nothing enforces it.** It is a de-facto convention, not a
+spec. So this work is:
+
+1. **Declare it.** Add `maxLength` to `IHandoffPropertyRules`. That file mirrors a contract whose canonical
+   source is `handoff-figma-plugin src/contract/index.ts` — **keep them in sync**, per the note at its head.
+2. **Resolve with the brief winning.** `resolveFieldGuardrail` gains a fallback: brief override → component's
+   declared `rules.maxLength` → nothing. A brief must still be able to be *stricter* than the component.
+3. **React components are the open seam.** `handoff-core` produces no `rules` at all — for React, fields are
+   largely *inferred* from serializable props, so there is nowhere to declare a limit today. The natural home
+   is the paused fields-annotation layer (see [[project-typed-react-preview-builder]]); until that lands,
+   React components simply declare nothing.
+4. **No declaration → no enforcement** (Brad's call, 2026-08-06). Absent a limit, the field behaves exactly as
+   it does now. Nothing is invented, which is the same rule the guardrails engine already follows.
+
+### E.10 — Build audits: voice, accessibility, SEO, content
+
+Surfaced in the build level's left panel (E.8). **Decide the architecture before writing any of it:** the
+preview iframe is `sandbox="allow-scripts"` with **no** `allow-same-origin`, an opaque origin so it cannot
+reach registry cookies — which also means **the parent cannot read its DOM**. Scraping the rendered preview is
+not available.
+
+**Recommended: run audits server-side on the exported HTML**, via the `constructComponentPreview` +
+`hydrateForExport` path the brief download already uses. Voice, SEO and content checks are static; so are most
+a11y rules (alt text, heading order, label association, contrast from tokens). The few that genuinely need
+layout come later, via a script injected *into* the frame that `postMessage`s results out — the same channel
+block actions already use. Run as a queued job, store results on the pattern, and let the panel just read them.
+
+**Sequencing for E.8–E.10 (Brad, 2026-08-06):** Duplicate off the library cards → E.8 page+brief levels →
+E.8 build level (audit panel as an empty slot) → E.8b brief metadata editing + regenerate → E.9 content length
+→ E.10 audits filling that slot → **notifications last, explicitly deferred.**
+
 ### E.4 — Guardrail editor for templates — ⤵ ABSORBED into E.6
 
 Slice 3 enforces `template.data.guardrails` in three places (editor, submit, review) but nothing *sets* it
