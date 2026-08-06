@@ -1,5 +1,12 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { consumeShareLink, getActiveShareLinkById, shareLinkCapabilities } from '@/lib/db/grant-queries';
+import {
+  clearPassphraseFailures,
+  consumeShareLink,
+  getActiveShareLinkById,
+  recordPassphraseFailure,
+  shareLinkCapabilities,
+} from '@/lib/db/grant-queries';
+import { isLocked, lockRemainingMinutes, verifyPassphrase } from '@/lib/server/passphrase';
 import { getDbPatternById } from '@/lib/db/queries';
 import { canGuestView, canGuestCreateFromTemplate } from '@/lib/authz/policy';
 import {
@@ -21,7 +28,12 @@ import {
  * `submissionId`, so returning to the URL returns to the draft. See `docs/GUEST-AUTHORING.md`.
  */
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => ({}))) as { token?: unknown; name?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    token?: unknown;
+    name?: unknown;
+    passphrase?: unknown;
+    email?: unknown;
+  };
   const token = typeof body.token === 'string' ? body.token : '';
   if (!token.trim()) return NextResponse.json({ error: 'A link token is required.' }, { status: 400 });
 
@@ -36,8 +48,49 @@ export async function POST(request: NextRequest) {
   const jar = request.cookies;
   const resumed = readGuestSession(jar.get(guestCookieName(existingId))?.value, existingId);
 
+  /**
+   * The link row is fetched before the secret is spent, because a passphrase failure must not consume a use —
+   * otherwise ten wrong guesses would burn a ten-use invitation.
+   */
+  const candidate = await getActiveShareLinkById(existingId);
+
+  if (candidate?.passphraseHash && !resumed) {
+    /**
+     * Passphrase gate. Only on a first visit: a resumed session already proved possession, and re-asking on
+     * every reload would be theatre that trains people to keep the phrase in a sticky note.
+     */
+    if (isLocked(candidate.lockedUntil)) {
+      const mins = lockRemainingMinutes(candidate.lockedUntil);
+      return NextResponse.json(
+        { error: `Too many incorrect attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`, locked: true },
+        { status: 429 }
+      );
+    }
+
+    const supplied = typeof body.passphrase === 'string' ? body.passphrase : '';
+    if (!supplied.trim()) {
+      // Distinguished from a wrong one so the UI can ask for it without accusing the visitor of an error.
+      return NextResponse.json({ error: 'This invitation needs a passphrase.', passphraseRequired: true }, { status: 401 });
+    }
+    if (!verifyPassphrase(supplied, { hash: candidate.passphraseHash, salt: candidate.passphraseSalt })) {
+      const next = await recordPassphraseFailure(candidate.token);
+      const mins = lockRemainingMinutes(next.lockedUntil);
+      return NextResponse.json(
+        {
+          error: mins
+            ? `That passphrase is not right. Too many attempts — try again in ${mins} minute${mins === 1 ? '' : 's'}.`
+            : 'That passphrase is not right.',
+          passphraseRequired: true,
+          locked: mins > 0,
+        },
+        { status: mins ? 429 : 401 }
+      );
+    }
+    await clearPassphraseFailures(candidate.token);
+  }
+
   // Resuming re-reads the link (active checks, no use spent); a first visit verifies the secret and counts it.
-  const link = resumed ? await getActiveShareLinkById(existingId) : await consumeShareLink(token);
+  const link = resumed ? candidate : await consumeShareLink(token);
   if (!link) {
     // One message for every cause: expired, revoked, used up, wrong secret. Distinguishing them tells a
     // token holder about links they do not hold.
@@ -57,8 +110,10 @@ export async function POST(request: NextRequest) {
   const template = await getDbPatternById(link.resourceId);
   if (!template) return NextResponse.json({ error: 'This link is no longer available.' }, { status: 404 });
 
+  const email = typeof body.email === 'string' ? body.email.trim().slice(0, 200) : '';
+
   const { token: sessionToken, session } = issueGuestSession(
-    { linkId: link.token, submissionId: resumed?.submissionId ?? null, name },
+    { linkId: link.token, submissionId: resumed?.submissionId ?? null, name, email: email || resumed?.email || null },
     { maxExp: link.expiresAt ? link.expiresAt.getTime() : null }
   );
 

@@ -46,6 +46,10 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [email, setEmail] = useState('');
+  const [passphrase, setPassphrase] = useState('');
+  /** Set when the server says this invitation is passphrase-protected, so the field only appears if needed. */
+  const [passphraseRequired, setPassphraseRequired] = useState(false);
   const [linkId, setLinkId] = useState('');
   const [capabilities, setCapabilities] = useState<Capabilities>([]);
   const [submitMessage, setSubmitMessage] = useState('');
@@ -67,16 +71,29 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ token, name: trimmed }),
+        body: JSON.stringify({
+          token,
+          name: trimmed,
+          email: email.trim() || undefined,
+          passphrase: passphrase.trim() || undefined,
+        }),
       });
       const json = (await res.json()) as {
         linkId?: string;
         capabilities?: Capabilities;
         submissionId?: string | null;
         resumed?: boolean;
+        passphraseRequired?: boolean;
         error?: string;
       };
-      if (!res.ok || !json.linkId) throw new Error(json.error || 'This link is no longer available.');
+      if (!res.ok || !json.linkId) {
+        /**
+         * A passphrase challenge is not a dead end: reveal the field and let them try. Kept distinct from
+         * "wrong passphrase" so a first-time visitor is asked rather than accused.
+         */
+        if (json.passphraseRequired) setPassphraseRequired(true);
+        throw new Error(json.error || 'This link is no longer available.');
+      }
 
       setLinkId(json.linkId);
       setCapabilities(json.capabilities ?? []);
@@ -197,10 +214,50 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
               className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
             />
           </div>
+          <div>
+            <label htmlFor="guest-email" className="block text-sm font-medium text-slate-800">
+              Your email <span className="font-normal text-slate-500">(optional)</span>
+            </label>
+            {/* Disclosure at the point of collection, not in a policy page — we are about to email them. */}
+            <p className="mt-1 text-sm text-slate-500">
+              We’ll use it to tell you what happens to your page — when it’s received, reviewed, or published.
+              Nothing else.
+            </p>
+            <input
+              id="guest-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+              maxLength={200}
+              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+            />
+          </div>
+
+          {passphraseRequired ? (
+            <div>
+              <label htmlFor="guest-passphrase" className="block text-sm font-medium text-slate-800">
+                Passphrase
+              </label>
+              <p className="mt-1 text-sm text-slate-500">
+                Four words, sent to you with this link. Capitals and spaces don’t matter.
+              </p>
+              <input
+                id="guest-passphrase"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                required
+                className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm focus:border-slate-500 focus:outline-none"
+              />
+            </div>
+          ) : null}
+
           {error ? <Alert>{error}</Alert> : null}
           <button
             type="submit"
-            disabled={!name.trim()}
+            disabled={!name.trim() || (passphraseRequired && !passphrase.trim())}
             className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
           >
             Start building

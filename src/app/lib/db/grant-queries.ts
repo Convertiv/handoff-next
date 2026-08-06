@@ -7,6 +7,7 @@ import type { GrantLevel, MutateActor, ResourceGrant, ShareCapability } from '..
 import { AuthorizationError, computePermissions, toVisibility } from '../authz/policy';
 import { isWriteCapable, toShareCapabilities } from '../authz/vocab';
 import { mintShareToken, parseShareToken, verifyShareSecret } from '../server/share-link-token';
+import { clearedLockState, hashPassphrase, nextLockState, type LockState } from '../server/passphrase';
 
 /**
  * Grant resolution + lane-aware, visibility-filtered list queries + tokenized
@@ -492,6 +493,8 @@ export async function createShareLink(
     capabilities?: readonly string[];
     label?: string | null;
     maxUses?: number | null;
+    /** Plain passphrase; stored only as a scrypt hash + salt. Never persisted or returned as given. */
+    passphrase?: string | null;
   } = {}
 ): Promise<CreatedShareLink> {
   const db = getDb();
@@ -527,6 +530,9 @@ export async function createShareLink(
   const expiresAt =
     opts.expiresAt ?? (writeCapable ? new Date(Date.now() + DEFAULT_WRITE_LINK_TTL_MS) : null);
 
+  // Hashed here rather than by the caller, so no route can persist a plain passphrase by forgetting to.
+  const passphrase = opts.passphrase?.trim() ? hashPassphrase(opts.passphrase) : null;
+
   const [row] = await db
     .insert(handoffShareLinks)
     .values({
@@ -538,6 +544,8 @@ export async function createShareLink(
       tokenHash,
       label: opts.label?.trim() || null,
       maxUses: opts.maxUses ?? null,
+      passphraseHash: passphrase?.hash ?? null,
+      passphraseSalt: passphrase?.salt ?? null,
       expiresAt,
     })
     .returning();
@@ -621,6 +629,10 @@ export interface ShareLinkSummary {
   writeCapable: boolean;
   /** False when the secret is hashed, i.e. the full URL cannot be shown again. */
   secretRecoverable: boolean;
+  /** Whether a passphrase is needed as well as the link. Never the passphrase itself. */
+  passphraseRequired: boolean;
+  /** Locked out by failed passphrase attempts until this moment, if at all. */
+  lockedUntil: Date | null;
   useCount: number;
   maxUses: number | null;
   lastUsedAt: Date | null;
@@ -680,6 +692,8 @@ export async function listShareLinks(
       capabilities,
       writeCapable: isWriteCapable(capabilities),
       secretRecoverable: link.tokenHash == null,
+      passphraseRequired: Boolean(link.passphraseHash),
+      lockedUntil: link.lockedUntil,
       useCount: link.useCount ?? 0,
       maxUses: link.maxUses,
       lastUsedAt: link.lastUsedAt,
@@ -725,6 +739,37 @@ export async function getActiveShareLinkById(id: string): Promise<ShareLinkRow |
   if (link.revokedAt) return null;
   if (link.expiresAt && link.expiresAt.getTime() <= Date.now()) return null;
   return link;
+}
+
+/**
+ * Record a failed passphrase attempt and return the resulting lock state.
+ *
+ * Written even on a wrong guess — that is the point. A counter only advanced on success would make the
+ * lockout decorative.
+ */
+export async function recordPassphraseFailure(linkId: string): Promise<LockState> {
+  const db = getDb();
+  const [link] = await db
+    .select({ attemptCount: handoffShareLinks.attemptCount })
+    .from(handoffShareLinks)
+    .where(eq(handoffShareLinks.token, linkId))
+    .limit(1);
+  const next = nextLockState(link?.attemptCount ?? 0);
+  await db
+    .update(handoffShareLinks)
+    .set({ attemptCount: next.attemptCount, lockedUntil: next.lockedUntil })
+    .where(eq(handoffShareLinks.token, linkId));
+  return next;
+}
+
+/** Clear the counter after a correct passphrase, so a lock is a speed bump rather than a trap. */
+export async function clearPassphraseFailures(linkId: string): Promise<void> {
+  const db = getDb();
+  const cleared = clearedLockState();
+  await db
+    .update(handoffShareLinks)
+    .set({ attemptCount: cleared.attemptCount, lockedUntil: cleared.lockedUntil })
+    .where(eq(handoffShareLinks.token, linkId));
 }
 
 /**

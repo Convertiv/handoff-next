@@ -12,6 +12,8 @@ export default function PlaygroundClient({
   config,
   initialPatternId,
   initialIsTemplate = false,
+  pageTitle = '',
+  initialBriefs = [],
 }: {
   menu: unknown;
   metadata: unknown;
@@ -19,11 +21,18 @@ export default function PlaygroundClient({
   config: unknown;
   initialPatternId?: string;
   initialIsTemplate?: boolean;
+  pageTitle?: string;
+  initialBriefs?: React.ComponentProps<typeof PlaygroundProvider>['initialBriefs'];
 }) {
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <TooltipProvider>
-        <PlaygroundProvider initialPatternId={initialPatternId} initialIsTemplate={initialIsTemplate}>
+        <PlaygroundProvider
+          initialPatternId={initialPatternId}
+          initialIsTemplate={initialIsTemplate}
+          pageTitle={pageTitle}
+          initialBriefs={initialBriefs}
+        >
           <PlaygroundBuilder />
         </PlaygroundProvider>
       </TooltipProvider>

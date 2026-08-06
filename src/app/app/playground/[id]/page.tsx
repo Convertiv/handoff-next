@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../components/util';
-import { getDbPatternById } from '../../../lib/db/queries';
+import { getDbPatternById, listBriefsForPage } from '../../../lib/db/queries';
 import { isPostgres } from '../../../lib/db/dialect';
 import PlaygroundClient from '../PlaygroundClient';
 
@@ -30,12 +30,18 @@ export default async function PlaygroundPageById({ params }: { params: Promise<{
   const config = getClientRuntimeConfig();
 
   let isTemplate = false;
+  let pageTitle = '';
+  let initialBriefs: Awaited<ReturnType<typeof listBriefsForPage>> = [];
   if (isPostgres()) {
     const row = await getDbPatternById(id).catch(() => null);
     if (!row) notFound();
     // Known here, so the editor can open read-only on the first render rather than discovering it after a
     // refused save. See `savePageAsTemplate`: templates are frozen by design.
     isTemplate = row.source === 'template';
+    pageTitle = row.title ?? '';
+    // Fetched server-side so the invitations dropdown is correct on first paint and nothing sets state from
+    // an effect. A brief has no invitations of its own, so only a page asks.
+    if (!isTemplate) initialBriefs = await listBriefsForPage(id).catch(() => []);
   }
 
   return (
@@ -46,6 +52,11 @@ export default async function PlaygroundPageById({ params }: { params: Promise<{
       config={config}
       initialPatternId={id}
       initialIsTemplate={isTemplate}
+      pageTitle={pageTitle}
+      initialBriefs={initialBriefs.map((b) => ({
+        ...b,
+        createdAt: b.createdAt ? b.createdAt.toISOString() : null,
+      }))}
     />
   );
 }

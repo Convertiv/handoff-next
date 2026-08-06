@@ -10,7 +10,9 @@ import {
   writePattern,
   type PatternWriteActor,
 } from '../../lib/db/pattern-write';
-import { getActorGrant } from '../../lib/db/grant-queries';
+import { createShareLink, getActorGrant } from '../../lib/db/grant-queries';
+import { AUTHORING_CAPABILITIES } from '../../lib/authz/vocab';
+import { generatePassphrase } from '../../lib/server/passphrase';
 
 async function requireActor(): Promise<PatternWriteActor> {
   const session = await auth();
@@ -110,4 +112,62 @@ export async function savePatternAsTemplate(pageId: string, title?: string) {
   const actor = await requireActor();
   const template = await savePageAsTemplate(pageId, actor, { title });
   return { success: true, ...template };
+}
+
+/**
+ * Create an invitation: a **brief** (frozen snapshot of the page + its instructions and guardrails) and the
+ * first **invite link** for it. One action because the wizard's last step is one decision — you never want a
+ * brief with no way in, or a link with nothing behind it.
+ *
+ * The passphrase is generated here rather than accepted from the client: a client-chosen one would be reused
+ * across invitations and typed into the same box people paste links into. It is returned **once** — only its
+ * scrypt hash is stored (see `docs/INVITE-TO-BUILD.md`).
+ */
+export async function createInvitation(
+  pageId: string,
+  input: {
+    title?: string;
+    description?: string;
+    instructions?: string;
+    guardrails?: unknown;
+    expiresInDays?: number;
+    maxUses?: number | null;
+    usePassphrase?: boolean;
+    label?: string;
+  }
+) {
+  const actor = await requireActor();
+
+  const brief = await savePageAsTemplate(pageId, actor, {
+    title: input.title,
+    description: input.description,
+    instructions: input.instructions,
+    guardrails: input.guardrails,
+  });
+
+  const days = Number.isFinite(input.expiresInDays) ? Math.max(1, Math.trunc(input.expiresInDays!)) : 14;
+  const passphrase = input.usePassphrase === false ? null : generatePassphrase();
+
+  const { link, urlToken } = await createShareLink(
+    'pattern',
+    brief.id,
+    { userId: actor.userId, role: actor.role ?? null },
+    {
+      capabilities: [...AUTHORING_CAPABILITIES],
+      label: input.label ?? null,
+      maxUses: input.maxUses ?? null,
+      expiresAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
+      passphrase,
+    }
+  );
+
+  return {
+    success: true,
+    brief: { id: brief.id, title: brief.title, version: brief.version },
+    /** Shown once. Not recoverable afterwards — the UI must say so. */
+    urlToken,
+    passphrase,
+    linkId: link.token,
+    expiresAt: link.expiresAt,
+  };
 }

@@ -111,8 +111,11 @@ to explain what is about to happen to someone who has never done it.
 1. **What are they building?** Title · short description · **instructions to the builder** · **content
    guardrails** (per-field limits, required fields, alt-text severity). Guardrails belong here because the
    person writing the brief is the person who knows the rules — this is E.4, absorbed.
-2. **Who, and for how long?** Days until expiry · max uses · passphrase protection (on by default) ·
-   the builder's email, collected **with a visible note that we will email them about their submission**.
+2. **Who, and for how long?** Days until expiry · max uses · passphrase protection (on by default).
+
+   **Correction to the original spec:** the builder's email is *not* collected here. The inviter often does not
+   know it, and the reliable moment is when the builder arrives — so it sits beside "your name" on the entry
+   form, with the disclosure right there: *"We'll use it to tell you what happens to your page."*
 3. **Here it is.** The link and a generated **four-word passphrase**, shown once. Copy-both affordance, and
    the standing warning that the secret is not recoverable.
 
@@ -194,7 +197,10 @@ Five substantial pieces arrived at once; this is the order that keeps a demo-abl
 1. **Brief + versioning + resharable links** — the object model, the migration, the backfill. ✅ 2026-08-05
    (migration `0028_invite_to_build`, `savePageAsTemplate` stamps `source_page_id` + `brief_version`; links were
    already resharable since they point at a resource id — only the UI to reshare is missing).
-2. **The invite wizard** (with guardrails in step 1).
+2. **The invite wizard** (with guardrails in step 1). ✅ 2026-08-05 — `passphrase.ts` (scrypt + lockout, 15
+   tests), passphrase enforced at `/enter`, builder email captured at entry with disclosure, `createInvitation`
+   (brief + first link in one call), `InviteWizard` as a full-page takeover, and the invitations dropdown fed
+   server-side from `listBriefsForPage`.
 3. **Brief viewer + built-page viewer**, with approve/reject moved in.
 4. **Guest builder chrome** — sticky footer, required note.
 5. **Soft delete** — small, independent, can land anywhere after 1.

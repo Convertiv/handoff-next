@@ -81,6 +81,8 @@ export async function POST(request: NextRequest) {
         // Seeded from the template so the guest starts from the real page, not an empty canvas.
         components: (template.components as unknown[]) ?? [],
         data: (template.data as Record<string, unknown>) ?? {},
+        // From the signed cookie, not the body — same rule as the submission id.
+        submittedByEmail: ctx.session.email ?? null,
       },
       ctx.guest,
       ctx.ownerUserId
@@ -91,7 +93,8 @@ export async function POST(request: NextRequest) {
 
   // Re-issue the cookie so the session now points at the draft — this is what makes it resumable.
   const { token, session } = issueGuestSession(
-    { linkId: ctx.link.token, submissionId: id, name: ctx.guest.name },
+    // `email` carried through: re-issuing without it would silently drop the address on the first save.
+    { linkId: ctx.link.token, submissionId: id, name: ctx.guest.name, email: ctx.session.email ?? null },
     { maxExp: ctx.link.expiresAt ? ctx.link.expiresAt.getTime() : null }
   );
   const res = NextResponse.json({ id, created: true });

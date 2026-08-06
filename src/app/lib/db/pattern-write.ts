@@ -19,6 +19,7 @@ import {
   blockingFindings,
   checkGuardrails,
   guardrailsFromPatternData,
+  readGuardrailConfig,
   summarizeBlocking,
 } from '../authoring-guardrails';
 import type { PatternComponentEntry } from '../guest-editable';
@@ -282,7 +283,19 @@ export async function setPatternMetaFields(
 export async function savePageAsTemplate(
   pageId: string,
   actor: PatternWriteActor,
-  opts: { title?: string | null } = {}
+  opts: {
+    title?: string | null;
+    /** Shown to the builder — what this is and why. */
+    description?: string | null;
+    /** Free-text instructions the builder sees while working. */
+    instructions?: string | null;
+    /**
+     * Content rules for pages built from this brief (`GuardrailConfig`). Stored on the brief because the
+     * person writing it is the person who knows the limits — and because the brief is frozen, the rules a
+     * built page was judged against cannot shift under a reviewer.
+     */
+    guardrails?: unknown;
+  } = {}
 ): Promise<{ id: string; title: string; version: number }> {
   const db = getDb();
   const [page] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, pageId)).limit(1);
@@ -317,15 +330,29 @@ export async function savePageAsTemplate(
       .slice(0, 48) || 'template';
   const id = `template-${slug}-${crypto.randomUUID().slice(0, 8)}`;
 
+  /**
+   * The brief's own `data`: the page's snapshot, plus the brief text and guardrails written in the wizard.
+   * Guardrails are re-parsed rather than trusted — this value reaches the guest editor and the submit check.
+   */
+  const pageData = (page.data && typeof page.data === 'object' ? page.data : {}) as Record<string, unknown>;
+  const parsedGuardrails = opts.guardrails !== undefined ? readGuardrailConfig(opts.guardrails) : null;
+  const briefData: Record<string, unknown> = {
+    ...pageData,
+    ...(parsedGuardrails && Object.keys(parsedGuardrails).length ? { guardrails: parsedGuardrails } : {}),
+    ...(opts.instructions?.trim()
+      ? { brief: { instructions: opts.instructions.trim().slice(0, 4000) } }
+      : {}),
+  };
+
   await db.insert(handoffPatterns).values({
     id,
     title,
-    description: page.description ?? '',
+    description: (opts.description?.trim() || page.description || '').slice(0, 2000),
     group: page.group ?? '',
     tags: page.tags ?? [],
-    // The copy is a snapshot: blocks and values as they stand right now, guardrails included.
+    // The copy is a snapshot: blocks and values as they stand right now.
     components: page.components ?? [],
-    data: page.data ?? {},
+    data: briefData,
     userId: actor.userId,
     source: 'template',
     sourcePageId: pageId,
@@ -597,7 +624,15 @@ async function checkPatternGuardrails(
  * everyone). The guest's claim on it is `shareLinkToken`, not ownership.
  */
 export async function createGuestSubmission(
-  input: { id: string; templateId: string; title: string; components?: unknown[]; data?: Record<string, unknown> },
+  input: {
+    id: string;
+    templateId: string;
+    title: string;
+    components?: unknown[];
+    data?: Record<string, unknown>;
+    /** Unverified, collected with disclosure — see `docs/INVITE-TO-BUILD.md`. For notifications only. */
+    submittedByEmail?: string | null;
+  },
   guest: GuestPrincipal,
   ownerUserId: string | null
 ): Promise<void> {
@@ -617,6 +652,7 @@ export async function createGuestSubmission(
     source: 'guest',
     templateId: input.templateId,
     shareLinkToken: guest.shareLinkId,
+    submittedByEmail: input.submittedByEmail?.trim() || null,
     // Not negotiable by the caller: a guest submission starts private and unsubmitted.
     visibility: 'private',
     status: 'draft',

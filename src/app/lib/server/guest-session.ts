@@ -37,6 +37,11 @@ export interface GuestSession {
   submissionId: string | null;
   /** Self-declared, unverified display name. */
   name: string;
+  /**
+   * Optional email the builder gave, so they can be told what happens to their submission. Unverified —
+   * collected with a visible note that we will use it, never treated as identity or access.
+   */
+  email?: string | null;
   /** Expiry, epoch ms. */
   exp: number;
 }
@@ -80,7 +85,7 @@ export function sanitizeGuestName(raw: unknown): string {
  * outlive the link that justified it.
  */
 export function issueGuestSession(
-  input: { linkId: string; submissionId?: string | null; name: string },
+  input: { linkId: string; submissionId?: string | null; name: string; email?: string | null },
   opts: { now?: number; maxExp?: number | null } = {}
 ): { token: string; session: GuestSession } {
   const now = opts.now ?? Date.now();
@@ -91,6 +96,7 @@ export function issueGuestSession(
     linkId: input.linkId,
     submissionId: input.submissionId ?? null,
     name: sanitizeGuestName(input.name),
+    email: input.email?.trim() ? input.email.trim().slice(0, 200) : null,
     exp,
   };
   const payload = Buffer.from(JSON.stringify({ v: VERSION, ...session }), 'utf8').toString('base64url');
@@ -130,6 +136,7 @@ export function readGuestSession(
     linkId: parsed.linkId,
     submissionId: typeof parsed.submissionId === 'string' ? parsed.submissionId : null,
     name: sanitizeGuestName(parsed.name),
+    email: typeof parsed.email === 'string' && parsed.email ? parsed.email : null,
     exp: parsed.exp,
   };
 }

@@ -21,6 +21,7 @@ import {
   PanelLeft,
   Plus,
   SaveIcon,
+  UserPlus,
   Share2,
   Smartphone,
   ChevronLeft,
@@ -34,7 +35,8 @@ import { EditContextProvider, useEditContext } from './EditContext';
 import SortableItem from './SortableItem';
 import Preview, { constructComponentPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
-import { savePatternAsTemplate } from '@/app/actions/patterns';
+import { useRouter } from 'next/navigation';
+import InviteWizard from './InviteWizard';
 import ShareLinkPanel from '../Share/ShareLinkPanel';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
@@ -135,6 +137,9 @@ export default function PlaygroundBuilder() {
     updateComponent,
     saveState,
     isTemplate,
+    pageTitle,
+    briefs,
+    refreshBriefs,
     structuralEditing,
     aiAssistantEnabled,
     cloneToNewPage,
@@ -145,9 +150,10 @@ export default function PlaygroundBuilder() {
 
   const [html, setHtml] = useState('');
   const [loadingHtml, setLoadingHtml] = useState(false);
-  const [savingTemplate, setSavingTemplate] = useState(false);
   const [cloning, setCloning] = useState(false);
+  const router = useRouter();
   const [shareOpen, setShareOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [templateNotice, setTemplateNotice] = useState<string | null>(null);
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
@@ -284,20 +290,16 @@ export default function PlaygroundBuilder() {
     if (!id) setCloning(false);
   };
 
-  const handleSaveAsTemplate = async () => {
-    if (!editingPatternId) return;
-    const name = prompt('Name this template', 'Untitled template');
-    if (name === null) return;
-    setSavingTemplate(true);
-    try {
-      const result = await savePatternAsTemplate(editingPatternId, name.trim() || undefined);
-      setTemplateNotice(`Saved “${result.title}” as a template. Your page is untouched.`);
-    } catch (e) {
-      setTemplateNotice(e instanceof Error ? e.message : 'Could not save the template.');
-    } finally {
-      setSavingTemplate(false);
-    }
-  };
+  if (wizardOpen && editingPatternId) {
+    return (
+      <InviteWizard
+        pageId={editingPatternId}
+        pageTitle={pageTitle}
+        onCancel={() => setWizardOpen(false)}
+        onCreated={() => void refreshBriefs()}
+      />
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -348,23 +350,53 @@ export default function PlaygroundBuilder() {
               )}
 
               {selectedComponents.length > 0 && editingPatternId && !isTemplate && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 gap-1 px-2"
-                      disabled={savingTemplate}
-                      onClick={() => void handleSaveAsTemplate()}
-                    >
-                      <SaveIcon className="h-4 w-4" />
-                      <span className="text-xs">{savingTemplate ? 'Saving…' : 'Save as template'}</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    Create a frozen, team-visible template from this page. Your page stays yours.
-                  </TooltipContent>
-                </Tooltip>
+                <div className="flex items-center">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 gap-1 px-2"
+                        onClick={() => setWizardOpen(true)}
+                      >
+                        <UserPlus className="h-4 w-4" />
+                        <span className="text-xs">Invite to build</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      Send someone a link to build their own version of this page. Your page stays yours.
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* The arrow only appears once there is something to list — an empty dropdown is a dead end. */}
+                  {briefs.length > 0 ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 w-6 px-0" aria-label="Invitations">
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-72">
+                        {briefs.map((brief) => (
+                          <DropdownMenuItem
+                            key={brief.id}
+                            onClick={() => router.push(`${basePath}/playground/${encodeURIComponent(brief.id)}`)}
+                            className="flex flex-col items-start gap-0.5"
+                          >
+                            <span className="text-sm font-medium">
+                              v{brief.version ?? '?'} · {brief.title || 'Untitled'}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {brief.createdAt ? new Date(brief.createdAt).toLocaleDateString() : ''}
+                              {brief.builtCount ? ` · ${brief.builtCount} built` : ' · nothing built yet'}
+                              {brief.linkCount ? ` · ${brief.linkCount} active link${brief.linkCount === 1 ? '' : 's'}` : ''}
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null}
+                </div>
               )}
             </>
           )}
