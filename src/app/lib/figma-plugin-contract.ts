@@ -12,6 +12,17 @@ export type HandoffPropertyType = (typeof HandoffPropertyTypes)[number];
 
 export interface IHandoffPropertyRules {
   required?: boolean;
+  /**
+   * Longest the component can render this field without breaking — a **structural** limit owned by the
+   * component, not an editorial one (roadmap E.9).
+   *
+   * `Wizard/prompt-builder.ts` has read `rules.maxLength` for LLM context since before this was declared, so
+   * the convention existed without a type or any enforcement behind it. Declaring it makes it real.
+   *
+   * A brief can still be stricter: `resolveFieldGuardrail` prefers an explicit per-field brief rule over this,
+   * and this over a brief's blanket default — most specific wins.
+   */
+  maxLength?: number;
   dimensions?: {
     width?: number;
     height?: number;

@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
 import { handoffApiUrl } from '@/lib/api-path';
 import type { BuildRow } from './BuildList';
+import { groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
 
 /**
  * The left panel at **build level** (roadmap E.8): what the builder said, and what we make of it.
@@ -13,20 +14,38 @@ import type { BuildRow } from './BuildList';
  * Carries over the verdict and download logic from the retired `BriefViewer`, which was a separate route with
  * its own shell. Same actions, same canvas, one interface.
  *
- * The audit section is a **declared empty slot**, not a stub for its own sake: E.10 fills it with voice, a11y,
- * SEO and content results. It is here now so the layout it needs is settled while the shell is being built,
- * and so the panel does not silently look finished.
+ * The checks section is filled by `build-audits.ts` (roadmap E.10) — computed server-side on the stored record
+ * and handed down, so the panel does no work and cannot show a stale result.
  */
+
+const CATEGORY_LABEL: Record<AuditCategory, string> = {
+  content: 'Content',
+  accessibility: 'Accessibility',
+  seo: 'SEO',
+  voice: 'Voice',
+};
+
+/** Why a category is empty, which is different from it having passed. */
+const CATEGORY_EMPTY: Record<AuditCategory, string> = {
+  content: 'Nothing flagged.',
+  accessibility: 'Nothing flagged.',
+  seo: 'Nothing flagged.',
+  // Said plainly rather than showing a reassuring tick for a check that does not run yet.
+  voice: 'Not checked yet — needs a read against your brand voice.',
+};
 
 export default function BuildPanel({
   build,
   basePath,
+  audits = [],
   onBackToBrief,
 }: {
   build: BuildRow;
   basePath: string;
+  audits?: AuditFinding[];
   onBackToBrief: () => void;
 }) {
+  const grouped = groupAuditFindings(audits);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -137,12 +156,40 @@ export default function BuildPanel({
           )}
         </section>
 
-        <section className="space-y-2 border-t pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Checks</p>
-          {/* E.10. Named rather than hidden so it is obvious this is coming and not silently absent. */}
-          <p className="text-sm text-muted-foreground">
-            Voice, accessibility, SEO and content checks will appear here.
+        <section className="space-y-3 border-t pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Checks{audits.length ? ` (${audits.length})` : ''}
           </p>
+          {(Object.keys(CATEGORY_LABEL) as AuditCategory[]).map((category) => {
+            const items = grouped[category];
+            return (
+              <div key={category} className="space-y-1">
+                <p className="flex items-center gap-1.5 text-xs font-medium">
+                  {CATEGORY_LABEL[category]}
+                  {items.length ? (
+                    <span className="rounded-full bg-amber-500/15 px-1.5 text-[10px] tabular-nums text-amber-700 dark:text-amber-400">
+                      {items.length}
+                    </span>
+                  ) : null}
+                </p>
+                {items.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{CATEGORY_EMPTY[category]}</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {items.map((finding, i) => (
+                      <li key={`${finding.code}-${finding.path ?? 'page'}-${i}`} className="text-xs text-muted-foreground">
+                        {finding.message}
+                        {/* Where to look. Page-level findings carry no block, so they say nothing here. */}
+                        {finding.blockIndex !== null ? (
+                          <span className="ml-1 opacity-70">· block {finding.blockIndex + 1}</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </section>
 
         <section className="space-y-2 border-t pt-4">

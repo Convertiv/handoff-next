@@ -9,6 +9,8 @@ import {
 } from '../../../lib/db/queries';
 import { listShareLinks } from '../../../lib/db/grant-queries';
 import { briefBelongsToPage, findBuild } from '../../../lib/workbench-level';
+import { auditBuild } from '../../../lib/build-audits';
+import type { PatternComponentEntry } from '../../../lib/guest-editable';
 import { isPostgres } from '../../../lib/db/dialect';
 import PlaygroundClient from '../PlaygroundClient';
 
@@ -58,6 +60,7 @@ export default async function PlaygroundPageById({
   let brief: React.ComponentProps<typeof PlaygroundClient>['brief'] = null;
   let build: React.ComponentProps<typeof PlaygroundClient>['build'] = null;
   let pageBuilds: Awaited<ReturnType<typeof listBuildsForPage>> = [];
+  let audits: React.ComponentProps<typeof PlaygroundClient>['audits'] = [];
   if (isPostgres()) {
     const row = await getDbPatternById(id).catch(() => null);
     if (!row) notFound();
@@ -135,7 +138,26 @@ export default async function PlaygroundPageById({
 
         // Only a build belonging to the selected brief; anything else is ignored, not surfaced.
         const buildId = one(query.build);
-        if (buildId) build = findBuild(buildRows, buildId);
+        if (buildId) {
+          build = findBuild(buildRows, buildId);
+          /**
+           * Audits run **here**, on the record, not on the rendered canvas (roadmap E.10).
+           *
+           * Deterministic and fast — a walk over the stored content — so there is no job and nothing stored:
+           * a stale audit would be worse than no audit, and recomputing is cheaper than invalidating. The
+           * voice category, when it arrives, is an LLM call and *will* need a job.
+           */
+          if (build) {
+            const row = await getDbPatternById(build.id).catch(() => null);
+            if (row) {
+              const blocks = (Array.isArray(row.components) ? row.components : []) as PatternComponentEntry[];
+              const values =
+                ((row.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
+                  []) as unknown[];
+              audits = auditBuild(blocks, values);
+            }
+          }
+        }
       }
     }
   }
@@ -155,6 +177,7 @@ export default async function PlaygroundPageById({
       }))}
       brief={brief}
       build={build}
+      audits={audits}
       pageBuilds={pageBuilds.map((b) => ({
         id: b.id,
         title: b.title,

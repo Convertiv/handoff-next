@@ -61,11 +61,11 @@ export interface GuardrailFinding {
   message: string;
 }
 
-/** Link text that tells a screen-reader user nothing about where they are going. */
-const WEAK_LINK_TEXT = new Set(['click here', 'here', 'read more', 'more', 'learn more', 'link', 'this link']);
+/** Link text that tells a screen-reader user nothing about where they are going. Shared with the audit pass. */
+export const WEAK_LINK_TEXT = new Set(['click here', 'here', 'read more', 'more', 'learn more', 'link', 'this link']);
 
-/** Paths whose *label* reads as a link. Cheap heuristic; only ever advisory. */
-const LINKISH = /(^|\.)(cta|link|button)(slot)?(\.|$)/i;
+/** Paths whose *label* reads as a link. Cheap heuristic; only ever advisory. Shared with the audit pass. */
+export const LINKISH = /(^|\.)(cta|link|button)(slot)?(\.|$)/i;
 
 export function readGuardrailConfig(value: unknown): GuardrailConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -118,10 +118,102 @@ export function guardrailsFromPatternData(data: unknown): GuardrailConfig {
  *
  * Exported because the editor needs it per input (to show "38/60") without running the whole check.
  */
-export function resolveFieldGuardrail(config: GuardrailConfig, path: string): FieldGuardrail {
+/**
+ * Limits a **component itself** declares, keyed by field path (roadmap E.9).
+ *
+ * Separate from `GuardrailConfig.fields` because that map is keyed by a *global* path — a `title` rule there
+ * applies to `title` on every block. A component-declared limit is inherently per-component: a hero headline
+ * and a card headline both live at `titleSlot` and break at different lengths. So these are looked up per
+ * block, by `componentId`.
+ *
+ * Array items collapse to `*`: a rule declared on `stats.items.stat` applies to `stats.0.stat`,
+ * `stats.1.stat`, and so on. There is one rule per *field*, not per row.
+ */
+export type ComponentFieldRules = Record<string, FieldGuardrail>;
+export type ComponentRulesById = Record<string, ComponentFieldRules>;
+
+/**
+ * Walk a component's `properties` tree into flat `path → rule` entries.
+ *
+ * Only `maxLength` and `required` are taken. `dimensions` is an image concern and has its own handling, and
+ * inventing anything else here would break the module's rule that nothing is guessed.
+ */
+export function componentFieldRules(properties: unknown): ComponentFieldRules {
+  const out: ComponentFieldRules = {};
+
+  const walk = (node: unknown, prefix: string[]): void => {
+    if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+    for (const [key, raw] of Object.entries(node as Record<string, unknown>)) {
+      if (!raw || typeof raw !== 'object') continue;
+      const prop = raw as Record<string, unknown>;
+      const path = [...prefix, key];
+
+      const rules = prop.rules as Record<string, unknown> | undefined;
+      if (rules && typeof rules === 'object') {
+        const rule: FieldGuardrail = {};
+        const max = Number(rules.maxLength);
+        if (Number.isInteger(max) && max > 0) rule.maxLength = max;
+        if (rules.required === true) rule.required = true;
+        if (Object.keys(rule).length) out[path.join('.')] = rule;
+      }
+
+      if (prop.properties) walk(prop.properties, path);
+      // `items` describes every row, so its fields sit under `*` rather than any index.
+      const items = prop.items as Record<string, unknown> | undefined;
+      if (items?.properties) walk(items.properties, [...path, '*']);
+    }
+  };
+
+  walk(properties, []);
+  return out;
+}
+
+/**
+ * Find the component-declared rule for a concrete field path.
+ *
+ * Two normalisations, both because the path the *editor* produces comes from walking real args while the
+ * declaration comes from walking the property tree:
+ * - numeric segments become `*` (`stats.0.stat` → `stats.*.stat`);
+ * - a trailing `props.children` is dropped, because a serialized React element is declared at its own key
+ *   (`bodySlot`) while the editable text inside it is found at `bodySlot.props.children`.
+ */
+export function declaredRuleForPath(rules: ComponentFieldRules | undefined, path: string): FieldGuardrail {
+  if (!rules) return {};
+  const normalized = path
+    .split('.')
+    .map((seg) => (/^\d+$/.test(seg) ? '*' : seg))
+    .join('.');
+  if (rules[normalized]) return rules[normalized];
+  const stripped = normalized.replace(/\.props\.children$/, '');
+  return rules[stripped] ?? {};
+}
+
+/**
+ * The rule in force for one field — **most specific wins**.
+ *
+ * 1. an explicit per-field rule on the brief (someone decided *this* field on *this* invitation),
+ * 2. then the component's own declared limit (specific to this component and field),
+ * 3. then the brief's blanket default.
+ *
+ * Deliberately not `min()` of the three. A brief author setting a field explicitly means it, and silently
+ * tightening it to a component's number would make the UI disagree with what they typed. Ordering by
+ * specificity also stops a brief's blanket default from masking a component's structural limit, which is the
+ * case a simple fallback chain would get wrong.
+ */
+export function resolveFieldGuardrail(
+  config: GuardrailConfig,
+  path: string,
+  declared?: FieldGuardrail
+): FieldGuardrail {
   const field = config.fields?.[path] ?? {};
-  const maxLength = field.maxLength ?? config.defaults?.maxLength;
-  return { ...field, ...(maxLength ? { maxLength } : {}) };
+  const maxLength = field.maxLength ?? declared?.maxLength ?? config.defaults?.maxLength;
+  const required = field.required ?? declared?.required;
+  return {
+    ...declared,
+    ...field,
+    ...(maxLength ? { maxLength } : {}),
+    ...(required ? { required } : {}),
+  };
 }
 
 /** Dotted config path → the segment array `getAtPath` takes, with numeric segments as array indices. */
@@ -140,7 +232,13 @@ function labelFromPath(path: string): string {
 }
 
 /** Alt text for an image whose src lives at `path` — the sibling `alt`, wherever the src sits. */
-function altForImagePath(args: unknown, path: (string | number)[]): unknown {
+/**
+ * Where the alt text for an image slot lives: the sibling `alt` of the `src` that identifies it.
+ *
+ * Exported so the audit pass reads alt the same way this does — one definition of the relationship, not two
+ * that can drift.
+ */
+export function altForImagePath(args: unknown, path: (string | number)[]): unknown {
   if (!path.length) return undefined;
   return getAtPath(args, [...path.slice(0, -1), 'alt']);
 }
@@ -154,17 +252,23 @@ function altForImagePath(args: unknown, path: (string | number)[]): unknown {
 export function checkGuardrails(
   blocks: PatternComponentEntry[],
   overrides: unknown[],
-  config: GuardrailConfig
+  config: GuardrailConfig,
+  /**
+   * Component-declared limits by component id (roadmap E.9). Optional: absent, behaviour is exactly what it
+   * was, which is what keeps "no declaration → no enforcement" true.
+   */
+  componentRules?: ComponentRulesById
 ): GuardrailFinding[] {
   const findings: GuardrailFinding[] = [];
 
   blocks.forEach((entry, blockIndex) => {
     const args = mergeBlockArgs(entry, overrides[blockIndex]);
     const base = { blockIndex, componentId: entry.id };
+    const declaredForBlock = componentRules?.[entry.id];
 
     for (const field of collectEditableText(args)) {
       const path = field.path.join('.');
-      const rule = resolveFieldGuardrail(config, path);
+      const rule = resolveFieldGuardrail(config, path, declaredRuleForPath(declaredForBlock, path));
       const length = field.value.trim().length;
 
       if (rule.maxLength && field.value.length > rule.maxLength) {
@@ -207,7 +311,20 @@ export function checkGuardrails(
      * *there*: an empty or deleted slot is invisible to it, so a `required` rule would pass by absence —
      * the one failure mode a required check exists to catch.
      */
-    for (const [path, rule] of Object.entries(config.fields ?? {})) {
+    /**
+     * Both sources of `required`, deduped. A component-declared one has to be here too, or a required field
+     * the builder deleted outright would pass by absence — exactly the case this pass exists for.
+     *
+     * Paths containing `*` are skipped: they describe every row of an array, so there is no single value to
+     * look up. Per-row required-ness would need the array walked, which is more than "nothing is invented"
+     * allows without a decision about empty rows.
+     */
+    const requiredPaths = new Set([
+      ...Object.keys(config.fields ?? {}),
+      ...Object.keys(declaredForBlock ?? {}).filter((p) => !p.includes('*')),
+    ]);
+    for (const path of requiredPaths) {
+      const rule = resolveFieldGuardrail(config, path, declaredRuleForPath(declaredForBlock, path));
       if (!rule.required) continue;
       const value = getAtPath(args, parsePath(path));
       const filled = typeof value === 'string' && value.trim().length > 0;

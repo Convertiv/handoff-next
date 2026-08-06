@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { computePermissions, isAuthorizationError, type MutateActor } from '@/lib/authz/policy';
 import { getActorGrant } from '@/lib/db/grant-queries';
 import { reviewPattern } from '@/lib/db/pattern-write';
-import { getDbPatternById } from '@/lib/db/queries';
+import { getDbPatternById, componentRulesForBlocks } from '@/lib/db/queries';
 import { diffSubmissionAgainstTemplate, type PatternComponentEntry } from '@/lib/guest-editable';
 import { checkGuardrails, guardrailsFromPatternData } from '@/lib/authoring-guardrails';
 
@@ -47,7 +47,9 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
    */
   const fromTemplate = guardrailsFromPatternData(template?.data);
   const config = Object.keys(fromTemplate).length ? fromTemplate : guardrailsFromPatternData(row.data);
-  const findings = checkGuardrails(submissionBlocks, values, config);
+  // Component-declared limits too, via the same loader the submit gate uses — otherwise a reviewer would see
+  // fewer findings than the author was actually held to (roadmap E.9).
+  const findings = checkGuardrails(submissionBlocks, values, config, await componentRulesForBlocks(submissionBlocks));
 
   return NextResponse.json({
     submission: {

@@ -11,6 +11,7 @@ import BuildList from '../Brief/BuildList';
 import type { BuildRow } from '../Brief/BuildList';
 import { handoffApiUrl } from '@/lib/api-path';
 import type { PatternComponentEntry } from '@/lib/guest-editable';
+import type { AuditFinding } from '@/lib/build-audits';
 import { levelFor } from '@/lib/workbench-level';
 
 /**
@@ -46,6 +47,7 @@ export default function PlaygroundWorkbench({
   brief = null,
   build = null,
   pageBuilds = [],
+  audits = [],
 }: {
   pageId?: string;
   pageTitle?: string;
@@ -58,6 +60,8 @@ export default function PlaygroundWorkbench({
   build?: BuildRow | null;
   /** Every build across every brief of this page, so `?builds=1` needs no fetch. */
   pageBuilds?: (BuildRow & { briefId: string })[];
+  /** Audit findings for the selected build, computed server-side. */
+  audits?: AuditFinding[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -122,7 +126,7 @@ export default function PlaygroundWorkbench({
 
   const leftPanel =
     level === 'build' && build && brief ? (
-      <BuildPanel build={build} basePath={basePath} onBackToBrief={() => go({ build: null })} />
+      <BuildPanel build={build} basePath={basePath} audits={audits} onBackToBrief={() => go({ build: null })} />
     ) : level === 'brief' && brief ? (
       <BriefPanel
         brief={brief.meta}

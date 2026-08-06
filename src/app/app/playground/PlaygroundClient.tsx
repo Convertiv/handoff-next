@@ -4,6 +4,7 @@ import Layout from '../../components/Layout/Main';
 import { PlaygroundProvider } from '../../components/Playground/PlaygroundContext';
 import PlaygroundWorkbench, { type WorkbenchBrief } from '../../components/Playground/PlaygroundWorkbench';
 import type { BuildRow } from '../../components/Brief/BuildList';
+import type { AuditFinding } from '../../lib/build-audits';
 import { TooltipProvider } from '../../components/ui/tooltip';
 
 export default function PlaygroundClient({
@@ -18,6 +19,7 @@ export default function PlaygroundClient({
   brief = null,
   build = null,
   pageBuilds = [],
+  audits = [],
 }: {
   menu: unknown;
   metadata: unknown;
@@ -31,6 +33,8 @@ export default function PlaygroundClient({
   brief?: WorkbenchBrief | null;
   build?: BuildRow | null;
   pageBuilds?: (BuildRow & { briefId: string })[];
+  /** Computed server-side for the selected build (roadmap E.10). */
+  audits?: AuditFinding[];
 }) {
   const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
 
@@ -47,6 +51,7 @@ export default function PlaygroundClient({
           brief={brief}
           build={build}
           pageBuilds={pageBuilds}
+          audits={audits}
         />
       </TooltipProvider>
     </Layout>

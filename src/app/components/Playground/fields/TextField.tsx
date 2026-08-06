@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Input } from '../../ui/input';
 import { useEditContext } from '../EditContext';
 import { useFieldGuardrails } from '../FieldGuardrailsContext';
-import { resolveFieldGuardrail } from '@/lib/authoring-guardrails';
+import { resolveFieldGuardrail, type FieldGuardrail } from '@/lib/authoring-guardrails';
 
 /**
  * A single-line text field, with the brief's content limit shown as you type.
@@ -13,8 +13,12 @@ import { resolveFieldGuardrail } from '@/lib/authoring-guardrails';
  *
  * **No `maxLength` on the input.** Silently truncating pasted copy loses text without saying so; the counter
  * turns amber and the server refuses the submission with a reason instead.
+ *
+ * Two sources of limit, most specific winning (roadmap E.9): a brief's per-field rule, then the component's own
+ * `rules.maxLength`, then a brief's blanket default. The component's declaration arrives as `value` — this is
+ * the property definition for exactly this field, so it needs no path matching to find.
  */
-export function TextField({ identifier }: { identifier: string[]; value: any; data: any }) {
+export function TextField({ identifier, value }: { identifier: string[]; value: any; data: any }) {
   const { getData, handleInputChange } = useEditContext();
   // Its own context, not the playground's: this field also renders in the component workbench dialog, which
   // has no playground above it, and the field layer must not import server actions. No brief → no limits.
@@ -27,7 +31,17 @@ export function TextField({ identifier }: { identifier: string[]; value: any; da
    */
   const [length, setLength] = useState(String(initial).length);
 
-  const rule = resolveFieldGuardrail(guardrails, identifier.join('.'));
+  /**
+   * Read straight off the property definition rather than through `componentFieldRules`: that flattening
+   * exists so the *server* can look a path up across a whole page, but here the definition for this one field
+   * is already in hand.
+   */
+  const declared: FieldGuardrail = {};
+  const declaredMax = Number(value?.rules?.maxLength);
+  if (Number.isInteger(declaredMax) && declaredMax > 0) declared.maxLength = declaredMax;
+  if (value?.rules?.required === true) declared.required = true;
+
+  const rule = resolveFieldGuardrail(guardrails, identifier.join('.'), declared);
   const over = rule.maxLength ? length > rule.maxLength : false;
 
   return (

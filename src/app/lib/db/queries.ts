@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, like, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { componentFieldRules, type ComponentRulesById } from '../authoring-guardrails';
 import { searchTerms, type AssetSearchMode } from '@/lib/asset-search';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { isPostgres } from './dialect';
@@ -114,6 +115,34 @@ export async function getDbComponentSummaries() {
 }
 
 /** Fetch a single component row by id (full jsonb), instead of scanning all rows. */
+/**
+ * The limits the components on a page declare, keyed by component id (roadmap E.9).
+ *
+ * Shared by every server path that checks guardrails — the guest submit gate and the review-queue
+ * annotations — so the two cannot disagree about what the rules are. A reviewer seeing fewer findings than the
+ * submit path blocked on would be reading a different rule set than the author was held to.
+ *
+ * Reads once per **distinct** component: a page with ten hero blocks is one row, not ten.
+ */
+export async function componentRulesForBlocks(
+  blocks: readonly { id?: string }[]
+): Promise<ComponentRulesById> {
+  const out: ComponentRulesById = {};
+  const ids = [...new Set(blocks.map((b) => b?.id).filter((id): id is string => Boolean(id)))];
+  if (!ids.length || !isPostgres()) return out;
+
+  const db = getDb();
+  const rows = await db
+    .select({ id: handoffComponents.id, properties: handoffComponents.properties })
+    .from(handoffComponents)
+    .where(inArray(handoffComponents.id, ids));
+  for (const row of rows) {
+    const rules = componentFieldRules(row.properties);
+    if (Object.keys(rules).length) out[row.id] = rules;
+  }
+  return out;
+}
+
 export async function getDbComponentById(id: string) {
   const db = getDb();
   const rows = await db.select().from(handoffComponents).where(eq(handoffComponents.id, id)).limit(1);

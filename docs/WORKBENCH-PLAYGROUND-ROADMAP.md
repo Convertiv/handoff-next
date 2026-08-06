@@ -510,7 +510,7 @@ property that a database leak yields no usable invites.
 reads `help` and `TextField` renders it, but the invite wizard only captures `maxLength`/`required` — so there
 is nothing to edit yet. It belongs with E.9, which is already opening up the same guardrails structure.
 
-### E.9 — Content length from the field spec, not just from a brief (Brad, 2026-08-06)
+### E.9 — Content length from the field spec, not just from a brief — ✅ SHIPPED 2026-08-06
 
 Today `maxLength` only exists **per brief** (`guardrails.fields[path].maxLength`, authored in the invite
 wizard, enforced in three places, surfaced by `TextField`'s counter). So an internal author gets no limits at
@@ -533,18 +533,75 @@ spec. So this work is:
 4. **No declaration → no enforcement** (Brad's call, 2026-08-06). Absent a limit, the field behaves exactly as
    it does now. Nothing is invented, which is the same rule the guardrails engine already follows.
 
-### E.10 — Build audits: voice, accessibility, SEO, content
+**As built.** `maxLength` declared on `IHandoffPropertyRules`; `componentFieldRules()` flattens a properties
+tree to `path → rule` (array items under `*`); `declaredRuleForPath()` matches a concrete editor path back onto
+it; `resolveFieldGuardrail(config, path, declared?)` and `checkGuardrails(..., componentRules?)` take it from
+there. `componentRulesForBlocks()` in `queries.ts` is the single server loader, used by **both** the guest
+submit gate and the review-queue annotations — otherwise a reviewer would see fewer findings than the author
+was held to. 17 tests in `test/component-field-rules.test.ts`.
+
+Three decisions worth not re-deriving:
+
+- **Precedence is by specificity, not `min()`:** explicit brief field rule → component's declared limit →
+  brief's blanket default. A plain fallback chain gets the middle case wrong — a brief-wide default of 200
+  would mask a component's structural limit of 60. `min()` was rejected because silently tightening a number a
+  brief author typed makes the UI disagree with them.
+- **Component rules are per component id, not merged into `config.fields`.** That map is keyed by a *global*
+  path, so a `titleSlot` entry applies to every block; a hero headline and a card headline are both `titleSlot`
+  and break at different lengths.
+- **The field editor reads the declaration off `value`**, the property definition it is already handed — no
+  path matching needed client-side. The flattening exists for the server, which has to match paths across a
+  whole page.
+
+**Nothing changes for anyone yet:** verified against the live deployment, **0 of 76** components declare a
+`maxLength` today, and the extractor ran cleanly over all of them. This ships as capability. The one behavioural
+change is that `checkPatternGuardrails` no longer early-returns when a page has no brief config — a page with no
+invitation can now have limits, which was the entire gap.
+
+**Still open (unchanged):** per-field `help` text has no author path. `resolveFieldGuardrail` now carries a
+component-declared `help` through if one is ever declared, but neither the wizard nor the property contract
+captures it.
+
+### E.10 — Build audits: voice, accessibility, SEO, content — 🔄 DETERMINISTIC CHECKS SHIPPED 2026-08-06
 
 Surfaced in the build level's left panel (E.8). **Decide the architecture before writing any of it:** the
 preview iframe is `sandbox="allow-scripts"` with **no** `allow-same-origin`, an opaque origin so it cannot
 reach registry cookies — which also means **the parent cannot read its DOM**. Scraping the rendered preview is
 not available.
 
-**Recommended: run audits server-side on the exported HTML**, via the `constructComponentPreview` +
-`hydrateForExport` path the brief download already uses. Voice, SEO and content checks are static; so are most
-a11y rules (alt text, heading order, label association, contrast from tokens). The few that genuinely need
-layout come later, via a script injected *into* the frame that `postMessage`s results out — the same channel
-block actions already use. Run as a queued job, store results on the pattern, and let the panel just read them.
+~~**Recommended: run audits server-side on the exported HTML**~~ — **that recommendation was wrong, and testing
+it is what showed why.** For a **React** component `constructComponentPreview` emits a
+`<script type="application/json">` of props plus a client-side mount; `renderPreview` server-side returns that
+same mount, not DOM. There is **no server-rendered DOM for React components anywhere in the codebase**, and the
+components in play are React — so an HTML pass would have inspected a props script and found nothing.
+
+**Built instead: audits read the content values** (`lib/build-audits.ts`), reusing `collectEditableText` /
+`collectImageSrcs` / `altForImagePath` / the weak-link-text list from the guardrails engine so overlapping
+judgements cannot drift. Better for the reader too: every finding carries the field path and block it came from.
+
+**Guardrails vs audits, stated once:** guardrails are a **gate** — configured on an invitation, enforced at
+submit, can refuse a write. Audits are a **report** — always run, never block, nobody configures them. That
+split also closed a hole: guardrails' alt check only runs when a page *has* a config, so nothing was checking
+alt text on an ordinary internal page.
+
+**No job and no storage.** The checks are a walk over stored content, so they are recomputed in the server
+component that already loads the build. A stored audit would only ever be stale. **Voice will need the job** —
+it is an LLM read against the brand-voice document, and shipping a regex version of it would be worse than the
+empty section that currently says "Not checked yet".
+
+**Shipped checks:** `placeholder-text`, `placeholder-image`, `shouting` (4+ consecutive caps words, so acronyms
+and "GET A DEMO" are left alone), `repeated-copy` (5+ words, reported against the later block), `thin-content`
+(<30 words, page-level), `missing-alt`, `weak-link-text`. 18 tests.
+
+**Run over real pages before shipping**, which found a false positive worth knowing about: repeated **alt text**
+was being reported as SEO duplicate content, and alt words were padding the count that decides thin content.
+Alt is editable text but it is not page copy — `isPageCopy()` now excludes it from both, while still auditing it
+for placeholders. On four real pages the remaining findings were all genuine: 10 placeholder images, 1
+placeholder headline, 7 × "Learn More".
+
+**Still to do:** the `voice` category (LLM + brand voice + a job), and any a11y rule that needs layout —
+heading order and contrast are the obvious ones, and both need either component-level semantics about which
+field is a heading, or the in-frame `postMessage` route.
 
 **Sequencing for E.8–E.10 (Brad, 2026-08-06):** Duplicate off the library cards → E.8 page+brief levels →
 E.8 build level (audit panel as an empty slot) → E.8b brief metadata editing + regenerate → E.9 content length

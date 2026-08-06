@@ -2,6 +2,7 @@ import 'server-only';
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
+import { componentRulesForBlocks } from './queries';
 import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
 import {
   AuthorizationError,
@@ -608,12 +609,24 @@ async function checkPatternGuardrails(
     // otherwise a guest could relax their own limits by writing to `data`.
     if (Object.keys(fromTemplate).length) config = fromTemplate;
   }
-  if (!Object.keys(config).length) return [];
-
   const blocks = (Array.isArray(page.components) ? page.components : []) as PatternComponentEntry[];
   const overrides = ((page.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
     []) as unknown[];
-  return checkGuardrails(blocks, overrides, config);
+
+  /**
+   * Limits the components themselves declare (roadmap E.9), so the server enforces what the field editor
+   * showed. Loaded per **distinct** component id — a page with ten hero blocks is one read, not ten.
+   *
+   * Note there is no early return on an empty brief config any more: a page with no invitation at all can now
+   * still have limits, which was the whole gap — "internal pages have no limits" was true only because the
+   * only source of a limit used to be a brief.
+   */
+  const componentRules = await componentRulesForBlocks(blocks);
+
+  // Nothing declared anywhere means nothing to check — the same short-circuit as before, just later.
+  if (!Object.keys(config).length && !Object.keys(componentRules).length) return [];
+
+  return checkGuardrails(blocks, overrides, config, componentRules);
 }
 
 /**
