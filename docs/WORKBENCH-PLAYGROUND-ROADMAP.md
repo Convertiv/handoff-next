@@ -327,6 +327,39 @@ document:
 - This also fixes a real bug class: local-only state cannot be reviewed, shared, or recovered on another
   device, and every feature after this one (review, templates, guest links) assumes a record exists.
 
+### E.5 — Guests use the real editor (Brad, 2026-08-05)
+
+> "It's weird to edit the field with no preview. We've already built an editor, we should reuse. Rising tide
+> lifts all boats."
+
+Correct, and the bespoke fields-only form in `components/Guest/GuestAuthoring.tsx` should go. A guest should
+get **the playground editor** with structural editing removed: no add block, no drag, no delete — edit the
+content of the blocks that are there, see the preview, submit.
+
+**The blocker I assumed exists, doesn't.** Both endpoints the editor needs to render a preview —
+`/api/components.json` and `/api/component/{id}.json` — are **already unauthenticated** (zero `auth()` calls),
+and `constructComponentPreview` builds the preview client-side. So reusing the editor needs **no new public
+surface and no new security decision**, which was the thing that made this look expensive.
+
+What actually has to change, all in two files:
+
+- **`PlaygroundContext` needs a persistence adapter.** Today it hardcodes the authenticated path: `useSession`
+  status gating, pattern detail from `/api/handoff/patterns/{id}`, writes through the `updatePattern` server
+  action. A guest needs the same lifecycle against `GET/PATCH /api/handoff/guest/submission?link=…`. One
+  injected `{ hydrate, persist }` pair, chosen by the surface, rather than two editors.
+- **A `structuralEditing: false` mode** in `PlaygroundBuilder`: hide add/drag/delete affordances and the block
+  library, keep the block editor panel and the preview. This is also what the frozen-template view should use
+  (it currently just shows a banner over a fully-interactive canvas).
+- **Guardrails come along for free** — the Slice 3 engine is already client-safe and takes
+  `(blocks, overrides, config)`, so the same per-field limits, counters and blocked submit work in the reused
+  editor without change.
+
+Retire `GuestAuthoring`'s hand-rolled field list once the reused editor covers it; keep its shell (name gate,
+submit-with-note, session handling), which is guest-specific and correct.
+
+**Why it is worth doing beyond the guest flow:** the same "no structural editing" mode is what makes a frozen
+template view honest, and every future improvement to the block editor reaches guests automatically.
+
 ### E.4 — Guardrail editor for templates
 
 Slice 3 enforces `template.data.guardrails` in three places (editor, submit, review) but nothing *sets* it
@@ -337,7 +370,8 @@ and high-leverage: it is what lets Craig and Andrew define the rules SS&C asked 
 **Sequencing:** E.1 ✅. E.3 ✅ (before E.2, because "one save path" is only coherent once the record is the
 source of truth). E.2 → **E.2b, E.2a, E.2c, E.2d** in that order: fix the template-editing defect first
 because it is wrong behaviour on an object that already exists, then unblock sharing, then remove the
-control the library replaces. E.4 last, since it needs the template inspector E.2a builds.
+control the library replaces. E.4 and E.5 last. **E.5 before E.4** on Brad's steer (2026-08-05): the reused editor is the bigger quality
+jump, and it is cheaper than it looked because guests need no new endpoints.
 
 ## Phase F — Direct manipulation in the playground editor (Brad, 2026-08-05)
 

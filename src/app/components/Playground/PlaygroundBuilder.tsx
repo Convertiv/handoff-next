@@ -21,6 +21,7 @@ import {
   PanelLeft,
   Plus,
   SaveIcon,
+  Share2,
   Smartphone,
   ChevronLeft,
   SparklesIcon,
@@ -34,6 +35,7 @@ import SortableItem from './SortableItem';
 import Preview, { constructComponentPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
 import { savePatternAsTemplate } from '@/app/actions/patterns';
+import ShareLinkPanel from '../Share/ShareLinkPanel';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
 import type { PlaygroundPageExport, SelectedPlaygroundComponent } from './types';
@@ -143,6 +145,7 @@ export default function PlaygroundBuilder() {
   const [loadingHtml, setLoadingHtml] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [cloning, setCloning] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [templateNotice, setTemplateNotice] = useState<string | null>(null);
   const [viewport, setViewport] = useState<ViewportKey>('desktop');
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
@@ -316,6 +319,27 @@ export default function PlaygroundBuilder() {
                 * first block (roadmap E.2/E.3). What remains is the action that actually needs a decision —
                 * turning this page into a template others can build from.
                 */}
+              {editingPatternId && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 gap-1 px-2"
+                      onClick={() => setShareOpen(true)}
+                    >
+                      <Share2 className="h-4 w-4" />
+                      <span className="text-xs">Share</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {isTemplate
+                      ? 'Invite someone to build from this template, or share it read-only'
+                      : 'Share this page read-only'}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+
               {selectedComponents.length > 0 && editingPatternId && !isTemplate && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -460,6 +484,21 @@ export default function PlaygroundBuilder() {
           <Button size="sm" variant="ghost" onClick={() => setTemplateNotice(null)}>
             Dismiss
           </Button>
+        </div>
+      ) : null}
+
+      {shareOpen && editingPatternId ? (
+        <div className="border-b bg-muted/20 px-4 py-3">
+          <div className="mx-auto flex max-w-3xl items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              {/* The share controls live where the thing being shared is (Brad, 2026-08-05) — a template's
+                  own page, not a detour through the library. Same panel, one implementation. */}
+              <ShareLinkPanel resourceType="pattern" resourceId={editingPatternId} basePath={basePath} />
+            </div>
+            <Button size="sm" variant="ghost" onClick={() => setShareOpen(false)}>
+              Close
+            </Button>
+          </div>
         </div>
       ) : null}
 

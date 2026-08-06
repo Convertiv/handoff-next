@@ -64,6 +64,17 @@ function normalizeDesign(row: DesignRow): LibraryAsset {
   };
 }
 
+/**
+ * Guest submissions do not belong in the library grid.
+ *
+ * They are someone else's work-in-progress against *your* template, not an asset of yours — showing them
+ * beside your own pages makes the library read as a shared inbox. Their home is the review queue, and their
+ * relationship is to the template they were built from (`template_id`), which is where they are surfaced.
+ */
+function isGuestSubmission(row: PatternRow): boolean {
+  return row._source === 'guest';
+}
+
 function normalizePattern(row: PatternRow): LibraryAsset {
   return {
     type: 'pattern',
@@ -154,7 +165,7 @@ export default function LibraryClient({
       if (!patternRes.ok) throw new Error(patternJson.error || `Failed to load patterns (${patternRes.status})`);
 
       setDesignAssets((designJson.artifacts ?? []).map(normalizeDesign));
-      setPatternAssets((patternJson.patterns ?? []).map(normalizePattern));
+      setPatternAssets((patternJson.patterns ?? []).filter((r) => !isGuestSubmission(r)).map(normalizePattern));
       setDesignCursor(designJson.nextCursor ?? null);
       setPatternCursor(patternJson.nextCursor ?? null);
     } catch (e) {
@@ -213,7 +224,10 @@ export default function LibraryClient({
               error?: string;
             };
             if (!res.ok) throw new Error(json.error || `Failed to load patterns (${res.status})`);
-            setPatternAssets((prev) => [...prev, ...(json.patterns ?? []).map(normalizePattern)]);
+            setPatternAssets((prev) => [
+              ...prev,
+              ...(json.patterns ?? []).filter((r) => !isGuestSubmission(r)).map(normalizePattern),
+            ]);
             setPatternCursor(json.nextCursor ?? null);
           })(),
         );
@@ -261,6 +275,27 @@ export default function LibraryClient({
    */
   const [inspected, setInspected] = useState<LibraryAsset | null>(null);
   const [inspectorBusy, setInspectorBusy] = useState(false);
+  const [submissions, setSubmissions] = useState<
+    { id: string; title: string; status: string; submittedByName: string | null }[] | null
+  >(null);
+
+  /** A template's children, fetched when it is inspected. Loaded on demand — most assets have none. */
+  const inspect = useCallback((asset: LibraryAsset) => {
+    setInspected(asset);
+    setSubmissions(null);
+    if (asset.type !== 'pattern' || asset.source !== 'template') return;
+    void (async () => {
+      try {
+        const res = await fetch(handoffApiUrl(`/api/handoff/templates/${encodeURIComponent(asset.id)}/submissions`), {
+          credentials: 'include',
+        });
+        const json = (await res.json()) as { submissions?: typeof submissions };
+        if (res.ok) setSubmissions(json.submissions ?? []);
+      } catch {
+        /* quiet: the panel simply shows nothing */
+      }
+    })();
+  }, []);
 
   const applyMeta = useCallback(
     async (meta: { visibility?: Visibility; status?: Lifecycle }) => {
@@ -446,7 +481,7 @@ export default function LibraryClient({
                     key={keyOf(asset)}
                     asset={asset}
                     onOpen={() => openAsset(asset)}
-                    onDetails={() => setInspected(asset)}
+                    onDetails={() => inspect(asset)}
                   />
                 ))}
               </ul>
@@ -504,6 +539,7 @@ export default function LibraryClient({
         onSetLifecycle={(status) => void applyMeta({ status })}
         onSetVisibility={(visibility) => void applyMeta({ visibility })}
         onOpen={() => inspected && openAsset(inspected)}
+        submissions={submissions}
         shareResource={
           inspected
             ? {

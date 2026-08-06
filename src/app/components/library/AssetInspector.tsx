@@ -46,6 +46,11 @@ type Props = {
    * authoring link (see roadmap E.1); the legacy row remains for callers that only do read-only links.
    */
   shareResource?: { resourceType: 'pattern' | 'design_artifact'; resourceId: string; basePath?: string } | null;
+  /**
+   * Set for a template: the pages built from it. Guest submissions are filtered out of the library grid —
+   * they are children of a template, not loose assets — so this is where they are visible.
+   */
+  submissions?: { id: string; title: string; status: string; submittedByName: string | null }[] | null;
   busy?: boolean;
 };
 
@@ -93,6 +98,7 @@ export function AssetInspector({
   onCreateShare,
   onRevokeShare,
   shareResource = null,
+  submissions = null,
   busy,
 }: Props) {
   const canEdit = Boolean(permissions?.canEdit);
@@ -202,6 +208,27 @@ export function AssetInspector({
                     Share with team
                   </Button>
                 </div>
+              ) : null}
+
+              {submissions && submissions.length > 0 ? (
+                <Section title={`Built from this (${submissions.length})`}>
+                  <ul className="space-y-1">
+                    {submissions.map((sub) => (
+                      <li key={sub.id} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate">
+                          {sub.title || sub.id}
+                          {sub.submittedByName ? (
+                            <span className="text-muted-foreground"> · {sub.submittedByName}</span>
+                          ) : null}
+                        </span>
+                        <span className="shrink-0 text-muted-foreground">{sub.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-xs text-muted-foreground">
+                    Submitted pages are reviewed in the review queue, not here.
+                  </p>
+                </Section>
               ) : null}
 
               {/* Share panel — full capability-aware version when the caller supplies a resource. */}

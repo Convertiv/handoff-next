@@ -161,6 +161,55 @@ export async function getDbPatternsFiltered(filters: DbPatternFilter) {
     .orderBy(desc(handoffPatterns.updatedAt));
 }
 
+export interface TemplateSubmission {
+  id: string;
+  title: string;
+  status: string;
+  updatedAt: Date | null;
+  /** Self-declared name of whoever built it, from the guest change row. Unverified. */
+  submittedByName: string | null;
+  shareLinkToken: string | null;
+}
+
+/**
+ * Pages built from one template, newest first.
+ *
+ * The counterpart to filtering guest submissions out of the library: they are not loose assets, they are
+ * children of a template, so this is how the template shows them. One query — the submitter comes from a
+ * lateral join on the latest guest change row, the same shape `listReviewQueue` uses.
+ */
+export async function listTemplateSubmissions(templateId: string): Promise<TemplateSubmission[]> {
+  if (!isPostgres()) return [];
+  const db = getDb();
+  const result = await db.execute(sql`
+    SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name
+    FROM handoff_pattern p
+    LEFT JOIN LATERAL (
+      SELECT pc.pushed_by_name
+      FROM handoff_pattern_change pc
+      WHERE pc.pattern_id = p.id AND pc.trigger = 'guest'
+      ORDER BY pc.pushed_at DESC
+      LIMIT 1
+    ) c ON TRUE
+    WHERE p.template_id = ${templateId}
+    ORDER BY p.updated_at DESC NULLS LAST
+    LIMIT 200
+  `);
+  const rows = (result.rows ?? result) as Record<string, unknown>[];
+  return rows.map((r) => {
+    const name = (r.pushed_by_name as string | null) ?? null;
+    return {
+      id: String(r.id),
+      title: String(r.title ?? ''),
+      status: String(r.status ?? ''),
+      updatedAt: r.updated_at ? new Date(r.updated_at as string) : null,
+      // `guest:` is a provenance prefix, not part of anyone's name — same strip as the review queue.
+      submittedByName: name?.startsWith('guest:') ? name.slice('guest:'.length).trim() || null : name,
+      shareLinkToken: (r.share_link_token as string | null) ?? null,
+    };
+  });
+}
+
 export async function getDbPatternById(id: string) {
   const db = getDb();
   const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
