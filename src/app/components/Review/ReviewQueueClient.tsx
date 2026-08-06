@@ -124,13 +124,13 @@ export default function ReviewQueueClient({ initialRows }: { initialRows: QueueR
   return (
     <div className="space-y-4">
       {error ? (
-        <p role="alert" className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p role="alert" className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           {error}
         </p>
       ) : null}
 
       {Object.entries(done).map(([id, status]) => (
-        <p key={id} className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+        <p key={id} className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
           {id} is now <strong>{status}</strong>
           {status === 'draft' ? ' — the author can edit it again and resubmit.' : '.'}
         </p>
@@ -221,7 +221,7 @@ export default function ReviewQueueClient({ initialRows }: { initialRows: QueueR
                       <ul className="mt-2 space-y-1">
                         {detail.findings.map((f, i) => (
                           <li key={`${f.code}-${i}`} className="text-sm text-muted-foreground">
-                            <span className={f.severity === 'blocking' ? 'text-amber-700' : ''}>
+                            <span className={f.severity === 'blocking' ? 'text-amber-700 dark:text-amber-400' : ''}>
                               {f.severity === 'blocking' ? '!' : '•'}
                             </span>{' '}
                             {f.message}
@@ -245,7 +245,7 @@ export default function ReviewQueueClient({ initialRows }: { initialRows: QueueR
                       maxLength={1000}
                       value={notes[row.id] ?? ''}
                       onChange={(e) => setNotes((cur) => ({ ...cur, [row.id]: e.target.value }))}
-                      className="w-full rounded-md border px-3 py-2 text-sm"
+                      className="w-full rounded-md border px-3 py-2 text-sm bg-background text-foreground"
                     />
                     <div className="flex gap-2">
                       <button

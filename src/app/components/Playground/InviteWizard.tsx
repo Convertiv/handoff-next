@@ -157,7 +157,7 @@ export default function InviteWizard({ pageId, pageTitle, onCancel, onCreated }:
         </ol>
 
         {error ? (
-          <p role="alert" className="mb-6 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p role="alert" className="mb-6 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             {error}
           </p>
         ) : null}
@@ -344,7 +344,7 @@ export default function InviteWizard({ pageId, pageTitle, onCancel, onCreated }:
             </div>
 
             {result.passphrase ? (
-              <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
                 <strong>Copy both now.</strong> The passphrase is stored hashed and the link’s secret can’t be
                 shown again. If either is lost, revoke this invitation and create another.
               </p>

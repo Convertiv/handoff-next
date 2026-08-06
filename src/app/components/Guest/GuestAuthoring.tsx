@@ -198,10 +198,10 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
       <Shell title={templateTitle} subtitle={templateDescription}>
         <form onSubmit={enter} className="mx-auto max-w-md space-y-4">
           <div>
-            <label htmlFor="guest-name" className="block text-sm font-medium text-slate-800">
+            <label htmlFor="guest-name" className="block text-sm font-medium text-foreground">
               Your name
             </label>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               So the reviewers know who built the page. No account needed.
             </p>
             <input
@@ -211,15 +211,15 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
               autoComplete="name"
               maxLength={80}
               required
-              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+              className="mt-2 w-full rounded-md border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none bg-background text-foreground"
             />
           </div>
           <div>
-            <label htmlFor="guest-email" className="block text-sm font-medium text-slate-800">
-              Your email <span className="font-normal text-slate-500">(optional)</span>
+            <label htmlFor="guest-email" className="block text-sm font-medium text-foreground">
+              Your email <span className="font-normal text-muted-foreground">(optional)</span>
             </label>
             {/* Disclosure at the point of collection, not in a policy page — we are about to email them. */}
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-muted-foreground">
               We’ll use it to tell you what happens to your page — when it’s received, reviewed, or published.
               Nothing else.
             </p>
@@ -230,16 +230,16 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
               maxLength={200}
-              className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+              className="mt-2 w-full rounded-md border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none bg-background text-foreground"
             />
           </div>
 
           {passphraseRequired ? (
             <div>
-              <label htmlFor="guest-passphrase" className="block text-sm font-medium text-slate-800">
+              <label htmlFor="guest-passphrase" className="block text-sm font-medium text-foreground">
                 Passphrase
               </label>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Four words, sent to you with this link. Capitals and spaces don’t matter.
               </p>
               <input
@@ -249,7 +249,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
                 autoComplete="off"
                 spellCheck={false}
                 required
-                className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 font-mono text-sm focus:border-slate-500 focus:outline-none"
+                className="mt-2 w-full rounded-md border border-input px-3 py-2 font-mono text-sm focus:border-ring focus:outline-none bg-background text-foreground"
               />
             </div>
           ) : null}
@@ -258,7 +258,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
           <button
             type="submit"
             disabled={!name.trim() || (passphraseRequired && !passphrase.trim())}
-            className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
+            className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40"
           >
             Start building
           </button>
@@ -270,7 +270,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
   if (phase === 'working') {
     return (
       <Shell title={templateTitle}>
-        <p className="text-center text-sm text-slate-500" role="status">
+        <p className="text-center text-sm text-muted-foreground" role="status">
           Working…
         </p>
       </Shell>
@@ -281,15 +281,15 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
     return (
       <Shell title={templateTitle}>
         <div className="mx-auto max-w-md space-y-4 text-center">
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-foreground">
             Sent for review. {name.trim() || 'You'} submitted this page — a reviewer will pick it up from here.
           </p>
-          <p className="text-sm text-slate-500">It can’t be edited now that it’s in the queue.</p>
+          <p className="text-sm text-muted-foreground">It can’t be edited now that it’s in the queue.</p>
           {error ? <Alert>{error}</Alert> : null}
           <button
             type="button"
             onClick={startAnother}
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800"
+            className="rounded-md border border-input px-4 py-2 text-sm font-medium text-foreground"
           >
             Build another page
           </button>
@@ -301,14 +301,14 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
   return (
     <Shell title={templateTitle} subtitle={templateDescription}>
       <div className="space-y-6">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <p className="text-sm text-slate-500">
-            Editing as <span className="font-medium text-slate-800">{name}</span>
+        <div className="flex items-center justify-between gap-3 border-b border pb-3">
+          <p className="text-sm text-muted-foreground">
+            Editing as <span className="font-medium text-foreground">{name}</span>
           </p>
           {/* The editor shows its own save state in its toolbar — one indicator, not two disagreeing. */}
         </div>
 
-        {notice ? <p className="text-sm text-slate-500">{notice}</p> : null}
+        {notice ? <p className="text-sm text-muted-foreground">{notice}</p> : null}
         {error ? <Alert>{error}</Alert> : null}
 
         {/**
@@ -316,13 +316,13 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
           * with structural editing switched off. It replaced a hand-rolled field list that had no preview:
           * "we've already built an editor, we should reuse."
           */}
-        <div className="-mx-4 h-[70vh] overflow-hidden rounded-lg border border-slate-200 sm:mx-0">
+        <div className="-mx-4 h-[70vh] overflow-hidden rounded-lg border border sm:mx-0">
           <GuestEditor linkId={linkId} />
         </div>
 
-        <div className="space-y-3 border-t border-slate-200 pt-4">
-          <label htmlFor="submit-note" className="block text-sm font-medium text-slate-800">
-            Note for the reviewer <span className="font-normal text-slate-500">(optional)</span>
+        <div className="space-y-3 border-t border pt-4">
+          <label htmlFor="submit-note" className="block text-sm font-medium text-foreground">
+            Note for the reviewer <span className="font-normal text-muted-foreground">(optional)</span>
           </label>
           <textarea
             id="submit-note"
@@ -330,7 +330,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
             onChange={(e) => setSubmitMessage(e.target.value)}
             rows={3}
             maxLength={1000}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
+            className="w-full rounded-md border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none bg-background text-foreground"
           />
           {canSubmit ? (
             /**
@@ -342,12 +342,12 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
             <button
               type="button"
               onClick={submit}
-              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white"
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
             >
               Submit for review
             </button>
           ) : (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-muted-foreground">
               This link doesn’t include submitting — your work is saved and the owner can pick it up.
             </p>
           )}
@@ -369,11 +369,16 @@ function Shell({
   children: React.ReactNode;
 }) {
   return (
-    <main className="mx-auto max-w-3xl px-4 py-10">
+    /**
+     * `min-h-screen` + an explicit surface: this is a **standalone** page with no app chrome around it, so
+     * nothing else paints the background. Without it the guest page kept a white canvas in dark mode while the
+     * text switched — which is the version Brad saw.
+     */
+    <main className="mx-auto min-h-screen max-w-3xl bg-background px-4 py-10 text-foreground">
       <header className="mb-8">
-        <p className="text-xs uppercase tracking-wide text-slate-400">Shared via Handoff</p>
-        <h1 className="mt-1 text-xl font-semibold text-slate-900">{title}</h1>
-        {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Shared via Handoff</p>
+        <h1 className="mt-1 text-xl font-semibold text-foreground">{title}</h1>
+        {subtitle ? <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p> : null}
       </header>
       {children}
     </main>
@@ -382,7 +387,7 @@ function Shell({
 
 function Alert({ children }: { children: React.ReactNode }) {
   return (
-    <p role="alert" className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+    <p role="alert" className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
       {children}
     </p>
   );

@@ -185,7 +185,7 @@ export default function ShareLinkPanel({ resourceType, resourceId, basePath = ''
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Who is this for?"
-            className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm"
+            className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm bg-background text-foreground"
           />
         </label>
         <label className="text-xs">
@@ -195,7 +195,7 @@ export default function ShareLinkPanel({ resourceType, resourceId, basePath = ''
             min={1}
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
-            className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm"
+            className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm bg-background text-foreground"
           />
         </label>
         <label className="text-xs">
@@ -204,7 +204,7 @@ export default function ShareLinkPanel({ resourceType, resourceId, basePath = ''
             value={maxUses}
             onChange={(e) => setMaxUses(e.target.value)}
             placeholder="Unlimited"
-            className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm"
+            className="mt-1 w-full rounded-md border px-2 py-1.5 text-sm bg-background text-foreground"
           />
         </label>
       </div>
@@ -224,7 +224,7 @@ export default function ShareLinkPanel({ resourceType, resourceId, basePath = ''
       </button>
 
       {error ? (
-        <p role="alert" className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p role="alert" className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           {error}
         </p>
       ) : null}
@@ -233,7 +233,7 @@ export default function ShareLinkPanel({ resourceType, resourceId, basePath = ''
         <div className="rounded-md border p-3">
           <p className="text-sm font-medium">Your link</p>
           {minted.writeCapable ? (
-            <p className="mt-0.5 text-xs text-amber-700">
+            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
               Copy it now — this is the only time it can be shown. The secret is stored hashed, so it cannot
               be recovered later; if you lose it, revoke the link and create another.
             </p>

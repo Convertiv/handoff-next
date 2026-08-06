@@ -471,7 +471,7 @@ export default function PlaygroundBuilder() {
           {saveState !== 'off' ? (
             <span
               aria-live="polite"
-              className={`mr-2 text-xs ${saveState === 'failed' ? 'text-amber-700' : 'text-muted-foreground'}`}
+              className={`mr-2 text-xs ${saveState === 'failed' ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'}`}
             >
               {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'failed' ? 'Not saved' : 'Unsaved changes'}
             </span>

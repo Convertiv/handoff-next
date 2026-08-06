@@ -181,6 +181,27 @@ is later:
 
 ---
 
+## Dark mode: a rule for these surfaces
+
+Fixed 2026-08-05 after Brad reported it. The cause was mixing semantic tokens with hardcoded palette classes
+(`text-slate-800`, `bg-amber-50`) in the same components — the tokens flipped with the theme and the palette
+classes did not.
+
+Three rules for anything added here:
+
+1. **Never a raw palette class for text, borders or surfaces.** Use `foreground` / `muted-foreground` /
+   `border` / `input` / `background` / `muted`. The app is `darkMode: ['class']` with a `.dark` block in
+   `css/index.css`.
+2. **Warning and success surfaces have no token**, so they carry explicit pairs:
+   `bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200`. Flattening them to `muted` makes a
+   warning read as body text, which is worse than no colour at all.
+3. **A hand-rolled `<input>`/`<textarea>` needs `bg-background text-foreground`.** A themed *border* is not
+   enough — the field keeps the browser's default light surface otherwise. The shadcn `Input` component does
+   this for you; raw elements do not.
+
+And for standalone pages with no app chrome (the guest surface), the outermost element must paint
+`min-h-screen bg-background text-foreground` — nothing else will.
+
 ## Also deferred
 
 - **PDF export** — headless Chromium; its own item.
