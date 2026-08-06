@@ -44,12 +44,14 @@ export default function Providers({
    */
   const pathname = usePathname();
   /**
-   * Surfaces that deliberately carry no app chrome: the public share pages (`/s/*`) and the brief/built-page
-   * viewer (`/briefs/*`), which is a read-only review screen — "we don't want the chat or the blocks list"
-   * (Brad, 2026-08-05). Both are reading surfaces where an authoring assistant is noise at best.
+   * Surfaces that deliberately carry no app chrome: the public share pages (`/s/*`).
+   *
+   * `/briefs/*` used to be listed here too. It is now only a redirect into `/playground/{id}?brief=` (roadmap
+   * E.8), and a brief is a *level of a page* rather than its own screen — so it gets the same chrome the page
+   * does. What keeps a brief from offering authoring it cannot honour is `aiAssistantEnabled: false` and a
+   * read-only canvas, decided per level in `PlaygroundWorkbench`, not the absence of app chrome.
    */
-  const isChromeless =
-    pathname === '/s' || pathname?.startsWith('/s/') || pathname === '/briefs' || pathname?.startsWith('/briefs/');
+  const isChromeless = pathname === '/s' || pathname?.startsWith('/s/');
 
   return (
     <SessionProvider session={session ?? undefined}>

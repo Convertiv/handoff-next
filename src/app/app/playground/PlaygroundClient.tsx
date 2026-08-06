@@ -2,7 +2,8 @@
 
 import Layout from '../../components/Layout/Main';
 import { PlaygroundProvider } from '../../components/Playground/PlaygroundContext';
-import PlaygroundBuilder from '../../components/Playground/PlaygroundBuilder';
+import PlaygroundWorkbench, { type WorkbenchBrief } from '../../components/Playground/PlaygroundWorkbench';
+import type { BuildRow } from '../../components/Brief/BuildList';
 import { TooltipProvider } from '../../components/ui/tooltip';
 
 export default function PlaygroundClient({
@@ -14,6 +15,9 @@ export default function PlaygroundClient({
   initialIsTemplate = false,
   pageTitle = '',
   initialBriefs = [],
+  brief = null,
+  build = null,
+  pageBuilds = [],
 }: {
   menu: unknown;
   metadata: unknown;
@@ -23,18 +27,27 @@ export default function PlaygroundClient({
   initialIsTemplate?: boolean;
   pageTitle?: string;
   initialBriefs?: React.ComponentProps<typeof PlaygroundProvider>['initialBriefs'];
+  /** Resolved and ownership-checked server-side (roadmap E.8). Null at page level. */
+  brief?: WorkbenchBrief | null;
+  build?: BuildRow | null;
+  pageBuilds?: (BuildRow & { briefId: string })[];
 }) {
+  const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
+
   return (
     <Layout config={config} menu={menu} current={current} metadata={metadata} fullBleed>
       <TooltipProvider>
-        <PlaygroundProvider
-          initialPatternId={initialPatternId}
-          initialIsTemplate={initialIsTemplate}
+        {/* The provider moved inside the workbench, which keys it per level — see PlaygroundWorkbench. */}
+        <PlaygroundWorkbench
+          pageId={initialPatternId}
           pageTitle={pageTitle}
+          initialIsTemplate={initialIsTemplate}
           initialBriefs={initialBriefs}
-        >
-          <PlaygroundBuilder />
-        </PlaygroundProvider>
+          basePath={basePath}
+          brief={brief}
+          build={build}
+          pageBuilds={pageBuilds}
+        />
       </TooltipProvider>
     </Layout>
   );

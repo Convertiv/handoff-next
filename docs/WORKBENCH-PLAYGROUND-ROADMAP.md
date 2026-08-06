@@ -418,7 +418,7 @@ Two corrections from QA. Both follow from a rule already in
   an unauthenticated recipient and lands on the read-only viewer, not the build surface. `ShareLinkPanel` had
   zero consumers and is **deleted**; capability picking, expiry and max-uses belong to "Invite to build".
 
-### E.8 — One shell, three levels: page → brief → build (Brad, 2026-08-06)
+### E.8 — One shell, three levels: page → brief → build — ✅ SHIPPED 2026-08-06
 
 **The problem, in Brad's words:** "It makes it unclear what's happening… not a bunch of different interfaces
 but the same thing — drilling down as people iterate over it."
@@ -428,6 +428,14 @@ brief reads as a third product rather than a deeper view of a page. The parts ne
 `PlaygroundProvider` takes an injected `{hydrate, persist}` adapter plus a `structuralEditing` flag (that *is*
 "same canvas, different write capability"), and `BriefViewer` already proved the swappable-left-panel,
 select-a-build-and-both-panels-change interaction. This collapses three shells into one; it is not new UI.
+
+**As built.** `PlaygroundWorkbench` owns the level and keys the provider; `PlaygroundBuilder` gained
+`leftPanel` + `canvasControls` and is now the single shell for all three. `BriefViewer` and `BriefPreview` are
+deleted; `/briefs/{id}` is a 307 into the unified URL. Panels: `BriefPanel`, `BuildPanel`, and `BuildList`
+(mounted at both brief and page level). Ownership predicates live in `lib/workbench-level.ts`, shared by the
+route and the shell, covered by `test/workbench-level.test.ts`. Two things found while building: the builder's
+loading/error branches replaced the *whole* shell, which at brief level would strand you with no way back
+(fixed — the panel survives), and `?builds=1` needed `listBuildsForPage` to avoid N queries per brief.
 
 **The model — one shell, the left panel switches on level:**
 

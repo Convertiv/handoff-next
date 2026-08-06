@@ -187,6 +187,60 @@ export interface TemplateSubmission {
  * children of a template, so this is how the template shows them. One query — the submitter comes from a
  * lateral join on the latest guest change row, the same shape `listReviewQueue` uses.
  */
+/**
+ * Every build made from **any** brief of a page, newest first (roadmap E.8).
+ *
+ * So a page can list the work coming back without making you pick a brief first — "so you don't have to go
+ * through the brief just to go open the build" (Brad, 2026-08-06). Each row carries the brief it answers, both
+ * to label it and because opening one needs the brief id: a build is only reachable *through* its brief.
+ *
+ * Archived briefs and archived builds are both excluded, matching every other list (see `removePattern`).
+ */
+export interface PageBuild extends TemplateSubmission {
+  briefId: string;
+  briefVersion: number | null;
+}
+
+export async function listBuildsForPage(pageId: string): Promise<PageBuild[]> {
+  if (!isPostgres()) return [];
+  const db = getDb();
+  const result = await db.execute(sql`
+    SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name, c.message,
+      b."id" AS brief_id, b."brief_version" AS brief_version
+    FROM handoff_pattern p
+    JOIN handoff_pattern b ON b."id" = p."template_id"
+    LEFT JOIN LATERAL (
+      SELECT pc.pushed_by_name, pc.message
+      FROM handoff_pattern_change pc
+      WHERE pc.pattern_id = p.id AND pc.trigger = 'guest'
+      ORDER BY pc.pushed_at DESC
+      LIMIT 1
+    ) c ON TRUE
+    WHERE b."source" = 'template'
+      AND b."source_page_id" = ${pageId}
+      AND b."status" <> 'archived'
+      AND p."status" <> 'archived'
+    ORDER BY p.updated_at DESC NULLS LAST
+    LIMIT 200
+  `);
+  const rows = (result.rows ?? result) as Record<string, unknown>[];
+  return rows.map((r) => {
+    const name = (r.pushed_by_name as string | null) ?? null;
+    return {
+      id: String(r.id),
+      title: String(r.title ?? ''),
+      status: String(r.status ?? ''),
+      updatedAt: r.updated_at ? new Date(r.updated_at as string) : null,
+      // `guest:` is a provenance prefix, not part of anyone's name — same strip as the review queue.
+      submittedByName: name?.startsWith('guest:') ? name.slice('guest:'.length).trim() || null : name,
+      shareLinkToken: (r.share_link_token as string | null) ?? null,
+      submittedMessage: (r.message as string | null) ?? null,
+      briefId: String(r.brief_id),
+      briefVersion: r.brief_version == null ? null : Number(r.brief_version),
+    };
+  });
+}
+
 export async function listTemplateSubmissions(templateId: string): Promise<TemplateSubmission[]> {
   if (!isPostgres()) return [];
   const db = getDb();

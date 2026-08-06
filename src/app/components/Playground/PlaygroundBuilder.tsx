@@ -123,7 +123,33 @@ function BlockEditorPanel({ onDone }: { onDone: () => void }) {
   );
 }
 
-export default function PlaygroundBuilder() {
+/**
+ * The one shell for every level of a page (roadmap E.8).
+ *
+ * A page, a brief, and a build made from that brief are all the same object shape rendered with different write
+ * capability, so they get the same toolbar and the same canvas — only the left panel changes. Before this,
+ * a brief had its own route and its own 30/70 layout, which is exactly why it read as a third product instead
+ * of a deeper view of the page ("It makes it unclear what's happening" — Brad, 2026-08-06).
+ *
+ * @param leftPanel Replaces the blocks list / block editor entirely. Set at brief and build level, where there
+ *   is no structure to edit and the panel is about the invitation or the submission instead.
+ * @param canvasControls When false the preview gets **no** injected affordances at all — not even the edit
+ *   pencil `structuralEditing: false` keeps for guests. A frozen brief or someone else's build must not offer
+ *   a control the write path would refuse.
+ */
+export default function PlaygroundBuilder({
+  leftPanel,
+  canvasControls = true,
+  buildCount = 0,
+  onShowBuilds,
+}: {
+  leftPanel?: React.ReactNode;
+  canvasControls?: boolean;
+  /** Builds waiting across all of this page's invitations. Only used to label the control. */
+  buildCount?: number;
+  /** Set at page level to offer the builds list without leaving the page. */
+  onShowBuilds?: () => void;
+} = {}) {
   const {
     selectedComponents,
     loading,
@@ -229,15 +255,15 @@ export default function PlaygroundBuilder() {
     const render = async () => {
       setLoadingHtml(true);
       const result = await constructComponentPreview(selectedComponents, basePath, {
-        injectBlockControls: true,
+        injectBlockControls: canvasControls,
         // Edit yes, remove no, when the structure is fixed (roadmap E.5).
-        allowDelete: structuralEditing,
+        allowDelete: structuralEditing && canvasControls,
       });
       setHtml(result);
       setLoadingHtml(false);
     };
     render();
-  }, [selectedComponents, basePath, structuralEditing]);
+  }, [selectedComponents, basePath, structuralEditing, canvasControls]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -255,24 +281,37 @@ export default function PlaygroundBuilder() {
     return () => window.removeEventListener('message', handler);
   }, [setActiveComponentId, removeComponent, structuralEditing]);
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary"></div>
-          <p className="mt-3 text-sm text-muted-foreground">Loading components…</p>
-        </div>
+  /**
+   * Loading and failure keep the left panel, when there is one.
+   *
+   * These used to replace the entire shell, which was harmless while the panel only ever held a block list. At
+   * brief and build level (roadmap E.8) that panel is the **only way back to the page** — so a canvas that
+   * failed to load would strand you on a "Try Again" button with no navigation at all.
+   */
+  if (loading || error) {
+    const filler = error ? (
+      <div className="text-center">
+        <p className="mb-4 text-sm text-destructive">{error}</p>
+        <Button onClick={() => window.location.reload()} size="sm">
+          Try Again
+        </Button>
+      </div>
+    ) : (
+      <div className="text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-primary"></div>
+        <p className="mt-3 text-sm text-muted-foreground">Loading components…</p>
       </div>
     );
-  }
 
-  if (error) {
+    if (!leftPanel) {
+      return <div className="flex h-full items-center justify-center">{filler}</div>;
+    }
     return (
-      <div className="flex h-full items-center justify-center">
-        <div className="text-center">
-          <p className="mb-4 text-sm text-destructive">{error}</p>
-          <Button onClick={() => window.location.reload()} size="sm">Try Again</Button>
-        </div>
+      <div className="flex h-full min-h-0">
+        {leftPanelOpen && (
+          <div className="flex w-[300px] shrink-0 flex-col border-r bg-background">{leftPanel}</div>
+        )}
+        <div className="flex flex-1 items-center justify-center">{filler}</div>
       </div>
     );
   }
@@ -366,6 +405,20 @@ export default function PlaygroundBuilder() {
                 </Tooltip>
               )}
 
+              {/* The work coming back, reachable from the page rather than only through a brief (E.8). */}
+              {onShowBuilds && buildCount > 0 && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={onShowBuilds}>
+                      <Layers className="h-4 w-4" />
+                      <span className="text-xs">Builds</span>
+                      <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">{buildCount}</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Pages people built from your invitations</TooltipContent>
+                </Tooltip>
+              )}
+
               {selectedComponents.length > 0 && editingPatternId && (
                 <div className="flex items-center">
                   <Tooltip>
@@ -397,7 +450,8 @@ export default function PlaygroundBuilder() {
                         {briefs.map((brief) => (
                           <DropdownMenuItem
                             key={brief.id}
-                            onClick={() => router.push(`${basePath}/briefs/${encodeURIComponent(brief.id)}`)}
+                            /* Same page, deeper level (roadmap E.8) — not a different route. */
+                            onClick={() => router.push(`?brief=${encodeURIComponent(brief.id)}`)}
                             className="flex flex-col items-start gap-0.5"
                           >
                             <span className="text-sm font-medium">
@@ -538,7 +592,9 @@ export default function PlaygroundBuilder() {
         {/* ── Left Panel — Blocks, or the editor for one block ── */}
         {leftPanelOpen && (
           <div className="flex w-[300px] shrink-0 flex-col border-r bg-background">
-            {activeComponent ? (
+            {leftPanel ? (
+              leftPanel
+            ) : activeComponent ? (
               <EditContextProvider
                 key={activeComponent.uniqueId}
                 component={activeComponent}
