@@ -28,6 +28,17 @@ interface Props {
   linkId: string;
 }
 
+/** The presentational subset `/api/handoff/guest/assets` returns (`summarizeAssetRow`). */
+interface GuestAssetSummary {
+  id: string;
+  title: string;
+  storageUrl: string;
+  altText: string | null;
+  tags: unknown[];
+  width: number | null;
+  height: number | null;
+}
+
 export default function GuestEditor({ linkId }: Props) {
   /**
    * The submission id, learned at hydrate and reused when saving.
@@ -61,6 +72,32 @@ export default function GuestEditor({ linkId }: Props) {
         // The endpoint resolves guardrails from the brief; carrying them here is what lets the field editor
         // show the same limits the submit check enforces.
         return { components, values, guardrails: json.guardrails };
+      },
+
+      /**
+       * The asset library, via the guest route. Without this the picker asks the authenticated endpoint,
+       * gets a 401, silently falls back to static workspace assets and shows the placeholder tab — so the
+       * one image source a guest is given (no generation, by design) was unreachable.
+       */
+      listAssets: async () => {
+        const res = await fetch(handoffApiUrl(`/api/handoff/guest/assets?link=${encodeURIComponent(linkId)}`), {
+          credentials: 'include',
+        });
+        const json = (await res.json()) as { assets?: GuestAssetSummary[]; error?: string };
+        if (!res.ok) throw new Error(json.error || 'Could not load the asset library.');
+        return (json.assets ?? [])
+          .filter((a) => a.storageUrl)
+          .map((a) => ({
+            id: a.id,
+            name: a.title || 'Asset',
+            src: a.storageUrl,
+            thumbnail: a.storageUrl,
+            alt: a.altText ?? '',
+            tags: Array.isArray(a.tags) ? a.tags.filter((t): t is string => typeof t === 'string') : [],
+            type: 'image' as const,
+            ...(a.width ? { width: a.width } : {}),
+            ...(a.height ? { height: a.height } : {}),
+          }));
       },
 
       persist: async (blocks) => {

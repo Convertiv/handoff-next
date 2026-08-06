@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Copy, Globe, XIcon } from 'lucide-react';
+import { XIcon } from 'lucide-react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
@@ -12,7 +12,6 @@ import { VisibilityBadge } from './VisibilityBadge';
 import { OwnerAttribution } from './OwnerAttribution';
 import { LifecyclePicker } from './LifecyclePicker';
 import { VisibilityPicker } from './VisibilityPicker';
-import ShareLinkPanel from '../Share/ShareLinkPanel';
 
 type InspectorAsset = {
   id: string;
@@ -37,15 +36,6 @@ type Props = {
   onSetVisibility: (v: Visibility) => void;
   onOpen?: () => void;
   onDuplicate?: () => void;
-  shareUrl?: string | null;
-  onCreateShare?: () => void;
-  onRevokeShare?: () => void;
-  /**
-   * When set, the full share panel replaces the single-link row — capability picker, expiry, max uses, the
-   * links list, and the copy-once warning a write-capable link needs. Passed by surfaces that can mint an
-   * authoring link (see roadmap E.1); the legacy row remains for callers that only do read-only links.
-   */
-  shareResource?: { resourceType: 'pattern' | 'design_artifact'; resourceId: string; basePath?: string } | null;
   /**
    * Set for a template: the pages built from it. Guest submissions are filtered out of the library grid —
    * they are children of a template, not loose assets — so this is where they are visible.
@@ -63,28 +53,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="h-8 shrink-0 px-2"
-      onClick={() => {
-        try {
-          void navigator.clipboard?.writeText(value);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        } catch {
-          /* clipboard unavailable — no-op */
-        }
-      }}
-    >
-      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-    </Button>
-  );
-}
-
 export function AssetInspector({
   open,
   onOpenChange,
@@ -94,10 +62,6 @@ export function AssetInspector({
   onSetVisibility,
   onOpen,
   onDuplicate,
-  shareUrl,
-  onCreateShare,
-  onRevokeShare,
-  shareResource = null,
   submissions = null,
   busy,
 }: Props) {
@@ -107,7 +71,6 @@ export function AssetInspector({
 
   const showNudge =
     asset?.status === 'review' && (asset.visibility === 'private' || asset.visibility === 'shared');
-  const showPublicPanel = asset?.visibility === 'public';
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -231,43 +194,6 @@ export function AssetInspector({
                 </Section>
               ) : null}
 
-              {/* Share panel — full capability-aware version when the caller supplies a resource. */}
-              {shareResource ? (
-                <Section title="Links">
-                  <ShareLinkPanel
-                    resourceType={shareResource.resourceType}
-                    resourceId={shareResource.resourceId}
-                    basePath={shareResource.basePath}
-                  />
-                </Section>
-              ) : showPublicPanel ? (
-                <Section title="Public link">
-                  {shareUrl ? (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-md border bg-muted/30 px-2 py-1.5 text-xs">
-                          <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                          <span className="truncate">{shareUrl}</span>
-                        </div>
-                        <CopyButton value={shareUrl} />
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive"
-                        disabled={busy}
-                        onClick={onRevokeShare}
-                      >
-                        Revoke
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button variant="outline" size="sm" disabled={busy} onClick={onCreateShare}>
-                      Create link
-                    </Button>
-                  )}
-                </Section>
-              ) : null}
             </div>
 
             {/* Footer */}

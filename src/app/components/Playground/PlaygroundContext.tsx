@@ -9,6 +9,7 @@ import { createPattern, updatePattern } from '@/app/actions/patterns';
 import { buildPatternPayload } from '@/lib/pattern-payload';
 import type { GuardrailConfig } from '@/lib/authoring-guardrails';
 import { FieldGuardrailsProvider } from './FieldGuardrailsContext';
+import { FieldMediaProvider, type AssetLister } from './FieldMediaContext';
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { handoffApiUrl } from '@/lib/api-path';
 import { renderPreview } from './Preview';
@@ -50,6 +51,11 @@ export interface PlaygroundPersistence {
   } | null>;
   /** Save the canvas. Throwing marks the save failed; the canvas keeps the work either way. */
   persist: (blocks: SelectedPlaygroundComponent[]) => Promise<void>;
+  /**
+   * Optional: where the media picker should get its assets, for a surface that cannot use the authenticated
+   * endpoint. Omit it and `MediaBrowser` keeps its default behaviour untouched.
+   */
+  listAssets?: AssetLister;
 }
 
 interface PlaygroundContextType {
@@ -618,7 +624,11 @@ export function PlaygroundProvider({
     >
       {/* Also published through their own context so individual fields can read them without importing this
           module — see `FieldGuardrailsContext` for why that separation matters. */}
-      <FieldGuardrailsProvider value={guardrails}>{children}</FieldGuardrailsProvider>
+      <FieldGuardrailsProvider value={guardrails}>
+        <FieldMediaProvider value={{ assetLister: persistence?.listAssets ?? null, imageGeneration: aiAssistantEnabled }}>
+          {children}
+        </FieldMediaProvider>
+      </FieldGuardrailsProvider>
     </PlaygroundContext.Provider>
   );
 }

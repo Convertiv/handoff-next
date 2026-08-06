@@ -537,9 +537,10 @@ export default function LibraryClient({
     </div>
 
       {/**
-        * Sharing lives here (roadmap E.2a). `shareResource` switches the inspector to the full panel —
-        * capability picker, expiry, max uses, active links, revoke — which is what makes a template
-        * sendable from the place it lives rather than from a dialog inside the builder.
+        * **No share controls here** (Brad, 2026-08-05). Sending a page out is now one flow — "Invite to
+        * build" on the page itself — and a second, lower-level "mint a link" control in the library was a
+        * competing way to do the same thing with different semantics. This inspector is for *what a thing
+        * is*: who owns it, how visible it is, where it sits in its lifecycle.
         */}
       <AssetInspector
         open={inspected !== null}
@@ -566,15 +567,6 @@ export default function LibraryClient({
         /* Pages can be duplicated; design artifacts have no clone route, so the button stays hidden there. */
         onDuplicate={inspected?.type === 'pattern' ? () => void duplicate() : undefined}
         submissions={submissions}
-        shareResource={
-          inspected
-            ? {
-                resourceType: inspected.type === 'pattern' ? 'pattern' : 'design_artifact',
-                resourceId: inspected.id,
-                basePath,
-              }
-            : null
-        }
       />
     </>
   );

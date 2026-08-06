@@ -9,6 +9,7 @@ import { Label } from '../ui/label';
 import { Check, Film, Grid2X2, ImageIcon, Link2, Search, XIcon } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useEditContext } from './EditContext';
+import { useFieldMedia } from './FieldMediaContext';
 import type { PlaygroundAsset } from './types';
 
 const PLACEHOLDER_PRESETS = [
@@ -30,6 +31,8 @@ function formatDimensionHint(rules: { min?: { width: number; height: number }; m
 
 export default function MediaBrowser() {
   const { handleMediaSelect, setMediaBrowserOpen, mediaBrowserOpen, currentImageRules } = useEditContext();
+  // null on every authenticated surface, and outside a playground entirely (the workbench dialog).
+  const { assetLister: assetSource } = useFieldMedia();
   const [assets, setAssets] = useState<PlaygroundAsset[]>([]);
   const [loadingAssets, setLoadingAssets] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,6 +51,25 @@ export default function MediaBrowser() {
   useEffect(() => {
     if (mediaBrowserOpen && assets.length === 0) {
       setLoadingAssets(true);
+
+      /**
+       * An injected source wins outright — no fallback chain.
+       *
+       * It is only ever set by a surface that *cannot* use the authenticated endpoint (the guest editor), so
+       * falling through to `/api/handoff/assets` on failure would just 401 and then mislead the guest with an
+       * empty placeholder tab, which is the bug this fixes. An error here should say so.
+       */
+      if (assetSource) {
+        assetSource()
+          .then((loaded) => {
+            setAssets(loaded);
+            if (loaded.length === 0) setActiveTab('placeholder');
+          })
+          .catch(() => setActiveTab('placeholder'))
+          .finally(() => setLoadingAssets(false));
+        return;
+      }
+
       // Prefer the imported asset library (DAM — Figma fills, uploads, etc.);
       // fall back to static workspace assets when there's no registry/DB.
       const loadStatic = () =>
@@ -86,7 +108,7 @@ export default function MediaBrowser() {
         .catch(() => loadStatic())
         .finally(() => setLoadingAssets(false));
     }
-  }, [mediaBrowserOpen, basePath]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mediaBrowserOpen, basePath, assetSource]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (mediaBrowserOpen && currentImageRules) {

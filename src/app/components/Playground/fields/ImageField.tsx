@@ -4,6 +4,7 @@ import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
 import { ImageIcon, Loader2, Sparkles, Trash2Icon, X } from 'lucide-react';
 import { useEditContext } from '../EditContext';
+import { useFieldMedia } from '../FieldMediaContext';
 import { pollGenerationJob } from '@/lib/client/poll-generation-job';
 import { clearImageFieldWrites, imageFieldWrites } from '@/lib/image-field-write';
 
@@ -41,6 +42,8 @@ export function ImageField({
 }) {
   const { getData, handleInputChange, setCurrentImagePath, setCurrentImageRules, setCurrentImageScalar, setMediaBrowserOpen } =
     useEditContext();
+  // True on every authenticated surface, including outside a playground; false for a guest.
+  const { imageGeneration } = useFieldMedia();
 
   const raw = getData(identifier);
   const imgData = scalar ? { src: typeof raw === 'string' ? raw : '', alt: '' } : raw;
@@ -139,17 +142,21 @@ export function ImageField({
           <ImageIcon className="h-3.5 w-3.5" />
           {hasSrc ? 'Change Image' : 'Select Image'}
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-1.5"
-          onClick={() => setGenOpen((o) => !o)}
-          aria-expanded={genOpen}
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          Generate
-        </Button>
+        {/* Hidden where the surface can't generate — a guest builds from the asset library only, and the
+            endpoint behind this needs a session, so offering it was a guaranteed 401. */}
+        {imageGeneration && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setGenOpen((o) => !o)}
+            aria-expanded={genOpen}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Generate
+          </Button>
+        )}
         {hasSrc && (
           <Button type="button" variant="outline" size="sm" className="gap-1.5 text-muted-foreground hover:text-destructive" onClick={removeImage}>
             <Trash2Icon className="h-3.5 w-3.5" />
