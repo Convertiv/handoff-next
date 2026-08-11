@@ -1,14 +1,16 @@
 # SS&C content-length survey and applied rationalization
 
-_Generated 2026-08-11 from `handoff/integration/{components,data,atoms}/*/<id>.js` by
-`handoff-app/src/app/lib/content-length-plan.ts`. **Applied to the working tree of `ssc-handoff-next`,
-uncommitted.** Re-run the check any time:_
+_Generated 2026-08-11 by `scripts/apply-content-length-plan.ts`
+(plan: `src/app/lib/content-length-plan.ts`). Proposal only — nothing written.
+Re-run:_
 
 ```
-GET /api/admin/contract-limit-audit?plan=1&limit=2000
+npm run contracts:lengths -- --workspace <handoff dir> --report <path>
 ```
 
 **83 components · 614 fields · 420 declare a length rule.**
+
+> Computed from the `ssc-handoff-next` contracts **as they stood before the change**, so it records the redline rather than the current state — every action reads as a proposal. It was applied on 2026-08-11 and pushed to the beta registry, 83/83 components; see `F.-1b`–`F.-1e` in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md` for the outcome.
 
 ## Summary
 
@@ -17,38 +19,37 @@ GET /api/admin/contract-limit-audit?plan=1&limit=2000
 | `remove-rule` | 50 | a length rule on a reference — URL, icon, composite type, or config |
 | `not-a-length` | 78 | a row count or a numeric range, not a length — left exactly as authored |
 | `raise-max` | 198 | cap sits below the role floor, or below what the component already ships |
-| `drop-min` | 76 | cap is fine; the minimum is not |
-| `lower-max` | 14 | cap is several times its role floor — nominal rather than real |
-| `keep` | 4 | already sensible |
+| `drop-min` | 81 | cap is fine; the minimum is not |
+| `lower-max` | 7 | cap is several times its role floor — nominal rather than real |
+| `keep` | 6 | already sensible |
 | `no-basis` | 0 | no role matched and no sample exists — left for a human |
 
-- **389 fields carried a `min`; 65 still do.** 277 lost it while keeping a cap, 47 lost it with the whole
-  rule. Every survivor is a row count or a numeric range (`not-a-length`), where a minimum is real.
-- **36 caps rejected the component's own preview value** — all 36 now clear it; the audit reports **0**.
-- **26 caps sit on richtext**, where the count includes markup.
-- **The F.-1 audit reports 0 findings** over the rewritten contracts, and re-running this plan proposes no
-  further change (292 `keep`, 78 `not-a-length`).
+- **389 of 420 fields carry a `min`.** It is never proposed on a length rule; the
+  survivors are row counts and numeric ranges, where a minimum is a real constraint.
+- **36 caps reject the component's own preview value.** Not judgement calls — the
+  contract and the data disagree and the data is what renders.
+- **26 caps sit on richtext**, where the character count includes markup rather than copy.
 
-## Role floors applied
+## Role floors
 
-These are the guess. Edit `ROLE_LIMITS` in `content-length-plan.ts` and re-run to revise.
+Derived from `ROLE_LIMITS` in `content-length-plan.ts` — edit there and re-run to revise.
 
-| role | cap | inside a repeater row |
-|---|---:|---:|
-| `title` / `heading` / `headline` / `header` | 80 | 60 |
-| `subtitle` | 160 | 120 |
-| `paragraph` / `description` / `body` / `summary` / `answer` | 320 | 320 |
-| `quote` | 240 | 240 |
-| `question` / `callout` / `copyright` | 120 | 120 |
-| `title_prefix` / `title_suffix` / `super` / `badge` / `label` / `category` / `date` / `read_time` / `search` | 40 | 40 |
-| `author` / `name` / `role` / `company` | 60 | 60 |
-| `cta_label` / `link` / button + link labels | 32 | 32 |
-| `identifier` / `anchor` / `slug` | 64 | 64 |
+| cap | roles | inside a repeater row |
+|---:|---|---:|
+| 32 | `button_label` · `buttonlabel` · `cta_label` · `link` · `link_text` · `see_less_label` · `see_more_label` | 32 |
+| 40 | `badge` · `category` · `date` · `eyebrow` · `kicker` · `label` · `publication_date` · `read_time` · `search` · `super` · `title_prefix` · `title_suffix` · `type` | 40 |
+| 60 | `author` · `company` · `name` · `role` | 60 |
+| 64 | `anchor` · `identifier` · `slug` | 64 |
+| 80 | `header` · `heading` · `headline` · `title` | 60 |
+| 120 | `callout` · `copyright` · `question` | 120 |
+| 160 | `subtitle` · `subtitle_muted` | 120 |
+| 240 | `quote` | 240 |
+| 320 | `answer` · `body` · `copy` · `description` · `excerpt` · `paragraph` · `summary` | 320 |
 
-A proposal is never below `observed × 1.2` where the component already ships longer content, so nothing here
-can reject copy that renders today.
+A proposal is never below `observed × 1.2` where the component already ships longer content, so applying it
+cannot reject copy that renders today.
 
-## Caps that rejected the component's own content (before)
+## Caps the component's own content already exceeds
 
 | field | cap | its own value |
 |---|---:|---:|
@@ -91,7 +92,7 @@ can reject copy that renders today.
 
 ## Every field, by component
 
-`—` in **proposed** means the rule is removed entirely. `min` is never proposed.
+`—` in **proposed** means the rule is removed entirely. `min` is never proposed on a length rule.
 
 ### `404` — 4 ruled fields
 
@@ -270,13 +271,13 @@ can reject copy that renders today.
 
 | field | type | now | proposed | action | why |
 |---|---|---|---|---|---|
-| `col1_label` | text | min 1, max 60 | max 40 | `lower-max` | a column header label — pulled to the label floor of 40 |
-| `col2_label` | text | min 1, max 60 | max 40 | `lower-max` | a column header label — pulled to the label floor of 40 |
+| `col1_label` | text | min 1, max 60 | max 60 | `drop-min` | the cap of 60 is fine; the minimum of 1 is not |
+| `col2_label` | text | min 1, max 60 | max 60 | `drop-min` | the cap of 60 is fine; the minimum of 1 is not |
 | `visible_rows` | number | min 1, max 20 | max 20 | `not-a-length` | on a number, `content` is a value range — not this exercise's business |
 | `see_more_label` | text | min 2, max 30 | max 32 | `raise-max` | 30 is below the floor of 32 for a see_more_label |
 | `see_less_label` | text | min 2, max 30 | max 32 | `raise-max` | 30 is below the floor of 32 for a see_less_label |
 | `categories` | array | min 1, max 20 | max 20 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
-| `categories.*.category` | text | min 1, max 60 | max 40 | `lower-max` | a row label in the left column — pulled to the category floor of 40 |
+| `categories.*.category` | text | min 1, max 60 | max 60 | `drop-min` | the cap of 60 is fine; the minimum of 1 is not |
 | `categories.*.features` | array | min 1, max 10 | max 10 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `categories.*.features.*.description` | text | min 5, max 300 | max 320 | `raise-max` | 300 is below the floor of 320 for a description |
 
@@ -330,13 +331,13 @@ can reject copy that renders today.
 |---|---|---|---|---|---|
 | `title` | text | max 45 | max 80 | `raise-max` | 45 is below the floor of 80 for a title |
 | `paragraph` | text | max 150 | max 320 | `raise-max` | 150 is below the floor of 320 for a paragraph |
-| `search` | text | max 45 | max 40 | `lower-max` | a search placeholder — pulled to the search floor of 40 |
+| `search` | text | max 45 | max 45 | `keep` | 45 already fits the search and the content |
 | `industries` | array | min 1, max 45 | max 45 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `solutions` | array | min 1, max 45 | max 45 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `total` | number | max 999 | max 999 | `not-a-length` | on a number, `content` is a value range — not this exercise's business |
 | `sort` | array | min 1, max 4 | max 4 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `sort.*.sort` | text | max 45 | max 45 | `keep` | 45 already fits the field and the content |
-| `sort.*.label` | text | max 45 | max 40 | `lower-max` | a sort option's label — pulled to the label floor of 40 |
+| `sort.*.label` | text | max 45 | max 45 | `keep` | 45 already fits the label and the content |
 | `items` | array | max 8 | max 8 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `items.*.title` | text | max 150 | max 150 | `keep` | 150 already fits the title and the content |
 | `items.*.paragraph` | text | max 150 | max 320 | `raise-max` | the component's own value is 194 characters against a cap of 150 — the contract rejects what it ships |
@@ -366,8 +367,8 @@ can reject copy that renders today.
 
 | field | type | now | proposed | action | why |
 |---|---|---|---|---|---|
-| `title_muted` | text | min 5, max 120 | max 80 | `lower-max` | the first line of the section heading — pulled to the title floor of 80 |
-| `title_bold` | text | min 5, max 120 | max 80 | `lower-max` | the second line of the section heading — pulled to the title floor of 80 |
+| `title_muted` | text | min 5, max 120 | max 120 | `drop-min` | the cap of 120 is fine; the minimum of 5 is not |
+| `title_bold` | text | min 5, max 120 | max 120 | `drop-min` | the cap of 120 is fine; the minimum of 5 is not |
 | `cards` | array | min 3, max 12 | max 12 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `cards.*.question` | text | min 5, max 120 | max 120 | `drop-min` | the cap of 120 is fine; the minimum of 5 is not |
 | `cards.*.answer` | text | min 10, max 500 | max 500 | `drop-min` | the cap of 500 is fine; the minimum of 10 is not |
@@ -633,14 +634,14 @@ can reject copy that renders today.
 | `primary.*.url` | url | min 1, max 2500 | — | `remove-rule` | type `url` is a reference or a composite — a character count measures the wrong thing |
 | `primary.*.mega.title` | text | min 1, max 25 | max 60 | `raise-max` | 25 is below the floor of 60 for a title |
 | `primary.*.mega.href` | url | min 1, max 2500 | — | `remove-rule` | type `url` is a reference or a composite — a character count measures the wrong thing |
-| `primary.*.mega.link` | text | min 1, max 25 | max 32 | `raise-max` | a link label — set to the link floor of 32; its own value already fills 18 of 25 |
+| `primary.*.mega.link` | text | min 1, max 25 | max 32 | `raise-max` | 25 is below the floor of 32 for a link |
 | `primary.*.mega.menu` | array | min 1, max 12 | max 12 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `primary.*.mega.menu.*.title` | text | min 1, max 25 | max 60 | `raise-max` | 25 is below the floor of 60 for a title |
 | `primary.*.mega.menu.*.url` | url | min 1, max 2500 | — | `remove-rule` | type `url` is a reference or a composite — a character count measures the wrong thing |
 | `primary.*.mega.menu.*.paragraph` | text | min 1, max 2500 | max 320 | `lower-max` | 2500 is 8× the paragraph floor — a nominal cap rather than a real one |
 | `primary.*.mega.menu.*.feature_title` | text | min 1, max 25 | max 60 | `raise-max` | 25 is below the floor of 60 for a title |
 | `primary.*.mega.menu.*.href` | url | min 1, max 2500 | — | `remove-rule` | type `url` is a reference or a composite — a character count measures the wrong thing |
-| `primary.*.mega.menu.*.link` | text | min 1, max 25 | max 32 | `raise-max` | a link label — set to the link floor of 32 |
+| `primary.*.mega.menu.*.link` | text | min 1, max 25 | max 32 | `raise-max` | 25 is below the floor of 32 for a link |
 | `primary.*.mega.menu.*.children` | array | min 2, max 8 | max 8 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |
 | `primary.*.mega.menu.*.children.*.title` | text | min 1, max 25 | max 60 | `raise-max` | 25 is below the floor of 60 for a title |
 | `primary.*.mega.menu.*.children.*.description` | text | min 1, max 2500 | max 320 | `lower-max` | 2500 is 8× the description floor — a nominal cap rather than a real one |
@@ -648,7 +649,7 @@ can reject copy that renders today.
 | `primary.*.mega.card.title` | text | min 1, max 25 | max 60 | `raise-max` | 25 is below the floor of 60 for a title |
 | `primary.*.mega.card.paragraph` | text | min 1, max 2500 | max 320 | `lower-max` | 2500 is 8× the paragraph floor — a nominal cap rather than a real one |
 | `primary.*.mega.card.button` | button | min 1, max 25 | — | `remove-rule` | type `button` is a reference or a composite — a character count measures the wrong thing |
-| `primary.*.mega.card.header` | text | min 1, max 25 | max 60 | `raise-max` | a card heading inside a row — set to the in-row heading floor of 60 |
+| `primary.*.mega.card.header` | text | min 1, max 25 | max 60 | `raise-max` | 25 is below the floor of 60 for a header |
 | `primary.*.mega.card.callout` | text | min 1, max 25 | max 120 | `raise-max` | the component's own value is 43 characters against a cap of 25 — the contract rejects what it ships |
 | `primary.*.mega.card.link` | link | min 1, max 2500 | — | `remove-rule` | type `link` is a reference or a composite — a character count measures the wrong thing |
 | `utilities` | array | max 4 | max 4 | `not-a-length` | on `array`, `content` counts rows rather than characters — left as authored |

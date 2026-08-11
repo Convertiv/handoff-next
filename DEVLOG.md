@@ -83,7 +83,43 @@ design. A bare `handoff-app push` would consult the build cache — and would al
 
 **A `pull` from cursor 0 is safe but noisy:** the dry run reports 260 component entries and 60 pages (the feed replays
 every historical version), producing **180 conflicts across 60 unique pages**. Conflicts are parked under
-`.handoff/conflicts/` rather than overwriting local files, so nothing is lost — but it is 180 files to triage.
+`.handoff/conflicts/` rather than overwriting local files, so nothing is lost — but it is 180 files to triage. Brad's
+call: leave the cursor at 0 and triage them. **Do not advance it to quiet the pull.**
+
+**Flagged for later: `ssc-handoff.vercel.app` is a beta registry**; the live SS&C design system gets connected at some
+point and this work has to come with it. Written up under *"Porting the length + validation work"* in
+`docs/WORKBENCH-PLAYGROUND-ROADMAP.md` — the short version is that the tooling is code in this repo and travels for
+free, while the 342 applied values only travel if the live site is fed by this same workspace.
+
+**The applier is now committed rather than a scratchpad throwaway:**
+`npm run contracts:lengths -- --workspace <dir> [--write]` (`scripts/apply-content-length-plan.ts`). Rewritten to use
+the **TypeScript compiler API** instead of acorn — acorn resolves in this repo only *transitively* and is not a
+declared dependency, so a committed script leaning on it could break on a future install, while `typescript` cannot go
+missing in a repo that builds with `tsc`.
+
+Verified by replaying the real change: `blog_header`, `bar_chart` and `menu` restored from `HEAD` into a fixture
+workspace produced **byte-identical** output to what shipped, nothing outside `rules` moved, the template literal and
+compacted preview objects survived, a re-run was a no-op, and against the live contracts it reports 0 edits. One nice
+consequence — the roles added in `F.-1d` (`search`, `link`, `header`) mean the script now derives the targeted-pull
+values on its own, so **a port is one pass, not a bulk pass plus a cleanup pass**.
+
+**The report generator went in as `--report` on that same script, not a second one.** The reason is the failure it
+already caused: the original read a separately-produced `plan.json`, the two drifted the moment a field was revised by
+hand, and the published `docs/SSC-CONTENT-LENGTH-PLAN.md` had to be repaired to stop it describing labels that never
+shipped. Rendering the document from the plan that was just applied makes that impossible.
+
+Two things fell out of writing it:
+
+- **Derive tables, don't type them.** The role-floor table now comes from `ROLE_LIMITS`, and deriving it immediately
+  exposed `subtitle_muted` having no `IN_ROW_OVERRIDE` while `subtitle` did — the same field would cap at 160 inside a
+  repeater row and 120 outside one. My hand-typed table had also gone stale within a day of adding three roles.
+- **Never print an absolute path into a committed document.** The first draft put the run's `--workspace` in the
+  header, which bakes a home directory into a client-facing file. Provenance moved to `--note`, which is also how a
+  regenerated record states that it already shipped — a fixture run cannot know that.
+
+`docs/SSC-CONTENT-LENGTH-PLAN.md` is regenerated output now (420 rows, 76 sections). Every headline number matches the
+hand-made version; only the `drop-min`/`lower-max`/`keep` split moved, because the old one carried hand-written labels
+for the ten targeted fields.
 
 Two pre-existing issues surfaced on the way, neither mine: `validate:schema` reports `blog` and `hero_split` as
 having no id/title/properties because it takes the **first** `.js` in the folder alphabetically

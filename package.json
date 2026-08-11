@@ -66,6 +66,7 @@
     "playwright:install": "npx playwright install chromium",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "contracts:lengths": "tsx scripts/apply-content-length-plan.ts",
     "db:migrate:baseline": "tsx scripts/db-migrate-baseline.ts",
     "db:migrate:kit": "drizzle-kit migrate",
     "db:seed": "tsx src/app/lib/db/seed.ts",

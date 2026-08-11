@@ -155,12 +155,14 @@ export const ROLE_LIMITS: Record<string, number> = {
  *
  * Only headings need this — body copy in a card is still body copy.
  */
-const IN_ROW_OVERRIDE: Record<string, number> = {
+export const IN_ROW_OVERRIDE: Record<string, number> = {
   title: 60,
   heading: 60,
   headline: 60,
   header: 60,
   subtitle: 120,
+  // Kept in step with `subtitle` — the derived role table in the report generator is what caught them disagreeing.
+  subtitle_muted: 120,
 };
 
 /**

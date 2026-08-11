@@ -836,6 +836,80 @@ overwritten — they are Brad's to triage.
 `.handoff/.cache/build-cache.json`. All 83 re-uploaded because explicit `--components <ids>` makes the push
 **selective**, and selective pushes disable the skip-cache by design.
 
+### Porting the length + validation work to the live SS&C design system
+
+`ssc-handoff.vercel.app` is a **beta** registry. The live design system gets hooked up later and this work has to come
+with it (Brad, 2026-08-11). Recorded here rather than in `docs/SSC-CONTENT-LENGTH-PLAN.md` because that file is
+**generated output** — a hand-edit there is lost on the next run.
+
+**Most of it is already ported, because it is code in this repo, not data.** These travel automatically to any
+registry and any workspace:
+
+- `lib/content-length-plan.ts` — the role table, the `not-a-length` distinction, the evidence floor.
+- `lib/contract-limit-audit.ts` — with both false-positive fixes (name-matched `link`, role-consistent duplicates).
+- `GET /api/admin/contract-limit-audit?plan=1` — the health check; it reads whatever registry it is deployed against.
+- **`config/templates/component/template.json`** — the root cause. It shipped `{min: 5, max: 25}` on every scaffolded
+  property; fixed, so nothing new inherits the paste in any workspace.
+
+**What does *not* travel is the 342 applied values**, and how much work that is turns on one question:
+
+1. **If the live system is a different *registry* fed by the same `ssc-handoff-next` workspace** — the contracts
+   already carry the changes. Porting is a `push --components <ids>` at the other remote, plus a `sync-state.json`
+   repoint (which `run-pull` does itself). Near-zero work.
+2. **If it is a different *workspace* / repo** (an older Handoff version, or the V1 system) — the contracts are
+   different, so the plan must be **re-run** against them, not copied. That is the real job, and it is a day's work
+   of the same shape as `F.-1b`–`F.-1d`.
+
+Check which before planning anything: whose `handoff.config.js` feeds the live site, and whether its component
+declarations are these same `handoff/integration/**/<id>.js` files.
+
+**Four things learned here that will bite the port either way:**
+
+- **`content` is not always a length.** On `array` it is a row count, on `number` a value range — 78 of SS&C's 420.
+  Anything sweeping `rules.content` generically must know this.
+- **`min: 0` means "no minimum"** and appears on 31 fields. Compare normalised values or every one reads as stale.
+- **Editing contracts needs an AST.** They are hand-formatted JS, not JSON — `bar_chart.js` uses a template literal —
+  so re-serializing reflows 81 of 83 files and a JSON scanner cannot find the spans. **Now a committed script:**
+  `npm run contracts:lengths -- --workspace <dir> [--write] [--component id]`
+  (`scripts/apply-content-length-plan.ts`). Dry run by default; discovers contracts through `handoff.config.js`
+  `entries.components` (a list of **directories**, not ids); guards each edit twice — the span must `JSON.parse` back
+  to the rules block the plan was computed from, and the rewritten file must re-parse clean.
+
+  It uses the **TypeScript compiler API**, not acorn: acorn resolves here only transitively and is not a declared
+  dependency, so a committed script relying on it could break on a future install. `typescript` cannot go missing in a
+  repo that builds with `tsc`, and gives the same exact offsets.
+
+  **Verified by replaying the real change.** Restored `blog_header`, `bar_chart` and `menu` from `HEAD` into a fixture
+  workspace and re-ran it: output **byte-identical** to what shipped, on all three — including `menu` at 1220 lines.
+  Nothing outside the `rules` blocks moved, the template literal and the compacted one-line preview objects survived,
+  a second run changed nothing, and against the live contracts it is a clean no-op (0 edits, 292 `keep`, 78
+  `not-a-length`).
+
+  **The two-phase pass is now one pass.** `F.-1d`'s targeted pull was hand-authored, but its values came from roles
+  that now live in `ROLE_LIMITS` (`search` 40, `link` 32, `header` 80/60) — so the script reproduces `mega.link: 32`
+  and `card.header: 60` on its own. A port needs one run, not a bulk pass plus a cleanup pass.
+
+- **The per-field record generates from the same run:** add `--report <path>` (plus optional `--title` / `--note`).
+  It is a flag rather than a second script on purpose — the first version read a separately-produced `plan.json`, the
+  two drifted as soon as a field was revised by hand, and `docs/SSC-CONTENT-LENGTH-PLAN.md` had to be repaired to stop
+  it describing labels that never shipped. Rendering from the plan that was just applied removes that failure mode.
+
+  The **role-floor table is derived from `ROLE_LIMITS`** rather than typed out — the hand-written one went stale within
+  a day of adding three roles. Deriving it immediately caught a real inconsistency: `subtitle_muted` had no
+  `IN_ROW_OVERRIDE` while `subtitle` did, so the same field would cap at 160 in a repeater row and 120 outside one.
+  Fixed; no SS&C field uses that name, so no values moved.
+
+  The header carries **no absolute path** — this document is committed, and a run's `--workspace` would bake a home
+  directory into it. Provenance goes in `--note`, which is also how a regenerated record can state that it already
+  shipped (a fixture run cannot know that).
+
+  `docs/SSC-CONTENT-LENGTH-PLAN.md` is now regenerated output: 420 rows, 76 component sections, reproducible from the
+  pre-change contracts. Every headline number matches the hand-made version (420 fields, 50 / 78 / 198 / 7, 389 with a
+  `min`, 36 self-contradicting, 26 richtext); the `drop-min` / `lower-max` / `keep` split moved (81 / 7 / 6 rather than
+  76 / 14 / 4, same 94 fields) because the old doc carried hand-written action labels for the ten targeted fields and
+  every label is now derived.
+- **E.9 enforcement still counts markup on richtext** (26 SS&C fields). Unfixed, and it applies to the live system too.
+
 **`F.-1` shape half done 2026-08-10 — `lib/contract-render-audit.ts`.**
 
 **It does not render React, and says so.** `constructComponentPreview` emits a props script plus a client-side
