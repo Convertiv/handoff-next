@@ -38,14 +38,21 @@ export const INLINE_EDIT_CSS = `
   background: rgb(99,102,241); color: #fff; font: 500 11px/1.5 system-ui, sans-serif; white-space: nowrap;
 }
 .hf-overlay-meta[data-over="1"] { background: rgb(180,83,9); }
+.hf-overlay-meta { display: flex; align-items: center; gap: 6px; }
+.hf-overlay-btn {
+  all: unset; cursor: pointer; padding: 0 4px; border-radius: 2px; line-height: 1.4;
+  font: 600 11px/1.4 system-ui, sans-serif; color: #fff;
+}
+.hf-overlay-btn:hover { background: rgba(255,255,255,.25); }
 `;
 
 /**
- * @param fieldLimits `{ [fieldPath]: maxLength }` — the guardrail limits in force, so the overlay can show the
- *   same counter the rail does. Keyed by field path *without* a row index: one rule covers every row.
+ * @param fieldLimits `{ [blockId]: { [fieldPath]: maxLength } }` — the limits in force, so the overlay shows the
+ *   same counter the rail does. Keyed by field path *without* a row index (one rule covers every row) and nested
+ *   under the block, because two components can declare different limits for the same field name.
  */
 export function inlineEditScript(
-  fieldLimits: Record<string, number> = {},
+  fieldLimits: Record<string, Record<string, number>> = {},
   editableFields: string[] = []
 ): string {
   return `
@@ -133,10 +140,11 @@ export function inlineEditScript(
     }
   }
 
-  function limitFor(id){
-    // One rule per field, so the row index is stripped before lookup.
-    var field=id.replace(/:\\d+$/,'');
-    return LIMITS[field];
+  function limitFor(m){
+    // One rule per field, so the row index is stripped before lookup; nested per block so two components
+    // declaring the same field name cannot show each other's number.
+    var forBlock=LIMITS[m.blockId]||{};
+    return forBlock[m.id.replace(/:\\d+$/,'')];
   }
 
   function openEditor(m){
@@ -159,10 +167,34 @@ export function inlineEditScript(
     meta.style.left=(box.left+window.scrollX)+'px';
     meta.style.top=Math.max(0,box.top+window.scrollY-18)+'px';
 
-    var max=limitFor(m.id);
+    /**
+     * Label and buttons are separate nodes so \`paint()\` can rewrite the counter without wiping the controls —
+     * setting \`meta.textContent\` would remove them on the first keystroke.
+     */
+    var label=document.createElement('span');
+    meta.appendChild(label);
+
+    /**
+     * A visible save/discard pair. Escape and Enter already worked but said so nowhere, which is fine for a
+     * text input and not fine as the only way to know the overlay is committal.
+     *
+     * \`mousedown\` is where the default is prevented, and that is the whole trick: a click would blur the
+     * textarea first, and blur commits — so "discard" would have committed before its own handler ran.
+     */
+    function action(text,title,commit){
+      var b=document.createElement('button');
+      b.type='button'; b.className='hf-overlay-btn'; b.textContent=text; b.title=title;
+      b.addEventListener('mousedown',function(e){e.preventDefault();});
+      b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();close(commit);});
+      return b;
+    }
+    meta.appendChild(action('\u2713','Save (Enter)',true));
+    meta.appendChild(action('\u2715','Discard (Esc)',false));
+
+    var max=limitFor(m);
     function paint(){
       var n=input.value.length;
-      meta.textContent=m.id+(max?'  '+n+'/'+max:'');
+      label.textContent=m.id+(max?'  '+n+'/'+max:'');
       meta.setAttribute('data-over',max&&n>max?'1':'0');
     }
     paint();
@@ -218,9 +250,12 @@ export function inlineEditScript(
     if(!d)return;
     // The rail asking the canvas to highlight or open a field — the other half of hover linking.
     if(d.type==='playground-highlight-field'){
+      // Compared row-less, because the rail sends \`items.paragraph\` while a mark is \`items.paragraph:1\` —
+      // hovering the one editor the rail shows for a repeater should light up every row it covers.
+      var want=d.fieldId?String(d.fieldId).replace(/:\d+$/,''):null;
       marks.forEach(function(m){
         var host=m.start.parentElement;
-        if(host) host.classList.toggle('hf-field-hit-active',d.fieldId===m.id);
+        if(host) host.classList.toggle('hf-field-hit-active',want!==null&&m.id.replace(/:\d+$/,'')===want);
       });
     } else if(d.type==='playground-edit-field'){
       var hit=marks.filter(function(m){return m.id===d.fieldId&&editable(m.id)&&(!d.blockId||m.blockId===d.blockId);})[0];

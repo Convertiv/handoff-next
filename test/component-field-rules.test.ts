@@ -23,9 +23,12 @@ describe('componentFieldRules', () => {
     });
     // `meta` and `imageSlot` are absent on purpose: a container with no rules of its own, and an image whose
     // only rule is `dimensions`, both contribute nothing rather than an empty entry.
+    //
+    // `bodySlot` carries `richtext: true` (E.9, 2026-08-11) so the server measures its limit against the copy
+    // rather than the markup — `<b>Hi</b>` is 2 characters, not 15.
     assert.deepEqual(rules, {
       titleSlot: { maxLength: 60 },
-      bodySlot: { maxLength: 240, required: true },
+      bodySlot: { maxLength: 240, required: true, richtext: true },
       'meta.eyebrow': { maxLength: 20 },
     });
   });

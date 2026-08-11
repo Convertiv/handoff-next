@@ -5,6 +5,34 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-11 (evening) — E.9's real bug, and F.2's orientation half
+
+Full write-ups in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md` (F.2 "orientation half" + the E.9 addendum). Three things
+here worth not re-deriving.
+
+**A limit has to be measured the way it is displayed, and richtext broke that in both directions.** The server counted
+`<b>Hi</b>` as 15 characters, and `RichTextField` had **no counter at all** — so an author could be blocked on submit
+by a limit they were never shown, counting tags they never typed. `measuredLength`/`richTextToCopy` now sit in
+`authoring-guardrails.ts` next to the limits, and are **regex-based rather than `DOMParser` on purpose**: the same
+function must run in the browser and on the server, because the whole failure was the two disagreeing. A tag boundary
+becomes a space (`<p>Alpha</p><p>Beta</p>` is not one word); `&nbsp;` is the only entity that really matters.
+
+**"Where is this actually counted?" is the question that finds this class of bug.** Asking it turned up a second one
+immediately: the canvas overlay built its counter from `guardrails.fields` only, so on a registry whose limits all
+come from component contracts — SS&C, every single one — the canvas showed nothing while the rail showed a number and
+the server enforced it. Now keyed **per block**, because two components can declare different limits for the same
+field name and a flat map showed one block the other's number.
+
+**The root `tsc --noEmit` is not sufficient for app-layer changes.** It passed clean while `next build` failed the
+type check on a stale option type — `src/app` has its own tsconfig. Run the Next build when touching
+`src/app/components`.
+
+F.2's remaining work is richtext and images inline. Richtext stays in the rail by the earlier decision (the overlay is
+a `<textarea>` and cannot carry markup) and now at least has a working counter; images need the media browser, which
+is a rail thing.
+
+---
+
 ## 2026-08-11 (later) — SS&C content limits: surveyed, rationalized, applied
 
 Full write-up in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md` under `F.-1b`/`F.-1c`; the record of all 420 fields is
@@ -61,6 +89,11 @@ Three things that made the push safe to run, all checked first rather than assum
   `entries.components` in `handoff.config.js` is a list of **directories**, not ids, so ids come from the integration
   folders.
 - **`--dry-run` needs no cloud token**, so the exact change set is inspectable before anything is sent.
+
+**Closed out against the registry itself:** the deploy to `feature/mcp-prototype` (a clean fast-forward, 154 commits,
+two additive idempotent migrations) went out, and `?plan=1` on `ssc-handoff.vercel.app` came back **0 findings, 292
+`keep` / 78 `not-a-length`, plan settled**. Three independent agreements now — local contracts, MCP spot check, and the
+registry's whole-catalog sweep over the stored rows.
 
 **`handoff/.handoff/sync-state.json` was stale — now repointed.** It read `remoteUrl: http://localhost:4002`,
 `lastSyncVersion: 3`, `lastSyncAt: 2026-06-06` with 3 fingerprints whose `relativePath`s still named

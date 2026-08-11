@@ -36,6 +36,60 @@ export interface FieldGuardrail {
   required?: boolean;
   /** Human note shown alongside the field — the template author's instruction to whoever fills it in. */
   help?: string;
+  /**
+   * The value is richtext, so a limit is measured against the **copy** and not the markup.
+   *
+   * A type fact rather than a limit, carried here because this keyed structure is the only thing the server-side
+   * check has: `collectEditableText` walks the submitted *args*, where richtext is an indistinguishable string of
+   * HTML. Without it, `<b>Hi</b>` spends 15 characters on 2 of copy — see `measuredLength`.
+   */
+  richtext?: boolean;
+}
+
+/**
+ * A handful of named entities, plus numeric escapes.
+ *
+ * Deliberately not a full entity table: this exists to *count* characters, and the long tail of named entities
+ * contributes one character each whether it is decoded or not, so getting it wrong costs nothing. `&nbsp;` is the
+ * one that matters, because rich-text editors emit it constantly and leaving it encoded would count 6 for a space.
+ */
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/** Rich-text HTML → the copy a reader sees, for counting purposes. */
+export function richTextToCopy(html: string): string {
+  return (
+    html
+      // Script/style bodies are not copy. Richtext should never carry them; cheap insurance if it does.
+      .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+      // A tag boundary is a word boundary: `<p>a</p><p>b</p>` must not count as one 2-character word.
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+      .replace(/&([a-z]+);/gi, (whole, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? whole)
+      // Collapse the whitespace the tag substitution just introduced, so the count matches what is read.
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+/**
+ * The length a limit should be measured against.
+ *
+ * **One function, because three places have to agree**: the counter in the rail, the counter in the inline
+ * overlay, and the server-side gate. Before this they measured raw string length everywhere, which is correct for
+ * text and wrong for richtext — 26 of SS&C's ruled fields are richtext, and their limits were being enforced
+ * against HTML while the editor showed no counter at all. An author could be blocked by a limit they could not
+ * see, counting tags they never typed (Brad, 2026-08-11).
+ */
+export function measuredLength(value: string, richtext = false): number {
+  return richtext ? richTextToCopy(value).length : value.length;
 }
 
 export interface GuardrailConfig {
@@ -163,7 +217,16 @@ export function componentFieldRules(properties: unknown): ComponentFieldRules {
         if (Number.isInteger(max) && max > 0) rule.maxLength = max;
         if (Number.isInteger(min) && min > 0) rule.minLength = min;
         if (rules.required === true) rule.required = true;
-        if (Object.keys(rule).length) out[path.join('.')] = rule;
+        /**
+         * Carried so the server can measure a limit against the copy rather than the markup. This walk is the
+         * only place that sees both the declared type *and* the field path — by the time the check runs it has
+         * args, where richtext is just a string of HTML. `editorType` wins, as everywhere else.
+         */
+        const declaredType =
+          (typeof prop.editorType === 'string' && prop.editorType) || (typeof prop.type === 'string' ? prop.type : '');
+        if (declaredType === 'richtext') rule.richtext = true;
+        // A `richtext` marker alone is not a rule — without a limit there is nothing to enforce or display.
+        if (rule.maxLength || rule.minLength || rule.required) out[path.join('.')] = rule;
       }
 
       if (prop.properties) walk(prop.properties, path);
@@ -222,6 +285,12 @@ export function resolveFieldGuardrail(
     ...field,
     ...(maxLength ? { maxLength } : {}),
     ...(required ? { required } : {}),
+    /**
+     * Set explicitly rather than left to the spreads: `richtext` describes the *field*, so a brief author's
+     * per-field override must not be able to turn it off and change how the value is measured. Only the
+     * component's declaration knows this.
+     */
+    ...(declared?.richtext ? { richtext: true } : {}),
   };
 }
 
@@ -278,16 +347,22 @@ export function checkGuardrails(
     for (const field of collectEditableText(args)) {
       const path = field.path.join('.');
       const rule = resolveFieldGuardrail(config, path, declaredRuleForPath(declaredForBlock, path));
-      const length = field.value.trim().length;
+      /**
+       * Measured, not raw: for a richtext field the markup is not copy, so `<b>Hi</b>` is 2 characters and not
+       * 15. `measuredLength` is shared with the counters in the rail so the number that blocks a submission is
+       * the number the author was shown.
+       */
+      const measured = measuredLength(field.value, rule.richtext);
+      const length = rule.richtext ? measured : field.value.trim().length;
 
-      if (rule.maxLength && field.value.length > rule.maxLength) {
+      if (rule.maxLength && measured > rule.maxLength) {
         findings.push({
           ...base,
           path,
           label: field.label,
           severity: 'blocking',
           code: 'too-long',
-          message: `${field.label} is ${field.value.length} characters; the limit is ${rule.maxLength}.`,
+          message: `${field.label} is ${measured} characters; the limit is ${rule.maxLength}.`,
         });
       }
       if (rule.minLength && length > 0 && length < rule.minLength) {

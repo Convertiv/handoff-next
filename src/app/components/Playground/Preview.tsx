@@ -334,8 +334,14 @@ export async function constructComponentPreview(
      * offer an editor, and a React block carries no marks so the script no-ops there anyway.
      */
     inlineEdit?: boolean;
-    /** Guardrail limits by field path, so the overlay shows the same counter the rail does. */
-    fieldLimits?: Record<string, number>;
+    /**
+     * Guardrail limits so the overlay shows the same counter the rail does, as
+     * `{ [blockId]: { [fieldPath]: maxLength } }`.
+     *
+     * Nested per block because two components can declare different limits for the same field name — `title` at
+     * 60 on one and 80 on another — and a flat map showed one block the other's number.
+     */
+    fieldLimits?: Record<string, Record<string, number>>;
     /**
      * Field paths a text overlay may edit. Anything absent gets no affordance — see `textEditableFieldPaths`
      * for the two shapes that made a whitelist necessary rather than optional.

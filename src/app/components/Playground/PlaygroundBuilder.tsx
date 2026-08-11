@@ -41,7 +41,8 @@ import InviteWizard from './InviteWizard';
 import MetaControl from '../library/MetaControl';
 import { fieldIdToArgsPath, textEditableFieldPaths } from '@/lib/field-marks';
 import { setAtArgsPath } from '@/lib/set-at-args-path';
-import { resolveFieldGuardrail } from '@/lib/authoring-guardrails';
+import { FieldLinkProvider, fieldLinkKey, orderPropertiesByDocument, useFieldLink } from './FieldLinkContext';
+import { componentFieldRules, declaredRuleForPath, resolveFieldGuardrail } from '@/lib/authoring-guardrails';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
 import type { PlaygroundPageExport, SelectedPlaygroundComponent } from './types';
@@ -82,6 +83,15 @@ function buildHandoffPageExport(selectedComponents: SelectedPlaygroundComponent[
  */
 function BlockEditorPanel({ onDone }: { onDone: () => void }) {
   const { component, properties, data, handleSave } = useEditContext();
+  const { documentOrder } = useFieldLink();
+  /**
+   * Fields in the order the page reads, not the order the schema happens to list (roadmap F.2).
+   *
+   * The canvas reports its marks in document order for free — a `TreeWalker` yields them that way — so this is
+   * applying a fact rather than guessing at one. With no report (a React block, or a canvas still loading) the
+   * schema order stands.
+   */
+  const ordered = useMemo(() => orderPropertiesByDocument(properties, documentOrder), [properties, documentOrder]);
   if (!component) return null;
 
   return (
@@ -105,7 +115,7 @@ function BlockEditorPanel({ onDone }: { onDone: () => void }) {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {renderFormFields(properties, data)}
+        {renderFormFields(ordered, data)}
       </div>
       <div className="flex gap-2 border-t p-3">
         <Button variant="outline" size="sm" className="flex-1" onClick={onDone}>
@@ -190,20 +200,37 @@ export default function PlaygroundBuilder({
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
 
   /**
-   * The `maxLength` in force per field path, for the overlay's counter.
+   * The `maxLength` in force for the overlay's counter, **per block**.
    *
    * Resolved through `resolveFieldGuardrail` so the number in the canvas is the number the rail shows and the
    * server enforces — three places agreeing because they share one resolver, not because they were kept in step.
    * Keyed without a row index: one rule covers every row of a repeater.
+   *
+   * **Component declarations are included, not just the brief's fields.** Reading only `guardrails.fields` meant
+   * the canvas counter appeared exclusively for brief-configured paths — so on a registry whose limits all come
+   * from component contracts (SS&C: every one of them) the overlay showed no counter at all, while the rail showed
+   * one and the server enforced it. That is the same class of gap as E.9's original `maxLength`-only read.
+   *
+   * **Per block rather than a union**, because two components can declare different limits for the same field
+   * name — `title` is 60 on one and 80 on another — and a flat map would quietly show one block another's number.
+   * The frame already knows its `blockId`, so it can look up its own.
    */
   const inlineFieldLimits = useMemo(() => {
-    const out: Record<string, number> = {};
-    for (const path of Object.keys(guardrails.fields ?? {})) {
-      const max = resolveFieldGuardrail(guardrails, path).maxLength;
-      if (max) out[path] = max;
+    const out: Record<string, Record<string, number>> = {};
+    for (const component of selectedComponents) {
+      const blockId = component.uniqueId;
+      if (!blockId) continue;
+      const declared = componentFieldRules((component as { properties?: unknown }).properties);
+      const forBlock: Record<string, number> = {};
+      // Every path either side knows about: the component's own declarations plus the brief's overrides.
+      for (const path of new Set([...Object.keys(declared), ...Object.keys(guardrails.fields ?? {})])) {
+        const max = resolveFieldGuardrail(guardrails, path, declaredRuleForPath(declared, path)).maxLength;
+        if (max) forBlock[path] = max;
+      }
+      if (Object.keys(forBlock).length) out[blockId] = forBlock;
     }
     return out;
-  }, [guardrails]);
+  }, [guardrails, selectedComponents]);
 
   /**
    * Which field paths a text overlay may edit, unioned across the blocks on the canvas.
@@ -220,6 +247,37 @@ export default function PlaygroundBuilder({
     }
     return [...out];
   }, [selectedComponents]);
+
+  /**
+   * The rail ↔ canvas link (roadmap F.2). Kept here because this is the one component that holds both ends: the
+   * canvas iframe to post to, and the rail that renders the fields.
+   */
+  const [hoveredField, setHoveredField] = useState<string | null>(null);
+  /** Document order of marks, per block, as the frame reports it. */
+  const [fieldOrderByBlock, setFieldOrderByBlock] = useState<Record<string, string[]>>({});
+
+  /**
+   * Hovering a field in the rail highlights it in the canvas.
+   *
+   * Posted straight to the frame rather than routed through state, so the canvas responds on the same tick the
+   * pointer moves — and the frame is the only thing that can find the mark anyway.
+   */
+  const handleFieldHover = useCallback((path: string | null) => {
+    setHoveredField(path);
+    canvasIframeRef.current?.contentWindow?.postMessage(
+      { type: 'playground-highlight-field', fieldId: path },
+      '*'
+    );
+  }, []);
+
+  const fieldLink = useMemo(
+    () => ({
+      hovered: hoveredField,
+      onHover: handleFieldHover,
+      documentOrder: activeComponentId ? (fieldOrderByBlock[activeComponentId] ?? null) : null,
+    }),
+    [hoveredField, handleFieldHover, activeComponentId, fieldOrderByBlock]
+  );
 
   const [duplicating, setDuplicating] = useState(false);
 
@@ -323,6 +381,36 @@ export default function PlaygroundBuilder({
     const handler = (event: MessageEvent) => {
       if (event.data?.type === 'playground-scroll') {
         if (typeof event.data.y === 'number') canvasScrollRef.current = event.data.y;
+        return;
+      }
+
+      /**
+       * The canvas telling the rail what the pointer is over, and which order its fields render in — the two
+       * messages the frame has been emitting since F.2 with nothing listening (roadmap F.2).
+       */
+      if (event.data?.type === 'playground-field-hover') {
+        const id = event.data.fieldId;
+        setHoveredField(typeof id === 'string' ? fieldLinkKey(id) : null);
+        return;
+      }
+      if (event.data?.type === 'playground-fields') {
+        const { fields } = event.data as { fields?: { id?: unknown; blockId?: unknown }[] };
+        if (!Array.isArray(fields)) return;
+        const next: Record<string, string[]> = {};
+        for (const f of fields) {
+          if (typeof f?.id !== 'string' || typeof f?.blockId !== 'string') continue;
+          (next[f.blockId] ??= []).push(f.id);
+        }
+        // Replaced wholesale, not merged: the frame reports every mark in the document each time it loads, so a
+        // stale block's order would otherwise outlive the block itself.
+        setFieldOrderByBlock(next);
+        return;
+      }
+      /** A field focused for inline editing selects it in the rail too, so the two views agree on "current". */
+      if (event.data?.type === 'playground-field-focus') {
+        const { blockId, fieldId } = event.data as { blockId?: unknown; fieldId?: unknown };
+        if (typeof blockId === 'string') setActiveComponentId(blockId);
+        if (typeof fieldId === 'string') setHoveredField(fieldLinkKey(fieldId));
         return;
       }
 
@@ -680,16 +768,18 @@ export default function PlaygroundBuilder({
             {leftPanel ? (
               leftPanel
             ) : activeComponent ? (
-              <EditContextProvider
-                key={activeComponent.uniqueId}
-                component={activeComponent}
-                onCommit={updateComponent}
-                targetIframeRef={canvasIframeRef}
-                contentOnly={contentOnly}
-              >
-                <BlockEditorPanel onDone={() => setActiveComponentId(null)} />
-                <MediaBrowser />
-              </EditContextProvider>
+              <FieldLinkProvider value={fieldLink}>
+                <EditContextProvider
+                  key={activeComponent.uniqueId}
+                  component={activeComponent}
+                  onCommit={updateComponent}
+                  targetIframeRef={canvasIframeRef}
+                  contentOnly={contentOnly}
+                >
+                  <BlockEditorPanel onDone={() => setActiveComponentId(null)} />
+                  <MediaBrowser />
+                </EditContextProvider>
+              </FieldLinkProvider>
             ) : (
               <>
             <div className="flex items-center justify-between border-b px-4 py-3">

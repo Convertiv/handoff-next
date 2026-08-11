@@ -805,6 +805,11 @@ case. Two tests changed to record that, both deliberately.
 survived), the four `url`-typed fields carry `{required: true}` only, and `authors.*.image` keeps its `dimensions`
 rules untouched.
 
+**Confirmed from the registry itself, 2026-08-11.** `GET /api/admin/contract-limit-audit?plan=1` on
+`ssc-handoff.vercel.app` (admin session, run in the browser) reports **0 findings**, `selfContradicting` 0, and a plan
+of **292 `keep` / 78 `not-a-length`** — "plan is settled, nothing left to change". That is the whole-catalog sweep
+against the **stored rows**, independent of the local contracts and of the MCP spot check, so all three agree.
+
 **⚠️ `push:all` must not be run from this workspace as it stands.** Its `/api/registry/tokens` and `/api/registry/dtcg`
 steps send `public/api/tokens.json` (local: **June 7**) and `design-system/` (local: **June 17–18**), but the registry
 took a **figma-sync on 2026-07-17** — 225 tokens added, then 100 modified, then typography and shadow keys twice more.
@@ -1157,14 +1162,62 @@ Two things came out of fixing it:
   `wheel`/`touchstart`/`keydown`/`mousedown` instead of comparing offsets. This lives in the **block-controls**
   script rather than the inline-edit one, so rail edits keep their place too.
 
-**Still to do in F.2:**
-- **Hover linking is half-wired.** The frame emits `playground-field-hover` / `playground-field-focus` and accepts
-  `playground-highlight-field` / `playground-edit-field`, but the rail consumes none of it yet — panel → canvas and
-  canvas → panel highlighting both need a rail change.
-- **Ordering is reported, not applied.** `playground-fields` arrives; the rail still sorts by schema order.
-- **No visible commit/cancel control.** Escape cancels and blur/Enter commits, which is discoverable for a text
-  field but unstated. Worth a small affordance on the overlay.
-- **Richtext and images**, per above.
+**The orientation half — ✅ SHIPPED 2026-08-11.** `components/Playground/FieldLinkContext.ts`, a provider-optional
+context mirroring `FieldGuardrailsContext` for the same two reasons: the field layer must not reach server code, and
+these fields also render in `ComponentWorkbenchDialog` with no provider above them. Its default means "no canvas to
+link to" — nothing highlights, `onHover` is a no-op, schema order stands.
+
+- **Hover links both ways.** A rail row highlights its field in the canvas and vice versa. The frame had been
+  emitting `playground-field-hover` and accepting `playground-highlight-field` since the core landed with nothing
+  listening; `playground-field-focus` now also selects the block in the rail, so opening an overlay and using the
+  rail agree on what "current" is.
+- **Document order applied.** `orderPropertiesByDocument` sorts the rail by reported position — the answer to
+  "fields come in the order they come in", applying a fact rather than inferring one, because a `TreeWalker` yields
+  marks in document order for free. Two rules, both load-bearing: **no report means no reordering** (a React block
+  or a canvas mid-load keeps schema order rather than being scrambled), and **unreported fields keep schema order
+  after the reported ones** (config, anchors and theme switches have no document position, and inventing one would
+  move them on every reload).
+- **`fieldLinkKey` is the join, and it is tested.** The rail walks real args (`items.1.paragraph`); a mark carries
+  `@index` (`items.paragraph:1`). Both normalise to `items.paragraph` — get it wrong and hover linking silently
+  never matches, which reads as "not wired" rather than as a bug. The frame's highlight handler compares row-less
+  too, so hovering the one editor the rail shows for a repeater lights up every row it covers.
+- **Visible save/discard on the overlay.** The subtlety is `mousedown` + `preventDefault`: a click blurs the
+  textarea first and **blur commits**, so "discard" would have committed before its own handler ran. The label and
+  the buttons are separate nodes because `paint()` rewriting `meta.textContent` would remove the controls on the
+  first keystroke.
+
+**Still to do in F.2:** **richtext and images.** Richtext stays in the rail by the F.2 decision — the overlay is a
+`<textarea>` and cannot carry markup — and it now at least has a working counter (see E.9 below). Images need the
+media browser, which lives in the rail.
+
+### E.9 addendum — a limit must be measured the way it is displayed (2026-08-11)
+
+Two defects, found by asking where a limit is actually *counted*:
+
+**Richtext limits counted markup.** `<b>Hi</b>` measured 15 characters instead of 2, and `RichTextField` showed
+**no counter at all** — so an author could be blocked on submit by a limit they were never shown, counting tags they
+never typed. 26 of SS&C's ruled fields are richtext.
+
+`measuredLength(value, richtext)` and `richTextToCopy` now live in `authoring-guardrails.ts` beside the limits,
+because **three surfaces have to agree**: the rail's counter, the overlay's counter and the server gate. Regex-based
+rather than `DOMParser` **on purpose** — the identical function has to run in the browser and on the server, and
+agreement is the entire point. A tag boundary becomes a *space*, so `<p>Alpha</p><p>Beta</p>` is not one
+ten-character word; entity decoding covers numeric escapes and a handful of names, of which only `&nbsp;` really
+matters (editors emit it constantly and 6 characters for a space is absurd — the long tail is one character either
+way). The type marker rides on `FieldGuardrail` as `richtext: true`, set in `componentFieldRules`: the only place
+that sees both the declared type *and* the field path, since by check time there are only args, where richtext is an
+indistinguishable HTML string. A brief override can change the number but **not** how the value is measured.
+
+**The canvas counter only knew about brief-configured fields.** Built from `guardrails.fields` alone, so on a
+registry whose limits all come from component contracts — SS&C, every one of them — the overlay showed no counter
+while the rail showed one and the server enforced it. Same class of gap as E.9's original `maxLength`-only read. Now
+built from the component declarations too and keyed **per block**, because `title` is 60 on one component and 80 on
+another and a flat map showed one block the other's number.
+
+**Two process notes.** The root `tsc --noEmit` passed while `next build` caught a real type error — `src/app`
+type-checks under its own tsconfig, so app-layer changes need the Next build. And the existing suite correctly failed
+on a fixture asserting `bodySlot: { maxLength: 240, required: true }`, which now carries `richtext: true`; the
+expectation was updated rather than worked around.
 
 ### F.3 — The React sentinel tracer
 

@@ -5,7 +5,10 @@ import {
   checkGuardrails,
   guardrailsFromPatternData,
   readGuardrailConfig,
+  componentFieldRules,
+  measuredLength,
   resolveFieldGuardrail,
+  richTextToCopy,
   summarizeBlocking,
   type GuardrailConfig,
 } from '../src/app/lib/authoring-guardrails';
@@ -188,5 +191,116 @@ describe('summarizing', () => {
       fields: { headline: { maxLength: 5 }, 'bodySlot.props.children': { maxLength: 5 }, eyebrow: { required: true } },
     });
     assert.match(summarizeBlocking(many), /^3 things need fixing/);
+  });
+});
+
+/**
+ * Richtext limits count the copy, not the markup — roadmap E.9, fixed 2026-08-11.
+ *
+ * The bug had two halves and both mattered: the server measured `<b>Hi</b>` as 15 characters, and
+ * `RichTextField` displayed **no counter at all**, so an author could be blocked by a limit they could not see,
+ * counting tags they never typed. 26 of SS&C's ruled fields are richtext.
+ */
+describe('richTextToCopy', () => {
+  it('drops tags and counts only the copy', () => {
+    assert.equal(richTextToCopy('<b>Hi</b>'), 'Hi');
+    assert.equal(measuredLength('<b>Hi</b>', true), 2);
+    assert.equal(measuredLength('<b>Hi</b>'), 9, 'without the richtext flag it is still the raw string');
+  });
+
+  /** `<strong>One</strong> unified system.` — the exact shape that made the inline overlay unsafe for richtext. */
+  it('keeps inline formatting readable as one sentence', () => {
+    assert.equal(richTextToCopy('<strong>One</strong> unified system.'), 'One unified system.');
+  });
+
+  /** A tag boundary is a word boundary: two paragraphs must not fuse into one word. */
+  it('treats a tag boundary as a space', () => {
+    assert.equal(richTextToCopy('<p>Alpha</p><p>Beta</p>'), 'Alpha Beta');
+    assert.equal(richTextToCopy('<ul><li>One</li><li>Two</li></ul>'), 'One Two');
+  });
+
+  /** `&nbsp;` is the entity that matters — editors emit it constantly, and 6 characters for a space is absurd. */
+  it('decodes the entities an editor actually emits', () => {
+    assert.equal(richTextToCopy('a&nbsp;b'), 'a b');
+    assert.equal(richTextToCopy('Ben &amp; Jerry&#39;s'), "Ben & Jerry's");
+    assert.equal(richTextToCopy('&#x263A;'), '☺');
+  });
+
+  it('leaves an unknown entity alone rather than mangling it', () => {
+    assert.equal(richTextToCopy('&fake;'), '&fake;');
+  });
+
+  it('ignores script and style bodies', () => {
+    assert.equal(richTextToCopy('<style>p{color:red}</style>Copy'), 'Copy');
+    assert.equal(richTextToCopy('<script>alert(1)</script>Copy'), 'Copy');
+  });
+
+  it('collapses the whitespace tag removal introduces, and trims', () => {
+    assert.equal(richTextToCopy('  <p>  spaced   out  </p>  '), 'spaced out');
+    assert.equal(richTextToCopy(''), '');
+    assert.equal(richTextToCopy('<p></p>'), '');
+  });
+});
+
+describe('checkGuardrails — richtext is measured as copy', () => {
+  /** The declaration is the only thing that knows a field is richtext; args carry an indistinguishable string. */
+  const richBlocks = [{ id: 'accordion', args: { paragraph: '<p><b>Ten chars</b></p>' } }];
+
+  it('does not block when the copy fits but the markup would not', () => {
+    const findings = checkGuardrails(richBlocks, [], {}, {
+      accordion: { paragraph: { maxLength: 12, richtext: true } },
+    });
+    assert.deepEqual(findings.filter((f) => f.code === 'too-long'), []);
+  });
+
+  it('still blocks when the copy itself is too long, and reports the copy count', () => {
+    const findings = checkGuardrails(richBlocks, [], {}, {
+      accordion: { paragraph: { maxLength: 5, richtext: true } },
+    });
+    const tooLong = findings.find((f) => f.code === 'too-long');
+    assert.ok(tooLong);
+    assert.match(tooLong.message, /is 9 characters; the limit is 5/);
+  });
+
+  /** Without the marker the old behaviour stands, which is what keeps plain text unaffected. */
+  it('measures a non-richtext field raw', () => {
+    const findings = checkGuardrails(richBlocks, [], {}, {
+      accordion: { paragraph: { maxLength: 12 } },
+    });
+    assert.equal(findings.find((f) => f.code === 'too-long')?.message.includes('is 23 characters'), true);
+  });
+});
+
+describe('componentFieldRules — carries the richtext marker', () => {
+  it('marks a richtext field so the server measures it as copy', () => {
+    const rules = componentFieldRules({
+      body: { type: 'richtext', rules: { content: { max: 400 } } },
+      title: { type: 'text', rules: { content: { max: 80 } } },
+    });
+    assert.equal(rules.body.richtext, true);
+    assert.equal(rules.title.richtext, undefined);
+  });
+
+  it('respects editorType over the raw type, as everywhere else', () => {
+    const rules = componentFieldRules({
+      slotty: { type: 'React.ReactNode', editorType: 'richtext', rules: { content: { max: 400 } } },
+    });
+    assert.equal(rules.slotty.richtext, true);
+  });
+
+  /** A marker with no limit is not a rule — there would be nothing to enforce or display. */
+  it('does not emit a rule for richtext with no limit', () => {
+    assert.deepEqual(componentFieldRules({ body: { type: 'richtext', rules: {} } }), {});
+  });
+});
+
+describe('resolveFieldGuardrail — richtext survives an override', () => {
+  it('keeps the marker when a brief overrides the limit', () => {
+    const resolved = resolveFieldGuardrail({ fields: { body: { maxLength: 100 } } }, 'body', {
+      maxLength: 400,
+      richtext: true,
+    });
+    assert.equal(resolved.maxLength, 100, 'the brief wins on the number');
+    assert.equal(resolved.richtext, true, 'but not on how the value is measured');
   });
 });

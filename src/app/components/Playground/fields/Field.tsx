@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Switch } from '../../ui/switch';
 import { ChevronDownIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { useEditContext } from '../EditContext';
+import { fieldLinkKey, useFieldLink } from '../FieldLinkContext';
 import FieldLabel from './FieldLabel';
 import { TextField } from './TextField';
 import { RichTextField } from './RichTextField';
@@ -41,22 +42,54 @@ export function renderFormFields(obj: any, data: any, path: string[] = []) {
 
     if (value.type === 'boolean') {
       return (
-        <div key={key} className="flex items-center justify-between pb-4 pt-2">
+        <FieldRow key={key} path={currentPath} className="flex items-center justify-between pb-4 pt-2">
           <FieldLabel label={obj[key].name || key} htmlFor={currentPath.join('.')} type={value.type} />
           <InputField fieldKey={currentPath} value={value} data={data} />
-        </div>
+        </FieldRow>
       );
     }
 
     return (
-      <div key={key} className="space-y-2 pb-6 pt-2">
+      <FieldRow key={key} path={currentPath} className="space-y-2 pb-6 pt-2">
         <div className="flex items-center justify-between">
           <FieldLabel label={obj[key].name || key} htmlFor={currentPath.join('.')} type={value.type} />
         </div>
         <InputField fieldKey={currentPath} value={value} data={data} />
-      </div>
+      </FieldRow>
     );
   });
+}
+
+/**
+ * One field in the rail, linked to where it renders in the canvas (roadmap F.2).
+ *
+ * Hover here highlights there and vice versa. `onMouseEnter` does not bubble in React, so on nested fields the
+ * innermost row wins — which is the one the pointer is actually over.
+ *
+ * Outside the playground `useFieldLink` returns an inert link, so this is a plain `div` with no listeners doing
+ * anything: `ComponentWorkbenchDialog` renders these same fields with no canvas beside them.
+ */
+function FieldRow({
+  path,
+  className,
+  children,
+}: {
+  path: string[];
+  className: string;
+  children: ReactNode;
+}) {
+  const { hovered, onHover } = useFieldLink();
+  const key = fieldLinkKey(path.join('.'));
+  const active = hovered !== null && hovered === key;
+  return (
+    <div
+      className={active ? `${className} -mx-2 rounded-md bg-primary/5 px-2 ring-1 ring-primary/40` : className}
+      onMouseEnter={() => onHover(key)}
+      onMouseLeave={() => onHover(null)}
+    >
+      {children}
+    </div>
+  );
 }
 
 function ObjectField({ identifier, value, data }: { identifier: string[]; value: any; data: any }) {
