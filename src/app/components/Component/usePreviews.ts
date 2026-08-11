@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { handoffApiUrl } from '../../lib/api-path';
 import {
   mergePreviews,
@@ -29,7 +29,16 @@ export interface UsePreviewsResult {
 export function usePreviews(
   componentId: string,
   builtPreviews: Record<string, unknown> | undefined,
-  enabled = true
+  enabled = true,
+  /**
+   * Preview key to open on, from `?preview=` — what `handoff_create_preview`'s `verifyUrl` points at.
+   *
+   * Honoured **once**, and only once the named preview actually exists: a registry preview arrives from a
+   * client fetch after the built-in ones, so seeding `selectedKey` eagerly would be overwritten by the
+   * default-to-first effect below. Before this the param was simply ignored, so `verifyUrl` loaded the
+   * component with `Generic` selected and no sign of the preview it was meant to prove (found 2026-08-10).
+   */
+  initialKey?: string | null
 ): UsePreviewsResult {
   const [registry, setRegistry] = useState<RegistryPreviewLite[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -57,10 +66,19 @@ export function usePreviews(
     [builtPreviews, registry]
   );
 
-  // Keep a valid selection; default to the first preview.
+  /** Guards the one-shot: after the requested key has been applied, the user owns the selection. */
+  const initialApplied = useRef(false);
+
+  // Keep a valid selection; honour `?preview=` the first time it resolves, else default to the first.
   useEffect(() => {
-    setSelectedKey((cur) => (cur && previews.some((p) => p.key === cur) ? cur : previews[0]?.key ?? null));
-  }, [previews]);
+    setSelectedKey((cur) => {
+      if (!initialApplied.current && initialKey && previews.some((p) => p.key === initialKey)) {
+        initialApplied.current = true;
+        return initialKey;
+      }
+      return cur && previews.some((p) => p.key === cur) ? cur : previews[0]?.key ?? null;
+    });
+  }, [previews, initialKey]);
 
   const selected = useMemo(() => previews.find((p) => p.key === selectedKey) ?? null, [previews, selectedKey]);
 

@@ -31,10 +31,41 @@ export function buildPatternPayload(
     };
   });
 
+  return patternPayloadFromEntries(
+    id,
+    title,
+    description,
+    group,
+    tags,
+    components,
+    selected.map((c) => ({ ...(c.data ?? {}) })),
+    basePath
+  );
+}
+
+/**
+ * The same stored shape, from block entries that are already in `{ id, preview?, args }` form.
+ *
+ * Exists for the MCP write path, which composes from contracts rather than from a hydrated canvas and so has no
+ * `SelectedPlaygroundComponent` to map. Before this it called `writePattern` with **no `data` at all**, which
+ * left the record readable only through its `components` column — every page composed over MCP came back as
+ * `{ id }` and rendered its published page empty (found 2026-08-10). Sharing the assembly is what stops the two
+ * writers producing different records for the same page.
+ */
+export function patternPayloadFromEntries(
+  id: string,
+  title: string,
+  description: string,
+  group: string,
+  tags: string[],
+  components: PatternComponentEntry[],
+  values: Record<string, unknown>[],
+  basePath: string
+): { list: PatternListObject; components: PatternComponentEntry[]; payload: Record<string, unknown> } {
   const previews = {
     default: {
       title: 'Default',
-      values: selected.map((c) => ({ ...(c.data ?? {}) })),
+      values,
     },
   };
 

@@ -37,8 +37,11 @@ export function TextField({ identifier, value }: { identifier: string[]; value: 
    * is already in hand.
    */
   const declared: FieldGuardrail = {};
-  const declaredMax = Number(value?.rules?.maxLength);
+  // `content.max` is canonical; flat `maxLength` is a legacy fallback. Same precedence as the server extractor.
+  const declaredMax = Number(value?.rules?.content?.max ?? value?.rules?.maxLength);
+  const declaredMin = Number(value?.rules?.content?.min);
   if (Number.isInteger(declaredMax) && declaredMax > 0) declared.maxLength = declaredMax;
+  if (Number.isInteger(declaredMin) && declaredMin > 0) declared.minLength = declaredMin;
   if (value?.rules?.required === true) declared.required = true;
 
   const rule = resolveFieldGuardrail(guardrails, identifier.join('.'), declared);

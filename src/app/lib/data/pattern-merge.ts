@@ -1,4 +1,5 @@
 import type { PatternListObject } from '@handoff/transformers/preview/types';
+import { hasDataPayload } from './has-payload';
 
 /**
  * Pure helpers for merging and shaping pattern (playground page) lists.
@@ -45,7 +46,7 @@ export function byDisplayName(
  * produced an entry with neither, which is what the sort then choked on.
  */
 export function patternListFromRow(r: PatternRowish): PatternListObject {
-  if (r.data && typeof r.data === 'object') {
+  if (hasDataPayload(r)) {
     const data = r.data as Partial<PatternListObject>;
     return { ...data, id: data.id ?? r.id, title: data.title ?? r.title ?? r.id } as PatternListObject;
   }
@@ -67,7 +68,7 @@ export function mergePatternLists(staticList: PatternListObject[], dbRows: Patte
     merged.set(item.id, item);
   }
   for (const r of dbRows) {
-    if (r.data && typeof r.data === 'object') {
+    if (hasDataPayload(r)) {
       merged.set(r.id, patternListFromRow(r));
     } else if (!merged.has(r.id)) {
       merged.set(r.id, patternListFromRow(r));

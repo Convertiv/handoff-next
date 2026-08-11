@@ -128,7 +128,14 @@ export default function GuestEditor({ linkId }: Props) {
 
   return (
     <TooltipProvider>
-      <PlaygroundProvider persistence={persistence} structuralEditing={false} aiAssistantEnabled={false}>
+      {/* `contentOnly`: an invitation is brand-controlled, so a guest edits copy and imagery and never the
+          theme, layout or toggles — nor the raw-JSON fallback (Brad, 2026-08-06). */}
+      <PlaygroundProvider
+        persistence={persistence}
+        structuralEditing={false}
+        aiAssistantEnabled={false}
+        contentOnly
+      >
         <PlaygroundBuilder />
       </PlaygroundProvider>
     </TooltipProvider>

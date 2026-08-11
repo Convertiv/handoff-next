@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache';
 import type { InferSelectModel } from 'drizzle-orm';
 import type { ComponentListObject, ComponentObject, PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
 import { byDisplayName, mergePatternLists, patternListFromRow } from './pattern-merge';
+import { hasDataPayload } from './has-payload';
 import type { ClientConfig } from '@handoff/types/config';
 import type { Types as CoreTypes } from 'handoff-core';
 import type { SectionLink } from '../../components/util';
@@ -50,7 +51,7 @@ function normalizeLegacyImagePath(image: unknown, componentId: string): string {
 }
 
 function componentListFromRow(r: HandoffComponentRow): ComponentListObject {
-  if (r.data && typeof r.data === 'object') {
+  if (hasDataPayload(r)) {
     const data = r.data as ComponentListObject;
     return { ...data, image: normalizeLegacyImagePath(data.image, r.id) };
   }
@@ -68,7 +69,7 @@ function componentListFromRow(r: HandoffComponentRow): ComponentListObject {
 }
 
 function componentObjectFromRow(r: HandoffComponentRow): ComponentObject | null {
-  if (r.data && typeof r.data === 'object') {
+  if (hasDataPayload(r)) {
     return r.data as ComponentObject;
   }
   const list = componentListFromRow(r);
@@ -76,7 +77,7 @@ function componentObjectFromRow(r: HandoffComponentRow): ComponentObject | null 
 }
 
 function patternObjectFromRow(r: HandoffPatternRow): PatternObject | null {
-  if (r.data && typeof r.data === 'object') {
+  if (hasDataPayload(r)) {
     return r.data as PatternObject;
   }
   const list = patternListFromRow(r);
@@ -93,7 +94,7 @@ function mergeComponentLists(staticList: ComponentListObject[], dbRows: HandoffC
     merged.set(item.id, item);
   }
   for (const r of dbRows) {
-    if (r.data && typeof r.data === 'object') {
+    if (hasDataPayload(r)) {
       merged.set(r.id, componentListFromRow(r));
     } else if (!merged.has(r.id)) {
       merged.set(r.id, componentListFromRow(r));
@@ -421,7 +422,7 @@ export class DynamicDataProvider implements DataProvider {
       if (!isBuildPhase() && !isUndefinedTableError(err)) throw err;
       logDbFallback('handoff_component', err);
     }
-    if (row?.data && typeof row.data === 'object') {
+    if (hasDataPayload(row)) {
       return row.data as ComponentObject;
     }
     const disk = await this.fallback.getComponent(id);
@@ -441,7 +442,9 @@ export class DynamicDataProvider implements DataProvider {
     // getComponent). The old full-scan-then-.find() read every pattern's jsonb
     // `data`/`components` blob just to return one.
     const row = await safeDbPatternById(id);
-    if (row?.data && typeof row.data === 'object') {
+    // `hasDataPayload`, not a bare typeof check: an empty `{}` used to be returned *as* the page, which is
+    // why `handoff_get_page` emitted `{ id }` and nothing else for any MCP-composed page.
+    if (hasDataPayload(row)) {
       return row.data as PatternObject;
     }
     const disk = await this.fallback.getPattern(id);

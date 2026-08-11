@@ -622,6 +622,170 @@ jump, and it is cheaper than it looked because guests need no new endpoints.
 
 ## Phase F — Direct manipulation in the playground editor (Brad, 2026-08-05)
 
+### The target is the **guest**, not us (Brad, 2026-08-06)
+
+> "why wouldn't we use the F mechanics for the build - exposed to the end consumer?"
+
+The strongest case for F is not that our field editor is rough — it is that **the guest surface requires
+design-system vocabulary.** An invited outsider gets fields called `bodySlot`, `overlineSlot`, `titleSlot`.
+Clicking the headline on the page needs no vocabulary at all, which is the difference between a tool you have
+to be taught and a link you can send a stakeholder cold. E.5 already points guests at the real editor, so every
+F improvement reaches them for free.
+
+**Decision: invites lock config — guests edit content only.** ✅ *Shipped 2026-08-06*, ahead of the rest of F,
+because it is small and was a live gap: guests could change `theme`, `layout`, `direction`, every boolean, and —
+worse — reach `RawJsonField`, a raw JSON editor over the block args that bypasses every field-level rule.
+`components/Playground/fields/content-only.ts` filters the properties tree (`contentOnly` on
+`PlaygroundProvider` → `EditContextProvider`), so a hidden field is absent rather than disabled. 13 tests.
+
+**Two consequences for the phase:**
+
+1. **The tracer's blind spot stops mattering where it counts.** F.2 traces text and images and deliberately
+   refuses enums/booleans/numbers. With config locked, the traceable set *is* the guest-editable set — so inline
+   editing has no hole on the surface it is aimed at. This alignment is the reason to sequence F around F.3.
+2. **F.1 becomes internal-only.** "Render the options instead of naming them" is about picking an enum by sight,
+   and guests no longer see enums. Real value, but for us — so it drops below F.3/F.4.
+
+**And it raises the stakes on the capture bug rather than lowering them.** F.3 is the first phase that *writes*;
+19% of stored preview values on 38 of 76 components are serialized render output, which feeds back either
+ignored or throwing. An internal author hitting that is confused; an **unattended guest with no support channel**
+produces a silently wrong page you discover at review, after they have gone. So `F.-1` below is mandatory.
+
+**`F.-1` started 2026-08-10 — the content-limit half is done.** The E.9 rewire landed with it, because reading
+the real limits without correcting them would have blocked 74% of the ALPS corpus on day one:
+
+- **E.9 read a key nothing used.** Limits are declared `rules.content.{min,max}` — what
+  `config/templates/component/template.json` models, what `docs/schemas/component.schema.json` declares, what
+  `RulesSheet` renders, and what registries carry. E.9 shipped reading a flat `maxLength` I had invented
+  alongside it. `content` is now canonical in `IHandoffPropertyRules`, the extractor and `TextField` read
+  `content.max`/`content.min`, and `maxLength` survives as a documented legacy alias (`prompt-builder.ts` has
+  read it since before either existed). **`content.min` maps to `minLength`, which the checker already
+  enforced** — so the rewire turns on minimum-length checking that was previously dead.
+- **Root cause of the boilerplate found, and it was upstream of every author.**
+  `config/templates/component/template.json` shipped `{min: 5, max: 25}` on **both** its example properties —
+  including `url`, where a 25-character cap rejects almost every real URL. Every component scaffolded from it
+  inherited that block, which is why the identical `{max:25,min:5}` appeared on `title`, `read_time`,
+  `publication_date` and `authors[].*`. Fixed: `label` keeps a plausible `max: 40` with no arbitrary minimum,
+  `url` keeps `required` and loses the cap. New components stop inheriting it.
+- **`lib/contract-limit-audit.ts` — the first F.-1 check, and the oracle is the component's own previews.** A
+  cap that rejects the value the component ships is wrong without needing the content corpus, so it can be acted
+  on rather than argued about. Four codes: `preview-exceeds-max`, `preview-under-min`, `max-on-url`,
+  `duplicated-rules` (3+ fields sharing one block — the paste signature). Deliberately holds **no opinion about
+  what a limit should be**: that needs the corpus and belongs to whoever owns the content. 14 tests.
+- **Repeatable, not a one-off script:** `GET /api/admin/contract-limit-audit` (admin session or
+  `HANDOFF_SYNC_SECRET` bearer, mirroring `field-bridge-audit`), with `?component=`, `?code=`, `?limit=`.
+- **First run over SS&C: 45 of 83 components, 89 findings** — `preview-exceeds-max` **36**,
+  `duplicated-rules` **29**, `max-on-url` **23**, `preview-under-min` **1**. Not just `blog_header`: 76 of 83
+  declare limits and over half are wrong. Triage list handed to Brad; **correcting that data is a change in
+  `ssc-handoff-next`, not here.**
+
+**`F.-1` shape half done 2026-08-10 — `lib/contract-render-audit.ts`.**
+
+**It does not render React, and says so.** `constructComponentPreview` emits a props script plus a client-side
+mount for a React component and `renderPreview` server-side returns that same mount — there is no server-side
+React render in this codebase to assert against, so a harness claiming to render would be asserting over a
+`<script>` tag. What it asserts instead is grounded in the browser round-trip already recorded in
+`FIELD-BRIDGE.md` rather than in rules invented for the harness:
+
+- **`unfeedable-preview`** — an element-shaped stored value against a plain declared type. The round-trip
+  established the outcomes: declared shape renders, `props.src` element is silently replaced by the component's
+  default, stored value verbatim **throws** `(e || []).filter is not a function`. Slots are excluded, or every
+  correct React slot would be flagged.
+- **`undeclared-reference`** — the template renders `properties.X` the contract never declares. Unsettable
+  through any API and empty on every page; `scaffold_args` cannot see it (`declared: 9, provided: 9,
+  emptySlots: []`), which is why it needs its own check.
+- **`declared-unrendered`** — the mirror: declared, never rendered, so the API accepts a value that does nothing.
+
+**First run — 8x8 (React), from the DB:** **86 unfeedable fields across 37 of 76 components.** Split matters:
+**23 crash** when fed back (declared `array`, stored element → `.filter` throws) and **63 silently render the
+component's default**. The `crashesWhenFedBack` count is surfaced separately for exactly that reason.
+
+**First run — SS&C (Handlebars), templates from disk:** 14 undeclared references + 7 declared-unrendered across
+12 of 83. Includes `blog_header.paragraph` — the original finding #4 — plus two name mismatches worth having:
+`blog_header` renders `author.linked_in` while the contract declares `authors`, and `related_posts` renders
+`items.*` while the contract declares `related_posts`.
+
+**A correction caught by reading the output instead of the count.** The first pass compared template refs against
+*top-level* keys only, so `{{#field "items.title"}}` inside an `{{#each}}` was reported as undeclared on every
+component with a repeater: **107 findings across 41 components**. Resolving nested and array-item paths took it
+to **14 across 12** — the difference between noise and a triage list, and the reason `declaredPaths()` exists.
+
+**Repeatable:** `GET /api/admin/contract-render-audit` (admin session or `HANDOFF_SYNC_SECRET` bearer), with
+`?component=`, `?code=`, `?limit=`. Templates come from `handoff_component_source` when a workspace has pushed
+them; that table is empty on a registry syncing only built artifacts, so `withTemplate: 0` means **not checked**,
+not clean. 18 tests.
+
+**Capture repaired at the sync boundary — ✅ 2026-08-10 (Brad's call).** The build that produces output-shaped
+previews is upstream, but `sync-queries.ts` is where they enter this app, so that is where they stop.
+`lib/normalize-preview-values.ts` reads a faithful plain equivalent back out — through `deriveLens`, so it cannot
+disagree with the rest of the field bridge about where a value lives.
+
+**Four rules, because this rewrites data on ingest:** never guess (replace only what can be read out); never
+touch slots (`React.ReactNode`/`object`/`any` legitimately hold elements); idempotent (sync runs repeatedly);
+and report every substitution, so a sync logs rather than silently rewriting a registry.
+
+**Measured against the live 8x8 registry, dry run: unfeedable fields 86 → 23**, from 221 substitutions across 33
+components (`image` 65, `richtext` 130, `text` 26). **What remains is exactly the 23 declared-`array`-holding-an-
+element cases** — the *throwing* kind, whose real items are unrecoverable. Wrapping them as `[element]` would stop
+the crash and render the wrong thing, trading a loud failure for a silent one, so rule 1 says leave them.
+
+**Two entry points:**
+- **On ingest** — `applyUploadedChange` normalises before storing, and normalises `data.previews` alongside the
+  column so `getComponent` and the docs page cannot disagree about the same field. Verified end to end: an image
+  element became `{src, alt, width, height}` with the real values and dimensions kept, a richtext element became
+  its markup string, the declared array was left alone and still reported, and the preview wrapper's own `title`
+  survived.
+- **Backfill** — `POST /api/handoff/admin/normalize-previews`, admin-only, **`dryRun` defaults to `true`** because
+  it rewrites registry data; `{"dryRun": false}` applies. Safe to re-run.
+
+**Dimensions are lifted from the img props, not the lens:** `WRITABLE_LEAVES` deliberately excludes
+`width`/`height` (nobody edits them), but dropping them collapses a slot and the page loses its proportions.
+
+**The 23 arrays turned out mechanical, so they were encoded rather than hand-patched — 86 → 0.**
+
+Brad asked for them fixed by hand. Looking at the real data first showed all 23 were **one shape in two
+variants**: a wrapper element whose `props.children` are `<a>` nodes (`buttonSlots`), or a single `<a>`
+(`footerButtonSlot`, `buttonSlot`, `productInfoButtonsSlot`). Each anchor carries `props.href` and a label as its
+first string child, with a trailing `null` or a chevron `<span>`. That inverts to `{ url, text }` — the shape
+`ButtonField` already reads and writes — by reading, not guessing, so it belongs in the normaliser.
+
+Encoding it rather than patching the rows also makes it **durable**: a hand-fixed row is overwritten the next time
+that component is pushed, because the upstream build still emits render output. The normaliser catches it on every
+ingest.
+
+**Live dry run after the change: unfeedable fields 86 → 0**, from 313 substitutions across 37 components
+(`richtext` 130, `array` 92, `image` 65, `text` 26). Example:
+`hero-split.buttonSlots → [{"url":"#","text":"Get Started"},{"url":"#","text":"Watch Demo"},{"url":"#","text":"Learn More"}]`.
+
+Two details worth keeping:
+- **The button branch runs before the lens gate.** `isElementish` requires a `type` key, and a rendered
+  `buttonSlots` wrapper is `{ key, props, _owner }` with no `type` — so gating on the lens made it depend on React
+  internals happening to be present. Finding an anchor is the evidence instead.
+- **An element with no anchors still yields nothing.** An empty array would read as a deliberate "no buttons" and
+  quietly drop whatever was really there, so rule 1 still holds for anything unrecoverable.
+
+**F.3's data gate is clear.** Nothing in the catalog is unfeedable once the backfill runs, so inline editing has
+no field it would write into and silently lose. The remaining F.3 prerequisites are its own (tracer coverage from
+F.2, and the in-frame overlay), not data.
+
+**Revised order:** `F.-1` (assert harness + capture repair) → `F.2` (tracer, measure coverage) → `F.3` (inline,
+guest-first) → `F.4` (annotations — the fallback rail is all an untraced field gets) → `F.0`/`F.1` (internal
+polish).
+
+**One design refinement for F.3.** The note implies a parent-side overlay positioned over the traced node's
+bounding box. The iframe channel today carries only `playground-block-action` out and `playground-scroll-to-block`
+in — **no geometry at all** — and the frame is opaque-origin, so the parent cannot measure; the frame must report.
+If the frame is measuring anyway, and already receives injected script and CSS for block controls, then **put the
+overlay inside the frame**: no rect protocol, no scroll/resize/font-load invalidation, no drift, and the parent
+only receives value changes. That removes the most fragile part of F.3 — which matters most on a guest's unknown
+device, where it cannot be debugged.
+
+**Known weak point of the config lock:** config declared as a bare string is invisible to a type check.
+`hero-split` declares `theme`/`layout`/`direction` as `enum` (locked correctly) but `anchor` and `imageTheme` as
+`type: 'text'` — indistinguishable from a headline, and a guest editing `anchor` breaks in-page navigation. Held
+off with a deliberately narrow name list (`anchor`, `id`, `slug`, `class`, `className`, `*Theme`). The real fix is
+declaring config-ness on `rules` or via F.4's annotations, at which point the list goes away.
+
 Full design: **`docs/PLAYGROUND-DIRECT-MANIPULATION.md`**. Distinct from `PLAYGROUND-EDITING.md`, which
 covers AI-proposed edit *operations*; this is the human editing surface — the left-rail form.
 

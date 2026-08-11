@@ -5,6 +5,7 @@ import { renderHandlebarsPreview, renderPreview, renderReactPreview } from './Pr
 import { SelectedPlaygroundComponent } from './types';
 import { applyCapabilitiesToProperties, readCapabilities } from '@/lib/slot-capabilities';
 import { imageFieldWrites } from '@/lib/image-field-write';
+import { contentOnlyProperties } from './fields/content-only';
 
 interface ImageDimensionRules {
   min?: { width: number; height: number };
@@ -40,6 +41,7 @@ export function EditContextProvider({
   component,
   onCommit,
   targetIframeRef,
+  contentOnly = false,
   children,
 }: {
   component: SelectedPlaygroundComponent | null;
@@ -52,6 +54,11 @@ export function EditContextProvider({
    *  of its own) live-update the real page canvas via postMessage instead of
    *  forcing a full canvas rebuild on every "Apply". */
   targetIframeRef?: RefObject<HTMLIFrameElement | null>;
+  /**
+   * Hide configuration, leaving only content. Set for a guest building from an invitation — an invitation is
+   * brand-controlled, so a stakeholder filling in copy does not also get the theme switch (Brad, 2026-08-06).
+   */
+  contentOnly?: boolean;
   children: ReactNode;
 }) {
   const [data, setData] = useState<any>(null);
@@ -76,13 +83,17 @@ export function EditContextProvider({
       // Read the record explicitly rather than passing `component`: here `data` holds the block's
       // authored args, not the component row, so the reader's `data.capabilities` fallback would be
       // looking in the wrong place.
-      setProperties(
-        applyCapabilitiesToProperties(
-          component.properties,
-          readCapabilities({ capabilities: component.capabilities }),
-          component.fields
-        )
+      /**
+       * Configuration is filtered out **after** capabilities are applied, not before: capabilities can change
+       * a field's effective type (a slot the component really takes as `{ src, alt }` becomes an image field),
+       * and filtering first would classify it on the declared type and hide the wrong things.
+       */
+      const withCapabilities = applyCapabilitiesToProperties(
+        component.properties,
+        readCapabilities({ capabilities: component.capabilities }),
+        component.fields
       );
+      setProperties(contentOnly ? contentOnlyProperties(withCapabilities) : withCapabilities);
       initialRenderDone.current = false;
 
       if (isReact) {
@@ -91,7 +102,7 @@ export function EditContextProvider({
         setPreviewHtml(renderHandlebarsPreview(component, component.data, basePath));
       }
     }
-  }, [component, basePath, isReact]);
+  }, [component, basePath, isReact, contentOnly]);
 
   useEffect(() => {
     if (!component || data === null) return;

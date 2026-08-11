@@ -13,14 +13,22 @@ export type HandoffPropertyType = (typeof HandoffPropertyTypes)[number];
 export interface IHandoffPropertyRules {
   required?: boolean;
   /**
-   * Longest the component can render this field without breaking — a **structural** limit owned by the
-   * component, not an editorial one (roadmap E.9).
+   * Content length the component can render without breaking — a **structural** limit owned by the component,
+   * not an editorial one (roadmap E.9).
    *
-   * `Wizard/prompt-builder.ts` has read `rules.maxLength` for LLM context since before this was declared, so
-   * the convention existed without a type or any enforcement behind it. Declaring it makes it real.
+   * **`content` is the canonical shape.** It is what `config/templates/component/template.json` models, what
+   * `RulesSheet` renders, and what real registries carry. E.9 originally shipped reading a flat `maxLength`,
+   * which nothing in any registry used — a key invented alongside the real one (corrected 2026-08-10).
    *
    * A brief can still be stricter: `resolveFieldGuardrail` prefers an explicit per-field brief rule over this,
    * and this over a brief's blanket default — most specific wins.
+   */
+  content?: { min?: number; max?: number };
+  /**
+   * Legacy flat alias for `content.max`, read only as a fallback.
+   *
+   * Kept because `Wizard/prompt-builder.ts` has read it for LLM context since before either was declared.
+   * New components should declare `content`.
    */
   maxLength?: number;
   dimensions?: {

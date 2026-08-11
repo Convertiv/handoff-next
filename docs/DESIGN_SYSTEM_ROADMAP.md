@@ -105,6 +105,37 @@ writes = the new surface.
     in the unified changelog + `change_why` + MCP change tools; UI renders them.
   - ✅ **Doc-page CRUD** (`f0387530`, goal 2): `handoff_list/get/create/update_doc_page`; actor-param
     `writeDocPage` upsert records `page_change` + syncs nav.
+- ✅ **6.1c Honest write loop (DONE 2026-08-10).** Fixes from Brad composing the ALPS `Resources`
+  archetype (240 pages) into SS&C through the MCP — the write loop reported success and produced nothing.
+  - **`create_page`/`update_page` persisted no readable page.** Reported `ok: true, blocks: N`; `get_page`
+    returned `{ id }` and `list_pages` said `blocks: 0`. **The write was always correct** — `toComponents`
+    maps and `writePattern` persists. The bug was **six copies of `r.data && typeof r.data === 'object'`**,
+    which accepts `{}`: MCP passed no `data`, so `{}` was returned *as* the record, shadowing the real
+    columns. Now one shared `hasDataPayload` (`lib/data/has-payload.ts`) across patterns **and components**
+    (`getComponent` had it too). Falling through to the row's own columns is strictly safer than returning
+    `{}`, so applying it everywhere carries no risk.
+  - **MCP now writes a full payload.** `patternPayloadFromEntries` (extracted from `buildPatternPayload`, so
+    the UI and MCP cannot produce different records) — which is what makes `publishedUrl` render at all,
+    since the standalone page renders from `data`.
+  - **`handoff_delete_page` added.** A page composed by mistake previously had no cleanup path. Safe now
+    that `removePattern` archives (E.6.5): the row and history stay, listings hide it, briefs cascade.
+  - **`?preview=<key>` is honoured**, so `create_preview`'s `verifyUrl` works — `usePreviews` takes an
+    initial key and applies it once the named preview resolves (a *registry* preview arrives from a client
+    fetch after the built-in variants, so an eager seed was overwritten by default-to-first).
+  - **Two false claims removed.** Success responses pointed at `handoff_enqueue_build`, which is retired —
+    now `handoff-app build`. And `create_preview` promised "immediately — no rebuild", which is untrue on a
+    statically exported registry: `verifyUrl` resolves previews through a live API call the static site does
+    not serve. That is the real cause of the "write lands somewhere nothing can read" symptom.
+  - **`get_component_spec`** description now says it takes an `artifactId` and points at
+    `handoff_get_component` for a component's contract.
+  - **Not reproduced:** duplicate ids from `list_pages`. `mergePatternLists` keys a `Map` on id, so it
+    cannot emit one id twice — needs the raw output to diagnose.
+  - **Deferred to Phase F `F.-1`:** the contract-vs-reality findings — `blog_header` rendering an undeclared
+    `properties.paragraph`, and the copy-pasted `{max:25,min:5}` limits (177 of 240 ALPS titles exceed 25).
+    Both are exactly what `scaffold → render → assert` catches, across all 84 components at once.
+  - ⚠️ **Follow-on for E.9:** content limits are declared `rules.content.max/min` (what `RulesSheet` renders
+    and SS&C carries), **not** the `rules.maxLength` E.9 shipped. E.9 reads a key nothing uses. Rewiring must
+    land *with* the limit sweep above, or reading the real limits blocks 74% of that corpus immediately.
 - 🔄 **6.2 Embedded Claude apps (MCP Apps — `io.modelcontextprotocol/ui`).**
   - ✅ **Component preview renderer** (`886629b0`): `handoff_preview_component` tool + a
     `ui://handoff/component-preview` HTML resource; the app (`component-preview.client.ts`, bundled

@@ -151,8 +151,17 @@ export function componentFieldRules(properties: unknown): ComponentFieldRules {
       const rules = prop.rules as Record<string, unknown> | undefined;
       if (rules && typeof rules === 'object') {
         const rule: FieldGuardrail = {};
-        const max = Number(rules.maxLength);
+        /**
+         * `rules.content.{min,max}` is the canonical declaration — what the component scaffolding template
+         * models, what `RulesSheet` renders, and what real registries carry. The flat `maxLength` is read only
+         * as a fallback: E.9 first shipped reading it exclusively, which meant it read a key **no registry
+         * used** and picked up no limits at all (corrected 2026-08-10).
+         */
+        const content = (rules.content ?? {}) as Record<string, unknown>;
+        const max = Number(content.max ?? rules.maxLength);
+        const min = Number(content.min);
         if (Number.isInteger(max) && max > 0) rule.maxLength = max;
+        if (Number.isInteger(min) && min > 0) rule.minLength = min;
         if (rules.required === true) rule.required = true;
         if (Object.keys(rule).length) out[path.join('.')] = rule;
       }

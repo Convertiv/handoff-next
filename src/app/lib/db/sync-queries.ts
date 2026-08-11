@@ -3,6 +3,7 @@ import type { SyncAction, SyncChange, SyncChangeset, SyncEntityType, SyncStatusR
 import { deleteComponentArtifacts, upsertComponentArtifacts } from './component-artifact-queries';
 import { recordComponentVersion } from './component-version-queries';
 import { getDb } from './index';
+import { normalizePreviewValues } from '../normalize-preview-values';
 import {
   handoffComponents,
   handoffComponentSources,
@@ -172,6 +173,35 @@ export async function applyUploadedChange(input: {
     if (d.capabilities && typeof d.capabilities === 'object') {
       dataPayload.capabilities = d.capabilities;
     }
+    const incomingProperties = (d.properties as object) ?? (dataPayload.properties as object) ?? null;
+    const incomingPreviews = (d.previews as object) ?? (dataPayload.previews as object) ?? null;
+
+    /**
+     * **Capture repair at the boundary** (Phase F `F.-1`).
+     *
+     * For React registries the incoming previews are serialized render *output*, not input props — feeding one
+     * back either makes the component render its own default or throws (`docs/FIELD-BRIDGE.md`; measured at 86
+     * fields across 37 of 76 components on 8x8). Nothing in this app serializes elements: they arrive this way
+     * from the component build, so this is the first place the app can decline to store them.
+     *
+     * Conservative by construction — a value is rewritten only when a faithful plain equivalent can be *read out
+     * of it*, slots are never touched, and it is idempotent. What it cannot repair it leaves alone for
+     * `contract-render-audit` to keep reporting. See `normalize-preview-values.ts` for the full rules.
+     *
+     * `data.previews` is normalised too, because that is what the static build and `getComponent` read when a
+     * row carries a payload — repairing only the column would leave the two disagreeing.
+     */
+    const normalized = normalizePreviewValues(incomingProperties, incomingPreviews);
+    if (normalized.changes.length) {
+      console.warn(
+        `[sync] normalized ${normalized.changes.length} output-shaped preview value(s) on component ${String(d.id ?? entityId)}:`,
+        normalized.changes.map((c) => `${c.previewKey}.${c.path} (${c.declaredType})`).join(', ')
+      );
+      if (dataPayload.previews) {
+        dataPayload.previews = normalizePreviewValues(incomingProperties, dataPayload.previews).previews as object;
+      }
+    }
+
     const row = {
       id: String(d.id ?? entityId),
       path: d.path != null ? String(d.path) : null,
@@ -180,8 +210,8 @@ export async function applyUploadedChange(input: {
       group: d.group != null ? String(d.group) : String(dataPayload.group ?? ''),
       image: d.image != null ? String(d.image) : dataPayload.image != null ? String(dataPayload.image) : null,
       type: d.type != null ? String(d.type) : String(dataPayload.type ?? 'element'),
-      properties: (d.properties as object) ?? (dataPayload.properties as object) ?? null,
-      previews: (d.previews as object) ?? (dataPayload.previews as object) ?? null,
+      properties: incomingProperties,
+      previews: normalized.previews as object | null,
       data: dataPayload,
       source: typeof d.source === 'string' && d.source.length > 0 ? String(d.source) : 'sync',
       updatedAt: new Date(),

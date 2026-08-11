@@ -21,7 +21,7 @@ import { applyUploadedChange } from '@/lib/db/sync-queries';
 import { getUnifiedChangelog, type UnifiedChangelogEntry } from '@/lib/db/changelog-queries';
 import { getComponentVersionHistory } from '@/lib/db/component-version-queries';
 import { resolveChangeWhy } from '@/lib/server/change-why';
-import { writePattern, patchPattern, reviewPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
+import { writePattern, patchPattern, removePattern, reviewPattern, type PatternWriteActor } from '@/lib/db/pattern-write';
 import { listReviewQueue } from '@/lib/db/grant-queries';
 import { computePermissions, isAuthorizationError, toVisibility, type MutateActor } from '@/lib/authz/policy';
 import { validatePreviewValues } from '@handoff/transformers/preview/component/preview-validation';
@@ -48,6 +48,7 @@ import {
 } from '@/lib/server/design-workspace';
 import { COMPONENT_REFERENCE_SETTINGS } from '@/app/design/settings/settings-constants';
 import type { DesignGenerationRequestParams } from '@/lib/server/design-generation-worker';
+import { patternPayloadFromEntries } from '../pattern-payload';
 import {
   getAsset,
   getAssetWithUsages,
@@ -941,7 +942,11 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
   server.registerTool(
     'handoff_get_component_spec',
     {
-      description: 'Get the component specification (structured spec + editable markdown) for a saved design artifact. Returns the full ComponentSpec JSON and the rendered markdown for use in local component generation.',
+      description:
+        'Get the component specification (structured spec + editable markdown) for a saved DESIGN ARTIFACT — ' +
+        'takes an `artifactId`, not a component id. Returns the full ComponentSpec JSON and the rendered ' +
+        'markdown for local component generation. **For an existing component\'s contract (properties, ' +
+        'previews, should_do/should_not_do), use handoff_get_component instead.**',
       inputSchema: {
         artifactId: z.string().describe('ID of the saved design artifact'),
       },
@@ -1695,8 +1700,27 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       const { errors, report } = await checkBlocks(blocks);
       if (errors.length) return textResult({ ok: false, errors, report });
       try {
+        /**
+         * A **complete** record, the same shape the playground writes.
+         *
+         * This used to pass `components` only, leaving `data` as `{}` — which made the page unreadable
+         * (`handoff_get_page` returned `{ id }`, `handoff_list_pages` said `blocks: 0`) and its published page
+         * render empty. The read-side predicate is fixed too, but writing a real payload is what makes
+         * `publishedUrl` work, since the standalone page renders from `data`.
+         */
+        const entries = toComponents(blocks);
+        const { components, payload } = patternPayloadFromEntries(
+          id,
+          title,
+          description ?? '',
+          group ?? '',
+          [],
+          entries,
+          entries.map((e) => ({ ...(e.args ?? {}) })),
+          process.env.HANDOFF_APP_BASE_PATH ?? ''
+        );
         await writePattern(
-          { id, title, description, group, components: toComponents(blocks), source: 'playground' },
+          { id, title, description, group, components, data: payload, source: 'playground' },
           patternActor(message)
         );
       } catch (e) {
@@ -1713,7 +1737,7 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         editUrl: `${base}/playground?pattern=${encodeURIComponent(id)}`,
         publishedUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
         publishedNote:
-          'publishedUrl reflects this composition only after a rebuild (handoff_enqueue_build). editUrl shows your exact args now.',
+          'publishedUrl reflects this composition only after a rebuild — run `handoff-app build` locally (server-side builds are retired). editUrl shows your exact args now.',
         report,
       });
     }
@@ -1749,7 +1773,23 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
       if (title !== undefined) updates.title = title;
       if (description !== undefined) updates.description = description;
       if (group !== undefined) updates.group = group;
-      if (blocks) updates.components = toComponents(blocks);
+      if (blocks) {
+        // Both halves, for the same reason as create: `components` is what the editor reads and `data` is what
+        // the published page and every list projection read.
+        const entries = toComponents(blocks);
+        const { components, payload } = patternPayloadFromEntries(
+          id,
+          title ?? '',
+          description ?? '',
+          group ?? '',
+          [],
+          entries,
+          entries.map((e) => ({ ...(e.args ?? {}) })),
+          process.env.HANDOFF_APP_BASE_PATH ?? ''
+        );
+        updates.components = components;
+        updates.data = payload;
+      }
       if (Object.keys(updates).length === 0) return textResult({ ok: false, error: 'No updates provided.' });
       try {
         await patchPattern(id, updates, patternActor(message));
@@ -1765,8 +1805,40 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         editUrl: `${base}/playground?pattern=${encodeURIComponent(id)}`,
         publishedUrl: `${base}/system/pattern/${encodeURIComponent(id)}`,
         publishedNote:
-          'publishedUrl reflects this composition only after a rebuild (handoff_enqueue_build). editUrl shows your exact args now.',
+          'publishedUrl reflects this composition only after a rebuild — run `handoff-app build` locally (server-side builds are retired). editUrl shows your exact args now.',
         ...(report ? { report } : {}),
+      });
+    }
+  );
+
+  server.registerTool(
+    'handoff_delete_page',
+    {
+      description:
+        'Archive a playground page. **This is not a hard delete** — the record and its history stay, the page ' +
+        'is taken out of every listing, and any build briefs made from it (plus the pages built from those) are ' +
+        'archived with it. There is no un-archive yet, so treat it as final from a caller\'s point of view. ' +
+        'Added because a page composed by mistake previously had no way to be cleaned up at all.',
+      inputSchema: {
+        id: z.string().describe('Page id to archive.'),
+        message: z.string().optional().describe('Short "why" for this change — shown in the changelog.'),
+      },
+    },
+    async ({ id, message }) => {
+      if (!isPostgres()) return textResult(WORKSPACE_MODE_RESPONSE);
+      const denied = requireScope(auth, 'sync:write');
+      if (denied) return denied;
+      try {
+        await removePattern(id.trim(), patternActor(message));
+      } catch (e) {
+        if (isAuthorizationError(e)) return textResult({ ok: false, error: `Forbidden — ${e.message}` });
+        throw e;
+      }
+      return textResult({
+        ok: true,
+        id: id.trim(),
+        archived: true,
+        note: 'Archived, not deleted: hidden from listings, with its briefs and their built pages.',
       });
     }
   );
@@ -1781,8 +1853,10 @@ export function createHandoffMcpServer(auth: McpAuthContext, request: Request): 
         'CTA" button). Call handoff_scaffold_args first for correctly-shaped `values`. Values are validated ' +
         'against the component contract; invalid values are rejected, not saved. This is how Claude publishes ' +
         'a configured, meaningful example to the workbench. Richtext ' +
-        'fields take HTML strings. Returns `verifyUrl` (renders this value-set in the workbench immediately — ' +
-        'no rebuild) and a `report` (empty visual slots + each field\'s editorType) to self-check the values. ' +
+        'fields take HTML strings. Returns `verifyUrl` — the component page with `?preview=<key>`, which opens ' +
+        'on this value-set. **It resolves the preview through a live API call, so on a statically exported ' +
+        'registry it will not appear until `handoff-app build` runs.** Also returns a `report` (empty visual ' +
+        'slots + each field\'s editorType) to self-check the values. ' +
         'Once a value-set is approved, mark it canonical with handoff_promote_preview.',
       inputSchema: {
         componentId: z.string(),

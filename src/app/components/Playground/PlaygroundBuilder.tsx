@@ -168,6 +168,7 @@ export default function PlaygroundBuilder({
     refreshBriefs,
     structuralEditing,
     aiAssistantEnabled,
+    contentOnly,
   } = usePlayground();
 
   const [html, setHtml] = useState('');
@@ -580,6 +581,7 @@ export default function PlaygroundBuilder({
                 component={activeComponent}
                 onCommit={updateComponent}
                 targetIframeRef={canvasIframeRef}
+                contentOnly={contentOnly}
               >
                 <BlockEditorPanel onDone={() => setActiveComponentId(null)} />
                 <MediaBrowser />

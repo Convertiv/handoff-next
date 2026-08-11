@@ -23,6 +23,7 @@ import {
   Text,
 } from 'lucide-react';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { HotReloadContext } from '../context/HotReloadProvider';
 import { usePreviewContext } from '../context/PreviewContext';
@@ -87,10 +88,19 @@ export const ComponentDisplay: React.FC<{
   const componentId = component?.id ?? '';
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
 
+  /**
+   * `?preview=<key>` opens on that value-set — the contract `handoff_create_preview`'s `verifyUrl` relies on.
+   * Read here rather than on the server so it works for a *registry* preview too, which arrives from a client
+   * fetch after the built-in variants.
+   */
+  const requestedPreview = useSearchParams().get('preview');
+
   // One source of truth: built variants + registry previews, merged.
   const { previews, selected, selectedKey, setSelectedKey, refresh, registry } = usePreviews(
     componentId,
-    component?.previews as Record<string, unknown> | undefined
+    component?.previews as Record<string, unknown> | undefined,
+    true,
+    requestedPreview
   );
 
   const [height, setHeight] = React.useState('100px');

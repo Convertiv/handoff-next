@@ -107,6 +107,8 @@ interface PlaygroundContextType {
    * control would be an invitation to a 401.
    */
   aiAssistantEnabled: boolean;
+  /** Hide configuration in the block editor — set for a guest building from an invitation. */
+  contentOnly: boolean;
   isDynamicApp: boolean;
 }
 
@@ -186,6 +188,7 @@ export function PlaygroundProvider({
   structuralEditing: structuralEditingProp,
   persistence,
   aiAssistantEnabled = true,
+  contentOnly = false,
   pageTitle = '',
   initialBriefs = [],
 }: {
@@ -197,6 +200,7 @@ export function PlaygroundProvider({
   /** Injected by surfaces that are not the authenticated playground — see `PlaygroundPersistence`. */
   persistence?: PlaygroundPersistence;
   aiAssistantEnabled?: boolean;
+  contentOnly?: boolean;
   pageTitle?: string;
   /** Supplied by the server component so the dropdown is right on first paint. */
   initialBriefs?: BriefListEntry[];
@@ -567,6 +571,7 @@ export function PlaygroundProvider({
         refreshBriefs,
         structuralEditing,
         aiAssistantEnabled,
+        contentOnly,
         isDynamicApp,
       }}
     >
