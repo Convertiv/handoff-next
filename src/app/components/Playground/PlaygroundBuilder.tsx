@@ -33,13 +33,14 @@ import { usePlayground } from './PlaygroundContext';
 import AiChatPanel from './AiChatPanel';
 import { EditContextProvider, useEditContext } from './EditContext';
 import SortableItem from './SortableItem';
-import Preview, { constructComponentPreview } from './Preview';
+import Preview, { constructComponentPreview, renderPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
 import { useRouter } from 'next/navigation';
 import { handoffApiUrl } from '@/lib/api-path';
 import InviteWizard from './InviteWizard';
 import MetaControl from '../library/MetaControl';
 import { fieldIdToArgsPath, textEditableFieldPaths } from '@/lib/field-marks';
+import { setAtArgsPath } from '@/lib/set-at-args-path';
 import { resolveFieldGuardrail } from '@/lib/authoring-guardrails';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
@@ -284,10 +285,20 @@ export default function PlaygroundBuilder({
     );
   }, [activeComponentId]);
 
+  /**
+   * Where the canvas is scrolled to, as last reported by the frame.
+   *
+   * A ref, not state: this updates on every scrolled frame and re-rendering for it would be absurd — and it is
+   * read only at the moment a rebuild is assembled. The frame is opaque-origin, so asking it is the only way to
+   * know. See `getBlockControlsScript` for why a rebuild needs it at all.
+   */
+  const canvasScrollRef = useRef(0);
+
   useEffect(() => {
     const render = async () => {
       setLoadingHtml(true);
       const result = await constructComponentPreview(selectedComponents, basePath, {
+        restoreScrollY: canvasScrollRef.current,
         injectBlockControls: canvasControls,
         // Edit yes, remove no, when the structure is fixed (roadmap E.5).
         allowDelete: structuralEditing && canvasControls,
@@ -304,10 +315,17 @@ export default function PlaygroundBuilder({
       setLoadingHtml(false);
     };
     render();
-  }, [selectedComponents, basePath, structuralEditing, canvasControls]);
+    // Both inline lists are memoized, so including them costs nothing and closes a real staleness gap: a
+    // guardrail edited while the canvas is open would otherwise leave the overlay counting against the old limit.
+  }, [selectedComponents, basePath, structuralEditing, canvasControls, inlineFieldLimits, inlineEditableFields]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'playground-scroll') {
+        if (typeof event.data.y === 'number') canvasScrollRef.current = event.data.y;
+        return;
+      }
+
       if (event.data?.type === 'playground-block-action') {
         const { action, blockId } = event.data;
         if (action === 'edit') {
@@ -327,6 +345,12 @@ export default function PlaygroundBuilder({
        * *mark id*; `fieldIdToArgsPath` turns it into the path the data actually uses, which is the join that has
        * to be right or an edit writes somewhere nothing renders.
        *
+       * **`rendered` is refreshed too, and that is not optional**: `constructComponentPreview` draws a Handlebars
+       * block from `component.rendered`, a cached HTML string, and never re-renders it from `data`. Committing
+       * `data` alone updated the record and saved it, then rebuilt the canvas from the stale string — so the text
+       * snapped back the instant it was committed and inline editing looked like it did not persist. This mirrors
+       * what `EditContext.handleSave` does for the rail, for the same reason.
+       *
        * Re-gated here: a message from the frame is input, not an instruction. Nothing is applied on a surface
        * that is not offering inline editing in the first place.
        */
@@ -339,26 +363,25 @@ export default function PlaygroundBuilder({
         const path = fieldIdToArgsPath(fieldId);
         if (!path.length) return;
 
-        // Cloned rather than mutated: the canvas re-renders from this object, and mutating it in place would
-        // leave React with no reason to believe anything changed.
-        const nextData = structuredClone(block.data ?? {}) as Record<string, unknown>;
-        let cursor: Record<string, unknown> | unknown[] = nextData;
-        for (let i = 0; i < path.length - 1; i += 1) {
-          const key = path[i];
-          const next = (cursor as Record<string | number, unknown>)[key];
-          // A missing intermediate is created to match the *next* segment's kind, so a row index makes an array.
-          if (next === undefined || next === null || typeof next !== 'object') {
-            (cursor as Record<string | number, unknown>)[key] = typeof path[i + 1] === 'number' ? [] : {};
-          }
-          cursor = (cursor as Record<string | number, unknown>)[key] as Record<string, unknown>;
-        }
-        (cursor as Record<string | number, unknown>)[path[path.length - 1]] = value;
-        updateComponent({ ...block, data: nextData });
+        const nextData = setAtArgsPath(block.data, path, value);
+        void (async () => {
+          const updated = { ...block, data: nextData };
+          updated.rendered = await renderPreview(updated, nextData, basePath);
+          updateComponent(updated);
+        })();
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [setActiveComponentId, removeComponent, structuralEditing, canvasControls, selectedComponents, updateComponent]);
+  }, [
+    setActiveComponentId,
+    removeComponent,
+    structuralEditing,
+    canvasControls,
+    selectedComponents,
+    updateComponent,
+    basePath,
+  ]);
 
   /**
    * Loading and failure keep the left panel, when there is one.

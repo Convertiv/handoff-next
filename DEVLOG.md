@@ -5,6 +5,134 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-11 (later) — SS&C content limits: surveyed, rationalized, applied
+
+Full write-up in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md` under `F.-1b`/`F.-1c`; the record of all 420 fields is
+`docs/SSC-CONTENT-LENGTH-PLAN.md`. Three things here worth not re-deriving.
+
+**`rules.content.{min,max}` does not mean one thing.** On `text`/`richtext` it is a character length. On an `array`
+it is a **row count** (`blog_header.authors` max 2, `hero_split.breadcrumb` max 4). On a `number` it is a **value
+range** (`stats.items.*.duration` spans ±10,000,000). My first pass treated the last two as "not free text" and
+proposed deleting all 78 of them. Nothing in the app enforces the count or the range today —
+`componentFieldRules` extracts `content` for every type and only `TextField` consumes it — but **unenforced is not
+meaningless**, and deleting an author's stated intent because the runtime ignores it is how information is lost.
+Anything touching `rules.content` generically needs to know this.
+
+**`min` on editorial copy is always wrong.** 389 of 420 SS&C fields carried one; not one of them can prevent a
+layout break, and they reject legitimately short copy ("Go", "Q1 2026", "APAC"). They exist because
+`config/templates/component/template.json` shipped `{min: 5, max: 25}` and it got pasted down every property list.
+Requiredness is `rules.required`. 277 dropped while keeping a cap, 47 dropped with the whole rule; the 65 survivors
+are all row counts and ranges.
+
+**Editing these files needs an AST, not a serializer.** `handoff/integration/**/<id>.js` are hand-formatted (preview
+arrays hold compacted one-line objects) so re-serializing reflows 81 of 83, *and* they are JavaScript rather than
+JSON — `bar_chart.js` writes its description as a template literal, which defeats a JSON scanner too. Parse with
+acorn, replace only the spans you mean, and check the span parses back to what you expected before writing.
+
+**A rationalization creates its own false positives.** After applying, the F.-1 audit still reported 10 findings and
+all 10 were correct-by-design: it flagged six `title` fields sharing a 60-character cap as a copy-paste smell, when
+that consistency *is* the fix. Fixed both classes (89 → 4). Same lesson as the 107 → 14 render-audit pass — a report
+with permanent noise stops being read.
+
+**The last 4 findings then went to their role floors** (4 files, 10 fields) — audit now **0**, plan proposes **0**
+further change. The roles came from each field's own `name`/`description` ("Column 1 Label", "The search
+placeholder", "Bottom Link Text"), and `search`/`link`/`header` joined `ROLE_LIMITS` so the audit recognises them and
+the findings stay closed. Two of the ten moved **up** (`menu…mega.link` 25 → 32), reversing what `F.-1b` recorded:
+that cap came from the same paste as everything else in `menu`, and its own value fills 18 of 25 characters.
+`filters.sort.*.sort` left at 45 — it holds `alp_asc`, a machine key, so no length is meaningful either way.
+
+Left uncommitted in `ssc-handoff-next` for review. **Then rebuilt (83 components) and pushed to
+`https://ssc-handoff.vercel.app` — 83/83 applied, sync events 3046 → 3129, counts unchanged at 83/16/67.**
+
+**`push:all` was deliberately NOT run, and this is the thing to remember.** It POSTs `/api/registry/tokens` and
+`/api/registry/dtcg` from `public/api/tokens.json` (local: **June 7**) and `design-system/` (local: **June 17–18**),
+but the registry received a **figma-sync on 2026-07-17** — 225 tokens added, then 100 modified, then typography and
+shadow keys twice more. Running it would have reverted a month of Figma token work on a live client registry. Brad
+chose components-only. **`push:all` does not push components anyway** — it covers config, theme, navigation, pages,
+tokens, DTCG, icons and logos; component contracts travel via `handoff-app push` → `POST /api/sync/upload`.
+
+Three things that made the push safe to run, all checked first rather than assumed:
+
+- **`handoff_recent_changes` shows no `component` events on the registry in 365 days.** A component push *replaces*
+  `properties` and `previews` (`sync-queries.ts` `onConflictDoUpdate`), so registry-contributed previews would have
+  been overwritten — there were none. All registry activity is patterns (UI/guest page builds), tokens and doc pages.
+- **`--components` bare still includes 60 pages.** Passing explicit ids makes the push *selective*, which drops pages
+  and patterns: `push --components <83 ids> --no-build` dry-ran as 83 components / 0 pages / 0 patterns. Note
+  `entries.components` in `handoff.config.js` is a list of **directories**, not ids, so ids come from the integration
+  folders.
+- **`--dry-run` needs no cloud token**, so the exact change set is inspectable before anything is sent.
+
+**`handoff/.handoff/sync-state.json` was stale — now repointed.** It read `remoteUrl: http://localhost:4002`,
+`lastSyncVersion: 3`, `lastSyncAt: 2026-06-06` with 3 fingerprints whose `relativePath`s still named
+`*.handoff.ts` files that no longer exist, against a remote at version 3129. A successful push does not update it,
+because **`run-push` never reads this file at all.**
+
+Set to exactly what `run-pull` writes for fresh state — `{remoteUrl: <live>, lastSyncVersion: 0, lastSyncAt: '',
+fingerprints: {}}`. Cursor **0** is the only honest value: it means "nothing has been pulled from this remote", so no
+registry change can be silently skipped. Hand-setting it to 3129 would declare the workspace current and permanently
+skip real remote content — the 16 registry patterns are not in the workspace at all, and 7 of its 67 pages are not
+local.
+
+`run-pull` would in fact have repointed itself (`if (state.remoteUrl !== baseUrl) { … lastSyncVersion = 0 }`), so this
+was pre-empting the CLI rather than fixing something it could not do.
+
+**Correction to the note above: push skipping has nothing to do with `sync-state.json`.** It is governed by
+`.handoff/.cache/build-cache.json` (3 entries, dated June 20). All 83 components re-uploaded because passing explicit
+`--components <ids>` makes the push **selective**, and `run-push` disables the skip-cache for selective pushes by
+design. A bare `handoff-app push` would consult the build cache — and would also sweep in 60 pages.
+
+**A `pull` from cursor 0 is safe but noisy:** the dry run reports 260 component entries and 60 pages (the feed replays
+every historical version), producing **180 conflicts across 60 unique pages**. Conflicts are parked under
+`.handoff/conflicts/` rather than overwriting local files, so nothing is lost — but it is 180 files to triage.
+
+Two pre-existing issues surfaced on the way, neither mine: `validate:schema` reports `blog` and `hero_split` as
+having no id/title/properties because it takes the **first** `.js` in the folder alphabetically
+(`handoff/build/validate-schema.js:65,71`) and both dirs contain a `*.client.js`; and the build's own validators
+report accessibility errors on ~10 components, unrelated to `rules`.
+
+---
+
+## 2026-08-11 — Inline editing didn't persist: the canvas draws Handlebars from a cached string
+
+Brad on the F.2 core: "The inline editing interface works great. The content doesn't persist." Both halves were
+true, and the cause is worth remembering because it will bite anything else that writes a block's args.
+
+**`constructComponentPreview` renders a Handlebars block from `component.rendered` — a cached HTML string
+(`Preview.tsx:359`) — and never re-renders it from `component.data`.** `rendered` is refreshed in exactly four
+places: on add, on load/bulk-add, on `EditContext.handleSave`, and in the brief's export. The F.2 commit path wrote
+`data` and skipped it. So: the record updated, autosave wrote the new value to the DB, the canvas rebuilt from the
+stale string, and the text snapped back the moment it was committed. It looked like nothing saved.
+
+**Rule of thumb: writing `data` without `rendered` is a no-op on screen for Handlebars.** The rail's `handleSave` had
+this right from the start; the inline path now does the same, with the reason recorded at the call site.
+
+Two things fell out of the fix.
+
+**`setAtArgsPath` is its own module now** (`lib/set-at-args-path.ts`, 12 tests). What an absent intermediate should
+become is the subtle part: `['items', 1, 'paragraph']` must create an **array**, not an object keyed `"1"`, or the
+write is accepted and saved and the template's `{{#each}}` never sees it. Silent success — the failure class Phase F
+exists to eliminate — and untestable while it lived inside a `useEffect`.
+
+**The canvas now keeps its scroll position across a rebuild.** Every commit replaces the whole `srcdoc`; there is no
+partial update, because a Handlebars block *is* a rendered string. That threw you to the top of the page on every
+edit — survivable from the rail, unusable when you are typing in the canvas. The frame is opaque-origin, so it can
+only be done from inside: the frame reports `scrollY` (coalesced to one message per animation frame), the parent keeps
+it in a **ref** (never state — this fires on every scrolled frame) and bakes it into the next rebuild. Two gotchas:
+
+1. **Restore twice** — once immediately, once after `load`. Images finishing changes the document height, and a
+   `scrollTo` past the height the document had a moment ago is silently clamped, landing you short.
+2. **Detect "the user moved" from input events, not from position.** A clamped restore also leaves `scrollY` far from
+   the target, so comparing offsets cannot distinguish "they scrolled away" from "the restore fell short". It watches
+   `wheel`/`touchstart`/`keydown`/`mousedown` instead.
+
+It lives in the **block-controls** script, not the inline-edit one, so rail edits keep their place too.
+
+981 tests, `tsc` clean, `next build` compiles. Still open in F.2: hover linking (the frame emits and accepts the
+messages, the rail consumes none), applying the reported document order in the rail, a visible commit/cancel
+affordance, and richtext/images.
+
+---
+
 ## 2026-08-05 (evening) — Invite-to-build QA: controls moved to the page; two items queued for tomorrow
 
 **Start here tomorrow: E.7 in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md`.** Two decisions from Brad, both already

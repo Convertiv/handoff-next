@@ -17,8 +17,11 @@
  *
  * Deliberately **not** included: any opinion about what a limit *should* be. Deciding that a title needs 110
  * characters requires the real corpus, which lives with whoever owns the content. This only reports
- * contradictions and the copy-paste signature.
+ * contradictions and the copy-paste signature. `content-length-plan.ts` holds the opinion, and this module borrows
+ * three predicates from it so the two cannot disagree about what a length rule even *is*.
  */
+
+import { isLengthRule, isReferenceField, roleFor } from './content-length-plan';
 
 export type LimitFindingCode =
   /** The component's own preview value is longer than the limit it declares. */
@@ -43,12 +46,11 @@ export interface LimitFinding {
 /** Enough fields sharing one rules block to be a pattern rather than a coincidence. */
 const DUPLICATE_THRESHOLD = 3;
 
-/** Property names that hold a URL, where a character cap is a mistake rather than a constraint. */
-const URLISH = /(^|[._])(url|href|link)([._]|$)/i;
-
 interface FlatProp {
   path: string;
   key: string;
+  /** Declared type, needed to tell a length rule from a row count or a numeric range. */
+  type: string;
   rules: Record<string, unknown>;
   /** The component's declared default, used as a fallback oracle when no preview covers this field. */
   declaredDefault: unknown;
@@ -64,7 +66,13 @@ function flattenRuled(properties: unknown, prefix: string[] = []): FlatProp[] {
     const path = [...prefix, key];
     const rules = prop.rules;
     if (rules && typeof rules === 'object' && !Array.isArray(rules)) {
-      out.push({ path: path.join('.'), key, rules: rules as Record<string, unknown>, declaredDefault: prop.default });
+      out.push({
+        path: path.join('.'),
+        key,
+        type: typeof prop.type === 'string' ? prop.type : '',
+        rules: rules as Record<string, unknown>,
+        declaredDefault: prop.default,
+      });
     }
     if (prop.properties) out.push(...flattenRuled(prop.properties, path));
     const items = prop.items as Record<string, unknown> | undefined;
@@ -130,7 +138,13 @@ export function auditContractLimits(input: {
     const { max, min } = limitsOf(prop.rules);
     if (max === undefined && min === undefined) continue;
 
-    if (max !== undefined && URLISH.test(prop.path)) {
+    /**
+     * A cap on a reference. `isReferenceField` is shared with `content-length-plan.ts` rather than re-implemented,
+     * and it carries the correction that matters here: a `text` field *named* `link` is a label, not a URL —
+     * SS&C's `menu.primary.*.mega.link` is "Bottom Link Text" with a real 25-character constraint. Matching the
+     * name alone reported it forever, and a report with permanent false positives stops being read.
+     */
+    if (max !== undefined && isReferenceField(prop.type, prop.path)) {
       findings.push({
         componentId,
         code: 'max-on-url',
@@ -168,17 +182,34 @@ export function auditContractLimits(input: {
    *
    * Advisory on its own — a genuinely shared constraint is possible — but it is what turns "this one limit is
    * wrong" into "this whole block was pasted down the property list", which is the thing worth fixing.
+   *
+   * **Two exclusions, both learned by running this after the SS&C limits were rationalized**, where it went from
+   * finding real paste damage to producing eight findings that were all correct-by-design:
+   *
+   * - **Row counts and numeric ranges are not in this game.** Three array fields sharing `{min: 1, max: 100}` is
+   *   three deliberate cardinality rules, not a paste.
+   * - **Fields whose shared cap is exactly their role's floor are deliberately consistent.** `menu` has six
+   *   `title`-role fields at 60 because a card title *should* be 60 everywhere; flagging that is flagging the fix.
+   *   A paste smell is fields of *different* roles sharing one number — a `title` and a `read_time` both at 25.
    */
-  const byBlock = new Map<string, string[]>();
+  const byBlock = new Map<string, FlatProp[]>();
   for (const prop of ruled) {
+    if (!isLengthRule(prop.type)) continue;
     const { max, min } = limitsOf(prop.rules);
     if (max === undefined && min === undefined) continue;
     const key = JSON.stringify({ max, min });
-    byBlock.set(key, [...(byBlock.get(key) ?? []), prop.path]);
+    byBlock.set(key, [...(byBlock.get(key) ?? []), prop]);
   }
-  for (const [key, fields] of byBlock) {
-    if (fields.length < DUPLICATE_THRESHOLD) continue;
+  for (const [key, props] of byBlock) {
+    if (props.length < DUPLICATE_THRESHOLD) continue;
+    const fields = props.map((p) => p.path);
     const { max, min } = JSON.parse(key) as { max?: number; min?: number };
+    // Every field's own role agrees on this number: consistency, not carelessness.
+    const roleAgrees = props.every((p) => {
+      const role = roleFor(p.key, p.path.includes('*'));
+      return role !== null && role.limit === max && min === undefined;
+    });
+    if (roleAgrees) continue;
     findings.push({
       componentId,
       code: 'duplicated-rules',

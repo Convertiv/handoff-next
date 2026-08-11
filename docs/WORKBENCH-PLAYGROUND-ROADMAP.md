@@ -679,6 +679,163 @@ the real limits without correcting them would have blocked 74% of the ALPS corpu
   declare limits and over half are wrong. Triage list handed to Brad; **correcting that data is a change in
   `ssc-handoff-next`, not here.**
 
+**`F.-1b` — the survey and the proposal, 2026-08-11. `lib/content-length-plan.ts` + `?plan=1`.**
+
+Brad asked to rationalize SS&C's limits and framed it as audit → best guess → refine, and to make the check
+standing rather than a one-off: *"bake this in as a health check on the sites that have explicit field definitions
+(eg not necessarily on react sites)"*. So the audit above keeps stating only facts, and a second module states an
+**opinion** with its reasoning attached — the non-goal recorded above is reversed on request, not abandoned by
+drift.
+
+**Scope needs no format check.** A React component's fields are inferred and carry no `rules`, so it contributes
+nothing and is counted separately (`inferredOnly`) rather than filtered out. A React component that *does* declare
+rules gets the same treatment, which is the behaviour worth having.
+
+**The survey — 83 components, 614 fields, 420 with a length rule** (source contracts, not the built `dist`):
+
+| | |
+|---|---|
+| `remove-rule` | **50** — a length rule on a reference: URL, icon, composite, config |
+| `not-a-length` | **78** — a row count or a numeric range; left exactly as authored |
+| `raise-max` | **195** — 36 evidence-driven (the cap rejects the component's own content), 159 role-driven |
+| `drop-min` | **84** |
+| `lower-max` | **7** |
+| `keep` | **6** |
+| `no-basis` | **0** — every field had a preview or a default to measure |
+
+**`min` is the real damage: 389 of 420 fields carry one.** A minimum length cannot prevent a layout break; it only
+rejects legitimately short copy ("Go", "Q1 2026", "APAC"). It exists because the scaffolding template shipped
+`{min: 5, max: 25}` and it was pasted down every property list — 80 fields carry that exact pair. Requiredness is
+`rules.required`, which is what anyone actually meant. Proposed for removal everywhere, no exceptions.
+
+**The guess is a role table** (`ROLE_LIMITS`, editable and meant to be argued with), floored by evidence: a proposal
+is never below `observed × 1.2` where the component already ships longer content, so **applying the plan cannot
+reject copy that renders today**. The role default is the opinion; the floor is the fact.
+
+**Two bugs the recommender only revealed when run over the real catalog** — both now pinned by tests:
+
+- **`menu.primary.*.mega.link` is a label, not a URL.** Typed `text`, named "Bottom Link Text", rendered as the
+  anchor's text (`template.hbs:149`) with a sibling `href` holding the URL. Matching `link` as a URL *name* stripped
+  a cap that is real, because that label sits in a fixed-width mega-menu footer. `link` is now handled by type, not
+  by name.
+- **Richtext must never be pulled in.** Its cap counts *markup*, so it is not comparable to a floor derived from
+  plain text, and the generous caps are usually deliberate — proposing 320 for `accordion.items.*.paragraph` (5000)
+  would have broken a multi-paragraph body whose real constraint is the component's own guidance, "avoid lengthy
+  body text, 3 paragraphs+". 26 richtext caps are flagged `countsMarkup` instead.
+
+**A live follow-on this exposed: E.9 enforcement counts markup too.** The rail's counter and the inline overlay both
+measure raw string length, so a richtext field spends 15 characters on `<b>Hi</b>`. The limit is enforced against
+the HTML, not the copy — worth fixing where richtext limits are enforced, not by changing the numbers.
+
+**One number to distrust: `blog_header.title` → 80.** That is the field that started this (177 of 240 ALPS titles
+exceeded its cap of 25), and a role floor cannot know a corpus — 80 clears every preview but may still be short for
+real ALPS headlines. Exactly the kind of thing the refine pass is for.
+
+Full per-field record, all 420 rows: `docs/SSC-CONTENT-LENGTH-PLAN.md`. 25 tests.
+
+**`F.-1c` — applied to `ssc-handoff-next`, 2026-08-11. 76 files, 342 fields, left uncommitted for review.**
+
+**Surgical edits, because the files are neither uniform nor JSON.** A wholesale re-serialize reflowed 81 of 83 —
+preview arrays hold hand-compacted one-line objects — and `bar_chart.js` writes its description as a **template
+literal**, so a JSON scanner cannot find the spans either. The applier parses each file with **acorn** and replaces
+only the `rules` object of each affected property, verified two ways: the span must `JSON.parse` back to the rules
+block the plan was computed from (a mismatch aborts that field), and the rewritten file must still parse as JS.
+Confirmed afterwards that the only non-`rules` lines in the diff were Brad's own pre-existing edits to `404.js` and
+`video.js`, which the run preserved.
+
+**⚠️ The third bug the real data caught, and the worst of the three: `content` is not always a length.** The plan as
+first written classified `array` and `number` as "not free text" and proposed deleting all **78** of their rules. On
+an `array`, `content` is a **row count** — `hero_split.breadcrumb` max 4, `menu.utilities` max 4,
+`blog_header.authors` max 2, `blog_header.tags` min 1 max 10 — and on a `number` it is a **value range**
+(`stats.items.*.duration` spans ±10,000,000). Every one of those reads as a deliberate decision. Nothing in the app
+enforces either today (`componentFieldRules` extracts `content` for all types; only `TextField` consumes it) but
+**unenforced is not meaningless** — deleting an author's stated intent because the runtime currently ignores it is how
+information gets lost. New `not-a-length` action: hands off entirely, minimum included.
+
+**Convergence, checked by re-running both tools over the rewritten contracts:**
+
+- The plan re-runs to **0** `raise-max` / `lower-max` / `drop-min` / `remove-rule` — 292 `keep`, 78 `not-a-length`.
+- `selfContradicting` **36 → 0**. Every cap now clears the component's own content.
+- The independent F.-1 audit goes **89 findings → 4**.
+
+**That 89 → 4 needed two audit fixes, both false-positive classes created by the rationalization itself** — and a
+report with permanent noise stops being read, which is the same lesson as the 107 → 14 render-audit pass:
+
+- **`max-on-url` reported `mega.link` forever.** Its URL detection matched the *name* `link`; the plan's corrected
+  rule matches the **type**. `isReferenceField` is now shared, so the two cannot disagree.
+- **`duplicated-rules` fired on deliberate consistency.** `menu` has six `title`-role fields at 60 because a card
+  title *should* be 60 everywhere — flagging that is flagging the fix. It now skips non-length types and skips any
+  block where every field's own role agrees on the number. A paste smell is fields of *different* roles sharing one
+  cap, which is exactly what the 4 survivors are.
+
+**Not rebuilt, deliberately.** `handoff/components/*/dist/*.json` is tracked and was already dirty from an earlier
+build; regenerating it would bury this diff. The registry gets these via `handoff-app push:all`.
+
+**`F.-1d` — the last 4 findings, pulled to their floors. 4 files, 10 fields. Audit now reports 0.**
+
+All twelve fields behind those findings **state their own purpose** in `name`/`description`, so the roles came from
+evidence rather than from the key: "Column 1 Label", "The search placeholder", "Title (Muted Line)", "Bottom Link
+Text", "This is the header of the card". Three names joined `ROLE_LIMITS` — `search` 40, `link` 32, `header` 80/60 —
+which is the durable half: the audit's `roleAgrees` check now recognises them, so these findings stay closed instead
+of reappearing.
+
+**Two of the ten moved *up*, not down**, and that is worth stating plainly because it reverses something recorded
+above. `menu.primary.*.mega.link` and `…menu.*.link` went 25 → 32. `F.-1b` defended their 25-character cap as real
+("a fixed-width mega-menu footer"), but that was an argument about whether the field is a URL, which is settled — it
+is a label. The cap *value* came from the same `{min: 1, max: 25}` paste that put six `title` fields in `menu` at 25,
+and the evidence agrees: "View all solutions" fills **18 of 25**, so the evidence floor alone (18 × 1.2 → 30) already
+exceeds it. `mega.card.header` went 25 → 60 as an in-row heading.
+
+**`filters.sort.*.sort` was left at 45 on purpose.** It holds `alp_asc` — a machine sort key, not copy — so neither
+a pull nor a raise means anything, and the honest options are "classify it as config and drop the rule" or "leave it".
+Left it, and the finding cleared anyway because the block of three broke up. Worth a decision later: `sort` is
+config wearing a `text` type, the same shape as `class`.
+
+`ROLE_LIMITS` adding `link: 32` is only safe because the reference check runs **first** — a `link`-*typed* field never
+reaches the role lookup, so the entry can only ever match a `text` field named `link`, which is exactly the label
+case. Two tests changed to record that, both deliberately.
+
+**Converged, checked with both tools:** F.-1 audit **0 findings**; the plan proposes **0** further changes (292
+`keep`, 78 `not-a-length`, `selfContradicting` 0).
+
+**`F.-1e` — rebuilt and pushed to the live registry, 2026-08-11.** 83 components rebuilt, `push --components <ids>
+--no-build` applied **83/83**; `ssc-handoff.vercel.app` went 3046 → 3129 sync events with counts unchanged at
+83 components / 16 patterns / 67 pages. Verified through the MCP rather than the exit code: `blog_header.title` is
+`{max: 80}` with no minimum, `tags` still `{min: 1, max: 10}` and `authors` still `{min: 1, max: 2}` (the row counts
+survived), the four `url`-typed fields carry `{required: true}` only, and `authors.*.image` keeps its `dimensions`
+rules untouched.
+
+**⚠️ `push:all` must not be run from this workspace as it stands.** Its `/api/registry/tokens` and `/api/registry/dtcg`
+steps send `public/api/tokens.json` (local: **June 7**) and `design-system/` (local: **June 17–18**), but the registry
+took a **figma-sync on 2026-07-17** — 225 tokens added, then 100 modified, then typography and shadow keys twice more.
+Pushing would revert a month of token work on a live client registry. It also **does not push components at all**:
+`push:all` is config, theme, navigation, pages, tokens, DTCG, icons, logos. Contracts travel via `push` →
+`POST /api/sync/upload`. Run `npm run fetch` first if the token push is ever wanted.
+
+**Two mechanics worth knowing for the next push.** A component push **replaces** `properties` *and* `previews`
+(`sync-queries.ts`, `onConflictDoUpdate`), so registry-contributed previews are at risk — check
+`handoff_recent_changes({entityType: 'component'})` first; here it was empty for 365 days. And `--components` with no
+ids still sweeps in **60 pages**; passing explicit ids makes the push selective (0 pages, 0 patterns). `--dry-run`
+needs no token, so the change set is always inspectable first.
+
+**Sync state repointed.** `handoff/.handoff/sync-state.json` read `remoteUrl: http://localhost:4002`,
+`lastSyncVersion: 3`, `lastSyncAt: 2026-06-06`, with 3 fingerprints naming `*.handoff.ts` files that no longer exist —
+against a remote at 3129. Now `{remoteUrl: https://ssc-handoff.vercel.app, lastSyncVersion: 0, lastSyncAt: '',
+fingerprints: {}}`, byte-for-byte what `run-pull` writes for fresh state.
+
+**Cursor 0 is the only honest value, and it stays there** (Brad, 2026-08-11: "Leave it at 0, I'll deal with the
+conflicts"). It means "nothing pulled from this remote", so no registry change can be silently skipped. Setting 3129
+would declare the workspace current and skip real content — the registry's 16 patterns are not in the workspace at
+all, and 7 of its 67 pages are not local. **Do not advance this cursor to quiet a noisy pull.** The noise is the
+known cost: a pull from 0 replays every historical version (260 component entries, 60 pages) and reports **180
+conflicts across 60 unique pages**. Conflicts are parked in `.handoff/conflicts/` rather than applied, so nothing is
+overwritten — they are Brad's to triage.
+`run-pull` would have done this repoint itself on the next pull (`state.remoteUrl !== baseUrl → lastSyncVersion = 0`).
+
+**Correction:** push skipping is **not** governed by `sync-state.json` — `run-push` never reads it. It uses
+`.handoff/.cache/build-cache.json`. All 83 re-uploaded because explicit `--components <ids>` makes the push
+**selective**, and selective pushes disable the skip-cache by design.
+
 **`F.-1` shape half done 2026-08-10 — `lib/contract-render-audit.ts`.**
 
 **It does not render React, and says so.** `constructComponentPreview` emits a props script plus a client-side
@@ -901,6 +1058,30 @@ resolved, overlay seeded with the current value, counter turning at the limit (`
 cancelling without a commit, Enter committing a single-line field, an **empty slot still clickable** (the range rect
 is zero, so it falls back to the parent box), and a repeater row committing as `items.paragraph:1` — the index
 surviving into the args path, which is the join that has to be right. 25 tests on the pure parts.
+
+**⚠️ The bug that first real use caught: a committed edit did not stick** (Brad, 2026-08-11 — "the UI works the way
+we had hoped", but "the content doesn't persist"). The commit was writing `data` and *only* `data`.
+`constructComponentPreview` draws a Handlebars block from **`component.rendered`, a cached HTML string**, and never
+re-renders it from `data` — so the commit updated the record, autosave saved it, and the canvas was then rebuilt from
+the stale string. The text snapped back the instant it was committed, which reads exactly like "it didn't save".
+`EditContext.handleSave` had always refreshed `rendered` for the rail; the inline path now does the same thing for
+the same reason, and the comment at the commit site says why so it cannot be dropped again.
+
+Two things came out of fixing it:
+
+- **`setAtArgsPath` is now its own tested module** (`lib/set-at-args-path.ts`, 12 tests). The subtle part is what an
+  absent intermediate becomes: `['items', 1, 'paragraph']` has to create an **array**, not an object keyed `"1"`, or
+  the value lands where the template's `{{#each}}` never looks and the edit is accepted, saved and invisible. That
+  is exactly the silent-success failure this phase exists to stop, and it is not testable inside a `useEffect`.
+- **The canvas keeps its scroll position across a rebuild.** Every commit replaces the whole `srcdoc` — there is no
+  partial update, because a Handlebars block *is* a rendered string — so each edit threw you back to the top of the
+  page. Tolerable while edits came from the rail; unusable when you are editing text in the canvas. The frame is
+  opaque-origin, so the frame reports its scroll offset (coalesced to one message per frame) and the parent hands it
+  back on rebuild. Restored twice — once immediately, once after `load`, because images finishing changes the
+  document height and a scroll set past the old height is silently clamped — and abandoned if *input* events say you
+  moved yourself. Position alone can't tell "user scrolled away" from "restore fell short", which is why it watches
+  `wheel`/`touchstart`/`keydown`/`mousedown` instead of comparing offsets. This lives in the **block-controls**
+  script rather than the inline-edit one, so rail edits keep their place too.
 
 **Still to do in F.2:**
 - **Hover linking is half-wired.** The frame emits `playground-field-hover` / `playground-field-focus` and accepts

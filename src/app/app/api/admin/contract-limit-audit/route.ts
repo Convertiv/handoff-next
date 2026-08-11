@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { getDataProvider } from '@/lib/data';
 import { auditContractLimits, type LimitFinding } from '@/lib/contract-limit-audit';
+import { contentLengthPlan, summarizePlan, type PlanEntry } from '@/lib/content-length-plan';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,17 @@ export const maxDuration = 120;
  * `field-bridge-audit`, which this deliberately mirrors: session first so it runs from a logged-in browser
  * without fetching a deployment secret, bearer for CI.
  *
- * Query params: `?component=blog_header` for one, `?code=preview-exceeds-max` to filter, `?limit=200`.
+ * **`?plan=1` adds the proposal** (`lib/content-length-plan.ts`): what each limit should become, and why. The
+ * audit half states only facts and stays that way; the plan half states an opinion, asked for explicitly (Brad,
+ * 2026-08-11 — "step 2 is to have you take a best guess at length changes, and then I'll refine"). Keeping them in
+ * one endpoint means the proposal is always read next to the evidence it was derived from.
+ *
+ * **Scope is "contracts that declare limits", which is Handlebars in practice.** A React component's fields are
+ * inferred and carry no `rules`, so it contributes nothing and is counted separately rather than filtered by
+ * format — a React component that *does* declare rules deserves the same check.
+ *
+ * Query params: `?component=blog_header` for one, `?code=preview-exceeds-max` to filter, `?limit=200`,
+ * `?plan=1` for the proposal, `?action=raise-max` to filter it.
  */
 export async function GET(request: NextRequest): Promise<Response> {
   const { auth } = await import('@/lib/auth');
@@ -51,13 +62,17 @@ export async function GET(request: NextRequest): Promise<Response> {
   const only = url.searchParams.get('component')?.trim() || '';
   const codeFilter = url.searchParams.get('code')?.trim() || '';
   const limit = Math.min(Number(url.searchParams.get('limit')) || 200, 2000);
+  const wantPlan = url.searchParams.get('plan') === '1';
+  const actionFilter = url.searchParams.get('action')?.trim() || '';
 
   const provider = getDataProvider();
   const list = await provider.getComponents();
 
   const findings: LimitFinding[] = [];
+  const plan: PlanEntry[] = [];
   let scanned = 0;
   let declaringLimits = 0;
+  let inferredOnly = 0;
 
   for (const row of list) {
     const id = String((row as { id?: unknown }).id ?? '');
@@ -70,16 +85,25 @@ export async function GET(request: NextRequest): Promise<Response> {
     const found = auditContractLimits({ componentId: id, properties: comp.properties, previews: comp.previews });
     // Counted from the contract, not from findings — "declares limits and is fine" is a distinct, useful number.
     if (JSON.stringify(comp.properties ?? {}).includes('"content"')) declaringLimits += 1;
+    else inferredOnly += 1;
     findings.push(...found);
+
+    if (wantPlan) {
+      plan.push(...contentLengthPlan({ componentId: id, properties: comp.properties, previews: comp.previews }));
+    }
   }
 
   const filtered = codeFilter ? findings.filter((f) => f.code === codeFilter) : findings;
   const byCode: Record<string, number> = {};
   for (const f of findings) byCode[f.code] = (byCode[f.code] ?? 0) + 1;
 
+  const planned = actionFilter ? plan.filter((e) => e.action === actionFilter) : plan;
+
   return NextResponse.json({
     scanned,
     declaringLimits,
+    /** Components with no declared limits — inferred fields, i.e. React. Out of scope rather than passing. */
+    inferredOnly,
     componentsWithFindings: new Set(findings.map((f) => f.componentId)).size,
     byCode,
     /**
@@ -90,5 +114,12 @@ export async function GET(request: NextRequest): Promise<Response> {
     total: findings.length,
     returned: Math.min(filtered.length, limit),
     findings: filtered.slice(0, limit),
+    ...(wantPlan
+      ? {
+          planSummary: summarizePlan(plan),
+          planReturned: Math.min(planned.length, limit),
+          plan: planned.slice(0, limit),
+        }
+      : {}),
   });
 }

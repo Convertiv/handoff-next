@@ -244,8 +244,14 @@ const BLOCK_CONTROLS_CSS = `
  * Used by the read-only-structure surfaces (roadmap E.5): a guest filling in a template, and a frozen
  * template being viewed. They still need to click a block to edit its content — they must not be able to
  * remove it, and offering a control that will be refused is worse than not offering it.
+ *
+ * @param restoreScrollY Where the canvas was scrolled to before this document replaced the last one. Every
+ *   committed edit rebuilds the whole `srcdoc` — there is no partial update, because a Handlebars block is a
+ *   rendered HTML string — so without this the page jumps to the top on each change. Tolerable while edits came
+ *   from the rail; unusable once you are editing text in the canvas itself (roadmap F.2). The parent cannot read
+ *   the frame's scroll position (opaque origin), so the frame reports it and the parent hands it back on rebuild.
  */
-function getBlockControlsScript(allowDelete = true): string {
+function getBlockControlsScript(allowDelete = true, restoreScrollY = 0): string {
   const editSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>';
   const trashSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>';
 
@@ -279,6 +285,40 @@ function getBlockControlsScript(allowDelete = true): string {
     if(!target)return;
     target.scrollIntoView({behavior:'smooth',block:'start'});
   });
+
+  // Where we are in the page, reported so the next rebuild can put us back. Coalesced to one message per frame:
+  // scroll fires far faster than the parent needs, and the parent only ever keeps the latest.
+  var pending=false;
+  window.addEventListener('scroll',function(){
+    if(pending)return;
+    pending=true;
+    requestAnimationFrame(function(){
+      pending=false;
+      window.parent.postMessage({type:'playground-scroll',y:window.scrollY},'*');
+    });
+  },{passive:true});
+
+  ${
+    restoreScrollY > 0
+      ? `
+  // Restored twice on purpose: once now, when stylesheets have applied and the layout is broadly right, and again
+  // after \`load\`, because images finishing changes the document height — a scroll set past the height the document
+  // had a moment ago is silently clamped, landing you short of where you were.
+  //
+  // The retry is abandoned if you moved yourself, detected from *input* events rather than by comparing scroll
+  // positions: a clamped restore also leaves \`scrollY\` far from the target, so position alone cannot tell
+  // "the user scrolled away" from "the restore did not reach".
+  var restoreY=${Math.round(restoreScrollY)};
+  var userMoved=false;
+  ['wheel','touchstart','keydown','mousedown'].forEach(function(t){
+    window.addEventListener(t,function(){userMoved=true;},{passive:true,once:true});
+  });
+  window.scrollTo(0,restoreY);
+  window.addEventListener('load',function(){
+    if(!userMoved) window.scrollTo(0,restoreY);
+  });`
+      : ''
+  }
 })();
 `;
 }
@@ -301,6 +341,11 @@ export async function constructComponentPreview(
      * for the two shapes that made a whitelist necessary rather than optional.
      */
     editableFields?: string[];
+    /**
+     * Scroll offset to land at, from the frame's own last report. Passed on a rebuild so a committed edit does
+     * not send the reader back to the top of the page — see `getBlockControlsScript`.
+     */
+    restoreScrollY?: number;
   }
 ): Promise<string> {
   let bodyInner = '';
@@ -379,7 +424,7 @@ export async function constructComponentPreview(
 
   const controlsStyle = injectControls ? `<style>${BLOCK_CONTROLS_CSS}</style>` : '';
   const controlsScript = injectControls
-    ? `<script>${getBlockControlsScript(options?.allowDelete ?? true)}</script>`
+    ? `<script>${getBlockControlsScript(options?.allowDelete ?? true, options?.restoreScrollY ?? 0)}</script>`
     : '';
   const inlineEditStyle = options?.inlineEdit ? `<style>${INLINE_EDIT_CSS}</style>` : '';
   // After the controls script, so its click handler is registered first and the field handler can stop the
