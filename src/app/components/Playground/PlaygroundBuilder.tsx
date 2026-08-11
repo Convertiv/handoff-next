@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Button } from '../ui/button';
@@ -39,6 +39,8 @@ import { useRouter } from 'next/navigation';
 import { handoffApiUrl } from '@/lib/api-path';
 import InviteWizard from './InviteWizard';
 import MetaControl from '../library/MetaControl';
+import { fieldIdToArgsPath, textEditableFieldPaths } from '@/lib/field-marks';
+import { resolveFieldGuardrail } from '@/lib/authoring-guardrails';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
 import type { PlaygroundPageExport, SelectedPlaygroundComponent } from './types';
@@ -169,6 +171,7 @@ export default function PlaygroundBuilder({
     structuralEditing,
     aiAssistantEnabled,
     contentOnly,
+    guardrails,
   } = usePlayground();
 
   const [html, setHtml] = useState('');
@@ -184,6 +187,38 @@ export default function PlaygroundBuilder({
   // intent and shouldn't have the preview narrowed for it.
   const [aiPanelOpen, setAiPanelOpen] = useState(() => aiAssistantEnabled && !editingPatternId);
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
+
+  /**
+   * The `maxLength` in force per field path, for the overlay's counter.
+   *
+   * Resolved through `resolveFieldGuardrail` so the number in the canvas is the number the rail shows and the
+   * server enforces — three places agreeing because they share one resolver, not because they were kept in step.
+   * Keyed without a row index: one rule covers every row of a repeater.
+   */
+  const inlineFieldLimits = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const path of Object.keys(guardrails.fields ?? {})) {
+      const max = resolveFieldGuardrail(guardrails, path).maxLength;
+      if (max) out[path] = max;
+    }
+    return out;
+  }, [guardrails]);
+
+  /**
+   * Which field paths a text overlay may edit, unioned across the blocks on the canvas.
+   *
+   * Derived from each component's own contract, because the frame cannot know a declared type — and getting this
+   * wrong is not cosmetic: a field wrapping a repeater reads back as its rows concatenated, and committing that
+   * writes a string over an array. Union rather than per-block because the frame keys on the field path, and two
+   * blocks sharing a path share a type in practice.
+   */
+  const inlineEditableFields = useMemo(() => {
+    const out = new Set<string>();
+    for (const c of selectedComponents) {
+      for (const path of textEditableFieldPaths((c as { properties?: unknown }).properties)) out.add(path);
+    }
+    return [...out];
+  }, [selectedComponents]);
 
   const [duplicating, setDuplicating] = useState(false);
 
@@ -256,6 +291,14 @@ export default function PlaygroundBuilder({
         injectBlockControls: canvasControls,
         // Edit yes, remove no, when the structure is fixed (roadmap E.5).
         allowDelete: structuralEditing && canvasControls,
+        /**
+         * Inline editing rides on the same flag as the block controls: both mean "this canvas is editable".
+         * A React block carries no `{{#field}}` marks, so the script finds nothing and returns — no branch
+         * needed, and no half-working affordance on a surface that cannot support it.
+         */
+        inlineEdit: canvasControls,
+        fieldLimits: inlineFieldLimits,
+        editableFields: inlineEditableFields,
       });
       setHtml(result);
       setLoadingHtml(false);
@@ -273,11 +316,49 @@ export default function PlaygroundBuilder({
           // Gated here as well as in the injected script: the iframe's messages are input, not instructions.
           removeComponent(blockId);
         }
+        return;
+      }
+
+      /**
+       * An inline edit committed in the canvas (roadmap F.2).
+       *
+       * Applied through the same `updateComponent` the rail writes with, so an inline edit is indistinguishable
+       * downstream — autosave, guardrails and the audit all see an ordinary value change. The frame reports a
+       * *mark id*; `fieldIdToArgsPath` turns it into the path the data actually uses, which is the join that has
+       * to be right or an edit writes somewhere nothing renders.
+       *
+       * Re-gated here: a message from the frame is input, not an instruction. Nothing is applied on a surface
+       * that is not offering inline editing in the first place.
+       */
+      if (event.data?.type === 'playground-field-commit' && canvasControls) {
+        const { blockId, fieldId, value } = event.data as { blockId?: string; fieldId?: string; value?: unknown };
+        if (!blockId || !fieldId || typeof value !== 'string') return;
+        const block = selectedComponents.find((c) => c.uniqueId === blockId);
+        if (!block) return;
+
+        const path = fieldIdToArgsPath(fieldId);
+        if (!path.length) return;
+
+        // Cloned rather than mutated: the canvas re-renders from this object, and mutating it in place would
+        // leave React with no reason to believe anything changed.
+        const nextData = structuredClone(block.data ?? {}) as Record<string, unknown>;
+        let cursor: Record<string, unknown> | unknown[] = nextData;
+        for (let i = 0; i < path.length - 1; i += 1) {
+          const key = path[i];
+          const next = (cursor as Record<string | number, unknown>)[key];
+          // A missing intermediate is created to match the *next* segment's kind, so a row index makes an array.
+          if (next === undefined || next === null || typeof next !== 'object') {
+            (cursor as Record<string | number, unknown>)[key] = typeof path[i + 1] === 'number' ? [] : {};
+          }
+          cursor = (cursor as Record<string | number, unknown>)[key] as Record<string, unknown>;
+        }
+        (cursor as Record<string | number, unknown>)[path[path.length - 1]] = value;
+        updateComponent({ ...block, data: nextData });
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [setActiveComponentId, removeComponent, structuralEditing]);
+  }, [setActiveComponentId, removeComponent, structuralEditing, canvasControls, selectedComponents, updateComponent]);
 
   /**
    * Loading and failure keep the left panel, when there is one.

@@ -642,9 +642,9 @@ worse — reach `RawJsonField`, a raw JSON editor over the block args that bypas
 
 1. **The tracer's blind spot stops mattering where it counts.** F.2 traces text and images and deliberately
    refuses enums/booleans/numbers. With config locked, the traceable set *is* the guest-editable set — so inline
-   editing has no hole on the surface it is aimed at. This alignment is the reason to sequence F around F.3.
-2. **F.1 becomes internal-only.** "Render the options instead of naming them" is about picking an enum by sight,
-   and guests no longer see enums. Real value, but for us — so it drops below F.3/F.4.
+   editing has no hole on the surface it is aimed at, on the registries that need a tracer at all.
+2. **"Render the options" becomes internal-only.** Picking an enum by sight is real value, but guests no longer
+   see enums — so it drops to **F.5**.
 
 **And it raises the stakes on the capture bug rather than lowering them.** F.3 is the first phase that *writes*;
 19% of stored preview values on 38 of 76 components are serialized render output, which feeds back either
@@ -768,17 +768,10 @@ Two details worth keeping:
 no field it would write into and silently lose. The remaining F.3 prerequisites are its own (tracer coverage from
 F.2, and the in-frame overlay), not data.
 
-**Revised order:** `F.-1` (assert harness + capture repair) → `F.2` (tracer, measure coverage) → `F.3` (inline,
-guest-first) → `F.4` (annotations — the fallback rail is all an untraced field gets) → `F.0`/`F.1` (internal
-polish).
-
-**One design refinement for F.3.** The note implies a parent-side overlay positioned over the traced node's
-bounding box. The iframe channel today carries only `playground-block-action` out and `playground-scroll-to-block`
-in — **no geometry at all** — and the frame is opaque-origin, so the parent cannot measure; the frame must report.
-If the frame is measuring anyway, and already receives injected script and CSS for block controls, then **put the
-overlay inside the frame**: no rect protocol, no scroll/resize/font-load invalidation, no drift, and the parent
-only receives value changes. That removes the most fragile part of F.3 — which matters most on a guest's unknown
-device, where it cannot be debugged.
+⚠️ **The order this section originally proposed is superseded** — it read `F.-1 → F.2 (tracer) → F.3 (inline)`,
+which put the sentinel tracer first and gated inline editing on its coverage number. See **"two engines, two
+mechanisms"** below: Handlebars needs no tracer, so it goes first, and the tracer becomes an extension rather
+than the foundation. The in-frame overlay refinement that was recorded here is now part of **F.2**.
 
 **Known weak point of the config lock:** config declared as a bare string is invisible to a type check.
 `hero-split` declares `theme`/`layout`/`direction` as `enum` (locked correctly) but `anchor` and `imageTheme` as
@@ -794,40 +787,169 @@ schema order with patchy help text; block-builder parameters (`light`/`dark`, `l
 be explained by a label as well as by being *seen*; and the form is visually rough. Constraint throughout:
 components stay arbitrary production React/Handlebars — **no Handoff authoring sauce may be required.**
 
-**The reframe.** Don't detect props in the DOM (intractable on arbitrary code). **Mark the values before
-render and find the marks after** — the component's own render is the oracle. Zero-width sentinels for text,
-a `?__hf=` query param for URLs, and deliberately *no* tracing of enums/booleans/numbers (a sentinel there
-corrupts a class name or flips a branch). This is `slot-probe.ts`'s existing technique extended to record
-*where* the sentinel landed. The exclusion is the design, not a limitation: tracing works on exactly the
-props worth editing inline and fails on exactly the props where inline editing is meaningless — so the
-surface is a hybrid, **content inline on the canvas, configuration as rendered choices in chrome.**
+### The mechanism: **two engines, two mechanisms** — corrected 2026-08-10
 
-- **F.0 — the unglamorous pass.** Styling/layout/grouping; wire up `SlotMetadata.rules` (modelled, only
-  `ImageField` reads it) and `SlotCapability.threw` as validation; undo/redo + per-field revert; surface
-  `previews` as a *start from* strip (today only the first one is used, to seed data). Most of the felt
-  improvement, no new machinery.
-- **F.1 — render the options instead of naming them.** Miniature renders per enum/boolean value, pick by
-  sight. The direct fix for the opaque-parameter complaint, needs no tracer, machinery already exists
-  (`m.update(props)`). Vary one prop at a time; two enums crossed is a matrix, not a picker.
-- **F.2 — the tracer, consumed for orientation only.** Bidirectional hover linking (panel ⇄ canvas),
-  automatic field ordering by document position (the real fix for "fields come in the order they come in"),
-  and dead-prop/impact detection for free ranking. Every consumer degrades to *nothing* when a trace is
-  missing. **This is where coverage gets measured** — expect 60–80% of text/image props.
-- **F.3 — inline overlay editing.** Absolutely-positioned overlay over the traced node's bounding box,
-  never `contenteditable` on the component's own node (React reconciliation eats it; see the caret-loss note
-  in `RichTextField.tsx`). Identical path for React and Handlebars.
-- **F.4 — LLM-populated field annotations** (parallel). `FieldAnnotation` was built for hand-authored
-  labels/help/groups and nobody hand-authors them. Generate at build time from source + screenshot into a
-  checked-in, editable artifact. Biggest lever on missing help text; asks authors for nothing; docgen already
-  carries TSDoc into `description` so generation only fills gaps.
+> "our goal when we speced phase F was to make this in line editing work both for the react components
+> (inference plus field bridge) and handlebars (field wrappers)." — Brad
 
-⚠️ **F.3 has a hard prerequisite outside this phase:** `field-lens.ts` documents that stored preview values
-are serialized render *output, not input props*, and the fix is repairing capture. F.3 is the first phase
-that writes, so it inherits that bug; F.0–F.2 only read and are unblocked.
+**The original spec unified them and that was a mistake.** It chose sentinel tracing for both engines, on the
+grounds that the path is then "identical for React and Handlebars", and demoted the Handlebars `field` helper to
+"a useful cross-check while validating the tracer". Two objections were given: the helper requires template
+authoring, and it has array-index ambiguity. Both are weaker than they look:
 
-**The trap to avoid:** building the tracer *for* inline editing. Build it for hover-linking and ordering,
-where partial coverage is a win and absence is invisible, and let F.3 be the payoff if the measured numbers
-earn it.
+- **The authoring cost is already paid.** The build-time helper at `src/transformers/utils/handlebars.ts:41`
+  already emits `<span class="handoff-field…" data-handoff-field="title" data-handoff="…descriptor JSON…">`, and
+  SS&C's templates already use `{{#field}}` throughout — 72 of 83 components have a template, and the contract
+  audit reads `{{#field 'title'}}`, `{{#field "items.title"}}`, `{{#field 'author.linked_in'}}` out of them. This
+  is an asset already in the repo, not a cost to impose.
+- **The real blocker is three lines.** The *playground's* copy of the helper is stubbed to a pass-through
+  (`Preview.tsx:16` — `return options.fn(this)`), so playground previews emit no wrappers at all. The spec
+  treated that as a reason to sidestep the helper rather than as a fix.
+- **Index ambiguity is tractable.** The wrapper is emitted *inside* the `{{#each}}`, so the Nth occurrence in
+  document order is the Nth item — and the helper can carry `@index` besides.
+
+**So the mechanisms split by engine, and the sequence follows:**
+
+| Engine | Mechanism | Coverage | Registries |
+|---|---|---|---|
+| **Handlebars** | the existing `{{#field}}` wrapper, un-stubbed | deterministic, ~total | SS&C, Cynosure |
+| **React** | sentinel tracing (mark before render, find the marks after) | inferred, 60–80% of text/image props | 8x8 |
+
+**Handlebars goes first.** It is the smaller change, it has no coverage question, and it puts a working inline
+editor in front of users on two of three registries. It also lets the *overlay* half of F.3 — geometry, in-frame
+editing, writing back — be built and debugged against **reliable** marks, so when the tracer lands the only new
+variable is the tracer.
+
+⚠️ **A correction to how this phase was being sequenced.** "60–80% coverage" is a *sentinel* number, and it was
+being quoted as the gate on F.3 generally. It is not: for Handlebars the mapping is exact. A React constraint had
+become a Phase F constraint.
+
+**What survives from the original reframe, unchanged.** For React, don't detect props in the DOM — that is
+reverse-engineering an arbitrary render. **Mark the values before render and find the marks after**; the
+component's own render is the oracle. Zero-width sentinels for text, a `?__hf=` query param for URLs, and
+deliberately **no** tracing of enums/booleans/numbers (a sentinel there corrupts a class name or flips a branch).
+That exclusion is the design: tracing works on exactly the props worth editing inline and fails on exactly the
+ones where inline editing is meaningless — so the surface is a hybrid, **content inline on the canvas,
+configuration as rendered choices in chrome.** With invites now locking config, the traceable set *is* the
+guest-editable set.
+
+---
+
+### F.1 — Playground `field` helper marks — ✅ SHIPPED 2026-08-10
+
+`lib/field-marks.ts`. Deterministic node↔field mapping, no inference, no coverage question. **Verified against the
+real thing: all 72 SS&C templates compile, 70 emit marks, 551 marks total, 361 carrying a row index.**
+
+**Comment pairs, not the `<span>` wrapper the build-time helper uses.** That wrapper is fine for the
+`-inspect.html` debug artifacts it serves; it is not fine in the live canvas. Measured across those templates,
+**26 of 292 field blocks wrap block-level content** — `footer.submenu` wraps `<li>`, `hero_video.breadcrumb` wraps
+`<ul>` — and a `<span>` there is invalid nesting the browser reparents, breaking the layout *and* the association
+the mark exists to create. A comment pair is valid anywhere, invisible to layout and CSS, cannot be reparented,
+and yields an exact **node range** rather than a guess at "the next sibling" — which is what
+`Range.getBoundingClientRect()` needs for the overlay. (Also checked before committing to comments: `{{#field}}`
+never appears inside an HTML attribute in those templates, where a comment would corrupt the value instead.)
+
+Format is `<!--hf:field:index-->…<!--/hf:field:index-->` — **name and row index only** (Brad: "just the field name
+and index seems like plenty"); the descriptor is already in the editor's hands, so carrying it would be a second
+copy to keep in sync. `@index` comes from `options.data.index`, which is what disambiguates `items.title` across
+rows — the ambiguity that made annotation-only mapping look unworkable.
+
+**Writer, reader and tests share one module**, because a wire format with three participants is how formats drift,
+and a mismatch here fails *silently* — the editor just finds nothing. 12 tests.
+
+Two things the tests caught: the parser must **recurse**, since `{{#field "items"}}` wraps `{{#field "items.title"}}`
+on `accordion` and a single `matchAll` pass consumes the outer body and hides every field inside a repeater; and
+`FIELD_MARK_RE` is global and therefore stateful, so recursion needs its own instance. Note the string parser is
+for build-time checks and tests — **in the browser the editor walks comment nodes via `TreeWalker`**, where nesting
+is not a problem because the nodes are flat siblings.
+
+### F.2 — The editing surface, on Handlebars marks — 🔄 CORE SHIPPED 2026-08-10
+
+`components/Playground/inline-edit-script.ts` (in-frame) + the commit path in `PlaygroundBuilder`. Click a marked
+field in the canvas, edit it in an overlay, commit; the value goes through the **same `updateComponent` the rail
+writes with**, so autosave, guardrails and the audits see an ordinary change.
+
+**In-frame, as the design note specified.** The frame is opaque-origin so the parent cannot measure it; the overlay
+lives inside the frame, which removes the rect protocol, scroll/resize/font-load invalidation and all drift. The
+iframe channel still carries no geometry and never needs to.
+
+**Never `contenteditable` on the component's own node** — a plain `<textarea>` positioned over the field's box.
+Verified the component node is untouched while editing.
+
+**The guardrail counter travels with it**, resolved through `resolveFieldGuardrail`, so the canvas shows the number
+the rail shows and the server enforces — three places agreeing because they share a resolver.
+
+**Field order comes free.** The frame reports marks in document order (`playground-fields`), which is the answer to
+"fields come in the order they come in" with no inference at all.
+
+**⚠️ The bug that testing caught, and the whitelist it forced.** Driving the overlay over real template output
+showed two shapes where seeding from the marked range's *text* is wrong:
+
+- **A field wrapping a repeater.** `footer.menu` wraps `<li>Privacy</li><li>Terms</li>`; the range reads back
+  `"PrivacyTerms"`, and committing that writes a **string over an array of objects** — silent corruption of exactly
+  the kind this phase exists to prevent.
+- **Richtext.** `<strong>One</strong> unified system.` reads back as `One unified system.`, so a commit quietly
+  strips the markup.
+
+So the parent now derives a whitelist from each component's contract (`textEditableFieldPaths` — `text`/`string`
+only) and the frame gives **no hit area at all** to anything else. Confirmed: 4 affordances instead of 6, and
+clicking the `<ul>` or the richtext paragraph opens nothing. **Richtext stays in the rail**, which has the
+formatting controls, until the overlay can carry markup rather than text.
+
+**Verified** against real `{{#field}}` output driven in a browser: marks found in document order with block ids
+resolved, overlay seeded with the current value, counter turning at the limit (`items.paragraph:1  10/12`), Escape
+cancelling without a commit, Enter committing a single-line field, an **empty slot still clickable** (the range rect
+is zero, so it falls back to the parent box), and a repeater row committing as `items.paragraph:1` — the index
+surviving into the args path, which is the join that has to be right. 25 tests on the pure parts.
+
+**Still to do in F.2:**
+- **Hover linking is half-wired.** The frame emits `playground-field-hover` / `playground-field-focus` and accepts
+  `playground-highlight-field` / `playground-edit-field`, but the rail consumes none of it yet — panel → canvas and
+  canvas → panel highlighting both need a rail change.
+- **Ordering is reported, not applied.** `playground-fields` arrives; the rail still sorts by schema order.
+- **No visible commit/cancel control.** Escape cancels and blur/Enter commits, which is discoverable for a text
+  field but unstated. Worth a small affordance on the overlay.
+- **Richtext and images**, per above.
+
+### F.3 — The React sentinel tracer
+
+Extend `slot-probe.ts`'s existing sentinel technique to record *where* each mark landed. **This is where coverage
+gets measured.** Consume it through the same F.2 surface, so a missing trace degrades to *nothing* rather than to
+a broken affordance.
+
+**The trap to avoid:** building the tracer *for* inline editing. Build it for hover-linking and ordering, where
+partial coverage is a win and absence is invisible, and let inline editing on React be the payoff if the measured
+numbers earn it. Handlebars users are not waiting on that number.
+
+### F.4 — LLM-populated field annotations (parallel)
+
+`FieldAnnotation` was built for hand-authored labels/help/groups and nobody hand-authors them. Generate at build
+time from source + screenshot into a checked-in, editable artifact. Biggest lever on missing help text; asks
+authors for nothing; docgen already carries TSDoc into `description`, so generation only fills gaps. **Worth
+doing after guest testing**, because guest confusion is the evidence for which fields actually need help.
+
+Also the home for the **config-lock name heuristic**: `content-only.ts` guesses at config declared as a bare
+string (`anchor`, `*Theme`) because nothing declares config-ness. An annotation could, and then the guess goes.
+
+### F.5 — Render the options instead of naming them (internal)
+
+Miniature renders per enum/boolean value, pick by sight. The direct fix for the opaque-parameter complaint, needs
+no tracer, machinery already exists (`m.update(props)`). Vary one prop at a time — two enums crossed is a matrix,
+not a picker. **Internal-only now**: invites lock config, so guests never see an enum.
+
+### F.6 — The unglamorous pass (internal)
+
+Styling/layout/grouping; wire up `SlotMetadata.rules` (modelled, only `ImageField` reads it) and
+`SlotCapability.threw` as validation; undo/redo + per-field revert; surface `previews` as a *start from* strip
+(today only the first is used, to seed data). Most of the felt improvement for internal authors, no new
+machinery — but it grooms the rail, and F.2 may change what the rail is *for*, so it comes after.
+
+---
+
+**Prerequisites: both cleared.** `F.-1` closed the capture bug that gated any phase which *writes* — unfeedable
+preview values went 86 → 0 on 8x8, normalised at the sync boundary. Nothing in the catalog is now a field inline
+editing would write into and silently lose. The config lock shipped too, which is what makes the traceable set and
+the guest-editable set the same thing.
 
 ## Phase D — Outbound export (ship assets to Jira / Asana / CMS / Figma)
 

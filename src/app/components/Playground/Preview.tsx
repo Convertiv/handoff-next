@@ -4,6 +4,8 @@ import React, { useRef } from 'react';
 import { cn } from '../../lib/utils';
 
 import Handlebars from 'handlebars';
+import { registerFieldMarkHelper } from '@/lib/field-marks';
+import { INLINE_EDIT_CSS, inlineEditScript } from './inline-edit-script';
 import { PlaygroundComponent, SelectedPlaygroundComponent } from './types';
 
 /**
@@ -13,9 +15,9 @@ import { PlaygroundComponent, SelectedPlaygroundComponent } from './types';
  * Called before every Handlebars compile to guarantee parity.
  */
 function registerPlaygroundHelpers() {
-  Handlebars.registerHelper('field', function (this: any, _field: string, options: Handlebars.HelperOptions) {
-    return options.fn(this);
-  });
+  // `{{#field 'name'}}` marks where a field renders, for inline editing (roadmap F.1). The mark format lives in
+  // `lib/field-marks.ts` because the editor has to read back exactly what this writes.
+  registerFieldMarkHelper(Handlebars);
 
   Handlebars.registerHelper('eq', function (a: any, b: any) {
     return a === b;
@@ -284,7 +286,22 @@ function getBlockControlsScript(allowDelete = true): string {
 export async function constructComponentPreview(
   components: SelectedPlaygroundComponent[],
   basePath: string = '',
-  options?: { injectBlockControls?: boolean; allowDelete?: boolean }
+  options?: {
+    injectBlockControls?: boolean;
+    allowDelete?: boolean;
+    /**
+     * Inline editing on `{{#field}}` marks (roadmap F.2). Off unless asked for: a read-only surface must not
+     * offer an editor, and a React block carries no marks so the script no-ops there anyway.
+     */
+    inlineEdit?: boolean;
+    /** Guardrail limits by field path, so the overlay shows the same counter the rail does. */
+    fieldLimits?: Record<string, number>;
+    /**
+     * Field paths a text overlay may edit. Anything absent gets no affordance — see `textEditableFieldPaths`
+     * for the two shapes that made a whitelist necessary rather than optional.
+     */
+    editableFields?: string[];
+  }
 ): Promise<string> {
   let bodyInner = '';
   const reactScripts: string[] = [];
@@ -364,6 +381,12 @@ export async function constructComponentPreview(
   const controlsScript = injectControls
     ? `<script>${getBlockControlsScript(options?.allowDelete ?? true)}</script>`
     : '';
+  const inlineEditStyle = options?.inlineEdit ? `<style>${INLINE_EDIT_CSS}</style>` : '';
+  // After the controls script, so its click handler is registered first and the field handler can stop the
+  // event before "select this block" swallows it.
+  const inlineEditJs = options?.inlineEdit
+    ? `<script>${inlineEditScript(options.fieldLimits ?? {}, options.editableFields ?? [])}</script>`
+    : '';
 
   return `<html>
     <head>
@@ -371,7 +394,7 @@ export async function constructComponentPreview(
       <link rel="stylesheet" href="${basePath}/api/registry/theme.css" />
       <link rel="stylesheet" href="${basePath}/api/component/main.css" />
       <link rel="stylesheet" href="${basePath}/assets/css/preview.css" />${perComponentCss}${cssOverrideLinks}
-      ${controlsStyle}
+      ${controlsStyle}${inlineEditStyle}
     </head>
     <body>
       ${bodyInner}
@@ -379,6 +402,7 @@ export async function constructComponentPreview(
     <script src="${basePath}/api/component/main.js"></script>
 ${reactScripts.join('\n')}
     ${controlsScript}
+    ${inlineEditJs}
   </html>`;
 }
 

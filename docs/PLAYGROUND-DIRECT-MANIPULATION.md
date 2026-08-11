@@ -4,6 +4,17 @@
 operations against the canvas); this note covers the **human** editing surface — the left-rail form and
 what could replace or augment it. Companion roadmap phase: **Part 2 / Phase F**.
 
+> ⚠️ **Superseded on one central point (2026-08-10).** This note unifies both engines behind sentinel tracing.
+> The roadmap now splits them: **Handlebars uses its existing `{{#field}}` wrapper** (deterministic, and the
+> templates already carry it — the only blocker is that the *playground's* copy of the helper is stubbed to a
+> pass-through at `Preview.tsx:16`), and **sentinel tracing is for React**, where no cooperation is possible.
+> Handlebars goes first. Everything below about *how* to edit — the in-frame overlay, never `contenteditable` on
+> the component's node, args in and geometry out — still stands and is engine-independent; what changed is where
+> the marks come from. See **Phase F, "two engines, two mechanisms"** in
+> `WORKBENCH-PLAYGROUND-ROADMAP.md`. The "two prerequisites" section below is also now **both cleared**: capture
+> is repaired at the sync boundary (86 → 0 unfeedable on 8x8), and the stubbed helper became F.1 rather than a
+> reason to sidestep it.
+
 ## The problem
 
 The field editor works and is not good. Three distinct complaints, worth separating because they have
@@ -84,8 +95,10 @@ caret-loss pain of imperative `innerHTML`. Instead:
 > Absolutely-positioned overlay input over the traced node's `getBoundingClientRect()`, with typography
 > copied from `getComputedStyle`. Edit in the overlay. On commit → write args → normal `update-props`.
 
-The component tree is never mutated by the editor. One consequence worth stating: this path is **identical
-for React and Handlebars**, because it never touches the render mechanism — only args in, geometry out.
+The component tree is never mutated by the editor. One consequence worth stating: this *editing* path is
+**identical for React and Handlebars**, because it never touches the render mechanism — only args in, geometry
+out. (Superseded in one respect: how the editable node is *identified* now differs per engine — see the status
+note at the top. The overlay mechanics here are unaffected.)
 
 **2. Everything runs inside the frame, over postMessage.** The preview iframe is opaque-origin by design
 ([`Preview.tsx:391-398`](../src/app/components/Playground/Preview.tsx)) and must stay that way;
