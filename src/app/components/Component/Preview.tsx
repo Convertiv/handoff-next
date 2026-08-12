@@ -42,18 +42,7 @@ import type { PlaygroundComponent, SelectedPlaygroundComponent } from '../Playgr
 import { usePreviews } from './usePreviews';
 import { ComponentWorkbenchDialog } from './ComponentWorkbenchDialog';
 import type { RegistryPreviewLite } from '@handoff/transformers/preview/component/preview-merge';
-
-/** §14 height reporter, injected into client-rendered preview HTML so the parent
- *  can size the (opaque-origin) iframe via postMessage. */
-const HEIGHT_REPORTER =
-  `<script>(function(){function h(){var b=document.body,e=document.documentElement;` +
-  `var v=Math.max(b?b.scrollHeight:0,b?b.offsetHeight:0,e?e.scrollHeight:0,e?e.offsetHeight:0);` +
-  `try{parent.postMessage({type:'handoff-preview-height',height:v},'*');}catch(_){}}` +
-  `try{if(window.ResizeObserver&&document.body){new ResizeObserver(h).observe(document.body);}}catch(_){}` +
-  `window.addEventListener('load',h);window.addEventListener('resize',h);setTimeout(h,100);setTimeout(h,500);})();</script>`;
-function withHeightReporter(html: string): string {
-  return html.includes('</body>') ? html.replace('</body>', `${HEIGHT_REPORTER}</body>`) : html + HEIGHT_REPORTER;
-}
+import { PREVIEW_HEIGHT_MESSAGE, injectHeightReporter } from '@handoff/transformers/preview/height-reporter';
 
 const getDefaultSlices = (): PageSlice[] => [
   { type: 'BEST_PRACTICES' },
@@ -123,7 +112,7 @@ export const ComponentDisplay: React.FC<{
     const onMessage = (event: MessageEvent) => {
       if (event.source !== ref.current?.contentWindow) return;
       const data = event.data;
-      if (data && data.type === 'handoff-preview-height' && typeof data.height === 'number' && data.height > 0) {
+      if (data && data.type === PREVIEW_HEIGHT_MESSAGE && typeof data.height === 'number' && data.height > 0) {
         setHeight(`${Math.ceil(data.height)}px`);
       }
     };
@@ -154,7 +143,8 @@ export const ComponentDisplay: React.FC<{
         // previewRenderedHtml (adds the framework main.css/main.js) — templates
         // don't all carry their own {{{style}}}. React output is already themed.
         const content = isReact ? raw : previewRenderedHtml(raw, basePath);
-        if (!cancelled) setPreviewHtml(withHeightReporter(content));
+        // §14: the frame is opaque-origin, so it has to report its own height for the parent to size it.
+        if (!cancelled) setPreviewHtml(injectHeightReporter(content));
       } catch {
         if (!cancelled) setPreviewHtml('');
       }

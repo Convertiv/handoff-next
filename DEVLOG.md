@@ -5,7 +5,44 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-11 (latest) — A build could not be submitted, and the reason was in a Vercel log
+## 2026-08-12 (latest) — The last unsandboxed preview frame, found by looking for the pattern rather than the bug
+
+The pattern detail page framed `/api/pattern/{id}.html` with **no `sandbox` attribute at all**, same-origin. Patterns
+are composed from component previews whose values are guest-authorable — `RichTextField` accepts pasted HTML, and F.2b
+just added inline richtext editing — so a `<script>` that rode in on authored content would have run with the viewing
+admin's cookies and API access. Stored XSS, reachable by anyone holding a guest invite link.
+
+**§14 had already been decided, shipped, and verified — for three surfaces out of four.** `Playground/Preview.tsx`,
+`Component/Preview.tsx` and the `/api/component` route all got the opaque-origin treatment; the pattern page was
+missed because it renders via `src=` rather than `srcdoc` and so didn't look like the other three. Worth stating
+plainly: **a fix that's rolled out per-surface is not finished until you enumerate the surfaces.** The cheap version of
+that is `grep '<iframe' | grep -v sandbox`, which now returns only the GTM `noscript` frame.
+
+**Latent, not live** — `/api/pattern/{url}` 404s on the ssc-handoff deployment today, because that path is populated by
+the static `handoff-app build` export and not by the registry deploy. Fixed anyway: the hazard lands the moment
+static-built pages are served, and nothing about the code says "don't serve these yet".
+
+**The height read was the thing holding the sandbox out**, exactly as it was in the original §14 audit. `onLoad`
+reached into `contentWindow.document.body.scrollHeight`, which *requires* same-origin. It's now the same
+report-your-own-height protocol the other surfaces use. Because a pattern document is a **static file under
+`public/api/pattern/`**, there is no request handler to inject the reporter at — so it goes in at compose time in
+`composePatternHtml`, and the CSP that the `/api/component` route sets per-response comes from a `headers()` entry in
+`next.config.mjs` instead.
+
+That reporter script now exists **once**, in `transformers/preview/height-reporter.ts`. It had been pasted into two
+places and was about to become three, which is a genuine hazard and not just untidiness: the posted `type` and the
+`event.data.type` the parent tests are a contract, and copies of a contract drift silently — a frame reporting under a
+renamed type simply stops resizing, with no error anywhere to say so.
+
+**Verified with a negative control, which is the part worth copying.** A harness framed a real `composePatternHtml`
+document containing hostile authored content, over HTTP, and had the frame report what it could reach. Sandboxed:
+`parent.document`, `document.cookie`, `localStorage` all `SecurityError`, and the frame sized itself to 664px. The same
+harness with the attribute removed read the parent page's title straight out. Without that second run, "all three
+blocked" is equally consistent with a probe that was broken.
+
+---
+
+## 2026-08-11 — A build could not be submitted, and the reason was in a Vercel log
 
 Submitting a build returned *"Could not submit the page."* while the server log held `8 things need fixing…: Logo is
 required. Primary is required. Items is required.` Two separate defects behind one symptom; full write-up under

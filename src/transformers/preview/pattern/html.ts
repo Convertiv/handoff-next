@@ -1,5 +1,6 @@
 import escape from 'lodash/escape.js';
 import { parse } from 'node-html-parser';
+import { HEIGHT_REPORTER_SCRIPT } from '../height-reporter';
 
 /**
  * Composes multiple component preview HTML documents into a single-page HTML.
@@ -9,6 +10,12 @@ import { parse } from 'node-html-parser';
  *
  * This function namespaces the element ids per-fragment so multiple React
  * components can coexist and hydrate independently on the same page.
+ *
+ * The composed document is framed with an opaque origin (§14) — the pattern detail page renders it
+ * with `sandbox="allow-scripts"` and no `allow-same-origin`, because a pattern is assembled from
+ * component previews whose values can be authored by a guest. That means the parent cannot measure
+ * the frame, so the height reporter is baked in here at compose time: this artifact is served as a
+ * static file out of `public/api/pattern/`, so there is no request handler to inject it at.
  *
  * Each hydration bundle gets its own `<script type="module">` tag for full
  * module-level isolation. This is critical because esbuild bundles React
@@ -102,6 +109,7 @@ ${linkTags}
   <body>
 ${bodyParts.join('\n')}
 ${scriptTags.join('\n')}
+    ${HEIGHT_REPORTER_SCRIPT}
   </body>
 </html>`;
 };

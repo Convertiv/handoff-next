@@ -1,8 +1,9 @@
 'use client';
 
 import { PatternListObject } from '@handoff/transformers/preview/types';
+import { PREVIEW_HEIGHT_MESSAGE } from '@handoff/transformers/preview/height-reporter';
 import { startCase } from 'lodash';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import Layout from '../../../../components/Layout/Main';
@@ -66,10 +67,23 @@ export default function PatternDetailClient({ id, menu, config, current, metadat
     return () => controller.abort();
   }, [id, normalizedBasePath]);
 
-  const onIframeLoad = useCallback(() => {
-    if (iframeRef.current?.contentWindow?.document?.body) {
-      setIframeHeight(iframeRef.current.contentWindow.document.body.scrollHeight + 'px');
-    }
+  /**
+   * Auto-height by report, not by reading the frame (§14). The frame is opaque-origin, so the old
+   * `contentWindow.document.body.scrollHeight` read on load is not available — the composed pattern
+   * document carries the reporter instead (see `composePatternHtml`) and posts its measured height
+   * out. Only messages from this iframe's own window are honoured, so another frame on the page
+   * cannot resize this one.
+   */
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+      const data = event.data;
+      if (data && data.type === PREVIEW_HEIGHT_MESSAGE && typeof data.height === 'number' && data.height > 0) {
+        setIframeHeight(`${Math.ceil(data.height)}px`);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
   }, []);
 
   if (fetchError) return <p className="p-4 text-red-500">{fetchError}</p>;
@@ -105,7 +119,20 @@ export default function PatternDetailClient({ id, menu, config, current, metadat
           </div>
           <div className="dotted-bg w-full p-4">
             {pattern.url ? (
-              <iframe ref={iframeRef} onLoad={onIframeLoad} height={iframeHeight} style={{ width: '100%', height: iframeHeight, display: 'block', border: 'none' }} src={`${normalizedBasePath}/api/pattern/${pattern.url}`} />
+              /*
+                Opaque-origin sandbox — `allow-scripts` with NO `allow-same-origin` (§14). A pattern is
+                composed from component previews whose values are guest-authorable (richtext accepts pasted
+                HTML), and this document is served from the app's own origin; without the sandbox a `<script>`
+                that rode in on authored content would run with the viewing admin's cookies and API access.
+              */
+              <iframe
+                ref={iframeRef}
+                sandbox="allow-scripts"
+                title="Pattern preview"
+                height={iframeHeight}
+                style={{ width: '100%', height: iframeHeight, display: 'block', border: 'none' }}
+                src={`${normalizedBasePath}/api/pattern/${pattern.url}`}
+              />
             ) : (
               <div className="flex items-center justify-center p-8 text-sm text-gray-500">No preview available for this pattern.</div>
             )}

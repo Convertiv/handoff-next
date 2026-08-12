@@ -7,6 +7,7 @@ import {
   isBinaryContentType,
 } from '@/lib/db/component-artifact-queries';
 import { getComponentDistDir, getPublicApiComponentDir } from '@/lib/server/public-api-paths';
+import { injectHeightReporter } from '@handoff/transformers/preview/height-reporter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,19 +37,7 @@ function contentTypeForFile(filename: string): string {
 //  - the parent can no longer read the frame's document for auto-height, so we
 //    inject a ResizeObserver→postMessage height reporter into served HTML, and a
 //    CSP that blocks network exfiltration (connect-src 'none') + foreign framing.
-const HEIGHT_REPORTER =
-  `<script>(function(){function h(){var b=document.body,e=document.documentElement;` +
-  `var v=Math.max(b?b.scrollHeight:0,b?b.offsetHeight:0,e?e.scrollHeight:0,e?e.offsetHeight:0);` +
-  `try{parent.postMessage({type:'handoff-preview-height',height:v},'*');}catch(_){}}` +
-  `try{if(window.ResizeObserver&&document.body){new ResizeObserver(h).observe(document.body);}}catch(_){}` +
-  `window.addEventListener('load',h);window.addEventListener('resize',h);` +
-  `setTimeout(h,100);setTimeout(h,500);})();</script>`;
-
 const PREVIEW_CSP = "connect-src 'none'; frame-ancestors 'self'";
-
-function injectHeightReporter(html: string): string {
-  return html.includes('</body>') ? html.replace('</body>', `${HEIGHT_REPORTER}</body>`) : html + HEIGHT_REPORTER;
-}
 
 function headersFor(filename: string, contentType: string): Record<string, string> {
   const ext = path.extname(filename).toLowerCase();
