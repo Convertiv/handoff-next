@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { handoffApiUrl } from '@/lib/api-path';
 import GuestEditor from './GuestEditor';
+import { FindingsList, type RenderableFinding } from '../Playground/FindingsList';
 import type { ShareCapability } from '@/lib/authz/vocab';
 
 /**
@@ -148,9 +149,13 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
    *
    * What remains is the session and the submit decision, which is guest-specific and correct here.
    */
+  /** Blocking findings from the last refused submission, shown beneath the error (roadmap E.11). */
+  const [findings, setFindings] = useState<RenderableFinding[]>([]);
+
   const submit = async () => {
     setPhase('working');
     setError(null);
+    setFindings([]);
     try {
       /**
        * No flush needed: `GuestEditor` autosaves through the adapter, so the record is already current. If a
@@ -166,8 +171,17 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
           body: JSON.stringify({ message: submitMessage.trim() || undefined }),
         }
       );
-      const json = (await res.json()) as { error?: string };
-      if (!res.ok) throw new Error(json.error || 'Could not submit.');
+      const json = (await res.json()) as { error?: string; findings?: RenderableFinding[] };
+      if (!res.ok) {
+        /**
+         * A 422 means the content did not pass and the server said exactly why (roadmap E.11). Keeping the
+         * findings is the whole point: before this the guest got "Could not submit the page." and the reasons
+         * lived in a Vercel log, which is a dead end for the one person who can actually fix them.
+         */
+        setFindings(Array.isArray(json.findings) ? json.findings : []);
+        throw new Error(json.error || 'Could not submit.');
+      }
+      setFindings([]);
       setPhase('submitted');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not submit.');
@@ -342,9 +356,15 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
 
       {notice ? <p className="shrink-0 border-b px-4 py-2 text-sm text-muted-foreground">{notice}</p> : null}
       {error ? (
-        <p role="alert" className="shrink-0 border-b bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-          {error}
-        </p>
+        <div role="alert" className="shrink-0 border-b bg-amber-50 px-4 py-2 dark:bg-amber-950/40">
+          <p className="text-sm text-amber-900 dark:text-amber-200">{error}</p>
+          {/* The specifics, so "8 things need fixing" is a list rather than a count. */}
+          {findings.length ? (
+            <div className="mt-2">
+              <FindingsList findings={findings} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       {/* The real editor (roadmap E.5), given the whole remaining height. */}

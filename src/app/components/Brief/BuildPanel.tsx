@@ -7,6 +7,7 @@ import { Textarea } from '../ui/textarea';
 import { handoffApiUrl } from '@/lib/api-path';
 import type { BuildRow } from './BuildList';
 import { groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
+import { FindingsList } from '../Playground/FindingsList';
 
 /**
  * The left panel at **build level** (roadmap E.8): what the builder said, and what we make of it.
@@ -172,21 +173,11 @@ export default function BuildPanel({
                     </span>
                   ) : null}
                 </p>
-                {items.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{CATEGORY_EMPTY[category]}</p>
-                ) : (
-                  <ul className="space-y-1">
-                    {items.map((finding, i) => (
-                      <li key={`${finding.code}-${finding.path ?? 'page'}-${i}`} className="text-xs text-muted-foreground">
-                        {finding.message}
-                        {/* Where to look. Page-level findings carry no block, so they say nothing here. */}
-                        {finding.blockIndex !== null ? (
-                          <span className="ml-1 opacity-70">· block {finding.blockIndex + 1}</span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                {/**
+                  * Shared with the guest's submit failure via `FindingsList` (roadmap E.11), so a finding reads the
+                  * same wherever it appears — and the field name is now named rather than left implicit in a path.
+                  */}
+                <FindingsList findings={items} emptyNote={CATEGORY_EMPTY[category]} />
               </div>
             );
           })}
