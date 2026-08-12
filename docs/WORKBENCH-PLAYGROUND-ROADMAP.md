@@ -607,6 +607,39 @@ field is a heading, or the in-frame `postMessage` route.
 E.8 build level (audit panel as an empty slot) → E.8b brief metadata editing + regenerate → E.9 content length
 → E.10 audits filling that slot → **notifications last, explicitly deferred.**
 
+### E.13 — The build view, rearranged around the decision
+
+Information-architecture work on `BuildPanel`, argued from the code rather than from a mock — this surface is
+auth-walled, so none of it has been *seen* rendering yet.
+
+**The decision moved above the diagnostics.** It was the last section in a 300px scrolling rail, so on any build with
+findings the two buttons a reviewer came for were off-screen: they had to scroll past every check to reach the thing
+they opened the panel to do. Diagnostics inform a decision; they should not stand in front of it. Order is now
+title/status → their note → **decide** → checks → download.
+
+**Status uses the designed vocabulary.** It printed `Status: review` — a raw enum — while `LIFECYCLE_META` already
+defines `review → "Ready for review"` and carries a `ghost` flag for prototypes. Now a chip reading the real label.
+
+**One findings list, not two sections and four headings** (Brad: *"merge the two findings sections"*). The split
+between "Checks" (audits) and "Content rules" (advisory guardrails) was justified at the **data** layer — different
+passes, different vocabularies, and `FindingsList` still takes only their intersection — and that argument simply does
+not transfer to the UI. A reviewer asking *"what is wrong with this page?"* does not care which pass noticed. **My
+own earlier reasoning was right about the types and wrong about the screen.**
+
+The category is not lost, it moves onto the row it describes: `Accessibility · Block 2 · Alt text`. Four headings for
+five findings is chrome; the same four words on the rows are signal. Empty categories no longer render at all — a
+clean build used to show four headings and four reassurances, pushing the decision further down to say nothing.
+
+⚠️ **One deliberate honesty survived the merge, and nearly did not.** The per-category empty states included
+*"Voice: not checked yet — needs a read against your brand voice."* E.10 shipped that category deliberately empty
+because judging copy against a brand voice is an LLM's job, and *"shipping a fake version of it would be worse than
+an empty section that says so"*. Collapsing to a single "No issues found." would have quietly implied voice **was**
+checked. It is now a footnote under the list. Worth noting as a pattern: when consolidating UI, the empty states are
+where the honest caveats hide.
+
+**Still open, and needing Brad's eye rather than mine:** `(self-declared)` reads as legalese in the primary metadata
+line (better as a tooltip on the name), and Download sits at the same visual weight as Approve.
+
 ### E.12 — Notifications: the data was collected for this and never used
 
 `lib/notify.ts` + two hooks in `pattern-write.ts`. **Lifecycle itself was already built** — states

@@ -8,6 +8,7 @@ import { handoffApiUrl } from '@/lib/api-path';
 import type { BuildRow } from './BuildList';
 import { groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
 import { FindingsList, type RenderableFinding } from '../Playground/FindingsList';
+import { LIFECYCLE_META } from '@/lib/authz/vocab';
 import { requestFieldReveal } from '../Playground/FieldLinkContext';
 
 /**
@@ -28,13 +29,15 @@ const CATEGORY_LABEL: Record<AuditCategory, string> = {
 };
 
 /** Why a category is empty, which is different from it having passed. */
-const CATEGORY_EMPTY: Record<AuditCategory, string> = {
-  content: 'Nothing flagged.',
-  accessibility: 'Nothing flagged.',
-  seo: 'Nothing flagged.',
-  // Said plainly rather than showing a reassuring tick for a check that does not run yet.
-  voice: 'Not checked yet — needs a read against your brand voice.',
-};
+/**
+ * The one per-category note that carried information, kept when the categories stopped being headings.
+ *
+ * Merging the findings sections replaced four empty-states with a single "No issues found." — which would quietly
+ * imply that voice *was* checked. It is not: judging copy against a brand voice is an LLM's job, and E.10 shipped
+ * the category deliberately empty rather than showing a reassuring tick for a check that does not run
+ * (`build-audits.ts`). Saying so is the honest version of a clean result.
+ */
+const VOICE_NOT_CHECKED = 'Voice and tone aren’t checked automatically yet — that needs a read against your brand voice.';
 
 export default function BuildPanel({
   build,
@@ -55,7 +58,19 @@ export default function BuildPanel({
   guardrailFindings?: RenderableFinding[];
   onBackToBrief: () => void;
 }) {
+  /**
+   * Audits and advisory guardrails as one list, each row carrying which check produced it.
+   *
+   * `groupAuditFindings` is still the source of the category label — the grouping is preserved as data and dropped
+   * only as *layout*.
+   */
   const grouped = groupAuditFindings(audits);
+  const allFindings: RenderableFinding[] = [
+    ...(Object.keys(CATEGORY_LABEL) as AuditCategory[]).flatMap((category) =>
+      grouped[category].map((finding) => ({ ...finding, group: CATEGORY_LABEL[category] }))
+    ),
+    ...guardrailFindings.map((finding) => ({ ...finding, group: 'Content rule' })),
+  ];
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +161,23 @@ export default function BuildPanel({
             Built by <strong>{build.submittedByName ?? 'someone'}</strong> <span>(self-declared)</span>
             {build.submittedAt ? ` · ${new Date(build.submittedAt).toLocaleString()}` : ''}
           </p>
-          <p className="text-xs text-muted-foreground">Status: {status}</p>
+          {/**
+            * The lifecycle vocabulary already has labels and a `ghost` presentation flag — printing the raw enum
+            * ("Status: review") ignored a designed vocabulary and leaked an implementation value into the UI.
+            */}
+          <p className="text-xs">
+            <span
+              className={
+                status === 'approved'
+                  ? 'rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400'
+                  : status === 'review'
+                    ? 'rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400'
+                    : 'rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground'
+              }
+            >
+              {LIFECYCLE_META[status as keyof typeof LIFECYCLE_META]?.label ?? status}
+            </span>
+          </p>
         </div>
 
         {error ? (
@@ -166,46 +197,14 @@ export default function BuildPanel({
           )}
         </section>
 
-        <section className="space-y-3 border-t pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Checks{audits.length ? ` (${audits.length})` : ''}
-          </p>
-          {(Object.keys(CATEGORY_LABEL) as AuditCategory[]).map((category) => {
-            const items = grouped[category];
-            return (
-              <div key={category} className="space-y-1">
-                <p className="flex items-center gap-1.5 text-xs font-medium">
-                  {CATEGORY_LABEL[category]}
-                  {items.length ? (
-                    <span className="rounded-full bg-amber-500/15 px-1.5 text-[10px] tabular-nums text-amber-700 dark:text-amber-400">
-                      {items.length}
-                    </span>
-                  ) : null}
-                </p>
-                {/**
-                  * Shared with the guest's submit failure via `FindingsList` (roadmap E.11), so a finding reads the
-                  * same wherever it appears — and the field name is now named rather than left implicit in a path.
-                  */}
-                <FindingsList
-                  findings={items}
-                  emptyNote={CATEGORY_EMPTY[category]}
-                  onSelect={requestFieldReveal}
-                />
-              </div>
-            );
-          })}
-        </section>
-
-        {guardrailFindings.length ? (
-          <section className="space-y-2 border-t pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Content rules ({guardrailFindings.length})
-            </p>
-            {/* Advisory: worth seeing beside the page, but they did not stand in the way of the submission. */}
-            <FindingsList findings={guardrailFindings} onSelect={requestFieldReveal} />
-          </section>
-        ) : null}
-
+        {/**
+          * The decision sits **above** the diagnostics, not below them.
+          *
+          * A reviewer's job is to look at the page and decide. This was the last section in a 300px scrolling rail,
+          * so on any build with findings the primary action was off-screen — the reviewer had to scroll past every
+          * check to reach the two buttons they came for. Diagnostics inform the decision; they should not stand in
+          * front of it.
+          */}
         <section className="space-y-2 border-t pt-4">
           <label htmlFor="verdict-note" className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Note to the author <span className="font-normal normal-case">(optional)</span>
@@ -228,6 +227,29 @@ export default function BuildPanel({
           <p className="text-xs text-muted-foreground">
             Approving doesn’t change who can see it — visibility stays separate.
           </p>
+        </section>
+
+        {/**
+          * **One list, not two sections and four headings** (Brad, 2026-08-11: *"merge the two findings sections"*).
+          *
+          * The split into "Checks" (audits) and "Content rules" (advisory guardrails) was justified at the *data*
+          * layer — different passes, different vocabularies — and that argument does not transfer to the UI. A
+          * reviewer asking "what is wrong with this page?" does not care which pass noticed. The category is not
+          * lost: it moves onto the row it describes, so five findings read as five lines instead of two sections,
+          * four headings and five lines.
+          *
+          * Ordered by `FindingsList`: blocking first, then by block position, so it reads down the page.
+          */}
+        <section className="space-y-3 border-t pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Checks{allFindings.length ? ` (${allFindings.length})` : ''}
+          </p>
+          <FindingsList
+            findings={allFindings}
+            emptyNote="No issues found."
+            onSelect={requestFieldReveal}
+          />
+          <p className="text-[11px] text-muted-foreground">{VOICE_NOT_CHECKED}</p>
         </section>
 
         <section className="space-y-2 border-t pt-4">

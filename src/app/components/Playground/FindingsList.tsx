@@ -30,6 +30,14 @@ export interface RenderableFinding {
   /** Human field name when the producer knew one; otherwise derived from `path`. */
   label?: string;
   code?: string;
+  /**
+   * What kind of check produced this — "Accessibility", "SEO", "Content rule".
+   *
+   * Shown **per row** rather than as a section heading, which is what let the build view collapse two sections and
+   * four category headings into one list without losing the information they carried. Four headings for five
+   * findings is chrome; the same four words on the rows they describe is signal.
+   */
+  group?: string;
 }
 
 /** `items.1.paragraph` → `Paragraph`. The last named segment is the one a person recognises. */
@@ -61,7 +69,11 @@ export function FindingsList({
   // Blocking first: those are the ones standing between the author and a submission.
   const ordered = [...findings].sort((a, b) => {
     const rank = (f: RenderableFinding) => (f.severity === 'blocking' ? 0 : 1);
-    return rank(a) - rank(b) || (a.blockIndex ?? -1) - (b.blockIndex ?? -1);
+    return (
+      rank(a) - rank(b) ||
+      (a.blockIndex ?? -1) - (b.blockIndex ?? -1) ||
+      (a.group ?? '').localeCompare(b.group ?? '')
+    );
   });
 
   return (
@@ -72,6 +84,7 @@ export function FindingsList({
         const canJump = Boolean(onSelect) && typeof finding.blockIndex === 'number';
 
         const where = [
+          finding.group ?? null,
           typeof finding.blockIndex === 'number' ? `Block ${finding.blockIndex + 1}` : null,
           name,
         ]
