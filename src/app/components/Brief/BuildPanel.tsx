@@ -7,7 +7,7 @@ import { Textarea } from '../ui/textarea';
 import { handoffApiUrl } from '@/lib/api-path';
 import type { BuildRow } from './BuildList';
 import { groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
-import { FindingsList } from '../Playground/FindingsList';
+import { FindingsList, type RenderableFinding } from '../Playground/FindingsList';
 import { requestFieldReveal } from '../Playground/FieldLinkContext';
 
 /**
@@ -40,11 +40,19 @@ export default function BuildPanel({
   build,
   basePath,
   audits = [],
+  guardrailFindings = [],
   onBackToBrief,
 }: {
   build: BuildRow;
   basePath: string;
   audits?: AuditFinding[];
+  /**
+   * Advisory guardrail findings — content rules that did not block the submission (roadmap E.11).
+   *
+   * A separate section rather than folded into the audit categories: these come from a different pass and
+   * pretending they are audits would need a category none of them belongs to.
+   */
+  guardrailFindings?: RenderableFinding[];
   onBackToBrief: () => void;
 }) {
   const grouped = groupAuditFindings(audits);
@@ -187,6 +195,16 @@ export default function BuildPanel({
             );
           })}
         </section>
+
+        {guardrailFindings.length ? (
+          <section className="space-y-2 border-t pt-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Content rules ({guardrailFindings.length})
+            </p>
+            {/* Advisory: worth seeing beside the page, but they did not stand in the way of the submission. */}
+            <FindingsList findings={guardrailFindings} onSelect={requestFieldReveal} />
+          </section>
+        ) : null}
 
         <section className="space-y-2 border-t pt-4">
           <label htmlFor="verdict-note" className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">

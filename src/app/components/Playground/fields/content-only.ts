@@ -1,4 +1,4 @@
-import { resolveFieldType } from './Field';
+import { resolveFieldType } from './field-type';
 
 /**
  * Hide configuration from an editor that may only change content — the guest build surface (Brad, 2026-08-06:

@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gt, gte, ilike, inArray, isNull, like, lt, lte, ne, or, sql } from 'drizzle-orm';
 import { componentFieldRules, type ComponentRulesById } from '../authoring-guardrails';
+import { contentOnlyProperties } from '@/components/Playground/fields/content-only';
 import { searchTerms, type AssetSearchMode } from '@/lib/asset-search';
 import type { AdminBuildTaskRow } from '../admin-build-tasks-types';
 import { isPostgres } from './dialect';
@@ -125,7 +126,20 @@ export async function getDbComponentSummaries() {
  * Reads once per **distinct** component: a page with ten hero blocks is one row, not ten.
  */
 export async function componentRulesForBlocks(
-  blocks: readonly { id?: string }[]
+  blocks: readonly { id?: string }[],
+  /**
+   * Take rules only from the fields a content-only editor can actually see (roadmap E.11, Brad 2026-08-11:
+   * *"don't block invisible fields"*).
+   *
+   * A guest building from an invitation gets `contentOnlyProperties` — config is filtered out of the form, not
+   * disabled in it. Enforcing a rule on a field that was never rendered is an unfixable refusal: the person is told
+   * to correct something they cannot see, which is the same dead end as the flattened error message. Deriving the
+   * rules from the filtered tree makes "we only enforce what we showed you" structural rather than a special case
+   * inside the checker.
+   *
+   * Only for guests. An internal editor sees config, so a required `theme` should still hold there.
+   */
+  opts?: { contentOnly?: boolean }
 ): Promise<ComponentRulesById> {
   const out: ComponentRulesById = {};
   const ids = [...new Set(blocks.map((b) => b?.id).filter((id): id is string => Boolean(id)))];
@@ -137,7 +151,8 @@ export async function componentRulesForBlocks(
     .from(handoffComponents)
     .where(inArray(handoffComponents.id, ids));
   for (const row of rows) {
-    const rules = componentFieldRules(row.properties);
+    const properties = opts?.contentOnly ? contentOnlyProperties(row.properties) : row.properties;
+    const rules = componentFieldRules(properties);
     if (Object.keys(rules).length) out[row.id] = rules;
   }
   return out;

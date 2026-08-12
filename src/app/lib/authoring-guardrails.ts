@@ -538,6 +538,18 @@ export function blockingFindings(findings: GuardrailFinding[]): GuardrailFinding
   return findings.filter((f) => f.severity === 'blocking');
 }
 
+/**
+ * The findings that do *not* block — surfaced in the build view rather than swallowed (roadmap E.11, Brad
+ * 2026-08-11: *"advisory in the build view"*).
+ *
+ * They previously "travelled to the review queue instead", which meant a reviewer opening a build saw the
+ * deterministic audits but not the advisory guardrails — two half-views of the same submission. A weak link label
+ * or a missing alt is exactly the sort of thing worth seeing beside the page it is about.
+ */
+export function advisoryFindings(findings: GuardrailFinding[]): GuardrailFinding[] {
+  return findings.filter((f) => f.severity !== 'blocking');
+}
+
 /** One line for an error response or a submit button's tooltip. */
 export function summarizeBlocking(findings: GuardrailFinding[]): string {
   const blocking = blockingFindings(findings);

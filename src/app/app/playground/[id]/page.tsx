@@ -10,6 +10,9 @@ import {
 import { listShareLinks } from '../../../lib/db/grant-queries';
 import { briefBelongsToPage, findBuild } from '../../../lib/workbench-level';
 import { auditBuild } from '../../../lib/build-audits';
+import { advisoryFindings } from '../../../lib/authoring-guardrails';
+import { checkPatternGuardrails } from '../../../lib/db/pattern-write';
+import { getDb } from '../../../lib/db/index';
 import type { PatternComponentEntry } from '../../../lib/guest-editable';
 import { isPostgres } from '../../../lib/db/dialect';
 import PlaygroundClient from '../PlaygroundClient';
@@ -61,6 +64,7 @@ export default async function PlaygroundPageById({
   let build: React.ComponentProps<typeof PlaygroundClient>['build'] = null;
   let pageBuilds: Awaited<ReturnType<typeof listBuildsForPage>> = [];
   let audits: React.ComponentProps<typeof PlaygroundClient>['audits'] = [];
+  let guardrailFindings: React.ComponentProps<typeof PlaygroundClient>['guardrailFindings'] = [];
   if (isPostgres()) {
     const row = await getDbPatternById(id).catch(() => null);
     if (!row) notFound();
@@ -155,6 +159,12 @@ export default async function PlaygroundPageById({
                 ((row.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
                   []) as unknown[];
               audits = auditBuild(blocks, values);
+              /**
+               * Advisory guardrail findings belong here too (roadmap E.11). The deterministic audits and the
+               * advisory guardrails are two passes over the same submission, and showing only one of them made the
+               * build view look complete while withholding half the picture.
+               */
+              guardrailFindings = advisoryFindings(await checkPatternGuardrails(getDb(), build.id));
             }
           }
         }
@@ -178,6 +188,7 @@ export default async function PlaygroundPageById({
       brief={brief}
       build={build}
       audits={audits}
+      guardrailFindings={guardrailFindings}
       pageBuilds={pageBuilds.map((b) => ({
         id: b.id,
         title: b.title,

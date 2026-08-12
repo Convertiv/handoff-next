@@ -1,5 +1,6 @@
 'use client';
 
+import type { GuardrailFinding } from '@/lib/authoring-guardrails';
 import Layout from '../../components/Layout/Main';
 import { PlaygroundProvider } from '../../components/Playground/PlaygroundContext';
 import PlaygroundWorkbench, { type WorkbenchBrief } from '../../components/Playground/PlaygroundWorkbench';
@@ -20,6 +21,7 @@ export default function PlaygroundClient({
   build = null,
   pageBuilds = [],
   audits = [],
+  guardrailFindings = [],
 }: {
   menu: unknown;
   metadata: unknown;
@@ -34,6 +36,7 @@ export default function PlaygroundClient({
   build?: BuildRow | null;
   pageBuilds?: (BuildRow & { briefId: string })[];
   /** Computed server-side for the selected build (roadmap E.10). */
+  guardrailFindings?: GuardrailFinding[];
   audits?: AuditFinding[];
 }) {
   const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
@@ -52,6 +55,7 @@ export default function PlaygroundClient({
           build={build}
           pageBuilds={pageBuilds}
           audits={audits}
+          guardrailFindings={guardrailFindings}
         />
       </TooltipProvider>
     </Layout>

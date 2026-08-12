@@ -658,9 +658,33 @@ messages acted on, an out-of-range block and a foreign message type both ignored
 `items.paragraph`. The SSR guard is tested too: `BuildPanel` and `GuestAuthoring` are both in the server-rendered
 tree, so an unguarded `window.postMessage` would turn "the jump doesn't work" into "the page 500s".
 
-**Still open — two decisions:** whether **advisory** findings belong in the build view or stay in the review queue,
-and whether a `required` field the guest **cannot see** should block at all (content-only hides config — though in
-practice a build inherits the page's config values, so those arrive filled).
+**5. ✅ Both decisions taken** (Brad, 2026-08-11: *"advisory in the build view, don't block invisible fields"*).
+
+**Advisory findings now show in the build view**, as their own **Content rules** section — deliberately not folded
+into the audit categories, because they come from a different pass and none of them belongs to an audit category.
+`advisoryFindings()` is the exact complement of `blockingFindings()`. They previously "travelled to the review queue
+instead", so opening a build showed the deterministic audits but not the advisory guardrails: two half-views of one
+submission. Same `FindingsList`, so they are clickable too.
+
+**Invisible fields no longer block.** For a guest submission the rules are derived from the **filtered** property
+tree, so *"we only enforce what we showed you"* is structural rather than a condition inside the checker — a config
+field that `contentOnlyProperties` removes simply has no rule to break. Internal editors are unaffected: they see
+config, so a required `theme` still holds for them.
+
+**That needed a boundary fix, and it is the interesting part.** `content-only.ts` imported `resolveFieldType` from
+`Field.tsx` — a `'use client'` module — so the server could not ask *"can the guest see this field?"* without pulling
+the client component graph into the server build. `resolveFieldType` is now its own pure module
+(`fields/field-type.ts`) which `Field.tsx` re-exports, so the original guarantee holds ("what is hidden cannot drift
+from what is drawn") while the classifier became server-safe. Same shape as the `FieldGuardrailsContext` fix: when
+the boundary is in the way, extract the pure part rather than duplicating it.
+
+**Tested as a property, not as plumbing:** that config carries no rule once filtered, and that an empty required
+config field therefore yields no finding. That survives a refactor of the query layer, which mocking
+`componentRulesForBlocks` would not.
+
+⚠️ **`tsc --noEmit` is not the gate for app-layer changes.** It passed clean while `next build` failed twice — a
+guessed db-client path and a missing `export` on `checkPatternGuardrails`. Second time in one day; `src/app`
+type-checks under its own tsconfig, so the Next build is the check that counts.
 
 ### E.4 — Guardrail editor for templates — ⤵ ABSORBED into E.6
 

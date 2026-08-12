@@ -583,9 +583,14 @@ async function guestPatternRef(
  * rules of what it was made from. A page with no template falls back to its own `data.guardrails`, which
  * is what makes the check meaningful for a page promoted to a template later.
  */
-async function checkPatternGuardrails(
+export async function checkPatternGuardrails(
   db: ReturnType<typeof getDb>,
-  id: string
+  id: string,
+  /**
+   * Set for a guest submission: rules are then taken only from fields a content-only editor can see, so the gate
+   * cannot refuse over config the guest was never shown (roadmap E.11).
+   */
+  opts?: { contentOnly?: boolean }
 ): Promise<ReturnType<typeof checkGuardrails>> {
   const [page] = await db
     .select({
@@ -622,7 +627,7 @@ async function checkPatternGuardrails(
    * still have limits, which was the whole gap — "internal pages have no limits" was true only because the
    * only source of a limit used to be a brief.
    */
-  const componentRules = await componentRulesForBlocks(blocks);
+  const componentRules = await componentRulesForBlocks(blocks, { contentOnly: opts?.contentOnly });
 
   // Nothing declared anywhere means nothing to check — the same short-circuit as before, just later.
   if (!Object.keys(config).length && !Object.keys(componentRules).length) return [];
@@ -805,7 +810,8 @@ export async function submitGuestSubmission(
    * Advisory findings deliberately do not block; they travel to the review queue instead. See
    * `authoring-guardrails.ts`.
    */
-  const blocking = blockingFindings(await checkPatternGuardrails(db, id));
+  // A guest submission: content-only, so config the guest never saw cannot block it.
+  const blocking = blockingFindings(await checkPatternGuardrails(db, id, { contentOnly: true }));
   if (blocking.length) {
     /**
      * Not `AuthorizationError` — the caller has permission, the content does not pass — and not a plain `Error`

@@ -6,6 +6,7 @@ import {
   guardrailsFromPatternData,
   readGuardrailConfig,
   GuardrailBlockedError,
+  advisoryFindings,
   componentFieldRules,
   hasAuthoredValue,
   isGuardrailBlockedError,
@@ -15,6 +16,7 @@ import {
   summarizeBlocking,
   type GuardrailConfig,
 } from '../src/app/lib/authoring-guardrails';
+import { contentOnlyProperties } from '../src/app/components/Playground/fields/content-only';
 
 /**
  * Guardrails run in three places — editor, submit, review — so the rules live in one tested module. The
@@ -433,5 +435,56 @@ describe('GuardrailBlockedError', () => {
   it('recognises the error across a serialization boundary via its code', () => {
     assert.equal(isGuardrailBlockedError({ code: 'GUARDRAILS_BLOCKED' }), true);
     assert.equal(isGuardrailBlockedError(new Error('nope')), false);
+  });
+});
+
+/**
+ * The two decisions from the roadmap conversation (Brad, 2026-08-11): *"advisory in the build view, don't block
+ * invisible fields."*
+ */
+describe('advisoryFindings', () => {
+  it('is the exact complement of blockingFindings', () => {
+    const findings = checkGuardrails(
+      [{ id: 'hero', args: { cta: { href: '/x', text: 'click here' }, logo: { src: '', alt: '' } } }],
+      [],
+      { checkLinkText: true, requireImageAlt: 'advisory' },
+      { hero: { logo: { required: true } } }
+    );
+    const blocking = blockingFindings(findings);
+    const advisory = advisoryFindings(findings);
+    assert.equal(blocking.length + advisory.length, findings.length, 'every finding lands in exactly one bucket');
+    assert.ok(advisory.length > 0, 'expected at least one advisory finding');
+    assert.ok(advisory.every((f) => f.severity !== 'blocking'));
+  });
+});
+
+/**
+ * "Don't block invisible fields": a guest gets `contentOnlyProperties`, so config is absent from the form rather
+ * than disabled in it. Enforcing a rule on a field that was never rendered is an unfixable refusal.
+ *
+ * The mechanism is that the *rules* are derived from the filtered tree, so this asserts the property that makes it
+ * work — config carries no rule once filtered — rather than reaching into the query layer.
+ */
+describe('content-only rules do not carry config', () => {
+  it('drops a required config field but keeps required content', () => {
+    const properties = {
+      title: { type: 'text', rules: { required: true } },
+      theme: { type: 'enum', rules: { required: true } },
+      anchor: { type: 'text', rules: { required: true } },
+      logo: { type: 'image', rules: { required: true } },
+    };
+    const all = componentFieldRules(properties);
+    assert.deepEqual(Object.keys(all).sort(), ['anchor', 'logo', 'theme', 'title']);
+
+    const visible = componentFieldRules(contentOnlyProperties(properties));
+    // `theme` is an enum and `anchor` is config-by-name — neither is shown, so neither can block.
+    assert.deepEqual(Object.keys(visible).sort(), ['logo', 'title']);
+  });
+
+  it('so an empty required config field produces no finding for a guest', () => {
+    const properties = { theme: { type: 'enum', rules: { required: true } } };
+    const guestRules = { hero: componentFieldRules(contentOnlyProperties(properties)) };
+    const findings = checkGuardrails([{ id: 'hero', args: {} }], [], {}, guestRules);
+    assert.deepEqual(findings.filter((f) => f.code === 'required-empty'), []);
   });
 });
