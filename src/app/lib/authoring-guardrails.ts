@@ -62,14 +62,37 @@ const NAMED_ENTITIES: Record<string, string> = {
   nbsp: ' ',
 };
 
+/**
+ * Tags that sit *inside* a run of text, so removing them must not introduce a space.
+ *
+ * The distinction matters for counting. Turning every tag into a space fuses nothing but **invents** one:
+ * `<b>Lorem ipsum dolor sit amet</b>,` reads back as `Lorem ipsum dolor sit amet ,` — a space before the comma, one
+ * character too many, and it happens once per inline tag adjacent to punctuation. Caught by measuring accordion's
+ * own shipped copy, which reported 184 for 183 characters of text (2026-08-11).
+ *
+ * `br` is deliberately absent: it is a visible break, so it *should* count as a space.
+ */
+const INLINE_TAGS = new Set(
+  ('a abbr b bdi bdo cite code data dfn em i kbd mark q rp rt ruby s samp small span strong sub sup time u var wbr')
+    .split(' ')
+);
+
 /** Rich-text HTML → the copy a reader sees, for counting purposes. */
 export function richTextToCopy(html: string): string {
   return (
     html
       // Script/style bodies are not copy. Richtext should never carry them; cheap insurance if it does.
       .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
-      // A tag boundary is a word boundary: `<p>a</p><p>b</p>` must not count as one 2-character word.
-      .replace(/<[^>]*>/g, ' ')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      /**
+       * A **block** boundary is a word boundary — `<p>a</p><p>b</p>` must not count as one 2-character word — while
+       * an inline boundary is not one. See `INLINE_TAGS`.
+       */
+      .replace(/<\/?([a-z][a-z0-9-]*)\b[^>]*>/gi, (_, name: string) =>
+        INLINE_TAGS.has(name.toLowerCase()) ? '' : ' '
+      )
+      // Anything left that looked like a tag but named nothing (`<>`, a stray `<`), dropped without a space.
+      .replace(/<[^>]*>/g, '')
       .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
       .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
       .replace(/&([a-z]+);/gi, (whole, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? whole)

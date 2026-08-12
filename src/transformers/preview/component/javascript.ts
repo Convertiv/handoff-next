@@ -39,14 +39,28 @@ const buildJsBundle = async (
         lib: {
           entry: absEntryPath,
           name: path.basename(outputFilename, '.js'),
-          formats: ['cjs'],
+          /**
+           * **IIFE, because these bundles are loaded by a classic `<script src>` in the preview iframe.**
+           *
+           * This was `['cjs']`, which made every browser-facing bundle open with
+           * `Object.defineProperty(exports, Symbol.toStringTag, …)` — and a classic script has no `exports`
+           * binding, so line 1 threw `ReferenceError: exports is not defined` and **the entire file never
+           * executed**. Every component's JS behaved as though it were absent: accordions did not expand,
+           * carousels did not slide, tabs did not switch. Silent, because the only evidence is one console error
+           * in a sandboxed iframe.
+           *
+           * Affects both files this function builds — the global entry (`main.js`) and each component's own
+           * `<id>.js` — since both are injected the same way (see `createPlaygroundHandlebarsContext`).
+           *
+           * Not `esm` either: that would need `type="module"` on the injection, and these bundles are
+           * side-effect-only (Bootstrap + Popper), so a self-contained IIFE is exactly the shape wanted. The
+           * React path is unaffected — it ships separate `-client.mjs` bundles built for module loading.
+           *
+           * Found on SS&C 2026-08-11; the broken output dates back to at least 2026-06-07 (byte-identical
+           * artifacts), so component JS had been dead on that registry for two months.
+           */
+          formats: ['iife'],
           fileName: () => outputFilename,
-        },
-        rolldownOptions: {
-          ...viteBaseConfig.build?.rolldownOptions,
-          output: {
-            exports: 'named',
-          },
         },
         outDir: outputPath,
       },

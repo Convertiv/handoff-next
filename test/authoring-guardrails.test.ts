@@ -213,10 +213,33 @@ describe('richTextToCopy', () => {
     assert.equal(richTextToCopy('<strong>One</strong> unified system.'), 'One unified system.');
   });
 
-  /** A tag boundary is a word boundary: two paragraphs must not fuse into one word. */
-  it('treats a tag boundary as a space', () => {
+  /** A *block* boundary is a word boundary: two paragraphs must not fuse into one word. */
+  it('treats a block boundary as a space', () => {
     assert.equal(richTextToCopy('<p>Alpha</p><p>Beta</p>'), 'Alpha Beta');
     assert.equal(richTextToCopy('<ul><li>One</li><li>Two</li></ul>'), 'One Two');
+  });
+
+  /**
+   * ⚠️ An *inline* boundary is not a word boundary, and treating it as one invented a character.
+   *
+   * Caught by measuring accordion's own shipped copy: `<b>Lorem ipsum dolor sit amet</b>,` read back as
+   * `Lorem ipsum dolor sit amet ,` — a space before the comma — reporting 184 characters for 183 of text. It
+   * happens once per inline tag adjacent to punctuation, so it compounds.
+   */
+  it('does not introduce a space where an inline tag closes', () => {
+    assert.equal(richTextToCopy('<b>Lorem ipsum</b>, and more'), 'Lorem ipsum, and more');
+    assert.equal(richTextToCopy('<em>Yes</em>.'), 'Yes.');
+    assert.equal(richTextToCopy('un<b>b</b>roken'), 'unbroken');
+    assert.equal(richTextToCopy('<a href="/x">link</a>!'), 'link!');
+  });
+
+  /** `<br>` is a visible break, so it does count as a space — unlike the other inline tags. */
+  it('counts a line break as a space', () => {
+    assert.equal(richTextToCopy('one<br>two'), 'one two');
+  });
+
+  it('drops comments without introducing a space', () => {
+    assert.equal(richTextToCopy('a<!-- note -->b'), 'ab');
   });
 
   /** `&nbsp;` is the entity that matters — editors emit it constantly, and 6 characters for a space is absurd. */

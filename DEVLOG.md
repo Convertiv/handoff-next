@@ -5,6 +5,39 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-11 (night) — Component JS had been dead on SS&C for two months
+
+Pre-demo bug hunt. Two findings worth keeping, both diagnosed from evidence rather than from the error text.
+
+**`ReferenceError: exports is not defined` on `/api/component/main.js` — every component's JS was inert.**
+`buildJsBundle` (`transformers/preview/component/javascript.ts`) built with Vite library mode
+`formats: ['cjs']` plus `rolldownOptions.output.exports = 'named'`, which emits
+`Object.defineProperty(exports, Symbol.toStringTag, …)` as the first statement. A classic `<script>` has no
+`exports` binding, so line 1 threw and **the whole file never executed** — `main.js` (Bootstrap + Popper) and every
+per-component `<id>.js` alike. Accordions did not expand, carousels did not slide, tabs did not switch, and the only
+evidence was one console error inside a sandboxed iframe.
+
+Now `formats: ['iife']` with the rolldown `exports` override dropped. Verified by running the same Vite config over
+SS&C's real entry: `cjs` + `exports: 'named'` reproduces the deployed prologue **byte-for-byte**, and `iife` produces
+`(function(){…`. Not `esm`, which would need `type="module"` on an injection that is deliberately classic.
+
+**It was not a regression from the content-length rebuild.** The artifact is byte-identical (343,235 bytes) across
+2026-06-07, 2026-06-09 and today, so the breakage predates all of this work by two months.
+
+**The importmap 404 beside it is cosmetic**, and worth not chasing again: `hvendor-importmap.json` is a React
+vendor-split artifact, absent by design on a Handlebars registry, and the fetch is guarded
+(`r.ok ? r.json() : null` + `.catch`). It *reads* as a CORS failure only because
+`api/component/[...path]/route.ts` sets `Access-Control-Allow-Origin` for `.js`/`.mjs`/`.css` and not `.json`.
+
+**Image generation on SS&C: generation was never broken, retrieval was.** Its generated assets carry
+`storageUrl: https://cdn.handoff.com/assets/….webp` and **`cdn.handoff.com` is NXDOMAIN**. 8x8 works because it has
+no S3 configured at all and therefore uses the blob path (`/api/handoff/assets/<id>/raw`). `getConfig()` in
+`s3-assets.ts` requires all four `HANDOFF_S3_*` vars, so clearing `HANDOFF_S3_BUCKET` is enough to fall back to the
+working path. Rows written earlier keep the dead URL — they need regenerating.
+
+**Diagnostic worth reusing:** the shape of an existing `storageUrl` says which storage path a registry is on, and
+comparing two registries through the MCP settles "works there, not here" in one call each.
+
 ## 2026-08-11 (evening) — E.9's real bug, and F.2's orientation half
 
 Full write-ups in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md` (F.2 "orientation half" + the E.9 addendum). Three things
