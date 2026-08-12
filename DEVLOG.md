@@ -5,6 +5,38 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-11 (latest) — A build could not be submitted, and the reason was in a Vercel log
+
+Submitting a build returned *"Could not submit the page."* while the server log held `8 things need fixing…: Logo is
+required. Primary is required. Items is required.` Two separate defects behind one symptom; full write-up under
+`E.11` in `docs/WORKBENCH-PLAYGROUND-ROADMAP.md`.
+
+**`required` was asking the wrong question.** It decided satisfaction with `typeof value === 'string' &&
+value.trim().length > 0`, which makes it **unsatisfiable on every field that does not hold a string** — an image is
+`{src, alt}`, a button `{url, label}`, a repeater an array. The lesson generalises: *a predicate written for one value
+shape becomes a bug the moment the rule it enforces is applied more widely.* It only surfaced when E.9 wired
+component-declared `required` into the gate; before that only a brief's text rules reached it, so the narrow
+definition held.
+
+**Measuring it on real data is what made it undeniable.** Feeding every SS&C component *its own shipped preview
+values* — complete by definition — produced **68 false findings across 81 components**, labels matching the reported
+error exactly. Same probe after `hasAuthoredValue`: **0**. Worth keeping as a technique: when a validator is suspect,
+run it against the data the system itself ships and see what it rejects.
+
+**Structured findings were computed and then flattened.** `throw new Error(summarizeBlocking(blocking))` reduced a
+list of findings — each carrying `path`, `label`, `blockIndex`, `code` — to one sentence, which the route turned into
+a 500. Everything a person needs in order to fix the problem existed, and was discarded at the last step.
+`GuardrailBlockedError` now carries them and the route answers **422 + `findings`**. General rule: **an error a user
+can act on should carry the data they need to act**, not a rendered summary of it.
+
+Also reversed a decision: **richtext inline editing is back on the list (F.2b)**. I had parked it because the overlay
+is a `<textarea>` that cannot carry markup — but that is a fact about our overlay, not a reason a guest should find
+one paragraph mysteriously uneditable. Brad: *"it's weird to make most of the content editable but not this section
+for opaque reasons."* The roadmap now states the real problem (seed from the mark's `innerHTML`, own the node via a
+ref as `RichTextField` does, reuse `measuredLength` for the counter) instead of the excuse.
+
+---
+
 ## 2026-08-11 (night) — Component JS had been dead on SS&C for two months
 
 Pre-demo bug hunt. Two findings worth keeping, both diagnosed from evidence rather than from the error text.

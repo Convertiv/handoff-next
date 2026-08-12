@@ -5,7 +5,10 @@ import {
   checkGuardrails,
   guardrailsFromPatternData,
   readGuardrailConfig,
+  GuardrailBlockedError,
   componentFieldRules,
+  hasAuthoredValue,
+  isGuardrailBlockedError,
   measuredLength,
   resolveFieldGuardrail,
   richTextToCopy,
@@ -325,5 +328,110 @@ describe('resolveFieldGuardrail — richtext survives an override', () => {
     });
     assert.equal(resolved.maxLength, 100, 'the brief wins on the number');
     assert.equal(resolved.richtext, true, 'but not on how the value is measured');
+  });
+});
+
+/**
+ * `required` asks "has this been given a value?", and it used to ask "is this a non-empty string?" — which made it
+ * unsatisfiable on every field holding anything else (2026-08-11).
+ *
+ * Measured before the fix: **68 false findings across 81 SS&C components**, feeding each component its own shipped
+ * preview values. A guest could not clear them by filling anything in, and the submit path refuses on blocking
+ * findings, so builds were unsubmittable with no way to fix it.
+ */
+describe('hasAuthoredValue', () => {
+  it('treats absent and blank as missing', () => {
+    for (const v of [undefined, null, '', '   ']) assert.equal(hasAuthoredValue(v), false, String(v));
+  });
+
+  it('treats real copy as present', () => {
+    assert.equal(hasAuthoredValue('Navigate the Landscape'), true);
+  });
+
+  /** `Show_stats: false` is a decision, not an omission — 4 SS&C fields hit exactly this. */
+  it('counts `false` and `0` as values a person chose', () => {
+    assert.equal(hasAuthoredValue(false), true);
+    assert.equal(hasAuthoredValue(0), true);
+  });
+
+  /** The three labels from the real error: Image, Button, Items. */
+  it('counts a populated image, button and repeater', () => {
+    assert.equal(hasAuthoredValue({ src: 'https://placehold.co/710x300', alt: 'Portrait' }), true);
+    assert.equal(hasAuthoredValue({ url: 'https://ssctech.com', label: 'Talk to Us' }), true);
+    assert.equal(hasAuthoredValue([{ title: 'One' }, { title: 'Two' }]), true);
+  });
+
+  /** A reference object is judged on its reference — alt text alone must not pass a missing image. */
+  it('reads an image with no src as missing, however good its alt text', () => {
+    assert.equal(hasAuthoredValue({ src: '', alt: 'Company logo' }), false);
+    assert.equal(hasAuthoredValue({ href: '', text: 'Read more' }), false);
+  });
+
+  it('treats an empty array, and an array of empty rows, as missing', () => {
+    assert.equal(hasAuthoredValue([]), false);
+    assert.equal(hasAuthoredValue([{}, { title: '' }]), false);
+  });
+
+  it('treats an empty object as missing but a populated one as present', () => {
+    assert.equal(hasAuthoredValue({}), false);
+    assert.equal(hasAuthoredValue({ title: 'Something' }), true);
+  });
+
+  /** A serialized React slot carries its content in `props` — it counts. */
+  it('counts a serialized React slot', () => {
+    assert.equal(hasAuthoredValue({ key: null, type: 'p', props: { children: 'Body copy' } }), true);
+    assert.equal(hasAuthoredValue({ key: null, type: null, props: {} }), false);
+  });
+});
+
+describe('checkGuardrails — required, end to end', () => {
+  /** The exact regression: a component whose required fields are all non-strings, fully populated. */
+  const args = {
+    logo: { src: 'https://cdn.example/logo.svg', alt: 'Logo' },
+    primary: { url: 'https://ssctech.com', label: 'Talk to Us' },
+    items: [{ title: 'One' }],
+    show_stats: false,
+  };
+  const rules = {
+    hero: {
+      logo: { required: true },
+      primary: { required: true },
+      items: { required: true },
+      show_stats: { required: true },
+    },
+  };
+
+  it('does not block a build whose required non-text fields are all filled', () => {
+    const findings = checkGuardrails([{ id: 'hero', args }], [], {}, rules);
+    assert.deepEqual(findings.filter((f) => f.code === 'required-empty'), []);
+  });
+
+  it('still blocks the ones genuinely left empty', () => {
+    const findings = checkGuardrails(
+      [{ id: 'hero', args: { ...args, logo: { src: '', alt: 'Logo' }, items: [] } }],
+      [],
+      {},
+      rules
+    );
+    assert.deepEqual(
+      findings.filter((f) => f.code === 'required-empty').map((f) => f.path).sort(),
+      ['items', 'logo']
+    );
+  });
+});
+
+describe('GuardrailBlockedError', () => {
+  it('carries the findings, so a caller can show them rather than restate them', () => {
+    const findings = checkGuardrails([{ id: 'hero', args: {} }], [], {}, { hero: { logo: { required: true } } });
+    const err = new GuardrailBlockedError(blockingFindings(findings));
+    assert.equal(isGuardrailBlockedError(err), true);
+    assert.equal(err.findings.length, 1);
+    assert.equal(err.findings[0].path, 'logo');
+    assert.match(err.message, /needs fixing|Logo is required/);
+  });
+
+  it('recognises the error across a serialization boundary via its code', () => {
+    assert.equal(isGuardrailBlockedError({ code: 'GUARDRAILS_BLOCKED' }), true);
+    assert.equal(isGuardrailBlockedError(new Error('nope')), false);
   });
 });

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { isAuthorizationError } from '@/lib/authz/policy';
+import { isGuardrailBlockedError } from '@/lib/authoring-guardrails';
 import { submitGuestSubmission } from '@/lib/db/pattern-write';
 import { readGuestContext } from '@/lib/server/guest-context';
 
@@ -30,6 +31,14 @@ export async function POST(request: NextRequest) {
     await submitGuestSubmission(id, ctx.guest, message);
   } catch (e) {
     if (isAuthorizationError(e)) return NextResponse.json({ error: e.message }, { status: 403 });
+    /**
+     * Blocking findings are an *answer*, not a failure: the request was well-formed and the content did not pass,
+     * so 422 with the findings attached rather than a 500 with a shrug. The build view renders these per block and
+     * per field; before this the guest saw "Could not submit the page." and the reason lived in a Vercel log.
+     */
+    if (isGuardrailBlockedError(e)) {
+      return NextResponse.json({ error: e.message, findings: e.findings }, { status: 422 });
+    }
     console.error('[guest/submission/submit]', e);
     return NextResponse.json({ error: 'Could not submit the page.' }, { status: 500 });
   }

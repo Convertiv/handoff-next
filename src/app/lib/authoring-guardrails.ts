@@ -103,6 +103,74 @@ export function richTextToCopy(html: string): string {
 }
 
 /**
+ * A write refused because the content does not pass, **carrying the findings that refused it**.
+ *
+ * The submit path used to `throw new Error(summarizeBlocking(blocking))`, which flattened a list of structured
+ * findings — each with a `path`, `label`, `blockIndex` and `code` — into one sentence, and the route turned that
+ * into `"Could not submit the page."` with a 500. So the editor computed everything a person needs to fix the
+ * problem and then discarded it at the last step, leaving a guest with a dead end and Brad reading the real reason
+ * in a Vercel log (2026-08-11).
+ *
+ * Mirrors `AuthorizationError`'s shape deliberately — same `code` discriminator and `is*` guard — so route
+ * handlers treat "you may not" and "this does not pass" the same way.
+ */
+export class GuardrailBlockedError extends Error {
+  readonly code = 'GUARDRAILS_BLOCKED';
+  readonly findings: GuardrailFinding[];
+  constructor(findings: GuardrailFinding[]) {
+    super(summarizeBlocking(findings));
+    this.name = 'GuardrailBlockedError';
+    this.findings = findings;
+  }
+}
+
+export function isGuardrailBlockedError(e: unknown): e is GuardrailBlockedError {
+  return (
+    e instanceof GuardrailBlockedError ||
+    (typeof e === 'object' && e !== null && (e as { code?: unknown }).code === 'GUARDRAILS_BLOCKED')
+  );
+}
+
+/**
+ * Has this field been given a value? — the question `required` is actually asking.
+ *
+ * ⚠️ **This replaces `typeof value === 'string' && value.trim().length > 0`, which made `required` unsatisfiable
+ * on every field that does not hold a string.** An image is `{ src, alt }`, a button is `{ url, label }`, a
+ * repeater is an array — all objects, so all reported missing however full they were. Measured across SS&C's
+ * catalog: **68 false findings on 81 components**, feeding each component its *own shipped preview values*, which
+ * are complete by definition. A guest could not clear them by filling anything in, and the submit path turns
+ * blocking findings into a refusal — so builds were unsubmittable with no way to fix it (Brad, 2026-08-11:
+ * "Logo is required. Primary is required. Items is required").
+ *
+ * It only surfaced once E.9 wired **component-declared** `required` into the gate. Before that only a brief's
+ * per-field rules reached it, and those are text.
+ *
+ * The rules, each because something real gets it wrong otherwise:
+ *
+ * - **`0` and `false` count.** `Show_stats: false` is a decision, not an omission — 4 SS&C fields hit this.
+ * - **An empty array, or an array of empty rows, does not count.** A repeater with two blank rows has no content.
+ * - **A reference object is judged on its reference.** `{ src: '', alt: 'Logo' }` is a *missing* image; judging it
+ *   on "some key is non-empty" would pass it on the strength of its alt text alone.
+ * - **Otherwise an object counts if anything inside it does**, which also handles a serialized React slot.
+ */
+export function hasAuthoredValue(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  // Present is enough: `0` and `false` are values a person chose.
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'boolean') return true;
+  if (Array.isArray(value)) return value.some(hasAuthoredValue);
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    for (const key of ['src', 'href', 'url']) {
+      if (key in obj) return hasAuthoredValue(obj[key]);
+    }
+    return Object.values(obj).some(hasAuthoredValue);
+  }
+  return false;
+}
+
+/**
  * The length a limit should be measured against.
  *
  * **One function, because three places have to agree**: the counter in the rail, the counter in the inline
@@ -434,8 +502,7 @@ export function checkGuardrails(
       const rule = resolveFieldGuardrail(config, path, declaredRuleForPath(declaredForBlock, path));
       if (!rule.required) continue;
       const value = getAtPath(args, parsePath(path));
-      const filled = typeof value === 'string' && value.trim().length > 0;
-      if (filled) continue;
+      if (hasAuthoredValue(value)) continue;
       findings.push({
         ...base,
         path,

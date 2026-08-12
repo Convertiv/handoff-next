@@ -607,6 +607,34 @@ field is a heading, or the in-frame `postMessage` route.
 E.8 build level (audit panel as an empty slot) → E.8b brief metadata editing + regenerate → E.9 content length
 → E.10 audits filling that slot → **notifications last, explicitly deferred.**
 
+### E.11 — Why a build cannot be submitted, said where it can be fixed
+
+Opened by a real failure: submitting a build returned *"Could not submit the page."* while the Vercel log held
+`8 things need fixing before this can be submitted: Logo is required. Primary is required. Items is required. …`
+(Brad, 2026-08-11). Two independent defects, both now fixed; the UI half is the next piece of work.
+
+**1. ✅ The gate was asking for things that were already there.** The required pass decided satisfaction with
+`typeof value === 'string' && value.trim().length > 0`, so `required` was **unsatisfiable on every field that does
+not hold a string** — an image is `{src, alt}`, a button `{url, label}`, a repeater an array. Measured across the
+SS&C catalog by feeding each component *its own shipped preview values*: **68 false findings on 81 components**,
+labelled exactly as Brad saw them (`Items` 14, `Image` 9, `Button` 6, `Primary` 3, `Logo` 3, `Tags` 2) plus
+`Show_stats` — a **boolean**, where `false` read as missing. Now `hasAuthoredValue`, and the same probe reports
+**0**. It only surfaced when E.9 wired *component-declared* `required` into the gate; before that only a brief's
+text rules reached it.
+
+**2. ✅ The findings were computed and then thrown away.** `throw new Error(summarizeBlocking(blocking))` flattened
+a list of structured findings — each with `path`, `label`, `blockIndex`, `code`, `severity` — into one sentence, and
+the route mapped it to a generic 500. `GuardrailBlockedError` now carries them (mirroring `AuthorizationError`'s
+`code` + `is*` idiom), and the guest submit route answers **422 with `findings`** — a well-formed request whose
+content did not pass, not a server failure.
+
+**3. 🔜 The UI.** Findings now arrive at the client; nothing renders them yet. This is the "validation responses when
+viewing a build" work: per-block and per-field, linking into the field that needs fixing — which is exactly what the
+F.2 rail↔canvas link already does, so `fieldLinkKey` and the highlight messages are the plumbing to reuse rather
+than reinvent. Two open decisions: whether **advisory** findings belong in the build view or stay in the review
+queue, and whether a `required` field the guest **cannot see** should block at all (content-only hides config —
+though in practice a build inherits the page's config values, so those arrive filled).
+
 ### E.4 — Guardrail editor for templates — ⤵ ABSORBED into E.6
 
 Slice 3 enforces `template.data.guardrails` in three places (editor, submit, review) but nothing *sets* it
@@ -1186,9 +1214,32 @@ link to" — nothing highlights, `onHover` is a no-op, schema order stands.
   the buttons are separate nodes because `paint()` rewriting `meta.textContent` would remove the controls on the
   first keystroke.
 
-**Still to do in F.2:** **richtext and images.** Richtext stays in the rail by the F.2 decision — the overlay is a
-`<textarea>` and cannot carry markup — and it now at least has a working counter (see E.9 below). Images need the
-media browser, which lives in the rail.
+### F.2b — Richtext inline, because "everything except this paragraph" is not a feature
+
+**Reversing the F.2 decision to leave richtext in the rail** (Brad, 2026-08-11: *"of course the guests are going to
+hit richtext inline editing. It's weird to make most of the content editable but not this section for opaque
+reasons."*). He is right, and the original reasoning was an implementation constraint presented as a product
+decision: the overlay is a `<textarea>`, a textarea cannot carry markup, therefore richtext was excluded. That is a
+statement about our overlay, not about what an author should expect — and from a guest's seat the rule reads as
+"this paragraph is mysteriously special".
+
+**The real problem to solve**, restated honestly: the overlay seeds from the marked range's *text*, so committing it
+would strip `<strong>`, lists and links (measured — see `textEditableFieldPaths`). Inline richtext therefore needs an
+editor that round-trips markup, which means the overlay grows a `contenteditable` variant for richtext marks only.
+Three things make that harder than the textarea, and all three are already understood:
+
+1. **No `contenteditable` on the component's own node** — React reconciliation eats it and a Handlebars re-render
+   discards the caret (the caret-loss note in `RichTextField.tsx` is the same bug). So the overlay keeps owning its
+   own node, seeded imperatively via a ref, exactly as `RichTextField` does.
+2. **Seed from the mark's `innerHTML`, not its text.** The `TreeWalker` already gives an exact node range, so the
+   HTML is available — this is the part the textarea threw away.
+3. **The counter must measure copy, not markup** — already solved by `measuredLength` (E.9 addendum), so the inline
+   counter can reuse it unchanged.
+
+Worth doing *after* the build-submission arc below, but it is on the list rather than parked.
+
+**Also still to do in F.2:** **images.** These need the media browser, which lives in the rail — so the honest inline
+affordance is "click the image → open the picker", not an overlay.
 
 ### E.9 addendum — a limit must be measured the way it is displayed (2026-08-11)
 

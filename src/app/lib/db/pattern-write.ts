@@ -18,6 +18,7 @@ import {
 } from '../authz/policy';
 import {
   blockingFindings,
+  GuardrailBlockedError,
   checkGuardrails,
   guardrailsFromPatternData,
   readGuardrailConfig,
@@ -806,8 +807,12 @@ export async function submitGuestSubmission(
    */
   const blocking = blockingFindings(await checkPatternGuardrails(db, id));
   if (blocking.length) {
-    // A plain Error, not AuthorizationError: the caller has permission, the content does not pass.
-    throw new Error(summarizeBlocking(blocking));
+    /**
+     * Not `AuthorizationError` — the caller has permission, the content does not pass — and not a plain `Error`
+     * either: `GuardrailBlockedError` carries the findings so the caller can *show* them. A flattened message left
+     * the guest with "Could not submit the page." and the reason only in the server log.
+     */
+    throw new GuardrailBlockedError(blocking);
   }
 
   const [owner] = await db
