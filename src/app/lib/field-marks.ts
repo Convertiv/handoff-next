@@ -124,6 +124,21 @@ export function fieldIdToArgsPath(id: string): (string | number)[] {
 }
 
 /**
+ * Field paths an **inline richtext editor** may edit — roadmap F.2b.
+ *
+ * Separate from `textEditableFieldPaths` because the two need different overlays, not because richtext is less
+ * editable. F.2 excluded it on the grounds that the overlay is a `<textarea>` and a textarea cannot carry markup —
+ * which is a fact about our overlay, not a reason a guest should find one paragraph mysteriously uneditable
+ * (Brad, 2026-08-11: *"it's weird to make most of the content editable but not this section for opaque reasons"*).
+ *
+ * The frame gives these marks a `contenteditable` overlay seeded from the mark's **`innerHTML`** rather than its
+ * text, which is precisely what the textarea threw away.
+ */
+export function richtextEditableFieldPaths(properties: unknown, prefix: string[] = []): string[] {
+  return collectEditablePaths(properties, prefix, (declared) => declared === 'richtext');
+}
+
+/**
  * Field paths a **text overlay** may safely edit — `text` and `string`, nothing else.
  *
  * Inline editing seeds its overlay from the marked range's *text*, so it is only correct where the value really is
@@ -140,6 +155,21 @@ export function fieldIdToArgsPath(id: string): (string | number)[] {
  * degrade-to-nothing rule the rest of the phase follows.
  */
 export function textEditableFieldPaths(properties: unknown, prefix: string[] = []): string[] {
+  return collectEditablePaths(properties, prefix, (declared) => declared === 'text' || declared === 'string');
+}
+
+/**
+ * One traversal, two predicates — so "which fields are editable inline" is asked the same way for both overlays.
+ *
+ * Splitting the walk was how the text and richtext sets would drift: the array-item rule ("items keep the parent's
+ * path, matching how a template inside `{{#each}}` names them") is subtle enough that a second copy of it would
+ * eventually disagree, and a disagreement here shows up as a field that silently offers no affordance.
+ */
+function collectEditablePaths(
+  properties: unknown,
+  prefix: string[],
+  accepts: (declaredType: string) => boolean
+): string[] {
   if (!properties || typeof properties !== 'object' || Array.isArray(properties)) return [];
   const out: string[] = [];
   for (const [key, raw] of Object.entries(properties as Record<string, unknown>)) {
@@ -148,11 +178,11 @@ export function textEditableFieldPaths(properties: unknown, prefix: string[] = [
     const path = [...prefix, key];
     const declared =
       (typeof prop.editorType === 'string' && prop.editorType) || (typeof prop.type === 'string' ? prop.type : '');
-    if (declared === 'text' || declared === 'string') out.push(path.join('.'));
-    if (prop.properties) out.push(...textEditableFieldPaths(prop.properties, path));
+    if (accepts(declared)) out.push(path.join('.'));
+    if (prop.properties) out.push(...collectEditablePaths(prop.properties, path, accepts));
     const items = prop.items as Record<string, unknown> | undefined;
     // Array items keep the parent's path, matching how a template inside `{{#each}}` names them.
-    if (items?.properties) out.push(...textEditableFieldPaths(items.properties, path));
+    if (items?.properties) out.push(...collectEditablePaths(items.properties, path, accepts));
   }
   return out;
 }

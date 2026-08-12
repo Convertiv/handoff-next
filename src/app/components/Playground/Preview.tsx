@@ -352,6 +352,8 @@ export async function constructComponentPreview(
      * not send the reader back to the top of the page — see `getBlockControlsScript`.
      */
     restoreScrollY?: number;
+    /** Field paths that get a `contenteditable` overlay rather than a textarea — roadmap F.2b. */
+    richtextFields?: string[];
   }
 ): Promise<string> {
   let bodyInner = '';
@@ -436,7 +438,7 @@ export async function constructComponentPreview(
   // After the controls script, so its click handler is registered first and the field handler can stop the
   // event before "select this block" swallows it.
   const inlineEditJs = options?.inlineEdit
-    ? `<script>${inlineEditScript(options.fieldLimits ?? {}, options.editableFields ?? [])}</script>`
+    ? `<script>${inlineEditScript(options.fieldLimits ?? {}, options.editableFields ?? [], options.richtextFields ?? [])}</script>`
     : '';
 
   return `<html>

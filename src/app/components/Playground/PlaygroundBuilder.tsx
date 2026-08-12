@@ -39,7 +39,7 @@ import { useRouter } from 'next/navigation';
 import { handoffApiUrl } from '@/lib/api-path';
 import InviteWizard from './InviteWizard';
 import MetaControl from '../library/MetaControl';
-import { fieldIdToArgsPath, textEditableFieldPaths } from '@/lib/field-marks';
+import { fieldIdToArgsPath, richtextEditableFieldPaths, textEditableFieldPaths } from '@/lib/field-marks';
 import { setAtArgsPath } from '@/lib/set-at-args-path';
 import {
   FieldLinkProvider,
@@ -285,6 +285,20 @@ export default function PlaygroundBuilder({
     [hoveredField, handleFieldHover, activeComponentId, fieldOrderByBlock]
   );
 
+  /**
+   * Richtext paths, unioned across the canvas — roadmap F.2b.
+   *
+   * Separate from `inlineEditableFields` because the frame needs to know *which overlay* to open, not merely that a
+   * field is editable. Same union-rather-than-per-block reasoning: the frame keys on the field path.
+   */
+  const inlineRichtextFields = useMemo(() => {
+    const out = new Set<string>();
+    for (const c of selectedComponents) {
+      for (const path of richtextEditableFieldPaths((c as { properties?: unknown }).properties)) out.add(path);
+    }
+    return [...out];
+  }, [selectedComponents]);
+
   const [duplicating, setDuplicating] = useState(false);
 
   /**
@@ -374,6 +388,7 @@ export default function PlaygroundBuilder({
         inlineEdit: canvasControls,
         fieldLimits: inlineFieldLimits,
         editableFields: inlineEditableFields,
+        richtextFields: inlineRichtextFields,
       });
       setHtml(result);
       setLoadingHtml(false);
@@ -381,7 +396,15 @@ export default function PlaygroundBuilder({
     render();
     // Both inline lists are memoized, so including them costs nothing and closes a real staleness gap: a
     // guardrail edited while the canvas is open would otherwise leave the overlay counting against the old limit.
-  }, [selectedComponents, basePath, structuralEditing, canvasControls, inlineFieldLimits, inlineEditableFields]);
+  }, [
+    selectedComponents,
+    basePath,
+    structuralEditing,
+    canvasControls,
+    inlineFieldLimits,
+    inlineEditableFields,
+    inlineRichtextFields,
+  ]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {

@@ -4,6 +4,7 @@ import Handlebars from 'handlebars';
 import {
   fieldIdToArgsPath,
   parseFieldMarks,
+  richtextEditableFieldPaths,
   registerFieldMarkHelper,
   textEditableFieldPaths,
 } from '../src/app/lib/field-marks';
@@ -217,5 +218,51 @@ describe('textEditableFieldPaths', () => {
   it('tolerates nonsense', () => {
     assert.deepEqual(textEditableFieldPaths(undefined), []);
     assert.deepEqual(textEditableFieldPaths('nope'), []);
+  });
+});
+
+/**
+ * Which marks get a richtext overlay — roadmap F.2b.
+ *
+ * F.2 excluded richtext because the overlay was a `<textarea>` and a textarea cannot carry markup. That was a fact
+ * about the overlay, not a reason a guest should find one paragraph mysteriously uneditable, so richtext now gets a
+ * `contenteditable` overlay seeded from the mark's innerHTML instead.
+ */
+describe('richtextEditableFieldPaths', () => {
+  it('picks richtext and nothing else', () => {
+    const paths = richtextEditableFieldPaths({
+      body: { type: 'richtext' },
+      title: { type: 'text' },
+      menu: { type: 'array', items: { properties: {} } },
+      logo: { type: 'image' },
+    });
+    assert.deepEqual(paths, ['body']);
+  });
+
+  /** The two sets must not overlap, or the frame would not know which overlay to open. */
+  it('is disjoint from the text set', () => {
+    const properties = { body: { type: 'richtext' }, title: { type: 'text' }, eyebrow: { type: 'string' } };
+    const rich = richtextEditableFieldPaths(properties);
+    const text = textEditableFieldPaths(properties);
+    assert.deepEqual(rich, ['body']);
+    assert.deepEqual(text.sort(), ['eyebrow', 'title']);
+    assert.deepEqual(rich.filter((p) => text.includes(p)), []);
+  });
+
+  it('finds richtext inside objects and repeater rows, with the array-item path rule', () => {
+    const paths = richtextEditableFieldPaths({
+      author: { type: 'object', properties: { bio: { type: 'richtext' } } },
+      items: { type: 'array', items: { properties: { paragraph: { type: 'richtext' }, title: { type: 'text' } } } },
+    }).sort();
+    assert.deepEqual(paths, ['author.bio', 'items.paragraph']);
+  });
+
+  it('respects editorType over the raw type', () => {
+    assert.deepEqual(richtextEditableFieldPaths({ slot: { type: 'React.ReactNode', editorType: 'richtext' } }), ['slot']);
+  });
+
+  it('tolerates nonsense', () => {
+    assert.deepEqual(richtextEditableFieldPaths(undefined), []);
+    assert.deepEqual(richtextEditableFieldPaths('nope'), []);
   });
 });

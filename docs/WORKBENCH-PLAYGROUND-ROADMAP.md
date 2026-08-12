@@ -1342,7 +1342,7 @@ link to" — nothing highlights, `onHover` is a no-op, schema order stands.
   the buttons are separate nodes because `paint()` rewriting `meta.textContent` would remove the controls on the
   first keystroke.
 
-### F.2b — Richtext inline, because "everything except this paragraph" is not a feature
+### F.2b — Richtext inline — 🔄 SHIPPED 2026-08-12, commit path unverified
 
 **Reversing the F.2 decision to leave richtext in the rail** (Brad, 2026-08-11: *"of course the guests are going to
 hit richtext inline editing. It's weird to make most of the content editable but not this section for opaque
@@ -1364,7 +1364,29 @@ Three things make that harder than the textarea, and all three are already under
 3. **The counter must measure copy, not markup** — already solved by `measuredLength` (E.9 addendum), so the inline
    counter can reuse it unchanged.
 
-Worth doing *after* the build-submission arc below, but it is on the list rather than parked.
+**Built 2026-08-12.** `richtextEditableFieldPaths` marks which paths are richtext; the frame gives those a
+`contenteditable` overlay seeded from `cloneContents()` innerHTML, commits `innerHTML`, and counts **copy not
+markup** with a `copyLength` mirroring `richTextToCopy` (an inline counter that disagrees with the gate would be the
+E.9 bug again). Enter makes a paragraph rather than committing — ✓/blur commit — and ⌘/Ctrl+B/I/U format, because a
+formatting control without them reads as broken.
+
+The path-collection walk is now **shared** between text and richtext via one `collectEditablePaths` with two
+predicates. The array-item rule is subtle enough that a second copy would drift, and drift there shows up as a field
+silently offering no affordance.
+
+**Verified in a browser** against real markup: the script parses, two hit areas appear (`<h2>` text, `<div>`
+richtext), the overlay is `contenteditable`, it seeds with `<strong>`, `<a href>` and `<ul><li>` intact, and the
+counter read `13/320` for "Changed copy." — markup correctly excluded.
+
+⚠️ **The commit dispatch is NOT verified.** The harness proved unreliable: the preview pane renders `file://` as a
+*static snapshot*, so `navigate` did not reload and state leaked between runs — caught when a "fresh" page reported
+two pre-existing meta bars. Richtext differs from the working text path by one line
+(`o.rich ? o.input.innerHTML : o.input.value`), inspected but not executed. **Needs one real click-through.**
+
+⚠️ **Two process findings.** Unescaped backticks inside the injected template literal terminated it and turned
+`</b>` into a regex — and **root `tsc --noEmit` passed anyway**; only esbuild caught it. Fourth time in two days that
+the root typecheck missed something under `src/app`, which it evidently does not cover. Use `next build` (or `tsx`
+against the module) as the gate.
 
 **Also still to do in F.2:** **images.** These need the media browser, which lives in the rail — so the honest inline
 affordance is "click the image → open the picker", not an overlay.

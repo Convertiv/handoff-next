@@ -44,6 +44,13 @@ export const INLINE_EDIT_CSS = `
   font: 600 11px/1.4 system-ui, sans-serif; color: #fff;
 }
 .hf-overlay-btn:hover { background: rgba(255,255,255,.25); }
+/* Richtext keeps the document's own typography — it is editing formatted copy in place, not filling a form box. */
+.hf-overlay-rich {
+  position: absolute; z-index: 2147483000; margin: 0; padding: 2px 4px; min-width: 120px;
+  border: 2px solid rgb(99,102,241); border-radius: 3px; background: #fff; color: #111;
+  box-shadow: 0 4px 14px rgba(0,0,0,.18); overflow: auto;
+}
+.hf-overlay-rich:focus { outline: none; }
 `;
 
 /**
@@ -53,7 +60,9 @@ export const INLINE_EDIT_CSS = `
  */
 export function inlineEditScript(
   fieldLimits: Record<string, Record<string, number>> = {},
-  editableFields: string[] = []
+  editableFields: string[] = [],
+  /** Marks that get a `contenteditable` overlay instead of a textarea — roadmap F.2b. */
+  richtextFields: string[] = []
 ): string {
   return `
 (function(){
@@ -67,9 +76,48 @@ export function inlineEditScript(
    * real template output. Anything not listed gets no hit area — see \`textEditableFieldPaths\`.
    */
   var EDITABLE = ${JSON.stringify(editableFields)};
+  /**
+   * Marks whose value is **richtext** (roadmap F.2b). These get a \`contenteditable\` overlay seeded from the
+   * mark's innerHTML, so committing preserves \`<strong>\`, lists and links instead of flattening them — which is
+   * exactly what the textarea did, and why richtext was excluded from F.2 in the first place.
+   */
+  var RICHTEXT = ${JSON.stringify(richtextFields)};
   var open = null;
 
-  function editable(id){ return EDITABLE.indexOf(id.replace(/:\\d+$/,''))!==-1; }
+  function bare(id){ return id.replace(/:\\d+$/,''); }
+  function editable(id){ return EDITABLE.indexOf(bare(id))!==-1 || RICHTEXT.indexOf(bare(id))!==-1; }
+  function isRichtext(id){ return RICHTEXT.indexOf(bare(id))!==-1; }
+
+  /**
+   * Copy length for the counter, markup excluded.
+   *
+   * Re-implemented rather than imported for the same reason the mark format is: this string is injected into a
+   * sandboxed document with no module loader. It must stay in step with \`richTextToCopy\` in
+   * \`authoring-guardrails.ts\`, which is what the server measures against — an inline counter that disagrees with
+   * the gate is the E.9 bug all over again. Same two rules: block boundaries become spaces, inline ones do not.
+   */
+  var INLINE_TAGS = ' a abbr b bdi bdo cite code data dfn em i kbd mark q rp rt ruby s samp small span strong sub sup time u var wbr ';
+  function copyLength(html){
+    var text = html
+      .replace(/<(script|style)\\b[^>]*>[\\s\\S]*?<\\/\\1>/gi,'')
+      .replace(/<!--[\\s\\S]*?-->/g,'')
+      .replace(/<\\/?([a-z][a-z0-9-]*)\\b[^>]*>/gi,function(m,name){
+        return INLINE_TAGS.indexOf(' '+name.toLowerCase()+' ')!==-1 ? '' : ' ';
+      })
+      .replace(/<[^>]*>/g,'')
+      .replace(/&nbsp;/gi,' ')
+      .replace(/&amp;/gi,'&')
+      .replace(/\\s+/g,' ')
+      .trim();
+    return text.length;
+  }
+
+  /** The mark's rendered HTML, which is what a richtext overlay must start from. */
+  function htmlOf(m){
+    var holder=document.createElement('div');
+    holder.appendChild(rangeOf(m).cloneContents());
+    return holder.innerHTML;
+  }
 
   /**
    * Every marked field, as { id, blockId, start, end }.
@@ -132,7 +180,8 @@ export function inlineEditScript(
   function close(commit){
     if(!open)return;
     var o=open; open=null;
-    var value=o.input.value;
+    // A contenteditable carries its value in innerHTML; a textarea in .value. Reading the wrong one commits "".
+    var value=o.rich ? o.input.innerHTML : o.input.value;
     o.input.remove(); o.meta.remove();
     if(o.hit) o.hit.classList.remove('hf-field-hit-active');
     if(commit&&value!==o.original){
@@ -151,9 +200,23 @@ export function inlineEditScript(
     close(false);
     var box=boxOf(m);
     if(!box)return;
-    var input=document.createElement('textarea');
-    input.className='hf-overlay';
-    input.value=textOf(m);
+    var rich=isRichtext(m.id);
+    /**
+     * **Richtext gets a \`contenteditable\`, seeded from the mark's innerHTML** (roadmap F.2b).
+     *
+     * Still an overlay, never the component's own node: React reconciliation eats a \`contenteditable\` on
+     * rendered output and a Handlebars re-render discards the caret — the same bug \`RichTextField\` documents. So
+     * the overlay owns its own node and the component tree is untouched until the parent applies the value.
+     */
+    var input=document.createElement(rich?'div':'textarea');
+    if(rich){
+      input.className='hf-overlay-rich';
+      input.setAttribute('contenteditable','true');
+      input.innerHTML=htmlOf(m);
+    } else {
+      input.className='hf-overlay';
+      input.value=textOf(m);
+    }
     input.style.left=(box.left+window.scrollX)+'px';
     input.style.top=(box.top+window.scrollY)+'px';
     input.style.width=Math.max(box.width,120)+'px';
@@ -161,6 +224,8 @@ export function inlineEditScript(
     // Match the text it is covering, so editing does not reflow the reader's sense of the page.
     var cs=window.getComputedStyle(m.start.parentElement||document.body);
     input.style.font=cs.font; input.style.textAlign=cs.textAlign;
+    // Richtext may grow as you type — a fixed height would clip a second paragraph out of sight.
+    if(rich) input.style.height='auto';
 
     var meta=document.createElement('div');
     meta.className='hf-overlay-meta';
@@ -193,7 +258,8 @@ export function inlineEditScript(
 
     var max=limitFor(m);
     function paint(){
-      var n=input.value.length;
+      // Copy, not markup: a bolded 'Hi' is 2 characters, matching what the server enforces (E.9 addendum).
+      var n=rich ? copyLength(input.innerHTML) : input.value.length;
       label.textContent=m.id+(max?'  '+n+'/'+max:'');
       meta.setAttribute('data-over',max&&n>max?'1':'0');
     }
@@ -201,9 +267,26 @@ export function inlineEditScript(
     input.addEventListener('input',paint);
 
     input.addEventListener('keydown',function(e){
-      if(e.key==='Escape'){e.preventDefault();close(false);}
+      if(e.key==='Escape'){e.preventDefault();close(false);return;}
+      if(rich){
+        /**
+         * **Enter does not commit in richtext** — it makes a new paragraph, which is the whole point of the
+         * control. The visible ✓ and blur are how a richtext edit is committed.
+         *
+         * Bold/italic/underline are wired to the usual shortcuts because a formatting control without them reads
+         * as broken. \`execCommand\` is deprecated but is what \`RichTextField\` already uses, and is the only thing
+         * available inside an injected script with no editor library.
+         */
+        var meta=e.metaKey||e.ctrlKey;
+        if(meta&&(e.key==='b'||e.key==='i'||e.key==='u')){
+          e.preventDefault();
+          document.execCommand(e.key==='b'?'bold':e.key==='i'?'italic':'underline');
+          paint();
+        }
+        return;
+      }
       // Enter commits on a single-line field; Shift+Enter always inserts a newline.
-      else if(e.key==='Enter'&&!e.shiftKey&&input.value.indexOf('\\n')===-1){e.preventDefault();close(true);}
+      if(e.key==='Enter'&&!e.shiftKey&&input.value.indexOf('\\n')===-1){e.preventDefault();close(true);}
     });
     input.addEventListener('blur',function(){close(true);});
 
@@ -214,7 +297,7 @@ export function inlineEditScript(
 
     var hit=m.start.parentElement;
     if(hit) hit.classList.add('hf-field-hit-active');
-    open={mark:m,input:input,meta:meta,original:input.value,hit:hit};
+    open={mark:m,input:input,meta:meta,original:rich?input.innerHTML:input.value,rich:rich,hit:hit};
     post('playground-field-focus',{blockId:m.blockId,fieldId:m.id});
   }
 
