@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import { handoffApiUrl } from '@/lib/api-path';
 import GuestEditor from './GuestEditor';
 import { FindingsList, type RenderableFinding } from '../Playground/FindingsList';
+import { requestFieldReveal } from '../Playground/FieldLinkContext';
 import type { ShareCapability } from '@/lib/authz/vocab';
 
 /**
@@ -361,7 +362,8 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
           {/* The specifics, so "8 things need fixing" is a list rather than a count. */}
           {findings.length ? (
             <div className="mt-2">
-              <FindingsList findings={findings} />
+              {/* Clicking a finding selects its block and highlights the field — the builder satisfies this. */}
+              <FindingsList findings={findings} onSelect={requestFieldReveal} />
             </div>
           ) : null}
         </div>

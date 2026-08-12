@@ -68,6 +68,31 @@ export function fieldLinkKey(path: string): string {
     .join('.');
 }
 
+/** The message a findings list posts to ask the builder to reveal a field. Named here beside the other link parts. */
+export const REVEAL_FIELD_MESSAGE = 'playground-reveal-field';
+
+/**
+ * Ask the playground to select a block and highlight one of its fields — what clicking a finding does (E.11).
+ *
+ * **A window message rather than a prop or a context**, because the two callers sit on opposite sides of the
+ * playground and no single React path connects them. `BuildPanel` is *rendered* inside `PlaygroundBuilder` (it
+ * arrives as the `leftPanel` element, so context would reach it), but `GuestAuthoring` renders the whole editor as a
+ * child and sits **above** it — a context provided by the builder is invisible from there, and threading a callback
+ * upward would invert the data flow through three components.
+ *
+ * `PlaygroundBuilder` already runs a `window` message hub for exactly this class of request —
+ * `playground-scroll-to-block`, `playground-highlight-field`, `playground-edit-field` — so this is the existing
+ * idiom rather than a new channel. It also keeps the guest surface ignorant of the playground's internals: it says
+ * *what* it wants, not *how*.
+ *
+ * @param blockIndex Zero-based position, as a finding reports it.
+ * @param path Dotted field path, or null for a page-level finding (block gets selected, nothing highlights).
+ */
+export function requestFieldReveal(blockIndex: number, path: string | null): void {
+  if (typeof window === 'undefined') return;
+  window.postMessage({ type: REVEAL_FIELD_MESSAGE, blockIndex, path }, '*');
+}
+
 /**
  * Properties reordered to match the page — the answer to "fields come in the order they come in".
  *

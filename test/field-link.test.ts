@@ -1,6 +1,10 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { fieldLinkKey, orderPropertiesByDocument } from '../src/app/components/Playground/FieldLinkContext';
+import {
+  fieldLinkKey,
+  orderPropertiesByDocument,
+  requestFieldReveal,
+} from '../src/app/components/Playground/FieldLinkContext';
 
 /**
  * The rail ↔ canvas link — roadmap F.2's orientation half.
@@ -67,5 +71,20 @@ describe('orderPropertiesByDocument', () => {
   it('tolerates nothing to order', () => {
     assert.equal(orderPropertiesByDocument(undefined, ['title']), undefined);
     assert.equal(orderPropertiesByDocument(null, ['title']), null);
+  });
+});
+
+/**
+ * `requestFieldReveal` runs in components that also render on the server, where `window` does not exist.
+ *
+ * The guard matters more than it looks: this is called from `BuildPanel` and `GuestAuthoring`, both of which are in
+ * the server-rendered tree. An unguarded `window.postMessage` would throw during SSR — turning "clicking a finding
+ * doesn't jump" into "the page 500s".
+ */
+describe('requestFieldReveal', () => {
+  it('is a no-op with no window rather than a crash', () => {
+    assert.equal(typeof window, 'undefined', 'this test is only meaningful without a DOM');
+    assert.doesNotThrow(() => requestFieldReveal(0, 'title'));
+    assert.doesNotThrow(() => requestFieldReveal(2, null));
   });
 });

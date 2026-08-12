@@ -628,12 +628,39 @@ the route mapped it to a generic 500. `GuardrailBlockedError` now carries them (
 `code` + `is*` idiom), and the guest submit route answers **422 with `findings`** — a well-formed request whose
 content did not pass, not a server failure.
 
-**3. 🔜 The UI.** Findings now arrive at the client; nothing renders them yet. This is the "validation responses when
-viewing a build" work: per-block and per-field, linking into the field that needs fixing — which is exactly what the
-F.2 rail↔canvas link already does, so `fieldLinkKey` and the highlight messages are the plumbing to reuse rather
-than reinvent. Two open decisions: whether **advisory** findings belong in the build view or stay in the review
-queue, and whether a `required` field the guest **cannot see** should block at all (content-only hides config —
-though in practice a build inherits the page's config values, so those arrive filled).
+**3. ✅ The UI — `components/Playground/FindingsList.tsx`, shared by both audiences.** The reviewer's build view
+listed audit findings as flat `<li>{message}</li>` text and the guest's submit path showed nothing at all; both now
+render the same list, with the field **named** and the block numbered (`Block 2 · Logo`).
+
+It takes the **intersection** of the two finding types — `message` / `path` / `blockIndex` — rather than unifying
+`GuardrailFinding` and `AuditFinding`. They are produced by different passes for different reasons, and forcing a
+shared vocabulary would serve neither; they already agree on those three fields, so that agreement is the contract.
+`onSelect` is optional, so a host with no canvas beside it renders inert text instead of a control that cannot work.
+
+**4. ✅ Jump to field.** Clicking a finding selects its block and highlights the field.
+
+**A `window` message (`playground-reveal-field`), not a prop or a context** — because the two callers sit on opposite
+sides of the playground and no single React path connects them. `BuildPanel` is *rendered* inside `PlaygroundBuilder`
+(it arrives as the `leftPanel` element, so context would reach it), but `GuestAuthoring` renders the whole editor as a
+child and sits **above** it, where a context provided by the builder is invisible — and threading a callback upward
+would invert the data flow through three components. The builder already runs a hub for exactly this class of request
+(`playground-scroll-to-block`, `playground-highlight-field`, `playground-edit-field`), so this is the existing idiom,
+and it keeps the guest surface ignorant of the playground's internals: it says *what* it wants, not *how*.
+
+Only the builder can satisfy it — a finding names a block by **index**, and the builder holds the ordered blocks that
+turn that into a `uniqueId`, plus the canvas ref to point at. Scroll first, then highlight; a page-level finding
+(no path) still brings its block into view, because being shown the right block is most of the answer even when no
+single field is at fault.
+
+**Verified in a real browser**, since the mechanism rests on one assumption that would fail silently: that
+`window.postMessage` to the same window reaches that window's own listener. Driving the real handler shape — 3 of 5
+messages acted on, an out-of-range block and a foreign message type both ignored, `items.2.paragraph` normalising to
+`items.paragraph`. The SSR guard is tested too: `BuildPanel` and `GuestAuthoring` are both in the server-rendered
+tree, so an unguarded `window.postMessage` would turn "the jump doesn't work" into "the page 500s".
+
+**Still open — two decisions:** whether **advisory** findings belong in the build view or stay in the review queue,
+and whether a `required` field the guest **cannot see** should block at all (content-only hides config — though in
+practice a build inherits the page's config values, so those arrive filled).
 
 ### E.4 — Guardrail editor for templates — ⤵ ABSORBED into E.6
 

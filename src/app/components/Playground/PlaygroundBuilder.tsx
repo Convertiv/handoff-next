@@ -41,7 +41,13 @@ import InviteWizard from './InviteWizard';
 import MetaControl from '../library/MetaControl';
 import { fieldIdToArgsPath, textEditableFieldPaths } from '@/lib/field-marks';
 import { setAtArgsPath } from '@/lib/set-at-args-path';
-import { FieldLinkProvider, fieldLinkKey, orderPropertiesByDocument, useFieldLink } from './FieldLinkContext';
+import {
+  FieldLinkProvider,
+  REVEAL_FIELD_MESSAGE,
+  fieldLinkKey,
+  orderPropertiesByDocument,
+  useFieldLink,
+} from './FieldLinkContext';
 import { componentFieldRules, declaredRuleForPath, resolveFieldGuardrail } from '@/lib/authoring-guardrails';
 import MediaBrowser from './MediaBrowser';
 import { renderFormFields } from './fields/Field';
@@ -388,6 +394,32 @@ export default function PlaygroundBuilder({
        * The canvas telling the rail what the pointer is over, and which order its fields render in — the two
        * messages the frame has been emitting since F.2 with nothing listening (roadmap F.2).
        */
+      /**
+       * A findings list asking for a field to be shown (roadmap E.11). This is the only place that can satisfy it:
+       * a finding names a block by *index*, and only the builder holds the ordered blocks to turn that into a
+       * `uniqueId` — plus the canvas ref to point at.
+       */
+      if (event.data?.type === REVEAL_FIELD_MESSAGE) {
+        const { blockIndex, path } = event.data as { blockIndex?: unknown; path?: unknown };
+        if (typeof blockIndex !== 'number') return;
+        const block = selectedComponents[blockIndex];
+        if (!block?.uniqueId) return;
+
+        // Open the block's editor in the rail. The field the finding is about is inside it.
+        setActiveComponentId(block.uniqueId);
+
+        const key = typeof path === 'string' && path ? fieldLinkKey(path) : null;
+        setHoveredField(key);
+        const frame = canvasIframeRef.current?.contentWindow;
+        /**
+         * Scroll first, then highlight. A page-level finding carries no path, so it still brings the block into
+         * view — being shown the right block is most of the answer even when no single field is at fault.
+         */
+        frame?.postMessage({ type: 'playground-scroll-to-block', blockId: block.uniqueId }, '*');
+        frame?.postMessage({ type: 'playground-highlight-field', fieldId: key }, '*');
+        return;
+      }
+
       if (event.data?.type === 'playground-field-hover') {
         const id = event.data.fieldId;
         setHoveredField(typeof id === 'string' ? fieldLinkKey(id) : null);

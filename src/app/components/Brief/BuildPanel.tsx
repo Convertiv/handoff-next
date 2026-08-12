@@ -8,6 +8,7 @@ import { handoffApiUrl } from '@/lib/api-path';
 import type { BuildRow } from './BuildList';
 import { groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
 import { FindingsList } from '../Playground/FindingsList';
+import { requestFieldReveal } from '../Playground/FieldLinkContext';
 
 /**
  * The left panel at **build level** (roadmap E.8): what the builder said, and what we make of it.
@@ -177,7 +178,11 @@ export default function BuildPanel({
                   * Shared with the guest's submit failure via `FindingsList` (roadmap E.11), so a finding reads the
                   * same wherever it appears — and the field name is now named rather than left implicit in a path.
                   */}
-                <FindingsList findings={items} emptyNote={CATEGORY_EMPTY[category]} />
+                <FindingsList
+                  findings={items}
+                  emptyNote={CATEGORY_EMPTY[category]}
+                  onSelect={requestFieldReveal}
+                />
               </div>
             );
           })}
