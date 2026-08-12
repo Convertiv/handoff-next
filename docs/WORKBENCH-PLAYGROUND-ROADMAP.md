@@ -684,6 +684,42 @@ Next build caught what the root typecheck did not.
 explicitly *not* a lifecycle state — the migration says so — and belongs with Phase D outbound export, so the
 "published" chip stays underived for now.
 
+### E.14 — The voice check, filling the category E.10 left empty
+
+`lib/server/voice-audit.ts` + `POST /api/handoff/review/{id}/voice` + a **Check voice** button in the build view.
+
+E.10 declared a `voice` category, produced nothing, and wrote down why: *"checking copy against a brand voice is a
+judgement an LLM makes against the brand-voice document, not something a regex can assert. Shipping a fake version
+of it would be worse than an empty section that says so."* This is that judgement, made by the thing that can make
+it — and the empty section that said so is now the control that fills it.
+
+**It returns `AuditFinding[]`, so the UI cost was zero.** The build view already renders that shape and
+`FindingsList` already makes each row jump to its field. Filling an existing hole beat inventing a parallel one; the
+only additions were `voice-mismatch` in the code union and a button.
+
+**On demand, not on view.** Every other audit is deterministic and free, so it runs on render; this one costs money
+and about a second, so a reviewer asks for it. Running it on page load would bill every glance at a build, including
+the ones nobody reviews. Authorization is `canApprove` — the same rule as viewing the submission, because if you may
+not see a build you may not spend the workspace's tokens on one.
+
+**Read-only.** Findings are returned, never stored: a voice judgement is advisory and re-runnable, and persisting it
+would raise "is this stale?" for no benefit while the copy is still being edited.
+
+**`ran: false` is not an error.** No AI key, no brand voice written, or no copy on the page are all legitimate
+states, and the UI shows the reason rather than an empty success that reads as a pass.
+
+⚠️ **Two defects found by running the real prompt over a real page, not by unit tests:**
+
+1. **A path is not unique.** Two blocks both having `title` is ordinary, and keying findings on path alone silently
+   resolved block 0's title to **block 1** — precisely the "points at the wrong thing" failure the parser exists to
+   prevent. Copy items now carry a `ref` of `<blockIndex>.<path>`, which is what the model is asked to quote back.
+2. **URLs were being sent as copy.** `button.url` reached the prompt, wasting tokens and inviting a confident
+   finding about a link that reads fine as a link. Reference paths are excluded at collection.
+
+**The parser does not trust the model** — a hallucinated `ref` is dropped, a missing message is dropped, duplicates
+collapse, and a runaway message is truncated. A wrong answer produces silence, not a phantom row. Ten of the twelve
+tests are on that boundary; none assert prompt wording, which is a judgement call rather than a contract.
+
 ### E.11 — Why a build cannot be submitted, said where it can be fixed
 
 Opened by a real failure: submitting a build returned *"Could not submit the page."* while the Vercel log held

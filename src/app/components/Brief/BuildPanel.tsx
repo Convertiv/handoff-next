@@ -59,6 +59,17 @@ export default function BuildPanel({
   onBackToBrief: () => void;
 }) {
   /**
+   * The voice check, run on request (roadmap E.10 completion).
+   *
+   * Not run on view: every other audit is deterministic and free, this one costs money and about a second. Its
+   * findings join the same list as everything else — they are `AuditFinding`s in the `voice` category, which the
+   * list already knows how to render and make clickable.
+   */
+  const [voiceFindings, setVoiceFindings] = useState<AuditFinding[]>([]);
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  const [voiceBusy, setVoiceBusy] = useState(false);
+
+  /**
    * Audits and advisory guardrails as one list, each row carrying which check produced it.
    *
    * `groupAuditFindings` is still the source of the category label — the grouping is preserved as data and dropped
@@ -69,11 +80,33 @@ export default function BuildPanel({
     ...(Object.keys(CATEGORY_LABEL) as AuditCategory[]).flatMap((category) =>
       grouped[category].map((finding) => ({ ...finding, group: CATEGORY_LABEL[category] }))
     ),
+    ...voiceFindings.map((finding) => ({ ...finding, group: 'Voice' })),
     ...guardrailFindings.map((finding) => ({ ...finding, group: 'Content rule' })),
   ];
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const runVoiceCheck = useCallback(async () => {
+    setVoiceBusy(true);
+    setVoiceNote(null);
+    try {
+      const res = await fetch(handoffApiUrl(`/api/handoff/review/${encodeURIComponent(build.id)}/voice`), {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const json = (await res.json()) as { findings?: AuditFinding[]; ran?: boolean; reason?: string; error?: string };
+      if (!res.ok) throw new Error(json.error || 'The voice check could not be completed.');
+      setVoiceFindings(Array.isArray(json.findings) ? json.findings : []);
+      // "Didn't run" is distinct from "found nothing", and saying so avoids a false all-clear.
+      setVoiceNote(json.ran === false ? json.reason ?? 'Not checked.' : json.findings?.length ? null : 'Nothing flagged.');
+    } catch (e) {
+      setVoiceNote(e instanceof Error ? e.message : 'The voice check could not be completed.');
+    } finally {
+      setVoiceBusy(false);
+    }
+  }, [build.id]);
+
   const [status, setStatus] = useState(build.status);
 
   const decide = useCallback(
@@ -249,7 +282,18 @@ export default function BuildPanel({
             emptyNote="No issues found."
             onSelect={requestFieldReveal}
           />
-          <p className="text-[11px] text-muted-foreground">{VOICE_NOT_CHECKED}</p>
+          {/**
+            * The honest empty-state from E.10, now with the thing that fills it. Until this is run, "No issues
+            * found" would still be claiming more than we checked.
+            */}
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button size="sm" variant="outline" className="h-6 text-[11px]" disabled={voiceBusy} onClick={() => void runVoiceCheck()}>
+              {voiceBusy ? 'Checking voice…' : 'Check voice'}
+            </Button>
+            <span className="text-[11px] text-muted-foreground">
+              {voiceNote ?? (voiceFindings.length ? `${voiceFindings.length} in the list above.` : VOICE_NOT_CHECKED)}
+            </span>
+          </div>
         </section>
 
         <section className="space-y-2 border-t pt-4">

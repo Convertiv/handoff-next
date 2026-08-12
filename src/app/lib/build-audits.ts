@@ -43,7 +43,16 @@ export interface AuditFinding {
     | 'repeated-copy'
     | 'thin-content'
     | 'missing-alt'
-    | 'weak-link-text';
+    | 'weak-link-text'
+    /**
+     * Copy that contradicts the brand voice — produced by `server/voice-audit.ts`, not by this module.
+     *
+     * The `voice` category was declared here from the start and deliberately produced nothing, because the
+     * judgement needs an LLM reading the brand-voice document. The code belongs in this union anyway: a voice
+     * finding is an `AuditFinding` and renders through the same list, which is precisely why filling the category
+     * cost no UI work.
+     */
+    | 'voice-mismatch';
   /** Null for a page-level finding that belongs to no single block. */
   blockIndex: number | null;
   componentId: string | null;
