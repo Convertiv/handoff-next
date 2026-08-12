@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
 import { componentRulesForBlocks } from './queries';
+import { notifyBuildDecision, notifyBuildSubmitted, notifyInBackground } from '../notify';
 import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
 import {
   AuthorizationError,
@@ -264,6 +265,7 @@ export async function setPatternMetaFields(
     blockCount: Array.isArray(row?.components) ? (row!.components as unknown[]).length : null,
     actor,
   });
+
 }
 
 /* -------------------------------------------------------------------------- */
@@ -523,6 +525,15 @@ export async function reviewPattern(
     blockCount: Array.isArray(after?.components) ? (after!.components as unknown[]).length : null,
     actor: reviewActor,
   });
+
+  /**
+   * Tell whoever built it (roadmap E.6). A guest has no account and no queue, so without this the outcome of
+   * their work is simply unknowable to them. No-ops on a page nobody submitted — `submitted_by_email` is null
+   * for an internal page moving through review, which is the correct silence rather than a special case.
+   */
+  notifyInBackground('build-decision', () =>
+    notifyBuildDecision({ buildId: id, status: nextStatus, note: opts.message ?? null })
+  );
 
   return { status: nextStatus };
 }
@@ -845,6 +856,14 @@ export async function submitGuestSubmission(
     userId: historyUserId(actor),
     diff: { action: 'submit', status: 'review', by: actor.historyLabel, via: guest.shareLinkId },
   });
+
+  /**
+   * Tell the owner (roadmap E.6). Fired **after** the write and outside its result: the submission is the fact,
+   * the email is a courtesy, and a mail failure must not fail a build a guest just spent an hour on.
+   */
+  notifyInBackground('build-submitted', () =>
+    notifyBuildSubmitted({ buildId: id, builderName: guest.name || null, message })
+  );
 
   const [row] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, id));
   await recordPatternChange(db, {

@@ -607,6 +607,50 @@ field is a heading, or the in-frame `postMessage` route.
 E.8 build level (audit panel as an empty slot) → E.8b brief metadata editing + regenerate → E.9 content length
 → E.10 audits filling that slot → **notifications last, explicitly deferred.**
 
+### E.12 — Notifications: the data was collected for this and never used
+
+`lib/notify.ts` + two hooks in `pattern-write.ts`. **Lifecycle itself was already built** — states
+(`prototype | draft | review | approved | archived`), the gates in `authz/policy.ts`, `decidePatternMetaChange`,
+`decideReview`, and the meta control from E.7. The gap was that nothing *told anyone* when state changed.
+
+**The intent was already in the schema.** `handoff_pattern.submitted_by_email` is documented as *"For a built page:
+the author's email, for state-change notifications"* and the guest form collects it with disclosure — then nobody
+ever read it. So a build could be submitted and reviewed with no one informed: the owner had to happen to notice a
+queue badge, and the guest, having no account and no queue, could not learn the outcome at all. After submitting, the
+honest thing the UI could say was "someone will look at this eventually".
+
+**Two notifications, at the two moments that matter:**
+
+- **Build submitted → the page owner**, with the builder's note and a link straight to the build. That link is the
+  payoff of E.8 making every level addressable: `/playground/{page}?build={id}` lands them on the thing itself
+  instead of a dashboard to hunt through. The parent page is resolved inside `notify.ts` (build → `templateId` →
+  brief → `sourcePageId` → page), so the write path passes only what it knows.
+- **Decision → whoever built it**, with the reviewer's note. **Deliberately no call to action**: a guest cannot open
+  the workbench, so a button would be a dead end dressed as an action. It also no-ops on an internal page moving
+  through review, since `submitted_by_email` is null there — the correct silence rather than a special case.
+
+**Three rules, and the first two are not negotiable:**
+
+1. **A notification must never fail a write.** Everything goes through `notifyInBackground`, which swallows *and
+   logs*. The submission is the fact; telling someone is a courtesy, and a Resend outage must not fail a build a
+   guest just spent an hour on. It exists as a helper rather than leaving callers to write `void notify().catch()`
+   because one of them would eventually forget, and that failure surfaces as a lost submission.
+2. **Silence without configuration, not a crash.** `sendTemplatedEmail` skips when `RESEND_API_KEY` is unset —
+   exactly what `sendInviteEmail` and `sendPasswordResetEmail` already did — so local and preview environments need
+   no mail setup. Both invariants are tested; neither test is about content.
+3. **Reuse the house layout.** `emailLayout` gained an **optional** CTA rather than a second template, so an
+   informational message uses the same shell as the invite and reset mails.
+
+⚠️ **A mistake worth recording.** The submit hook was first inserted with a non-unique anchor string and landed in
+`setPatternMetaFields` instead of `submitGuestSubmission` — it would have emailed the owner on every visibility
+change, with an undefined `guest`. `tsc` was clean; **`next build` caught it**, and the fix was verified by walking
+the file to confirm which function each hook sits in rather than trusting the patch. Third time in a day that the
+Next build caught what the root typecheck did not.
+
+**Not done here:** `handoff_publication` is still unbound (in migration 0028, absent from `schema.ts`). It is
+explicitly *not* a lifecycle state — the migration says so — and belongs with Phase D outbound export, so the
+"published" chip stays underived for now.
+
 ### E.11 — Why a build cannot be submitted, said where it can be fixed
 
 Opened by a real failure: submitting a build returned *"Could not submit the page."* while the Vercel log held

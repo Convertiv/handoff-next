@@ -22,7 +22,13 @@ function fromAddress(): string {
   return process.env.RESEND_FROM ?? 'Handoff <onboarding@resend.dev>';
 }
 
-function emailLayout(opts: { title: string; body: string; ctaLabel: string; ctaUrl: string; footnote?: string }): string {
+/**
+ * `ctaLabel`/`ctaUrl` are optional so a purely informational message can use the same shell.
+ *
+ * A guest told their build was approved has nowhere to be sent — they have no account and the workbench would
+ * refuse them — so a button there would be a dead end dressed as an action (roadmap E.6 notifications).
+ */
+function emailLayout(opts: { title: string; body: string; ctaLabel?: string; ctaUrl?: string; footnote?: string }): string {
   const { title, body, ctaLabel, ctaUrl, footnote } = opts;
   const base = appBaseUrl();
   return `<!DOCTYPE html>
@@ -57,7 +63,9 @@ function emailLayout(opts: { title: string; body: string; ctaLabel: string; ctaU
               <!-- Body -->
               <p style="margin:0 0 28px;font-size:14px;color:#52525b;line-height:1.6;">${body}</p>
 
-              <!-- CTA button -->
+              ${
+                ctaLabel && ctaUrl
+                  ? `<!-- CTA button -->
               <table role="presentation" cellspacing="0" cellpadding="0">
                 <tr>
                   <td style="border-radius:8px;background-color:#18181b;">
@@ -73,7 +81,9 @@ function emailLayout(opts: { title: string; body: string; ctaLabel: string; ctaU
               <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;line-height:1.5;">
                 Or copy and paste this URL into your browser:<br/>
                 <a href="${ctaUrl}" style="color:#71717a;word-break:break-all;">${ctaUrl}</a>
-              </p>
+              </p>`
+                  : ''
+              }
 
             </td>
           </tr>
@@ -143,6 +153,45 @@ export async function sendInviteEmail(to: string, inviteUrl: string, inviterName
   });
   if (error) {
     console.error('[email] Resend error (invite):', error);
+    throw new Error(error.message ?? 'Failed to send email');
+  }
+}
+
+/**
+ * Send one templated message, with the house layout.
+ *
+ * Exists so notifications do not each re-implement the key check, the Resend client and the error handling that
+ * `sendInviteEmail` and `sendPasswordResetEmail` already got right. Knowledge of Resend and of the env stays in
+ * this file; callers describe *what* to say.
+ *
+ * Skips silently without `RESEND_API_KEY` — the same behaviour as the two senders above, which is what lets local
+ * development and preview deploys run with no mail configuration at all.
+ */
+export async function sendTemplatedEmail(opts: {
+  to: string;
+  subject: string;
+  title: string;
+  body: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
+  footnote?: string;
+  /** Named in the skip log so an unsent message is identifiable without a stack. */
+  kind: string;
+}): Promise<void> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) {
+    console.info(`[email] RESEND_API_KEY not set; skip ${opts.kind} to`, opts.to);
+    return;
+  }
+  const resend = new Resend(key);
+  const { error } = await resend.emails.send({
+    from: fromAddress(),
+    to: [opts.to],
+    subject: opts.subject,
+    html: emailLayout(opts),
+  });
+  if (error) {
+    console.error(`[email] Resend error (${opts.kind}):`, error);
     throw new Error(error.message ?? 'Failed to send email');
   }
 }
