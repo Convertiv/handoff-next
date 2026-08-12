@@ -98,6 +98,20 @@ const nextConfig = {
   // can't intercept it — so we disable the auto-redirect app-wide. `trailingSlash:
   // true` still drives canonical link generation; routes/pages now serve BOTH forms.
   skipTrailingSlashRedirect: true,
+  // Composed pattern documents are static files under public/api/pattern/, so unlike the component
+  // previews (which go through /api/component and get hardened in the route handler) there is no
+  // request handler to attach headers in. They're framed opaque-origin by the pattern detail page;
+  // this is the matching §14 CSP — `connect-src 'none'` is the anti-exfiltration control, so content
+  // that runs in the frame can't phone anything home, and `frame-ancestors` keeps it out of foreign
+  // pages. Harmless on the sibling .json artifacts under the same prefix.
+  async headers() {
+    return [
+      {
+        source: '/api/pattern/:path*',
+        headers: [{ key: 'Content-Security-Policy', value: "connect-src 'none'; frame-ancestors 'self'" }],
+      },
+    ];
+  },
   // Map legacy .json-suffixed API URLs to their App Router equivalents.
   // In workspace mode these were real public/ files; in the DB-backed registry
   // there are no public files — only API routes. beforeFiles runs before static

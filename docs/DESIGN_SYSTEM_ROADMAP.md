@@ -413,6 +413,11 @@ Capture Figma image-slot sizing (already in the fetched node tree) as first-clas
   *previews/pages/compositions* are registry-contributable. Never conflate. → COMPONENT_PREVIEW_SCHEMA §2a.
 - **Render isolation (§14):** previews render in an opaque-origin sandboxed iframe (`allow-scripts`, no
   `allow-same-origin`), `srcdoc` + postMessage height + CSP; route CORS on js/css. Shipped + verified.
+  **All four surfaces**, the fourth added 2026-08-12: the pattern detail page framed `/api/pattern/*.html`
+  with no sandbox at all (it loads via `src=`, not `srcdoc`, so it didn't match the shape of the other
+  three). Height reporter is now one module — `transformers/preview/height-reporter.ts`; a static pattern
+  document gets it baked in by `composePatternHtml` and its CSP from `next.config.mjs` `headers()`, since
+  there's no request handler in that path. Check `grep '<iframe' | grep -v sandbox` before calling it done.
 - **DB migrations:** auto-run on boot/page-load. **NEVER `db:generate`** (snapshot intentionally drifted
   → bogus diffs) — hand-write idempotent `CREATE TABLE IF NOT EXISTS` SQL + a `_journal.json` entry.
 - **Registry deploy:** registry sites deploy from handoff-app on push to `feature/mcp-prototype`.
