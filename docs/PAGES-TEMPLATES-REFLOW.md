@@ -240,7 +240,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 | **R.4** | ✅ Provenance panel, threaded notes on both sides, the level collapse, and the owner editing a submitted page in place. | `npm run verify:notes`, `npm run verify:collapse`. |
 | **R.5** | ✅ Briefs retired: `template_id` repointed, brief rows archived, and every brief surface deleted — panel, level, wizard actions, queries. `npm run verify:briefs`. | ⚠️ **The columns are NOT dropped.** They are the evidence 0030 reasons from, and it has never run against a real registry. See R.5b. |
 | **R.5b** | Drop `source_page_id` and `brief_version`; simplify `PageBuild.briefId` away | **After 0030 has run somewhere real.** Nothing depends on it — this is cleanup, and doing it early trades a reversible state for an irreversible one. |
-| **R.6** | CMS Track A — the migration prompt | Independent; could ship any time after R.0. |
+| **R.6** | ✅ CMS Track A — the content manifest **and** the migration prompt that wraps it. `/api/handoff/patterns/[id]/manifest?format=json\|markdown\|prompt`, plus both on the playground's export menu. | The manifest turned out to be the primitive: §7a's "content manifest for review" and the CMS prompt are one artifact rendered two ways. |
 | **R.7** | CMS Track B — integrations tab, first adapter, mapping artifact + dry run | Sequenced by what R.6 taught. |
 
 ---
@@ -251,6 +251,10 @@ Captured 2026-08-13 so they are not lost in a chat log. None is committed to; ea
 that makes it non-trivial, because that is the part that gets forgotten first.
 
 ### Change digest / content manifest for review
+
+**The manifest half shipped in R.6** — `buildPageManifest` + `manifestToMarkdown`, reachable as
+`?format=markdown`. What remains here is the **digest**: the one-sentence summary of *what changed*, which needs
+the fork copy as its other input. The name-collision warning below still stands.
 
 **The idea Brad liked most of the three.** The review diff answers "what changed" one field at a time. A
 **digest** would answer it in a sentence — *"3 headlines, both CTAs, and the hero image; nothing structural"* —

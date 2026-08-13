@@ -547,6 +547,44 @@ export default function PlaygroundBuilder({
    * brief and build level (roadmap E.8) that panel is the **only way back to the page** — so a canvas that
    * failed to load would strand you on a "Try Again" button with no navigation at all.
    */
+  /**
+   * The page's content, as a manifest to read or a prompt to paste (reflow R.6).
+   *
+   * Fetched rather than assembled here: the route is the one place that decides what "the content of this
+   * page" is, and a second assembly in the browser would be a second answer. The prompt goes to the clipboard
+   * because its destination is an agent conversation; the manifest downloads because its destination is a
+   * document somebody marks up.
+   */
+  const exportContent = useCallback(
+    async (format: 'markdown' | 'prompt') => {
+      if (!editingPatternId) return;
+      try {
+        const res = await fetch(
+          handoffApiUrl(`/api/handoff/patterns/${encodeURIComponent(editingPatternId)}/manifest?format=${format}`),
+          { credentials: 'include' }
+        );
+        if (!res.ok) throw new Error('Could not build the export.');
+        const text = await res.text();
+
+        if (format === 'prompt') {
+          await navigator.clipboard.writeText(text);
+          setTemplateNotice('Prompt copied — paste it into an agent that has your CMS connected.');
+          return;
+        }
+
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${editingPatternId}-content.md`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        setTemplateNotice(e instanceof Error ? e.message : 'Could not build the export.');
+      }
+    },
+    [editingPatternId]
+  );
+
   if (loading || error) {
     const filler = error ? (
       <div className="text-center">
@@ -727,6 +765,23 @@ export default function PlaygroundBuilder({
                 <DropdownMenuContent align="start">
                   <DropdownMenuItem onClick={handleDownload}>Download as HTML</DropdownMenuItem>
                   <DropdownMenuItem onClick={handleDownloadPage}>Download as Handoff page</DropdownMenuItem>
+                  {/**
+                    * The content of this page, as words (reflow R.6).
+                    *
+                    * Two exports off one artifact: a **manifest** for whoever has to read every string on the
+                    * page without clicking through a canvas, and a **prompt** for an agent holding a CMS's MCP.
+                    * Both need a saved page — there is no id to export before the first save.
+                    */}
+                  {editingPatternId ? (
+                    <>
+                      <DropdownMenuItem onClick={() => void exportContent('markdown')}>
+                        Download content manifest
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => void exportContent('prompt')}>
+                        Copy “move to CMS” prompt
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
             </>

@@ -5,7 +5,43 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.5: briefs are gone
+## 2026-08-13 (latest) — R.6: the content manifest, and the prompt that wraps it
+
+**The manifest turned out to be the primitive.** §7a listed "content manifest for review" and "CMS migration
+prompt" as two ideas; they are one artifact rendered two ways. `buildPageManifest` flattens a page to every
+string and image it ships, in reading order; `manifestToMarkdown` is what you hand a brand or legal reviewer who
+should not have to click through a canvas; `cmsMigrationPrompt` wraps the same thing in instructions for an
+agent holding the target CMS's MCP. One definition of "the content of this page", three renderings.
+
+It reuses `collectEditableText` and `collectImageSrcs` rather than walking the args itself, for the reason that
+keeps recurring in this reflow: a second definition of the page's content would drift from the one the audits
+and the voice check run against, and nobody would notice until the two disagreed in front of a client.
+
+**The prompt is mostly prohibitions, and that is the design.** The failure mode of an agent with write access to
+a CMS is not refusal — it is inventing a field, guessing a module, or dropping the third paragraph and reporting
+success. So: create nothing that was not asked for, quote every value verbatim, list what you could not place,
+propose the mapping *before* creating anything, and confirm before anything destructive. That last list is the
+most valuable output of a run: it is exactly what Track B's adapter would have to handle, learned rather than
+imagined.
+
+**Prompt first, adapter second** remains the sequencing argument. An adapter has to know the mapping and nobody
+knows it yet; writing it from imagination produces an integration that is confidently wrong in ways nobody
+notices until content is live.
+
+Two things caught by generating a real one and reading it rather than trusting the code:
+
+1. I had given `ManifestImage` an `alt` field. `collectImageSrcs` does not report one — alt text is a *string*,
+   so it arrives as a field — which meant every image on every page would have printed "no alt text", a
+   confident claim the collector never made.
+2. "1 images · 289 chars". This document gets handed to people, and that is the kind of small wrongness that
+   makes a reader trust the rest of it less.
+
+One lint error worth recording: the export handler's `useCallback` landed *after* an early return, making the
+hook conditional. `next build` passed; `npm run lint` is what caught it.
+
+---
+
+## 2026-08-13 — R.5: briefs are gone
 
 Two commits. The data half repoints `template_id` from the brief a page came through to the template it came
 from, gives provenance to anything the legacy wizard made after 0029, and archives every brief row. The code
