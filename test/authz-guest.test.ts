@@ -4,6 +4,7 @@ import {
   canGuestCreateFromTemplate,
   canGuestEditPattern,
   canGuestSubmitPattern,
+  isGuestOwnPage,
   canGuestUseAssetLibrary,
   canGuestView,
   type GuestPrincipal,
@@ -129,5 +130,62 @@ describe('capability vocabulary', () => {
     assert.equal(isWriteCapable(['view', 'use_asset_library']), false);
     assert.equal(isWriteCapable(['view', 'create_from_template']), true);
     assert.equal(isWriteCapable([...AUTHORING_CAPABILITIES]), true);
+  });
+});
+
+describe('the return link — coming back to your own page', () => {
+  /**
+   * The case R.3 shipped broken: the page was created through the *template* link, and its author holds a
+   * *return* link pointing at that page. The token on the row is not the token they hold, so any rule that
+   * compares the two refuses the person it was issued to.
+   */
+  const page = { id: 'page_a', shareLinkId: 'tok_template', status: 'review' };
+  const returning = {
+    shareLinkId: 'tok_return',
+    resourceId: 'page_a',
+    capabilities: ['view', 'edit_own_submission'] as const,
+    name: 'Rep A',
+  };
+
+  it('recognises the page as theirs even though a different link created it', () => {
+    assert.equal(isGuestOwnPage(returning, page), true);
+  });
+
+  it('lets them edit a page already in review — the whole point of the link', () => {
+    assert.equal(canGuestEditPattern(returning, page), true);
+    assert.equal(canGuestEditPattern(returning, { ...page, status: 'draft' }), true);
+  });
+
+  it('stops at a decision', () => {
+    // Approved or archived means someone acted on it; editing under that rewrites what was decided.
+    for (const status of ['approved', 'archived']) {
+      assert.equal(canGuestEditPattern(returning, { ...page, status }), false, status);
+    }
+  });
+
+  it('does NOT let them re-submit', () => {
+    // Editing a submitted page is what a return link is for. Re-submitting would fire the owner's notification
+    // again and rewrite the submit half of the provenance record.
+    assert.equal(
+      canGuestSubmitPattern({ ...returning, capabilities: ['submit_for_review', 'edit_own_submission'] }, page),
+      false
+    );
+  });
+
+  it('claims nothing about a page its link does not point at', () => {
+    const other = { id: 'page_b', shareLinkId: 'tok_template', status: 'draft' };
+    assert.equal(isGuestOwnPage(returning, other), false);
+    assert.equal(canGuestEditPattern(returning, other), false);
+  });
+
+  it('leaves a template-link holder locked at draft', () => {
+    // The relaxation is per link kind: a guest mid-build must not keep editing what a reviewer is looking at.
+    const building = { shareLinkId: 'tok_template', capabilities: ['edit_own_submission'] as const, name: 'Rep' };
+    assert.equal(canGuestEditPattern(building, page), false);
+    assert.equal(canGuestEditPattern(building, { ...page, status: 'draft' }), true);
+  });
+
+  it('does not treat two absent ids as a match', () => {
+    assert.equal(isGuestOwnPage({ ...returning, resourceId: undefined }, { ...page, id: undefined }), false);
   });
 });

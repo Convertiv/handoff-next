@@ -146,6 +146,28 @@ async function main() {
   check('the author can edit their submitted page', canGuestEditPattern(returningGuest, { id: 'page_a', shareLinkId: 'tok_a', status: 'review' }) === true);
   check('but not a different one', canGuestEditPattern(returningGuest, { id: 'page_b_other', shareLinkId: 'tok_a', status: 'review' }) === false);
 
+  /**
+   * ⚠️ The mismatch that made R.3's link unusable, asserted directly.
+   *
+   * The page carries the **template** link's token, while the return link points at the **page**. Two routes
+   * compared those two values inline (`row.shareLinkToken === guest.shareLinkId`) and so refused the very
+   * person the link was issued to. The predicate bridges it; these checks are what would have failed before.
+   */
+  const { isGuestOwnPage } = await import('../src/app/lib/authz/guest');
+  const pageNow = (await sql`SELECT id, share_link_token, status FROM handoff_pattern WHERE id='page_a'`)[0];
+  check('the page carries the template link’s token, not the return link’s', pageNow.share_link_token === 'tok_a' && resolved!.token !== 'tok_a', {
+    onRow: pageNow.share_link_token,
+    held: resolved!.token,
+  });
+  check(
+    'the shared rule recognises the author anyway',
+    isGuestOwnPage(returningGuest, { id: pageNow.id, shareLinkId: pageNow.share_link_token, status: pageNow.status }) === true
+  );
+  check(
+    'their link claims nothing about another page under the same owner',
+    isGuestOwnPage(returningGuest, { id: 'page_other', shareLinkId: 'tok_a', status: 'draft' }) === false
+  );
+
   // Revocation is what makes an emailed bearer credential acceptable.
   const { revokeShareLink } = await import('../src/app/lib/db/grant-queries');
   await revokeShareLink(pageLinks[0]!.id, { userId: 'u_owner', role: null });

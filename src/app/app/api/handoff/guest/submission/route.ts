@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { isAuthorizationError } from '@/lib/authz/policy';
+import { canGuestEditPattern, isAuthorizationError, isGuestOwnPage } from '@/lib/authz/policy';
 import { createGuestSubmission, patchGuestSubmission } from '@/lib/db/pattern-write';
 import { getDbPatternById } from '@/lib/db/queries';
 import { guardrailsFromPatternData } from '@/lib/authoring-guardrails';
@@ -156,9 +156,15 @@ export async function GET(request: NextRequest) {
   if (!id) return NextResponse.json({ submission: null });
 
   const row = await getDbPatternById(id);
-  // Provenance is re-checked on read too: a cookie naming a page that this link did not create must not
-  // be able to read it back, even though only a signed cookie could have named it.
-  if (!row || row.shareLinkToken !== ctx.guest.shareLinkId) {
+  /**
+   * Ownership is re-checked on read too: a cookie naming a page this session has no claim to must not read it
+   * back, even though only a signed cookie could have named it.
+   *
+   * ⚠️ The shared predicate, not an inline token comparison. The inline version — `row.shareLinkToken ===
+   * ctx.guest.shareLinkId` — refused a **return-link** holder, whose page was created through a different token.
+   * Two copies of one rule, and only one of them learned about R.3.
+   */
+  if (!row || !isGuestOwnPage(ctx.guest, { id: row.id, shareLinkId: row.shareLinkToken, status: row.status })) {
     return NextResponse.json({ submission: null });
   }
 
@@ -182,6 +188,14 @@ export async function GET(request: NextRequest) {
       updatedAt: row.updatedAt,
     },
     capabilities: ctx.guest.capabilities,
+    /**
+     * Whether this session may still edit, answered **here** rather than derived in the browser from `status`.
+     *
+     * The client used to read "status === 'draft' ? editing : submitted", which is a second copy of a rule that
+     * now differs by link kind — a returning author on a page in `review` may edit, and that client-side copy
+     * would have shown them a read-only screen. `canGuestEditPattern` is the only thing that knows.
+     */
+    canEdit: canGuestEditPattern(ctx.guest, { id: row.id, shareLinkId: row.shareLinkToken, status: row.status }),
     guardrails,
   });
 }

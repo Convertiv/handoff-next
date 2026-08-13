@@ -174,6 +174,7 @@ export {
   canGuestSubmitPattern,
   canGuestUseAssetLibrary,
   canGuestView,
+  isGuestOwnPage,
 } from './guest';
 
 export function assertGuestCanCreateFromTemplate(guest: GuestPrincipal, templateId: string): void {

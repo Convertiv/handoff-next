@@ -11,6 +11,7 @@ import { GUEST_LIMITS, isRateLimited } from '@/lib/rate-limit';
 import { isLocked, lockRemainingMinutes, verifyPassphrase } from '@/lib/server/passphrase';
 import { getDbPatternById } from '@/lib/db/queries';
 import { canGuestView, canGuestCreateFromTemplate } from '@/lib/authz/policy';
+import { patternKind } from '@/lib/authz/vocab';
 import {
   guestCookieName,
   guestCookieOptions,
@@ -124,8 +125,22 @@ export async function POST(request: NextRequest) {
 
   const email = typeof body.email === 'string' ? body.email.trim().slice(0, 200) : '';
 
+  /**
+   * **A return link binds the session to the page it points at** (R.3 follow-up).
+   *
+   * Without this, R.3's link resolved, admitted the visitor, and then stranded them: the session carried no
+   * `submissionId`, so the editor had no page to load and would try to *create* one — which a return link has no
+   * capability to do. The link worked and the flow did not, which is the worst shape a bug can take.
+   *
+   * The kind is what distinguishes the two link types: a template link points at a `template`, a return link at
+   * a `page`. Read from the row rather than inferred from capabilities, because capabilities are a list someone
+   * can compose and `kind` is what the object *is*.
+   */
+  const pointsAtAPage = patternKind(template.kind) === 'page';
+  const boundSubmissionId = pointsAtAPage ? template.id : (resumed?.submissionId ?? null);
+
   const { token: sessionToken, session } = issueGuestSession(
-    { linkId: link.token, submissionId: resumed?.submissionId ?? null, name, email: email || resumed?.email || null },
+    { linkId: link.token, submissionId: boundSubmissionId, name, email: email || resumed?.email || null },
     { maxExp: link.expiresAt ? link.expiresAt.getTime() : null }
   );
 
@@ -134,6 +149,11 @@ export async function POST(request: NextRequest) {
     capabilities,
     submissionId: session.submissionId,
     resumed: Boolean(resumed),
+    /**
+     * Which kind of link this is, so the UI can say the right thing rather than guess from capabilities.
+     * `return` means "your page, come back to it"; `build` means "make one from this template".
+     */
+    mode: pointsAtAPage ? 'return' : 'build',
     // A safe subset, matching the read-only viewer's precedent — never the whole row.
     template: {
       id: template.id,

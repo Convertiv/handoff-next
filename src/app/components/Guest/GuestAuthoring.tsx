@@ -144,9 +144,22 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
     const res = await fetch(api(`/api/handoff/guest/submission?link=${encodeURIComponent(link)}`), {
       credentials: 'include',
     });
-    const json = (await res.json()) as { submission?: { status: string } | null; error?: string };
+    const json = (await res.json()) as {
+      submission?: { status: string } | null;
+      /** The server's answer, not ours — see the note on `canEdit` in the route. */
+      canEdit?: boolean;
+      error?: string;
+    };
     if (!res.ok || !json.submission) throw new Error(json.error || 'Could not load the page.');
-    setPhase(json.submission.status === 'draft' ? 'editing' : 'submitted');
+    /**
+     * Editability comes from the server.
+     *
+     * This used to be `status === 'draft'`, a second copy of a rule that now differs by link kind: a returning
+     * author holding a return link may edit a page that is already in `review`, and this copy would have shown
+     * them a read-only screen with no way to do the one thing their link exists for.
+     */
+    const canEdit = json.canEdit ?? json.submission.status === 'draft';
+    setPhase(canEdit ? 'editing' : 'submitted');
   };
 
   /* ----------------------------------------------------------------- save -- */

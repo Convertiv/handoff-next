@@ -5,7 +5,40 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.3: the way back
+## 2026-08-13 (latest) — R.3 follow-up: the return link did not actually work
+
+Found while starting R.4, and fixed first because it is a defect in shipped work rather than new scope. R.3
+minted a return link, emailed it, and displayed it — and a visitor who opened it could not reach their page.
+Two independent reasons, both the same shape: **a rule with two copies, only one of which learned about R.3.**
+
+1. **The session was never bound to the page.** `/enter` set `submissionId` from a *resumed* session only, so a
+   return-link visitor arrived with none — the editor had no page to load and would try to **create** one, which
+   a return link has no capability to do. It now binds the session to the page when the link points at a `page`
+   rather than a `template`, and reports `mode: 'return' | 'build'` so the UI need not infer it from
+   capabilities.
+2. **The read route re-derived ownership inline** as `row.shareLinkToken === ctx.guest.shareLinkId`. A returning
+   author's page was created through the *template* link, so the token on the row is not the token they hold:
+   the check refused the person the link was issued to. `isGuestOwnPage` is now exported and both places call it.
+
+A third copy of the same class of thing: the guest UI decided editability with `status === 'draft'`, which would
+have shown a returning author a read-only screen — their page is in `review`, and that is precisely the state a
+return link is meant to open. The route now answers `canEdit` from `canGuestEditPattern`, and the client trusts
+it.
+
+**Caught myself mid-edit**: I briefly gave `canGuestSubmitPattern` the same review-status relaxation as editing.
+Wrong — editing a submitted page is what a return link is *for*, but re-submitting would fire the owner's
+notification again and rewrite the submit half of the provenance record. The moment they let go of it is a fact.
+Restored to `draft` only, with the reason written down.
+
+Seven new predicate tests, and `verify:guest` now asserts the mismatch directly: the page carries the template
+link's token while the return link points at the page, so the checks that would have failed before are the ones
+in the file.
+
+**R.4 was stashed rather than discarded** (`stash@{0}`) — notes + provenance panel, restarting on top of this.
+
+---
+
+## 2026-08-13 — R.3: the way back
 
 Submitting now mints a **return link** — scoped to that one page, `view` + `edit_own_submission` and nothing
 else — shown on the completion screen and emailed. Owners get a list of live links with revoke, on the share

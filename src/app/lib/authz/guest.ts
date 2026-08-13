@@ -65,8 +65,12 @@ function holdsReturnLink(guest: GuestPrincipal, pattern: GuestPatternRef): boole
  * Two ways to be, and they are genuinely different claims:
  * - the page was **created through the link they hold** (a template link, and this is their draft), or
  * - the link they hold **points at this page** (a return link, issued to them when they submitted).
+ *
+ * **Exported because routes were re-deriving it** as `row.shareLinkToken === guest.shareLinkId`, and that copy
+ * excludes the second case — the author sent back to their own page could not read it, because the token on the
+ * row is the template link, not the one they hold.
  */
-function isOwnSubmission(guest: GuestPrincipal, pattern: GuestPatternRef): boolean {
+export function isGuestOwnPage(guest: GuestPrincipal, pattern: GuestPatternRef): boolean {
   if (holdsReturnLink(guest, pattern)) return true;
   // Both sides must be non-empty: two rows that each "have no link" are not the same link, and a
   // null/empty match would make every non-guest page editable by any guest.
@@ -97,15 +101,22 @@ export function canGuestCreateFromTemplate(guest: GuestPrincipal, templateId: st
  */
 export function canGuestEditPattern(guest: GuestPrincipal, pattern: GuestPatternRef): boolean {
   if (!guest.capabilities.includes('edit_own_submission')) return false;
-  if (!isOwnSubmission(guest, pattern)) return false;
+  if (!isGuestOwnPage(guest, pattern)) return false;
   if (holdsReturnLink(guest, pattern)) return pattern.status === 'draft' || pattern.status === 'review';
   return pattern.status === 'draft';
 }
 
-/** A guest may submit their own unsubmitted page for review. */
+/**
+ * A guest may submit their own **unsubmitted** page for review.
+ *
+ * ⚠️ `draft` only, and the return-link relaxation that `canGuestEditPattern` grants deliberately does **not**
+ * apply here. Editing a submitted page is the point of a return link; *re-submitting* one is a different act
+ * that would fire the owner's notification again and rewrite the submit half of the provenance record — the
+ * moment they let go of it is a fact, and a second submit must not move it.
+ */
 export function canGuestSubmitPattern(guest: GuestPrincipal, pattern: GuestPatternRef): boolean {
   if (!guest.capabilities.includes('submit_for_review')) return false;
-  if (!isOwnSubmission(guest, pattern)) return false;
+  if (!isGuestOwnPage(guest, pattern)) return false;
   return pattern.status === 'draft';
 }
 
