@@ -7,6 +7,7 @@ import { getDbPatternById, componentRulesForBlocks } from '@/lib/db/queries';
 import { diffSubmissionAgainstTemplate, type PatternComponentEntry } from '@/lib/guest-editable';
 import { checkGuardrails, guardrailsFromPatternData } from '@/lib/authoring-guardrails';
 import { pageEditedSinceSubmission, readProvenance, templateHasMovedOn } from '@/lib/page-provenance';
+import { changeDigest } from '@/lib/change-digest';
 
 /**
  * What did the author actually change?
@@ -84,6 +85,13 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       updatedAt: row.updatedAt,
     },
     blocks,
+    /**
+     * The same diff, as a sentence (reflow R.6b).
+     *
+     * Computed from `blocks` rather than from the content again, so the summary can never disagree with the
+     * list beneath it — a digest saying "3 titles" over a list showing four is worse than no digest.
+     */
+    digest: changeDigest(blocks),
     /**
      * The provenance record, flattened for display (reflow R.4).
      *

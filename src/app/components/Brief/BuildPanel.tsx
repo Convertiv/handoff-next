@@ -137,6 +137,8 @@ export default function BuildPanel({
   const [prov, setProv] = useState<ProvenanceView | null>(null);
   const [templateMoved, setTemplateMoved] = useState<boolean | null>(null);
   const [comparedAgainst, setComparedAgainst] = useState<'as-handed' | 'template-now' | null>(null);
+  /** "3 titles and 2 bodies changed, across every block." — the diff, before you read the diff. */
+  const [digest, setDigest] = useState<string | null>(null);
   /** True once someone has edited this page after it was submitted — including the reviewer, in place (R.4). */
   const [editedSince, setEditedSince] = useState<boolean | null>(null);
   const [templateTitle, setTemplateTitle] = useState<string | null>(null);
@@ -152,6 +154,7 @@ export default function BuildPanel({
           provenance?: ProvenanceView | null;
           templateHasMovedOn?: boolean | null;
           comparedAgainst?: 'as-handed' | 'template-now';
+          digest?: { sentence?: string } | null;
           editedSinceSubmission?: boolean | null;
           submission?: { templateTitle?: string | null };
         };
@@ -159,6 +162,7 @@ export default function BuildPanel({
         setProv(json.provenance ?? null);
         setTemplateMoved(json.templateHasMovedOn ?? null);
         setComparedAgainst(json.comparedAgainst ?? null);
+        setDigest(json.digest?.sentence?.trim() || null);
         setEditedSince(json.editedSinceSubmission ?? null);
         setTemplateTitle(json.submission?.templateTitle ?? null);
       } catch {
@@ -290,6 +294,12 @@ export default function BuildPanel({
         {prov ? (
           <section className="space-y-1.5 rounded-md border p-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Where this came from</p>
+            {/**
+              * What changed, before the details of what changed. A reviewer deciding *whether to look* is asking
+              * a different question from one deciding about a specific field, and the field list only answers
+              * the second (reflow R.6b).
+              */}
+            {digest ? <p className="text-sm text-foreground">{digest}</p> : null}
             <dl className="space-y-1 text-xs">
               <div className="flex justify-between gap-2">
                 <dt className="text-muted-foreground">Template</dt>

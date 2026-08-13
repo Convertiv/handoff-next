@@ -252,9 +252,9 @@ that makes it non-trivial, because that is the part that gets forgotten first.
 
 ### Change digest / content manifest for review
 
-**The manifest half shipped in R.6** — `buildPageManifest` + `manifestToMarkdown`, reachable as
-`?format=markdown`. What remains here is the **digest**: the one-sentence summary of *what changed*, which needs
-the fork copy as its other input. The name-collision warning below still stands.
+**Both halves shipped in R.6.** The manifest is `buildPageManifest` + `manifestToMarkdown` (`?format=markdown`);
+the digest is `changeDigest`, derived from the same `BlockDiff[]` the review list renders and shown above it.
+The name-collision warning below still stands.
 
 **The idea Brad liked most of the three.** The review diff answers "what changed" one field at a time. A
 **digest** would answer it in a sentence — *"3 headlines, both CTAs, and the hero image; nothing structural"* —

@@ -5,7 +5,33 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.6: the content manifest, and the prompt that wraps it
+## 2026-08-13 (latest) — the change digest: what changed, in a sentence
+
+`changeDigest` turns the review diff into *"3 titles and 2 bodies changed, across every block."* — shown above
+the field list rather than instead of it. The field list answers "what about this field"; a reviewer opening a
+page is first asking "is there anything here worth my time", and those are different questions.
+
+**Derived from the same `BlockDiff[]` the list renders.** A digest computed from its own second pass over the
+content would eventually say "3 titles" above a list showing four, and the sentence is the part people quote.
+Same rule the manifest follows, for the same reason.
+
+Two things surfaced by printing real sentences instead of trusting the code:
+
+1. **"2 bodys".** The first pluraliser appended an "s". The very first sentence it generated was wrong in a way
+   that makes a reader discount everything after it. It now knows consonant-y → -ies and sibilant → -es, which
+   covers the labels that actually occur (Body, Category, Address, Box).
+2. **Two of my own test expectations were wrong, not the code.** One assumed insertion order where the digest
+   deliberately breaks ties alphabetically — a summary that changes when nothing changed is one people stop
+   trusting — and one put "and" before the third group when it belongs before the tail. Both corrected to
+   assert the behaviour that was designed, with the reasoning recorded.
+
+Counts are grouped by label because that is how a person describes a page: "Title" changed in three blocks is
+*three titles*, not three unrelated edits. Removals get their own clause, since deleting reads differently from
+editing.
+
+---
+
+## 2026-08-13 — R.6: the content manifest, and the prompt that wraps it
 
 **The manifest turned out to be the primitive.** §7a listed "content manifest for review" and "CMS migration
 prompt" as two ideas; they are one artifact rendered two ways. `buildPageManifest` flattens a page to every
