@@ -30,7 +30,13 @@ security problem — the sandbox blocks *top-level* navigation, which is exactly
 breaking. `link-guard-script.ts` intercepts clicks and submits in the capture phase, leaves `#` anchors alone, and says
 why in a small toast.
 
-**Clicking a finding could not show you the problem on the review canvas (QA #6).** The messages were being posted into
+**Clicking a finding now flashes the whole section, then leaves the field outlined inside it.** The section flash is
+opt-in from the parent (`flash: true`), because the rail posts the same scroll message on every block selection and a
+section that pulses each time you click down a list is noise. It also moved **above** the mark walker's early return:
+that walker exits on a page with no `{{#field}}` marks — which is every React page — and block navigation had been
+sitting below it, so a reviewer of a React page had no way to find what a finding was about.
+
+**Clicking a finding could not show you the problem on the review canvas at all (QA #6).** The messages were being posted into
 a frame with nothing listening: `canvasControls={level === 'page'}` meant the build/review canvas got no injected
 script at all, and — quieter — no `.playground-block` wrapper either, so `scroll-to-block` had nothing to match. The
 fix reuses the mark script with an **empty editable list** rather than writing a second walker: it collects marks and

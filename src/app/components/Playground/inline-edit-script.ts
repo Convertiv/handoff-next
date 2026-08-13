@@ -46,6 +46,28 @@ export const INLINE_EDIT_CSS = `
   box-shadow: 0 4px 14px rgba(0,0,0,.18); overflow: auto;
 }
 .hf-overlay-rich:focus { outline: none; }
+
+/**
+ * The section a finding is about, on arrival.
+ *
+ * An outline that fades rather than one that stays: the point is to answer "which part of the page is this?" at the
+ * moment you land, and a highlight that persists competes with the field-level outline that is still showing you
+ * *where in the section* to look. An outline rather than a border, because a border would change the block's box and
+ * reflow the page you were just scrolled into.
+ */
+@keyframes hf-block-reveal {
+  0%   { outline-color: rgba(99,102,241,.9); background-color: rgba(99,102,241,.10); }
+  70%  { outline-color: rgba(99,102,241,.9); background-color: rgba(99,102,241,.06); }
+  100% { outline-color: rgba(99,102,241,0); background-color: rgba(99,102,241,0); }
+}
+.hf-block-reveal {
+  outline: 3px solid rgba(99,102,241,0); outline-offset: -3px;
+  animation: hf-block-reveal 1.9s ease-out 1 forwards;
+}
+/* A reader who asked for less motion still gets told which section — it just holds and drops instead of pulsing. */
+@media (prefers-reduced-motion: reduce) {
+  .hf-block-reveal { animation-duration: 1.2s; animation-timing-function: step-end; }
+}
 `;
 
 /**
@@ -309,6 +331,47 @@ export function inlineEditScript(
     post('playground-field-focus',{blockId:m.blockId,fieldId:m.id});
   }
 
+  /**
+   * Block-level navigation, registered **before** the marks are checked.
+   *
+   * Everything below this returns early on a page with no \`{{#field}}\` marks — which is every page built from React
+   * blocks. Taking "show me this section" down with it was wrong: a section is addressable by its wrapper alone, and
+   * a React page is exactly where a reviewer has no other way to find what a finding is about.
+   */
+  window.addEventListener('message',function(event){
+    var d=event.data;
+    if(!d||d.type!=='playground-scroll-to-block')return;
+    /**
+     * Also handled here, not only in the block-controls script.
+     *
+     * A review canvas has no controls — no toolbars, nothing to click — so that script is not injected, and "jump to
+     * the block this finding is about" silently did nothing there. This script is injected on any canvas that wants
+     * navigation, editable or not.
+     */
+    var block=document.querySelector('.playground-block[data-block-id="'+String(d.blockId).replace(/"/g,'')+'"]');
+    if(!block)return;
+    block.scrollIntoView({behavior:'smooth',block:'start'});
+    /**
+     * \`flash\` outlines the whole section for a moment (Brad, QA: *"even better highlighted the section"*).
+     *
+     * Only on a deliberate arrival. The rail posts this message on every block selection too, and a section that
+     * flashes each time you click down a list is noise — so the parent opts in from the "show me this finding" path
+     * and nowhere else. A field-level finding gets both: the section flashes, and the field itself stays outlined
+     * after the flash fades, which is what tells you *where in the section* to look.
+     *
+     * Removed and re-added across a frame so clicking the same finding twice replays the animation instead of doing
+     * nothing — a keyframe on an element that already has the class never restarts.
+     */
+    if(!d.flash)return;
+    var lit=document.querySelectorAll('.hf-block-reveal');
+    for(var i=0;i<lit.length;i++) lit[i].classList.remove('hf-block-reveal');
+    requestAnimationFrame(function(){ block.classList.add('hf-block-reveal'); });
+    block.addEventListener('animationend',function once(){
+      block.classList.remove('hf-block-reveal');
+      block.removeEventListener('animationend',once);
+    });
+  });
+
   var marks=collect();
   if(!marks.length)return;
 
@@ -360,16 +423,6 @@ export function inlineEditScript(
        * reason it is a flag rather than always-on behaviour.
        */
       if(d.reveal&&first) first.scrollIntoView({behavior:'smooth',block:'center'});
-    } else if(d.type==='playground-scroll-to-block'){
-      /**
-       * Also handled here, not only in the block-controls script.
-       *
-       * A review canvas has no controls — no toolbars, nothing to click — so that script is not injected, and
-       * "jump to the block this finding is about" silently did nothing there. This script *is* injected on any
-       * canvas with marks, editable or not.
-       */
-      var block=document.querySelector('.playground-block[data-block-id="'+String(d.blockId).replace(/"/g,'')+'"]');
-      if(block) block.scrollIntoView({behavior:'smooth',block:'start'});
     } else if(d.type==='playground-edit-field'){
       var hit=marks.filter(function(m){return m.id===d.fieldId&&editable(m.id)&&(!d.blockId||m.blockId===d.blockId);})[0];
       if(hit) openEditor(hit);

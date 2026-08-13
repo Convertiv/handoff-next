@@ -447,8 +447,14 @@ export default function PlaygroundBuilder({
          * Scroll first, then highlight. A page-level finding carries no path, so it still brings the block into
          * view — being shown the right block is most of the answer even when no single field is at fault.
          */
-        frame?.postMessage({ type: 'playground-scroll-to-block', blockId: block.uniqueId }, '*');
-        // `reveal` centres the field itself. Hovering only highlights — see the note in the frame's handler.
+        /**
+         * `flash` outlines the whole section on arrival; `reveal` centres the field inside it.
+         *
+         * Both only from here. Selecting a block in the rail posts the same scroll message, and a section that
+         * flashes every time you click down a list is noise — this path is the one where you asked "show me the
+         * thing this finding is about" and are looking for it.
+         */
+        frame?.postMessage({ type: 'playground-scroll-to-block', blockId: block.uniqueId, flash: true }, '*');
         frame?.postMessage({ type: 'playground-highlight-field', fieldId: key, reveal: true }, '*');
         return;
       }

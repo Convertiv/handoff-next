@@ -41,8 +41,8 @@ interface Canvas {
   overlay: () => HTMLElement | null;
 }
 
-function canvas(script: string, { linkGuard = true } = {}): Canvas {
-  const dom = new JSDOM(`<html><head><style>${INLINE_EDIT_CSS}</style></head><body>${BODY}</body></html>`, {
+function canvas(script: string, { linkGuard = true, body = BODY } = {}): Canvas {
+  const dom = new JSDOM(`<html><head><style>${INLINE_EDIT_CSS}</style></head><body>${body}</body></html>`, {
     runScripts: 'outside-only',
     pretendToBeVisual: true,
   });
@@ -61,6 +61,10 @@ function canvas(script: string, { linkGuard = true } = {}): Canvas {
   w.Element.prototype.scrollIntoView = function (this: Element) {
     scrolled.push(`${this.tagName}:${(this.textContent || '').trim().slice(0, 20)}`);
   };
+
+  // jsdom runs no animation, so `animationend` never fires on its own — the flash class would otherwise
+  // never be observed as removed. Frames are immediate, which is enough to assert the add.
+  w.requestAnimationFrame = (fn: () => void) => { fn(); return 1; };
 
   w.eval(script);
   if (linkGuard) w.eval(getLinkGuardScript());
@@ -168,6 +172,47 @@ describe('inline editing — a canvas with nothing editable', () => {
     c.w.dispatchEvent(new c.w.MessageEvent('message', { data: { type: 'playground-highlight-field', fieldId: 'body' } }));
     assert.equal(c.scrolled.length, 0);
     assert.equal(c.doc.querySelectorAll('.hf-field-hit-active').length, 1);
+  });
+});
+
+describe('revealing the section a finding is about', () => {
+  const block = (c: Canvas) => c.doc.querySelector('.playground-block[data-block-id="b2"]')!;
+
+  it('flashes the section when the parent asks it to', () => {
+    const c = readOnly();
+    c.w.dispatchEvent(
+      new c.w.MessageEvent('message', { data: { type: 'playground-scroll-to-block', blockId: 'b2', flash: true } })
+    );
+    assert.ok(block(c).classList.contains('hf-block-reveal'));
+  });
+
+  it('does not flash on a plain scroll — the rail posts one on every selection', () => {
+    const c = readOnly();
+    c.w.dispatchEvent(new c.w.MessageEvent('message', { data: { type: 'playground-scroll-to-block', blockId: 'b2' } }));
+    assert.equal(block(c).classList.contains('hf-block-reveal'), false);
+    // It still scrolls: only the flash is opt-in.
+    assert.ok(c.scrolled.length > 0);
+  });
+
+  it('lights one section at a time', () => {
+    const c = readOnly();
+    for (const id of ['b1', 'b2']) {
+      c.w.dispatchEvent(new c.w.MessageEvent('message', { data: { type: 'playground-scroll-to-block', blockId: id, flash: true } }));
+    }
+    assert.equal(c.doc.querySelectorAll('.hf-block-reveal').length, 1);
+  });
+
+  it('works on a page with no marks at all — every React page', () => {
+    // The mark walker returns early when a page has no `{{#field}}` marks, and taking block navigation down with it
+    // left a reviewer of a React page with no way to find what a finding was about.
+    const c = canvas(inlineEditScript({}, [], []), {
+      body: '<div class="playground-block" data-block-id="b2"><div id="root"></div></div>',
+    });
+    c.w.dispatchEvent(
+      new c.w.MessageEvent('message', { data: { type: 'playground-scroll-to-block', blockId: 'b2', flash: true } })
+    );
+    assert.ok(c.scrolled.some((s) => s.startsWith('DIV')));
+    assert.ok(block(c).classList.contains('hf-block-reveal'));
   });
 });
 
