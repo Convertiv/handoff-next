@@ -5,7 +5,35 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — preview feedback: language, a real New→Template, and two paging bugs
+## 2026-08-13 (latest) — why the library was slow: an N+1 I shipped
+
+**The library.** Every card asks for `/api/handoff/patterns/<id>/thumbnail.svg`, and that route was fetching
+each distinct **component contract** on the page to decide what to draw — one `getComponent` query apiece, on
+top of a session read, a pattern read and a grant read. Fifty cards averaging six distinct blocks is roughly
+**450 queries and 50 session reads, fired in parallel from the browser at a pool of ten connections**, every
+time the tab opened. Mine, from the QA pass that added page thumbnails.
+
+The fix removes the fan-out rather than caching around it: the silhouette is now read from **the page's own
+stored blocks** (`argsSlots` over `collectEditableText`/`collectImageSrcs` — the same collectors the audits and
+the manifest use). Zero component lookups; the pattern row already carried everything. It is also a truer
+picture, since it reflects what is filled in rather than what the contract permits, and it picks up the override
+layer so the card matches what the canvas renders.
+
+**The system component list is a different problem, and not mine.** `/api/components` calls
+`provider.getComponents()`, which runs `getDbComponents()` — `db.select().from(handoffComponents)`, *every
+column including the jsonb*. The codebase already documents the cost, one function below it: *"the full-row
+`getDbComponents()` transferred every component's `data` blob (~97% of which is `sharedStyles`) on every page
+load."* A light projection exists (`getDbComponentSummaries`) and backs the menu; the system index does not use
+it, because it renders `previews` and `image`, which the summary omits.
+
+The fix is a **third projection** — metadata plus `previews.default.url` — rather than either extreme. Left
+undone deliberately: `/api/components` is a shared public route with consumers beyond this page, and narrowing
+its response at the end of a long session is how a list somewhere else quietly loses a field. It wants its own
+pass with the consumers enumerated.
+
+---
+
+## 2026-08-13 — preview feedback: language, a real New→Template, and two paging bugs
 
 **The preview's missing CSS/JS is Vercel, not us.** The canvas iframe is an opaque-origin sandbox
 (`sandbox="allow-scripts"`, no `allow-same-origin`), so every `/api/component/*.css|js` request inside it is

@@ -1,4 +1,5 @@
 import { contractSlots, type Slot } from './component-thumbnail';
+import { collectEditableText, collectImageSrcs, mergeBlockArgs, type PatternComponentEntry } from './guest-editable';
 
 /**
  * A schematic thumbnail for a **page**, drawn from the blocks it is made of.
@@ -56,6 +57,34 @@ export interface PatternThumbnailOptions {
 }
 
 /**
+ * The slots a block occupies, read from **the content it actually holds**.
+ *
+ * ⚠️ **This exists to kill an N+1 I introduced.** The first version read each block's *contract*, which meant
+ * the thumbnail route fetched every distinct component of every page — one `getComponent` query each. A library
+ * grid of 50 cards, six distinct blocks apiece, fired ~450 queries plus 50 session reads against a pool of ten,
+ * in parallel, every time the tab opened. That is why the library got slow.
+ *
+ * The page row already carries everything needed: the same collectors the audits and the manifest use tell us
+ * how much copy a block holds and how many images. Zero extra queries — and arguably a truer picture, since it
+ * reflects what is filled in rather than what the contract permits.
+ */
+export function argsSlots(args: unknown): Slot[] {
+  const text = collectEditableText(args);
+  const images = collectImageSrcs(args);
+
+  const slots: Slot[] = [];
+  // A repeater shows up as a numeric segment in a path — `items.0.title`. One `list` stands for the whole row.
+  if (text.some((f) => f.path.some((seg) => typeof seg === 'number'))) slots.push('list');
+  for (let i = 0; i < images.length && i < 3; i += 1) slots.push('image');
+
+  // The first line of copy reads as the heading; the rest as body. Same convention the contract version uses.
+  const copy = text.filter((f) => !f.path.some((seg) => typeof seg === 'number'));
+  copy.slice(0, 5).forEach((_, i) => slots.push(i === 0 ? 'heading' : 'text'));
+
+  return slots.slice(0, 8);
+}
+
+/**
  * @param blocks One entry per block on the page, each the block's property contract. Pass `null` for a
  *   block whose component could not be resolved — it still draws a band, because a page that has lost a
  *   component should look like a page with a gap in it, not like a shorter page.
@@ -64,6 +93,14 @@ export function patternThumbnailSvg(
   blocks: (Record<string, unknown> | null | undefined)[],
   opts: PatternThumbnailOptions = {}
 ): string {
+  // Contracts in, slots out — then the one drawing routine below. `patternThumbnailFromBlocks` enters at the
+  // same place having read slots from content instead.
+  return drawBands(blocks.map((b) => contractSlots(b ?? {})), opts);
+}
+
+/** The drawing, shared by both readings of a page. */
+function drawBands(bands: Slot[][], opts: PatternThumbnailOptions = {}): string {
+  const blocks = bands;
   const width = opts.width ?? W;
   const height = opts.height ?? H;
 
@@ -96,7 +133,7 @@ export function patternThumbnailSvg(
   const shown = blocks.slice(0, MAX_BANDS);
   const truncated = blocks.length > MAX_BANDS;
 
-  const kinds = shown.map((b) => bandKind(contractSlots(b ?? {})));
+  const kinds = shown.map((slots) => bandKind(slots));
   const gap = 5;
   const pad = 10;
   const totalWeight = kinds.reduce((sum, k) => sum + WEIGHT[k], 0) + (truncated ? WEIGHT.bar : 0);
@@ -173,6 +210,23 @@ const round = (n: number) => Math.round(n * 10) / 10;
 
 const svg = (width: number, height: number, inner: string) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="Page layout preview">${inner}</svg>`;
+
+/**
+ * The page's silhouette, from the page's own stored blocks.
+ *
+ * The entry point the route uses: no component catalog, no per-block query. `patternThumbnailSvg` stays for
+ * callers that genuinely hold contracts.
+ */
+export function patternThumbnailFromBlocks(
+  entries: PatternComponentEntry[],
+  overrides: unknown[] = [],
+  opts: PatternThumbnailOptions = {}
+): string {
+  return drawBands(
+    entries.map((entry, i) => argsSlots(mergeBlockArgs(entry, overrides[i]))),
+    opts
+  );
+}
 
 /** Where a caller should point an `<img src>`. The swap boundary — keep this stable. */
 export function patternThumbnailUrl(patternId: string, basePath = ''): string {

@@ -1,6 +1,11 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { patternThumbnailSvg, patternThumbnailUrl } from '../src/app/lib/pattern-thumbnail';
+import {
+  argsSlots,
+  patternThumbnailFromBlocks,
+  patternThumbnailSvg,
+  patternThumbnailUrl,
+} from '../src/app/lib/pattern-thumbnail';
 
 const hero = { title: { editorType: 'text' }, body: { editorType: 'richtext' }, image: { editorType: 'image' } };
 const cards = { title: { editorType: 'text' }, items: { editorType: 'array' } };
@@ -57,5 +62,51 @@ describe('patternThumbnailUrl', () => {
   it('is the swap boundary, and escapes the id', () => {
     assert.equal(patternThumbnailUrl('a b/c'), '/api/handoff/patterns/a%20b%2Fc/thumbnail.svg');
     assert.equal(patternThumbnailUrl('p1', '/base'), '/base/api/handoff/patterns/p1/thumbnail.svg');
+  });
+});
+
+describe('drawn from the page’s own content', () => {
+  /**
+   * The route used to read each block's *contract*, which cost one component query per distinct block, per
+   * card, per library render — the reason the library tab got slow. These assert the replacement reads the
+   * same shapes out of the content the page already stores.
+   */
+  it('reads a hero as media, not as copy', () => {
+    const slots = argsSlots({ title: 'A headline', body: 'Some copy', image: { src: 'https://x/y.jpg' } });
+    assert.ok(slots.includes('image'));
+    assert.equal(slots[slots.indexOf('image') + 1], 'heading');
+  });
+
+  it('reads a repeater as a grid', () => {
+    // A numeric path segment is what a repeater looks like from here — `items.0.title`.
+    assert.ok(argsSlots({ title: 'Cards', items: [{ title: 'One' }, { title: 'Two' }] }).includes('list'));
+  });
+
+  it('gives a config-only block no slots, so it still draws as a bar', () => {
+    assert.deepEqual(argsSlots({ size: 'lg', theme: 'dark', columns: 3 }), []);
+  });
+
+  it('produces a real silhouette from stored blocks', () => {
+    const svg = patternThumbnailFromBlocks([
+      { id: 'hero', args: { title: 'Hi', image: { src: 'https://x/y.jpg' } } },
+      { id: 'cards', args: { items: [{ title: 'a' }, { title: 'b' }] } },
+      { id: 'spacer', args: { size: 'lg' } },
+    ]);
+    assert.match(svg, /^<svg/);
+    assert.match(svg, /<circle/, 'the media band draws the picture mark');
+    assert.doesNotMatch(svg, /stroke-dasharray/, 'this is not the empty placeholder');
+  });
+
+  it('still draws the placeholder for a page with no blocks', () => {
+    assert.match(patternThumbnailFromBlocks([]), /stroke-dasharray/);
+  });
+
+  it('applies per-block overrides, so the picture matches what renders', () => {
+    // An image supplied only by the override layer still makes the band media.
+    const svg = patternThumbnailFromBlocks(
+      [{ id: 'hero', args: { title: 'Hi' } }],
+      [{ image: { src: 'https://x/from-override.jpg' } }]
+    );
+    assert.match(svg, /<circle/);
   });
 });

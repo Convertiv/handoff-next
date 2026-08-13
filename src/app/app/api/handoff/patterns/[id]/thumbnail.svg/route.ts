@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getDataProvider } from '@/lib/data';
 import { getDbPatternById } from '@/lib/db/queries';
 import { getActorGrant } from '@/lib/db/grant-queries';
 import { computePermissions, toVisibility, type MutateActor } from '@/lib/authz/policy';
-import { patternThumbnailSvg } from '@/lib/pattern-thumbnail';
+import { patternThumbnailFromBlocks } from '@/lib/pattern-thumbnail';
+import type { PatternComponentEntry } from '@/lib/guest-editable';
 
 /**
  * Schematic thumbnail for a saved page.
@@ -44,32 +44,19 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
   // 404 rather than 403: a card image should not confirm that a page exists to someone who cannot see it.
   if (!canView) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const entries = Array.isArray(row.components) ? (row.components as { id?: unknown }[]) : [];
-
   /**
-   * Contracts are fetched once per distinct component, not once per block.
+   * Drawn from the page's **own stored content**, with no component lookups (2026-08-13).
    *
-   * A page repeating the same card block eight times would otherwise be eight identical provider reads
-   * for one picture.
+   * ⚠️ This route used to fetch each distinct component of the page to read its contract — one query per
+   * component, per card, per library render. Fifty cards with six blocks apiece meant roughly 450 queries and
+   * fifty session reads hitting a pool of ten, in parallel, every time the tab was opened. That was the library
+   * being slow. The page row already carries everything the silhouette needs.
    */
-  const provider = getDataProvider();
-  const cache = new Map<string, Record<string, unknown> | null>();
-  const blocks: (Record<string, unknown> | null)[] = [];
-  for (const entry of entries) {
-    const componentId = typeof entry?.id === 'string' ? entry.id : '';
-    if (!componentId) {
-      blocks.push(null);
-      continue;
-    }
-    if (!cache.has(componentId)) {
-      const component = await provider.getComponent(componentId).catch(() => null);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cache.set(componentId, ((component as any)?.properties as Record<string, unknown>) ?? null);
-    }
-    blocks.push(cache.get(componentId) ?? null);
-  }
+  const entries = Array.isArray(row.components) ? (row.components as PatternComponentEntry[]) : [];
+  const overrides = ((row.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
+    []) as unknown[];
 
-  return new Response(patternThumbnailSvg(blocks), {
+  return new Response(patternThumbnailFromBlocks(entries, overrides), {
     headers: {
       'Content-Type': 'image/svg+xml; charset=utf-8',
       /**
