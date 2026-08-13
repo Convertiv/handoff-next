@@ -5,7 +5,41 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.0: the reflow's storage, proved against a real Postgres
+## 2026-08-13 (latest) — R.1: three kinds in the library, and promotion as a permission
+
+`kind` moved into `authz/vocab.ts` beside visibility and lifecycle — same sort of thing, read by client
+components, and two definitions of one enum is how they drift. `page-provenance.ts` re-exports it rather than
+keeping its own copy.
+
+**Promotion is gated on `canChangeVisibility`, not `canEdit`.** Marking a page as a template is what makes it
+shareable with strangers; someone holding an edit grant on your page should not get to decide that. Same
+reasoning that already put visibility there. `brief` is refused as both a source and a target — nothing may mint
+one, and a legacy snapshot is not a page someone is working on.
+
+**The picker is two radio options, not a "Make this a template" button.** A button implies a one-way door and
+leaves demotion nowhere to live; a pair shows the current state and makes going back the same size of act as
+going forward.
+
+**Guest submissions stop being hidden from the library.** E.6 hid them as "someone else's work against your
+brief, not an asset of yours" — but the reflow's whole point is that they *are* pages, owned by the template's
+owner. Only briefs are filtered now.
+
+Two bugs fell out on the way, both of the same shape — a default that was documented but not implemented.
+
+1. **`patternRowToDetailResponse` never returned `visibility` or `status`.** `MetaControl` reads that response
+   and falls back to `private` / `draft` when a field is absent, so the control has been showing every page as
+   private-and-draft whatever the row said — invisible because the first thing anyone does with it is set a
+   value. `kind` would have inherited it exactly.
+2. **My own promotion rule compared `requested.kind` against a raw `current.kind`** whose doc comment said
+   "absent reads as `page`". It didn't, so asking for `page` on a row that had no kind counted as a change and
+   was refused for want of a permission. Caught by the test written to assert the no-op case.
+
+Not verified in a browser: the library is behind auth, and creating an account is not something I do. The
+policy, the vocabulary and the no-op rules are covered by tests; what the three facets *look like* is not.
+
+---
+
+## 2026-08-13 — R.0: the reflow's storage, proved against a real Postgres
 
 `0029_pages_templates_reflow` + `lib/page-provenance.ts`. Additive only: nothing that exists today reads a
 column this touches, so main stays deployable through it.

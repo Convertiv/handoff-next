@@ -1,9 +1,17 @@
 'use client';
 
-import { Layout, PenNib } from '@phosphor-icons/react';
+import { Layout, PenNib, Stack } from '@phosphor-icons/react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
-import { LIFECYCLE_META, VISIBILITY_META, type Lifecycle, type ResourcePermissions, type Visibility } from '@/lib/authz/vocab';
+import {
+  KIND_META,
+  LIFECYCLE_META,
+  VISIBILITY_META,
+  type Lifecycle,
+  type PatternKind,
+  type ResourcePermissions,
+  type Visibility,
+} from '@/lib/authz/vocab';
 import { patternThumbnailUrl } from '@/lib/pattern-thumbnail';
 
 /** Uniform quiet badge for the card's bottom row — text only, outline, no fill. */
@@ -16,7 +24,13 @@ const PLAIN_BADGE = 'inline-flex items-center rounded-md border border-border px
  * source rows can be projected onto.
  */
 export type LibraryAsset = {
+  /**
+   * Where the row came from — which endpoint, which URL, which id space. **Not** what a person calls it: a
+   * template is a pattern for every routing purpose, and `kind` is what distinguishes it on screen.
+   */
   type: 'design' | 'pattern';
+  /** Patterns only. `page` unless promoted — see `docs/PAGES-TEMPLATES-REFLOW.md` §2.2. */
+  kind?: PatternKind;
   id: string;
   title: string;
   thumbnailUrl?: string | null;
@@ -30,18 +44,29 @@ export type LibraryAsset = {
   source?: string | null;
 };
 
-const TYPE_META: Record<LibraryAsset['type'], { label: string; Icon: typeof PenNib }> = {
+/**
+ * Icon and word per user-facing kind.
+ *
+ * Keyed on what a person calls the thing rather than on `type`, because "Design / Page / Template" is the
+ * distinction the library now presents and `type` only answers which endpoint it came from.
+ */
+const KIND_ICON: Record<'design' | 'page' | 'template', { label: string; Icon: typeof PenNib }> = {
   design: { label: 'Design', Icon: PenNib },
-  pattern: { label: 'Page', Icon: Layout },
+  page: { label: KIND_META.page.label, Icon: Layout },
+  // Stacked, because a template is the thing many pages come out of.
+  template: { label: KIND_META.template.label, Icon: Stack },
 };
 
 /**
- * A template is not just a page with a flag — it is the object other people build from, so it says so.
- * Same row shape, different identity.
+ * What this card is, as a word.
+ *
+ * ⚠️ This used to read `asset.source === 'template'`, which under the old model meant **brief**, not template.
+ * Briefs no longer reach the library at all, and the word now comes from `kind` — the column that actually
+ * means what it says.
  */
-function assetTypeLabel(asset: LibraryAsset): string {
-  if (asset.type === 'pattern' && asset.source === 'template') return 'Template';
-  return TYPE_META[asset.type].label;
+function assetKind(asset: LibraryAsset): 'design' | 'page' | 'template' {
+  if (asset.type === 'design') return 'design';
+  return asset.kind === 'template' ? 'template' : 'page';
 }
 
 function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined {
@@ -62,8 +87,8 @@ function formatEdited(updatedAt: LibraryAsset['updatedAt']): string | undefined 
  * If something seems to need a card affordance, it needs a home on the object instead.
  */
 export function AssetCard({ asset, onOpen }: { asset: LibraryAsset; onOpen: () => void }) {
-  const { Icon: TypeIcon } = TYPE_META[asset.type];
-  const typeLabel = assetTypeLabel(asset);
+  const kind = assetKind(asset);
+  const { Icon: TypeIcon, label: typeLabel } = KIND_ICON[kind];
   const editedLabel = formatEdited(asset.updatedAt);
   const ownerName = asset.owner?.name?.trim() || (asset.isMe ? 'You' : 'Teammate');
 
@@ -128,9 +153,7 @@ export function AssetCard({ asset, onOpen }: { asset: LibraryAsset; onOpen: () =
 
         <div className="flex flex-wrap items-center gap-1.5">
           {/* Templates read as templates, not as pages that happen to be flagged. */}
-          {asset.type === 'pattern' && asset.source === 'template' ? (
-            <span className={PLAIN_BADGE}>Template</span>
-          ) : null}
+          {kind === 'template' ? <span className={PLAIN_BADGE}>{KIND_META.template.label}</span> : null}
           <span className={PLAIN_BADGE}>{LIFECYCLE_META[asset.status].short}</span>
           <span className={PLAIN_BADGE}>{VISIBILITY_META[asset.visibility].label}</span>
         </div>

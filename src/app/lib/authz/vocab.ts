@@ -13,6 +13,44 @@ export const VISIBILITY: readonly Visibility[] = ['private', 'shared', 'team', '
 export type Lifecycle = 'prototype' | 'draft' | 'review' | 'approved' | 'archived';
 export const LIFECYCLE: readonly Lifecycle[] = ['prototype', 'draft', 'review', 'approved', 'archived'] as const;
 
+/**
+ * What a pattern row **is** — as opposed to `source`, which says how it got here.
+ *
+ * A template is not a different object: it is a page marked "others may build from this", edited in the same
+ * editor, stored in the same table. The distinction exists at share time and nowhere else, which is why this is
+ * a flag rather than a type (see `docs/PAGES-TEMPLATES-REFLOW.md` §2.2).
+ *
+ * `brief` is the transitional value for the frozen-snapshot rows the reflow retires. Nothing may *set* it —
+ * only migration 0029 writes it — and it is filtered out of the library rather than shown as a third kind.
+ */
+export type PatternKind = 'page' | 'template' | 'brief';
+export const PATTERN_KINDS: readonly PatternKind[] = ['page', 'template', 'brief'] as const;
+
+/** The kinds a person can choose between. `brief` is legacy and never offered. */
+export const SELECTABLE_KINDS: readonly PatternKind[] = ['page', 'template'] as const;
+
+export const KIND_META: Record<PatternKind, { label: string; plural: string; sub: string }> = {
+  page: { label: 'Page', plural: 'Pages', sub: 'A document you own and keep working on.' },
+  template: {
+    label: 'Template',
+    plural: 'Templates',
+    sub: 'A page others can build from — share a link and each visitor makes their own copy.',
+  },
+  brief: { label: 'Brief', plural: 'Briefs', sub: 'Legacy snapshot, retired by the reflow.' },
+};
+
+/**
+ * Read a `kind` off a row, tolerating rows written before the column existed.
+ *
+ * Defaults to `page` rather than throwing: an unrecognised kind means someone added one, and a library that
+ * refuses to render is a worse answer than a page showing up in the wrong facet.
+ */
+export function patternKind(value: unknown): PatternKind {
+  return typeof value === 'string' && (PATTERN_KINDS as readonly string[]).includes(value)
+    ? (value as PatternKind)
+    : 'page';
+}
+
 /** Library relationship lane. */
 export type Lane = 'yours' | 'shared' | 'team' | 'public';
 export const LANES: readonly Lane[] = ['yours', 'shared', 'team', 'public'] as const;

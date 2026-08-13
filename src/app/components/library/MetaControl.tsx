@@ -6,9 +6,10 @@ import { Button } from '../ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '../ui/dropdown-menu';
 import { VisibilityPicker } from './VisibilityPicker';
 import { LifecyclePicker } from './LifecyclePicker';
+import { KindPicker } from './KindPicker';
 import { setPatternMeta } from '@/app/actions/patterns';
 import { handoffApiUrl } from '@/lib/api-path';
-import { LIFECYCLE_META, VISIBILITY_META, type Lifecycle, type Visibility } from '@/lib/authz/vocab';
+import { KIND_META, LIFECYCLE_META, VISIBILITY_META, patternKind, type Lifecycle, type PatternKind, type Visibility } from '@/lib/authz/vocab';
 
 /**
  * Who can see this thing, and where it is in its lifecycle — **on the thing's own view**.
@@ -40,6 +41,8 @@ const VISIBILITY_ICON: Record<Visibility, LucideIcon> = {
 interface Meta {
   visibility: Visibility;
   status: Lifecycle;
+  /** Patterns only — a design artifact is neither a page nor a template. */
+  kind: PatternKind;
   canChangeVisibility: boolean;
   canApprove: boolean;
 }
@@ -112,7 +115,7 @@ export default function MetaControl({
       // Both endpoints return `permissions` from the same `computePermissions`; they differ only in the key
       // holding the row, so the control can never offer a change its write would refuse.
       const json = (await res.json()) as {
-        pattern?: { visibility?: string; status?: string };
+        pattern?: { visibility?: string; status?: string; kind?: string };
         artifact?: { visibility?: string; status?: string };
         permissions?: { canChangeVisibility?: boolean; canApprove?: boolean };
         error?: string;
@@ -123,6 +126,7 @@ export default function MetaControl({
       setMeta({
         visibility,
         status: (row.status ?? 'draft') as Lifecycle,
+        kind: patternKind((json.pattern as { kind?: string } | undefined)?.kind),
         canChangeVisibility: Boolean(json.permissions?.canChangeVisibility),
         canApprove: Boolean(json.permissions?.canApprove),
       });
@@ -140,7 +144,7 @@ export default function MetaControl({
    * change this UI thought was allowed can still be denied.
    */
   const apply = useCallback(
-    async (change: { visibility?: Visibility; status?: Lifecycle }) => {
+    async (change: { visibility?: Visibility; status?: Lifecycle; kind?: PatternKind }) => {
       if (!meta) return;
       const previous = meta;
       setMeta({ ...meta, ...change });
@@ -194,7 +198,11 @@ export default function MetaControl({
           <Icon className="h-4 w-4" aria-hidden />
           <span className="text-xs">{label}</span>
           {meta ? (
-            <span className="text-xs text-muted-foreground">· {LIFECYCLE_META[meta.status].short}</span>
+            <span className="text-xs text-muted-foreground">
+              {/* A template says so in the trigger: it changes what sharing this thing means, so it should not
+                  take opening a menu to find out. A plain page needs no such announcement. */}
+              {meta.kind === 'template' ? `· ${KIND_META.template.label} ` : ''}· {LIFECYCLE_META[meta.status].short}
+            </span>
           ) : null}
         </Button>
       </DropdownMenuTrigger>
@@ -207,6 +215,24 @@ export default function MetaControl({
 
         {meta ? (
           <div className="space-y-4">
+            {/**
+              * Kind sits above visibility because it is the bigger question: "what is this" governs what
+              * sharing it even means. Patterns only — a design artifact is neither a page nor a template.
+              */}
+            {resourceType === 'pattern' ? (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">What it is</p>
+                <KindPicker
+                  value={meta.kind}
+                  onChange={(kind) => void apply({ kind })}
+                  disabled={!meta.canChangeVisibility || busy}
+                />
+                {!meta.canChangeVisibility ? (
+                  <p className="text-xs text-muted-foreground">Only the owner or an admin can change this.</p>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Who can see it</p>
               <VisibilityPicker

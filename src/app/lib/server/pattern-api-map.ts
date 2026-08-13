@@ -6,6 +6,8 @@ type PatternRow = typeof handoffPatterns.$inferSelect;
 /** Extra fields returned by `/api/handoff/patterns` for the browser UI. */
 export type PatternListApiEntry = PatternListObject & {
   _source: string;
+  /** `page` | `template` | `brief` — what it is, as opposed to `_source`, which is how it got here. */
+  _kind: string;
   _thumbnail: string | null;
   _userId: string | null;
   _createdAt: string | null;
@@ -28,6 +30,17 @@ export type PatternDetailApiResponse = {
   components: PatternObject['components'];
   data: Record<string, unknown>;
   source: string;
+  /**
+   * ⚠️ These three were missing, and their absence was invisible.
+   *
+   * `MetaControl` reads this response and falls back to `private` / `draft` when a field is absent — so the
+   * control has been showing every page as private-and-draft whatever the row said, and only looked right
+   * because the first thing anyone does with it is set a value. `kind` would have inherited exactly the same
+   * bug. A settings control that silently misreports the current setting is worse than one that fails to load.
+   */
+  visibility: string;
+  status: string;
+  kind: string;
   thumbnail: string | null;
   userId: string | null;
   createdAt: string | null;
@@ -48,6 +61,7 @@ export function patternRowToListEntry(row: PatternRow, basePath: string): Patter
     components,
     url: fromData.url,
     _source: row.source,
+    _kind: row.kind ?? 'page',
     _thumbnail: row.thumbnail ?? null,
     _userId: row.userId ?? null,
     _createdAt: row.createdAt?.toISOString?.() ?? null,
@@ -72,6 +86,9 @@ export function patternRowToDetailResponse(row: PatternRow, basePath: string): P
     components: entry.components,
     data,
     source: row.source,
+    visibility: row.visibility,
+    status: row.status,
+    kind: row.kind ?? 'page',
     thumbnail: row.thumbnail ?? null,
     userId: row.userId ?? null,
     createdAt: row.createdAt?.toISOString() ?? null,

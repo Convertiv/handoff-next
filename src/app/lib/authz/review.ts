@@ -17,11 +17,18 @@ import { LIFECYCLE, VISIBILITY } from './vocab';
 export interface PatternMetaState {
   visibility: string;
   status: string;
+  /**
+   * Optional so the review decisions, which have no interest in it, can keep passing the two fields they care
+   * about. Absent reads as `page`, matching the column default.
+   */
+  kind?: string;
 }
 
 export interface PatternMetaChange {
   visibility?: string;
   status?: string;
+  /** `page` | `template` — promotion and demotion. See `decidePatternMetaChange`. */
+  kind?: string;
 }
 
 export interface MetaAllowed {
@@ -91,6 +98,42 @@ export function decidePatternMetaChange(
       return { ok: false, code: 'forbidden', reason: 'You do not have permission to modify this pattern.' };
     }
     patch.status = requested.status;
+  }
+
+  /**
+   * Promotion and demotion — `page` ⇄ `template` (reflow R.1).
+   *
+   * Gated on `canChangeVisibility` (owner or admin) rather than `canEdit`, which is the closer analogue of the
+   * two: marking a page as a template is what makes it shareable with strangers, and someone holding an edit
+   * grant on your page should not be able to decide that. It is the same reasoning that puts visibility there.
+   *
+   * ⚠️ **`brief` is not settable.** It is the transitional value migration 0029 writes for the frozen snapshots
+   * the reflow retires; offering it as a target would let the UI mint new ones. A brief also cannot be promoted
+   * — it is a legacy record, not a page someone is working on — so any kind change *to* or *from* `brief` is
+   * refused rather than silently ignored.
+   */
+  /**
+   * Absent reads as `page`, matching the column default — and it has to be normalised *before* the comparison,
+   * not merely documented. Without it, asking for `page` on a row whose `kind` was never sent counts as a
+   * change and gets refused for want of a permission, which is how a UI that submits the whole meta object
+   * starts demanding promote rights to leave everything alone.
+   */
+  const currentKind = current.kind ?? 'page';
+  if (requested.kind !== undefined && requested.kind !== currentKind) {
+    if (requested.kind !== 'page' && requested.kind !== 'template') {
+      return { ok: false, code: 'invalid', reason: 'A page can be a page or a template.' };
+    }
+    if (currentKind === 'brief') {
+      return { ok: false, code: 'invalid', reason: 'This is a legacy brief and cannot be changed.' };
+    }
+    if (!perms.canChangeVisibility) {
+      return {
+        ok: false,
+        code: 'forbidden',
+        reason: 'You do not have permission to make this a template.',
+      };
+    }
+    patch.kind = requested.kind;
   }
 
   return { ok: true, patch };

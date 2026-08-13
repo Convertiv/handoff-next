@@ -76,22 +76,12 @@ export interface ProvenanceFinding {
   path?: string;
 }
 
-/** What a row *is*, as opposed to how it got here (`source`). */
-export type PatternKind = 'page' | 'template' | 'brief';
-
-export const PATTERN_KINDS: readonly PatternKind[] = ['page', 'template', 'brief'];
-
 /**
- * Read a `kind` off a row, tolerating rows written before the column existed.
- *
- * Defaults to `page` rather than throwing: an unrecognised kind means someone added one, and a library that
- * refuses to render is a worse answer than a page that shows up in the wrong lane.
+ * `kind` lives in `authz/vocab.ts` with visibility and lifecycle — it is the same sort of thing, it is read by
+ * client components, and two definitions of one enum is how they drift. Re-exported here so a caller working on
+ * provenance does not have to know that.
  */
-export function patternKind(value: unknown): PatternKind {
-  return typeof value === 'string' && (PATTERN_KINDS as readonly string[]).includes(value)
-    ? (value as PatternKind)
-    : 'page';
-}
+export { patternKind, PATTERN_KINDS, type PatternKind } from './authz/vocab';
 
 /**
  * Parse a stored provenance value.

@@ -233,7 +233,7 @@ export async function patchPattern(
  */
 export async function setPatternMetaFields(
   id: string,
-  meta: { visibility?: string; status?: string },
+  meta: { visibility?: string; status?: string; kind?: string },
   actor: PatternWriteActor
 ): Promise<void> {
   const db = getDb();
@@ -248,6 +248,8 @@ export async function setPatternMetaFields(
   const set: Partial<typeof handoffPatterns.$inferInsert> = { updatedAt: new Date() };
   if (meta.visibility !== undefined) set.visibility = meta.visibility;
   if (meta.status !== undefined) set.status = meta.status;
+  // Promotion/demotion. Administrative like the other two, not editorial — see `decidePatternMetaChange`.
+  if (meta.kind !== undefined) set.kind = meta.kind;
   await db.update(handoffPatterns).set(set).where(eq(handoffPatterns.id, id));
 
   await db.insert(editHistory).values({
@@ -430,7 +432,12 @@ export async function applyPatternMeta(
 ): Promise<{ changed: boolean }> {
   const db = getDb();
   const [row] = await db
-    .select({ userId: handoffPatterns.userId, visibility: handoffPatterns.visibility, status: handoffPatterns.status })
+    .select({
+      userId: handoffPatterns.userId,
+      visibility: handoffPatterns.visibility,
+      status: handoffPatterns.status,
+      kind: handoffPatterns.kind,
+    })
     .from(handoffPatterns)
     .where(eq(handoffPatterns.id, id))
     .limit(1);
@@ -443,7 +450,11 @@ export async function applyPatternMeta(
     grant
   );
 
-  const decision = decidePatternMetaChange({ visibility: row.visibility, status: row.status }, meta, perms);
+  const decision = decidePatternMetaChange(
+    { visibility: row.visibility, status: row.status, kind: row.kind },
+    meta,
+    perms
+  );
   if (isMetaDenied(decision)) {
     // `invalid` is a bad request, not a permission problem; callers map the two to different statuses.
     if (decision.code === 'forbidden') throw new AuthorizationError(decision.reason);

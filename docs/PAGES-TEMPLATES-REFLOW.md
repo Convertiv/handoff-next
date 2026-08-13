@@ -157,7 +157,7 @@ their built pages absorb the brief's blocks into `provenance.blocks`, then the b
 
 | Surface | Change |
 |---|---|
-| **Library** | Three lanes: Designs · Pages · Templates. `LaneTabs` already exists; `AssetCard` needs a third `type` and the page silhouette works for both page kinds. |
+| **Library** | ✅ Three kinds in the type facet: Designs · Pages · Templates. Note the axis: *lanes* are Yours/Shared/Team/Public (access), *kinds* are the facet. `AssetCard` reads `kind`, not `type`. |
 | **Page editor** | Unchanged. This is the point — one editor for pages, templates and guest submissions. |
 | **Page → provenance** | New panel on a page that has provenance: who, from which template, when, the validation as submitted, and a link to the template as it is *now*. |
 | **Page → notes** | Threaded conversation, owner + creator. Status control stays where it is (`MetaControl`). |
@@ -224,7 +224,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 | Phase | What | Notes |
 |---|---|---|
 | **R.0** | ✅ Schema: `kind`, `provenance`, `handoff_page_note`; idempotent, re-runnable backfill | No UI change, and `template_id` deliberately untouched. Verified against Postgres 16 — `npm run verify:reflow`. |
-| **R.1** | Library shows three lanes; *Make this a template* / demote | The visible half of the model, on data that already exists. |
+| **R.1** | ✅ Library shows three kinds; promote/demote in `MetaControl` | Guest submissions stop being hidden — they are pages now. Promotion is gated on `canChangeVisibility`, not `canEdit`. |
 | **R.2** | Template share link replaces the brief wizard; guest submit creates a **Page** with provenance | The core reflow. Old briefs keep working until R.5. |
 | **R.3** | Return link + completion screen + email; owner-side link management and revocation | Ships with the rate limits, not after them. |
 | **R.4** | Provenance panel + threaded notes on the page; review surface moves off `BuildPanel` | Where "formerly builds" becomes true. |

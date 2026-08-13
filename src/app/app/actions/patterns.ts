@@ -84,7 +84,7 @@ export async function deletePattern(id: string) {
  * duplication is exactly what blocked an MCP status setter. This stays a thin session wrapper: resolve
  * the actor and their grant, then delegate.
  */
-export async function setPatternMeta(id: string, meta: { visibility?: string; status?: string }) {
+export async function setPatternMeta(id: string, meta: { visibility?: string; status?: string; kind?: string }) {
   const actor = await requireActor();
   const grant = await getActorGrant('pattern', id, actor.userId);
   await applyPatternMeta(id, meta, actor, grant);

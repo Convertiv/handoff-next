@@ -35,6 +35,54 @@ describe('decidePatternMetaChange', () => {
     assert.deepEqual(allowed, { ok: true, patch: { status: 'approved' } });
   });
 
+  it('gates promotion to a template on canChangeVisibility, not canEdit', () => {
+    // Marking a page as a template is what makes it shareable with strangers. Someone holding an edit grant on
+    // your page should not get to decide that — the same reasoning that puts visibility behind this permission.
+    const denied = decidePatternMetaChange(draft, { kind: 'template' }, perms({ canEdit: true }));
+    assert.equal(denied.ok === false && denied.code, 'forbidden');
+
+    const allowed = decidePatternMetaChange(draft, { kind: 'template' }, perms({ canChangeVisibility: true }));
+    assert.deepEqual(allowed, { ok: true, patch: { kind: 'template' } });
+  });
+
+  it('demotes on the same permission', () => {
+    const d = decidePatternMetaChange(
+      { ...draft, kind: 'template' },
+      { kind: 'page' },
+      perms({ canChangeVisibility: true })
+    );
+    assert.deepEqual(d, { ok: true, patch: { kind: 'page' } });
+  });
+
+  it('refuses to mint a brief, and refuses to convert one', () => {
+    // `brief` is the transitional value migration 0029 writes for the snapshots the reflow retires. Nothing may
+    // set it, and a brief is a legacy record rather than a page someone is working on.
+    const minted = decidePatternMetaChange(draft, { kind: 'brief' }, perms({ canChangeVisibility: true }));
+    assert.equal(minted.ok === false && minted.code, 'invalid');
+
+    const converted = decidePatternMetaChange(
+      { ...draft, kind: 'brief' },
+      { kind: 'page' },
+      perms({ canChangeVisibility: true })
+    );
+    assert.equal(converted.ok === false && converted.code, 'invalid');
+  });
+
+  it('refuses a kind that is not one', () => {
+    const d = decidePatternMetaChange(draft, { kind: 'design' }, perms({ canChangeVisibility: true }));
+    assert.equal(d.ok === false && d.code, 'invalid');
+  });
+
+  it('drops a kind that is already what it is', () => {
+    // A UI that submits the whole meta object must not need promote rights to leave the kind alone. Absent
+    // reads as `page`, matching the column default.
+    assert.deepEqual(decidePatternMetaChange(draft, { kind: 'page' }, perms()), { ok: true, patch: {} });
+    assert.deepEqual(
+      decidePatternMetaChange({ ...draft, kind: 'template' }, { kind: 'template' }, perms()),
+      { ok: true, patch: {} }
+    );
+  });
+
   it('requires canChangeVisibility for visibility', () => {
     const denied = decidePatternMetaChange(draft, { visibility: 'team' }, perms());
     assert.equal(denied.ok === false && denied.code, 'forbidden');

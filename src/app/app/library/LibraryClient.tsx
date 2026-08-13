@@ -10,7 +10,15 @@ import { AssetCard, type LibraryAsset } from '@/components/library';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { LANES, LANE_META, type Lane, type Lifecycle, type ResourcePermissions, type Visibility } from '@/lib/authz/vocab';
+import {
+  LANES,
+  LANE_META,
+  patternKind,
+  type Lane,
+  type Lifecycle,
+  type ResourcePermissions,
+  type Visibility,
+} from '@/lib/authz/vocab';
 import { handoffApiUrl, handoffBasePath } from '@/lib/api-path';
 
 type Owner = { id: string; name?: string | null; image?: string | null } | null;
@@ -32,6 +40,8 @@ type DesignRow = {
 /** Pattern lane row shape, as `/api/handoff/patterns?lane=` returns it. */
 type PatternRow = PatternListObject & {
   _source?: string | null;
+  /** `page` | `template` | `brief` — see `patternRowToListEntry`. Absent on a pre-0029 response. */
+  _kind?: string;
   _thumbnail?: string | null;
   _updatedAt?: string | null;
   visibility: string;
@@ -41,7 +51,19 @@ type PatternRow = PatternListObject & {
   isMe: boolean;
 };
 
-type TypeFacet = 'all' | 'design' | 'pattern';
+/**
+ * The three kinds a person browses — Designs, Pages, Templates (reflow R.1).
+ *
+ * `design` maps to its own stream; `page` and `template` are both patterns, split by `kind`. The facet is
+ * what someone is looking for, which is not the same axis as which endpoint the row came from.
+ */
+type TypeFacet = 'all' | 'design' | 'page' | 'template';
+
+/** What facet an asset belongs to — its user-facing kind, not its storage type. */
+function facetOf(asset: LibraryAsset): Exclude<TypeFacet, 'all'> {
+  if (asset.type === 'design') return 'design';
+  return asset.kind === 'template' ? 'template' : 'page';
+}
 
 // Each type paginates independently via its own `nextCursor`; the shared "Load more"
 // control advances whichever streams still have a next page, then re-merges the two
@@ -64,22 +86,25 @@ function normalizeDesign(row: DesignRow): LibraryAsset {
 }
 
 /**
- * Rows that are not first-class library objects (E.6).
+ * Rows that are not first-class library objects.
  *
- * - **Guest submissions** (`built pages`) are someone else's work against your brief, not an asset of yours;
- *   showing them beside your own pages makes the library read as a shared inbox. They belong to the brief they
- *   were built from and are surfaced there and in the review queue.
- * - **Briefs** (`source: 'template'`) are frozen snapshots attached to the page that produced them, reached
- *   from that page's invitations list. They also have no independent visibility — they inherit their parent's
- *   (Brad, 2026-08-05) — so listing them separately would imply a sharing state they do not own.
+ * **Only briefs now** (reflow R.1). They are the frozen snapshots the reflow retires — versioned children of
+ * one page, with no independent visibility (they inherit their parent's), so listing them would imply a
+ * sharing state they do not own. Migration 0029 marks them `kind: 'brief'`; `_source` is the fallback for a
+ * row read from a database where that migration has not run yet.
+ *
+ * ⚠️ **Guest submissions are no longer hidden.** Under E.6 they were "someone else's work against your brief,
+ * not an asset of yours". The reflow's whole point is that they *are* pages, owned by the template's owner —
+ * so hiding them would leave a library that omits the pages the product exists to produce.
  */
 function isNotALibraryObject(row: PatternRow): boolean {
-  return row._source === 'guest' || row._source === 'template';
+  return row._kind === 'brief' || (row._kind === undefined && row._source === 'template');
 }
 
 function normalizePattern(row: PatternRow): LibraryAsset {
   return {
     type: 'pattern',
+    kind: patternKind(row._kind),
     id: row.id,
     title: row.title,
     thumbnailUrl: row._thumbnail ?? null,
@@ -254,14 +279,21 @@ export default function LibraryClient({
 
   const visibleAssets = useMemo(() => {
     if (typeFacet === 'all') return mergedAssets;
-    return mergedAssets.filter((a) => a.type === typeFacet);
+    return mergedAssets.filter((a) => facetOf(a) === typeFacet);
   }, [mergedAssets, typeFacet]);
 
-  // Whether the current facet still has a next page to fetch.
+  /**
+   * Whether the current facet still has a next page to fetch.
+   *
+   * Pages and templates share one stream — the API paginates patterns, not kinds — so both watch the pattern
+   * cursor. A template-only view can therefore say "more available" and then load a page of pages; that is
+   * honest about the cursor, and the alternative (a per-kind cursor) is a server change for a facet most
+   * libraries will never paginate.
+   */
   const hasMore =
     typeFacet === 'design'
       ? Boolean(designCursor)
-      : typeFacet === 'pattern'
+      : typeFacet === 'page' || typeFacet === 'template'
         ? Boolean(patternCursor)
         : Boolean(designCursor || patternCursor);
 
@@ -314,7 +346,8 @@ export default function LibraryClient({
   const typeFacets: { value: TypeFacet; label: string }[] = [
     { value: 'all', label: 'All types' },
     { value: 'design', label: 'Designs' },
-    { value: 'pattern', label: 'Pages' },
+    { value: 'page', label: 'Pages' },
+    { value: 'template', label: 'Templates' },
   ];
 
   return (
