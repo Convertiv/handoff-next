@@ -1029,25 +1029,14 @@ export async function removePattern(id: string, actor: PatternWriteActor): Promi
 
   const archived = { status: 'archived' as const, updatedAt: new Date() };
 
-  // Briefs snapshotted from this page, collected before their status changes so the built-page step below
-  // still finds them.
-  const briefs = await db
-    .select({ id: handoffPatterns.id })
-    .from(handoffPatterns)
-    .where(and(eq(handoffPatterns.sourcePageId, id), eq(handoffPatterns.source, 'template')));
-  const briefIds = briefs.map((b) => b.id);
-
-  if (briefIds.length) {
-    // `ne(status, 'archived')` so a re-archive does not re-stamp `updatedAt` on rows already settled.
-    await db
-      .update(handoffPatterns)
-      .set(archived)
-      .where(and(inArray(handoffPatterns.templateId, briefIds), ne(handoffPatterns.status, 'archived')));
-    await db
-      .update(handoffPatterns)
-      .set(archived)
-      .where(and(inArray(handoffPatterns.id, briefIds), ne(handoffPatterns.status, 'archived')));
-  }
+  /**
+   * The brief cascade is gone with the briefs (R.5b).
+   *
+   * Archiving a page used to archive the briefs cut from it and the pages built through those briefs. There
+   * are no briefs any more — 0030 archived every one and nothing creates them — and a page built from a
+   * *template* is its own document with its own life, which is the whole point of the reflow. Archiving a
+   * template no longer reaches into what other people made from it.
+   */
 
   await db.update(handoffPatterns).set(archived).where(eq(handoffPatterns.id, id));
 
@@ -1055,12 +1044,8 @@ export async function removePattern(id: string, actor: PatternWriteActor): Promi
     entityType: 'pattern',
     entityId: id,
     userId: historyUserId(actor),
-    diff: {
-      action: 'archive',
-      by: actor.historyLabel ?? null,
-      // Recorded so the history explains why other rows moved at the same moment.
-      cascadedBriefs: briefIds,
-    },
+    // Nothing cascades any more, so there is nothing extra to explain — see the note above.
+    diff: { action: 'archive', by: actor.historyLabel ?? null },
   });
 
   await recordPatternChange(db, { patternId: id, action: 'deleted', actor });

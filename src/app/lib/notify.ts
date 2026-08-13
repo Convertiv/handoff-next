@@ -70,8 +70,10 @@ export async function notifyBuildSubmitted(input: {
    * so the second hop found nothing and the function returned early. **Every page built the new way stopped
    * notifying its owner, silently**, from R.2 onwards. Nothing failed; an email simply never arrived.
    *
-   * So: prefer the provenance record, fall back to `templateId`, and only take the second hop when what we
-   * landed on is a legacy brief.
+   * So: prefer the provenance record and fall back to `templateId`. **One hop now** — R.5b dropped
+   * `source_page_id`, and with it the only way to walk from a brief to its parent. Every page that could be
+   * repointed was; anything still pointing at a brief is an orphan whose parent page no longer exists, so
+   * there was never anyone to notify.
    */
   const [build] = await db
     .select({ templateId: handoffPatterns.templateId, provenance: handoffPatterns.provenance })
@@ -84,15 +86,14 @@ export async function notifyBuildSubmitted(input: {
   if (!firstHop) return;
 
   const [target] = await db
-    .select({ kind: handoffPatterns.kind, sourcePageId: handoffPatterns.sourcePageId })
+    .select({ kind: handoffPatterns.kind })
     .from(handoffPatterns)
     .where(eq(handoffPatterns.id, firstHop))
     .limit(1);
   if (!target) return;
-
-  // A brief is not a page anyone owns in the sense that matters here — its parent is. Anything else *is* the page.
-  const pageId = target.kind === 'brief' ? target.sourcePageId : firstHop;
-  if (!pageId) return;
+  // An orphaned legacy row still pointing at a brief has no owner to reach — its parent page is gone.
+  if (target.kind === 'brief') return;
+  const pageId = firstHop;
 
   const [page] = await db
     .select({ ownerId: handoffPatterns.userId, title: handoffPatterns.title })

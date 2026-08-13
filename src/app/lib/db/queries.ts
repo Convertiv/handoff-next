@@ -240,17 +240,8 @@ export interface TemplateSubmission {
  *
  * Archived briefs and archived builds are both excluded, matching every other list (see `removePattern`).
  */
-export interface PageBuild extends TemplateSubmission {
-  /**
-   * The brief this came through — **legacy only** (reflow R.4).
-   *
-   * Null for a page built the new way, where there is no brief: the link points at the template and the page
-   * records where it came from in its own provenance. The UI uses it to decide whether opening this page needs
-   * the old `?brief=` hop, so null is meaningful rather than missing.
-   */
-  briefId: string | null;
-  briefVersion: number | null;
-}
+/** A page made from this one. Nothing brief-shaped survives here — R.5b dropped the columns it read. */
+export type PageBuild = TemplateSubmission;
 
 export async function listBuildsForPage(pageId: string): Promise<PageBuild[]> {
   if (!isPostgres()) return [];
@@ -270,8 +261,7 @@ export async function listBuildsForPage(pageId: string): Promise<PageBuild[]> {
    * orphan. They remain reachable by id.
    */
   const result = await db.execute(sql`
-    SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name, c.message,
-      NULL::text AS brief_id, NULL::integer AS brief_version
+    SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name, c.message
     FROM handoff_pattern p
     LEFT JOIN LATERAL (
       SELECT pc.pushed_by_name, pc.message
@@ -297,8 +287,6 @@ export async function listBuildsForPage(pageId: string): Promise<PageBuild[]> {
       submittedByName: name?.startsWith('guest:') ? name.slice('guest:'.length).trim() || null : name,
       shareLinkToken: (r.share_link_token as string | null) ?? null,
       submittedMessage: (r.message as string | null) ?? null,
-      briefId: r.brief_id == null ? null : String(r.brief_id),
-      briefVersion: r.brief_version == null ? null : Number(r.brief_version),
     };
   });
 }

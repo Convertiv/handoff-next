@@ -32,7 +32,7 @@ export default function PlaygroundClient({
   pageTitle?: string;
   /** Resolved and ownership-checked server-side (roadmap E.8). Null at page level. */
   build?: BuildRow | null;
-  pageBuilds?: (BuildRow & { briefId: string | null })[];
+  pageBuilds?: BuildRow[];
   /** Computed server-side for the selected build (roadmap E.10). */
   guardrailFindings?: GuardrailFinding[];
   /** Whether this viewer may edit the submitted page in place — computed on the record, server-side. */

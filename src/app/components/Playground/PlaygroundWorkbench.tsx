@@ -52,7 +52,7 @@ export default function PlaygroundWorkbench({
   /** Resolved server-side, and already checked to belong to `brief`. Null unless a build is selected. */
   build?: BuildRow | null;
   /** Every build across every brief of this page, so `?builds=1` needs no fetch. */
-  pageBuilds?: (BuildRow & { briefId: string })[];
+  pageBuilds?: BuildRow[];
   /** Audit findings for the selected build, computed server-side. */
   audits?: AuditFinding[];
   /** Advisory guardrail findings for the build being viewed (roadmap E.11). */

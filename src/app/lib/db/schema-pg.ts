@@ -149,14 +149,6 @@ export const handoffPatterns = pgTable('handoff_pattern', {
   status: text('status').notNull().default('draft'),
   /** For a **built page**: the brief it was built from — drives the review diff. */
   templateId: text('template_id'),
-  /**
-   * For a **brief**: the page it was snapshotted from. Opposite direction to `templateId`; conflating the two
-   * would invert every diff that reads it. SET NULL on delete — a brief outlives its parent because it records
-   * what outsiders were sent.
-   */
-  sourcePageId: text('source_page_id'),
-  /** For a brief: its stable version number within the parent page. Stored, never derived. */
-  briefVersion: integer('brief_version'),
   /** For a built page: the author's email, for state-change notifications. */
   submittedByEmail: text('submitted_by_email'),
   /**

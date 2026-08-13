@@ -204,6 +204,13 @@
       "when": 1783800000000,
       "tag": "0030_retire_briefs",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1783900000000,
+      "tag": "0031_drop_brief_columns",
+      "breakpoints": true
     }
   ]
 }

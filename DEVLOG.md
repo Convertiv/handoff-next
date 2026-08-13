@@ -5,7 +5,39 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — the return link greeted its own author with an error
+## 2026-08-13 (latest) — R.5b: the brief columns are gone
+
+The one irreversible step in the reflow, taken once its precondition was actually met: 0030 applied on the real
+registry, and a guest built a page, returned to it through their link and edited it. Everything before this
+could be undone with an UPDATE; a dropped column cannot.
+
+What went: `source_page_id`, `brief_version`, the partial-unique index that enforced one version per parent, the
+lookup index behind the deleted `listBriefsForPage`, the self-referencing FK, and `/briefs/[id]` — a redirect
+that could only work by reading the column it now lacks.
+
+What that cost is brief-era bookkeeping alone: which page a brief was cut from, and which version it was. The
+pages built through those briefs keep their own record — `provenance` holds the copy they were handed and the
+template they came from, which is the thing a reviewer actually reads.
+
+Two readers had to move with the columns:
+
+- **`notifyBuildSubmitted` is one hop now.** The legacy second hop walked brief → parent page via
+  `source_page_id`. Anything still pointing at a brief is an orphan whose parent no longer exists, so there was
+  never an owner to reach; it returns instead of pretending.
+- **`removePattern` no longer cascades.** Archiving a page used to archive the briefs cut from it *and* the
+  pages built through them. Nothing creates briefs, and a page made from a template is its own document with
+  its own life — archiving a template no longer reaches into what other people made from it. That is the reflow
+  stated as behaviour rather than as a doc.
+
+Three of my own verifier fixtures still described the old world — inserting dropped columns, and asserting on a
+`briefId` field that no longer exists (`undefined === null` is false, which is how it announced itself). Updated
+to describe a deployment that has run 0030 and 0031, which is the only shape that exists now.
+
+All five verifiers green against the full chain.
+
+---
+
+## 2026-08-13 — the return link greeted its own author with an error
 
 Three things off a real test on the deployed registry.
 

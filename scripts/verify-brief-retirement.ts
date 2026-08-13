@@ -122,7 +122,7 @@ async function main() {
   const builds = await listBuildsForPage('page');
   const ids = builds.map((b) => b.id).sort();
   check('the template lists every page built from it, once each', ids.join(',') === 'built_1,built_2,built_new', ids);
-  check('none of them claims a brief any more', builds.every((b) => b.briefId === null), builds.map((b) => b.briefId));
+  // (The `briefId` field itself is gone in R.5b — there is no property left to assert on.)
 
   // `listBriefsForPage` is gone entirely — the dropdown it fed was deleted with the brief surfaces. What is
   // asserted instead is that the rows it would have listed are archived, which is what makes that safe.
@@ -150,6 +150,29 @@ async function main() {
   check('a new-model build resolves to the page', (await ownerPageFor('built_new')) === 'page');
   check('one with no provenance resolves too', (await ownerPageFor('built_2')) === 'page');
   check('an orphan still resolves through its brief, and finds nothing', (await ownerPageFor('built_x')) === null);
+
+  // ── R.5b: the columns go ───────────────────────────────────────────────────
+  console.log('\n— dropping the brief columns');
+  await applyThrough('0031_drop_brief_columns');
+
+  const cols = (
+    await sql`SELECT column_name FROM information_schema.columns WHERE table_name = 'handoff_pattern'`
+  ).map((r) => r.column_name);
+  check('source_page_id is gone', !cols.includes('source_page_id'), cols.length);
+  check('brief_version is gone', !cols.includes('brief_version'), cols.length);
+  check('provenance and kind remain — the record that replaced them', cols.includes('provenance') && cols.includes('kind'));
+
+  const idx = (await sql`SELECT indexname FROM pg_indexes WHERE tablename = 'handoff_pattern'`).map((r) => r.indexname);
+  check('their indexes went too', !idx.includes('pattern_brief_version_unique') && !idx.includes('pattern_source_page_idx'), idx);
+
+  // The readers must still work with the columns gone — this is what the drop risks.
+  const stillLists = await listBuildsForPage('page');
+  check('the template still lists its pages', stillLists.map((b) => b.id).sort().join(',') === 'built_1,built_2,built_new', stillLists.map((b) => b.id));
+  check('every page kept its provenance', (await sql`SELECT count(*)::int AS n FROM handoff_pattern WHERE provenance IS NOT NULL`)[0].n >= 3);
+
+  // Re-runnable, like every other migration here.
+  await applyMigration('0031_drop_brief_columns');
+  check('dropping twice is a no-op', true);
 
   console.log(failures ? `\n${failures} FAILED` : '\nall checks passed');
   await sql.end();

@@ -84,15 +84,15 @@ export default async function PlaygroundPageById({
     pageTitle = row.title ?? '';
 
     /**
-     * A brief is a *level of its parent page*, not a page of its own (roadmap E.8). An old link pointing a
-     * brief id at this route is rewritten to the page that owns it with the brief selected, so the URL and the
-     * interface agree. Without a parent there is nothing to nest it under, so it 404s rather than opening a
-     * frozen record in an editor.
+     * A legacy brief opened directly 404s (reflow R.5b).
+     *
+     * It used to redirect to its parent page with the brief selected, using `source_page_id` — a column that no
+     * longer exists, and a `?brief=` level that no longer renders. Briefs are archived records; the pages built
+     * through them are reachable from the template they now point at, which is where anyone following an old
+     * link actually wants to end up.
      */
-    if (isTemplate) {
-      if (!row.sourcePageId) notFound();
-      redirect(`${basePath}/playground/${encodeURIComponent(row.sourcePageId)}?brief=${encodeURIComponent(id)}`);
-    }
+    if (isTemplate) notFound();
+
     // Every build across every brief, so the page can list incoming work without a detour through a brief.
     if (!isTemplate) pageBuilds = await listBuildsForPage(id).catch(() => []);
 
@@ -189,8 +189,6 @@ export default async function PlaygroundPageById({
         submittedByName: b.submittedByName,
         submittedAt: b.updatedAt ? b.updatedAt.toISOString() : null,
         submittedMessage: b.submittedMessage,
-        briefId: b.briefId,
-        briefLabel: b.briefVersion ? `v${b.briefVersion}` : null,
       }))}
     />
   );

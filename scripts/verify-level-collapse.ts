@@ -57,21 +57,26 @@ async function main() {
 
   console.log('— seeding a template with both kinds of descendant');
   await sql`INSERT INTO "user" (id, email) VALUES ('u_owner', 'o@example.com') ON CONFLICT (id) DO NOTHING`;
+  /**
+   * ⚠️ No `source_page_id` / `brief_version` — R.5b dropped them. A legacy row is now recognisable only by its
+   * `template_id` pointing at a `kind: 'brief'` row, which is exactly what a deployment that ran 0030 and 0031
+   * looks like.
+   */
   await sql`
     INSERT INTO handoff_pattern (id, title, components, source, kind, user_id, visibility, status, template_id,
-                                 source_page_id, brief_version, provenance, updated_at)
+                                 provenance, updated_at)
     VALUES
-      ('tpl',       'The template',  '[]'::jsonb, 'playground', 'template', 'u_owner', 'team',    'draft',  NULL,    NULL,  NULL, NULL, now()),
-      -- New model: no brief anywhere, provenance names the template.
-      ('new_1',     'Built new',     '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', NULL,    NULL,  NULL, ${prov('tpl')}::jsonb, now()),
-      -- Legacy: a brief cut from the template, and a build hanging off the brief.
-      ('brief_1',   'Brief v1',      '[]'::jsonb, 'template',   'brief',    'u_owner', 'team',    'draft',  NULL,    'tpl', 1,    NULL, now()),
-      ('legacy_1',  'Built legacy',  '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', 'brief_1', NULL, NULL, NULL, now()),
-      -- Backfilled by 0029: BOTH a brief chain and provenance. Must appear exactly once.
-      ('both_1',    'Backfilled',    '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', 'brief_1', NULL, NULL, ${prov('tpl')}::jsonb, now()),
+      ('tpl',       'The template',  '[]'::jsonb, 'playground', 'template', 'u_owner', 'team',    'draft',  NULL,      NULL, now()),
+      -- New model: provenance names the template, no brief anywhere.
+      ('new_1',     'Built new',     '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', NULL,      ${prov('tpl')}::jsonb, now()),
+      -- A brief left behind by the migrations: archived, and still pointed at by an un-repointed row.
+      ('brief_1',   'Brief v1',      '[]'::jsonb, 'template',   'brief',    'u_owner', 'team',    'archived', NULL,    NULL, now()),
+      ('legacy_1',  'Built legacy',  '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', 'brief_1', NULL, now()),
+      -- Repointed by 0030: template_id names the template AND provenance agrees. Must appear exactly once.
+      ('both_1',    'Backfilled',    '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', 'tpl',     ${prov('tpl')}::jsonb, now()),
       -- Someone else's, and an archived one: neither belongs in the list.
-      ('other',     'Another page',  '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', NULL,    NULL,  NULL, ${prov('tpl_other')}::jsonb, now()),
-      ('archived_1','Archived',      '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'archived', NULL,  NULL,  NULL, ${prov('tpl')}::jsonb, now())
+      ('other',     'Another page',  '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'review', NULL,      ${prov('tpl_other')}::jsonb, now()),
+      ('archived_1','Archived',      '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'archived', NULL,    ${prov('tpl')}::jsonb, now())
     ON CONFLICT (id) DO NOTHING`;
 
   /**
@@ -90,10 +95,13 @@ async function main() {
   check('an archived page is not listed', !ids.includes('archived_1'), ids);
 
   const byId = Object.fromEntries(builds.map((b) => [b.id, b]));
-  // `briefId` is null for everything now — R.5 removed the only branch that could set it. Kept as a check
-  // rather than deleted, because the field is still on the type until the columns are dropped.
-  check('nothing claims a brief any more', builds.every((b) => b.briefId === null), builds.map((b) => b.briefId));
-  check('a backfilled page opens directly', byId.both_1?.briefId === null, byId.both_1);
+  /**
+   * The `briefId` field is gone in R.5b, so "opens directly" is no longer a property of the row — it is the
+   * only thing that exists. What is worth asserting instead is that a repointed page is listed at all, and
+   * carries nothing brief-shaped for a caller to branch on.
+   */
+  check('a repointed page is listed', Boolean(byId.both_1), Object.keys(byId));
+  check('and carries nothing brief-shaped', !('briefId' in (byId.both_1 ?? {})), byId.both_1);
 
   console.log('\n— what may appear inside this template’s shell');
   const rows = Object.fromEntries(

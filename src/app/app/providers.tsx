@@ -46,10 +46,9 @@ export default function Providers({
   /**
    * Surfaces that deliberately carry no app chrome: the public share pages (`/s/*`).
    *
-   * `/briefs/*` used to be listed here too. It is now only a redirect into `/playground/{id}?brief=` (roadmap
-   * E.8), and a brief is a *level of a page* rather than its own screen — so it gets the same chrome the page
-   * does. What keeps a brief from offering authoring it cannot honour is `aiAssistantEnabled: false` and a
-   * read-only canvas, decided per level in `PlaygroundWorkbench`, not the absence of app chrome.
+   * `/briefs/*` used to be listed here too. Briefs are gone (reflow R.5/R.5b) and so is the route. A page made
+   * from a template is an ordinary page with app chrome; what governs whether it offers authoring is the
+   * permission computed on the record, not the absence of chrome.
    */
   const isChromeless = pathname === '/s' || pathname?.startsWith('/s/');
 
