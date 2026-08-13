@@ -197,6 +197,13 @@
       "when": 1783700000000,
       "tag": "0029_pages_templates_reflow",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1783800000000,
+      "tag": "0030_retire_briefs",
+      "breakpoints": true
     }
   ]
 }

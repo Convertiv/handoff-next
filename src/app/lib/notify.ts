@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { getDb } from './db/index';
 import { handoffPatterns, users } from './db/schema';
 import { appBaseUrl, sendTemplatedEmail } from './email';
+import { readProvenance } from './page-provenance';
 
 /**
  * State-change notifications for invite-to-build — roadmap E.6.
@@ -62,24 +63,36 @@ export async function notifyBuildSubmitted(input: {
 }): Promise<void> {
   const db = getDb();
   /**
-   * Two hops, because the graph runs build → brief → page: a build's `templateId` is the brief it was built from,
-   * and a brief's `sourcePageId` is the page it was snapshotted from. Resolved here rather than at the call site so
-   * the write path passes only what it actually knows.
+   * Find the page whose owner should hear about this — **one hop, with a legacy second one** (reflow R.5).
+   *
+   * ⚠️ This used to be two hops unconditionally: build → brief (`templateId`) → page (`sourcePageId`). Under
+   * the reflow a submission's `templateId` is the **template itself**, and a template has no `sourcePageId` —
+   * so the second hop found nothing and the function returned early. **Every page built the new way stopped
+   * notifying its owner, silently**, from R.2 onwards. Nothing failed; an email simply never arrived.
+   *
+   * So: prefer the provenance record, fall back to `templateId`, and only take the second hop when what we
+   * landed on is a legacy brief.
    */
   const [build] = await db
-    .select({ briefId: handoffPatterns.templateId })
+    .select({ templateId: handoffPatterns.templateId, provenance: handoffPatterns.provenance })
     .from(handoffPatterns)
     .where(eq(handoffPatterns.id, input.buildId))
     .limit(1);
-  if (!build?.briefId) return;
 
-  const [brief] = await db
-    .select({ pageId: handoffPatterns.sourcePageId })
+  const fromProvenance = readProvenance(build?.provenance)?.templateId ?? null;
+  const firstHop = fromProvenance ?? build?.templateId ?? null;
+  if (!firstHop) return;
+
+  const [target] = await db
+    .select({ kind: handoffPatterns.kind, sourcePageId: handoffPatterns.sourcePageId })
     .from(handoffPatterns)
-    .where(eq(handoffPatterns.id, build.briefId))
+    .where(eq(handoffPatterns.id, firstHop))
     .limit(1);
-  if (!brief?.pageId) return;
-  const pageId = brief.pageId;
+  if (!target) return;
+
+  // A brief is not a page anyone owns in the sense that matters here — its parent is. Anything else *is* the page.
+  const pageId = target.kind === 'brief' ? target.sourcePageId : firstHop;
+  if (!pageId) return;
 
   const [page] = await db
     .select({ ownerId: handoffPatterns.userId, title: handoffPatterns.title })

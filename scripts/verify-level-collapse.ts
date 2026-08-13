@@ -74,21 +74,26 @@ async function main() {
       ('archived_1','Archived',      '[]'::jsonb, 'guest',      'page',     'u_owner', 'private', 'archived', NULL,  NULL,  NULL, ${prov('tpl')}::jsonb, now())
     ON CONFLICT (id) DO NOTHING`;
 
+  /**
+   * ⚠️ **These fixtures never go through 0030**: this script applies the whole journal and *then* inserts, so
+   * nothing here is repointed. That makes it a useful test of the post-R.5 read rule on un-migrated rows —
+   * descent is `provenance.templateId` and nothing else, so a row that still points at a brief is simply not
+   * listed. Before R.5 the UNION would have caught it; that path is retired, and 0030 is what makes it safe
+   * (it repoints every recoverable row and archives every brief).
+   */
   const builds = await listBuildsForPage('tpl');
   const ids = builds.map((b) => b.id).sort();
-  check('lists both descent paths', ids.join(',') === 'both_1,legacy_1,new_1', ids);
+  check('lists descent by provenance', ids.join(',') === 'both_1,new_1', ids);
+  check('a row still pointing at a brief is not listed post-R.5', !ids.includes('legacy_1'), ids);
   check('a backfilled page appears exactly once', builds.filter((b) => b.id === 'both_1').length === 1, builds.length);
   check('another template’s page is not listed', !ids.includes('other'), ids);
   check('an archived page is not listed', !ids.includes('archived_1'), ids);
 
   const byId = Object.fromEntries(builds.map((b) => [b.id, b]));
-  check('a new-model page reports no brief', byId.new_1?.briefId === null, byId.new_1);
-  check('a legacy page still reports its brief', byId.legacy_1?.briefId === 'brief_1', byId.legacy_1);
-  check(
-    'a backfilled page opens directly, not through its old brief',
-    byId.both_1?.briefId === null,
-    byId.both_1
-  );
+  // `briefId` is null for everything now — R.5 removed the only branch that could set it. Kept as a check
+  // rather than deleted, because the field is still on the type until the columns are dropped.
+  check('nothing claims a brief any more', builds.every((b) => b.briefId === null), builds.map((b) => b.briefId));
+  check('a backfilled page opens directly', byId.both_1?.briefId === null, byId.both_1);
 
   console.log('\n— what may appear inside this template’s shell');
   const rows = Object.fromEntries(

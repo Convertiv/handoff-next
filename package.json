@@ -65,6 +65,7 @@
     "verify:guest": "tsx --conditions=react-server scripts/verify-guest-flow.ts",
     "verify:notes": "tsx --conditions=react-server scripts/verify-page-notes.ts",
     "verify:collapse": "tsx --conditions=react-server scripts/verify-level-collapse.ts",
+    "verify:briefs": "tsx --conditions=react-server scripts/verify-brief-retirement.ts",
     "test:unit:server": "NODE_OPTIONS=--conditions=react-server tsx --test test/server/*.test.ts",
     "mcp:quality": "tsx scripts/mcp-quality/run.ts",
     "playwright:install": "npx playwright install chromium",
