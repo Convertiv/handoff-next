@@ -183,8 +183,6 @@ export default function PlaygroundBuilder({
     updateComponent,
     saveState,
     pageTitle,
-    briefs,
-    refreshBriefs,
     structuralEditing,
     aiAssistantEnabled,
     contentOnly,
@@ -618,7 +616,6 @@ export default function PlaygroundBuilder({
         templateId={editingPatternId}
         pageTitle={pageTitle}
         onCancel={() => setWizardOpen(false)}
-        onShared={() => void refreshBriefs()}
       />
     );
   }
@@ -707,35 +704,6 @@ export default function PlaygroundBuilder({
                     </TooltipContent>
                   </Tooltip>
 
-                  {/* The arrow only appears once there is something to list — an empty dropdown is a dead end. */}
-                  {briefs.length > 0 ? (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 w-6 px-0" aria-label="Invitations">
-                          <ChevronDown className="h-3 w-3" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="start" className="w-72">
-                        {briefs.map((brief) => (
-                          <DropdownMenuItem
-                            key={brief.id}
-                            /* Same page, deeper level (roadmap E.8) — not a different route. */
-                            onClick={() => router.push(`?brief=${encodeURIComponent(brief.id)}`)}
-                            className="flex flex-col items-start gap-0.5"
-                          >
-                            <span className="text-sm font-medium">
-                              v{brief.version ?? '?'} · {brief.title || 'Untitled'}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {brief.createdAt ? new Date(brief.createdAt).toLocaleDateString() : ''}
-                              {brief.builtCount ? ` · ${brief.builtCount} built` : ' · nothing built yet'}
-                              {brief.linkCount ? ` · ${brief.linkCount} active link${brief.linkCount === 1 ? '' : 's'}` : ''}
-                            </span>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  ) : null}
                 </div>
               )}
             </>

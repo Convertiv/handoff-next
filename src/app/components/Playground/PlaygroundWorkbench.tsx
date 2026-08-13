@@ -5,7 +5,6 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '../ui/button';
 import { PlaygroundProvider, type PlaygroundPersistence } from './PlaygroundContext';
 import PlaygroundBuilder from './PlaygroundBuilder';
-import BriefPanel, { type BriefLinkStatus, type BriefMeta } from '../Brief/BriefPanel';
 import BuildPanel from '../Brief/BuildPanel';
 import BuildList from '../Brief/BuildList';
 import type { BuildRow } from '../Brief/BuildList';
@@ -16,7 +15,7 @@ import type { GuardrailFinding } from '@/lib/authoring-guardrails';
 import { levelFor } from '@/lib/workbench-level';
 
 /**
- * One shell, three levels: page → brief → build (roadmap E.8).
+ * One shell, two levels: page → the pages built from it (roadmap E.8, collapsed by reflow R.4/R.5).
  *
  * The level comes from the URL — `?brief=<id>` and `?build=<id>` on the page's own route — so it is
  * linkable, survives a refresh, and back/forward do the obvious thing. That matters beyond tidiness: the
@@ -28,11 +27,6 @@ import { levelFor } from '@/lib/workbench-level';
  * persistence only ever points at its own record.
  */
 
-export interface WorkbenchBrief {
-  meta: BriefMeta;
-  links: BriefLinkStatus[];
-  builds: BuildRow[];
-}
 
 /** Treat a repeated param as one value — `?builds=1&builds=2` is a malformed URL, not two requests. */
 function one(value: string | null): boolean {
@@ -43,9 +37,7 @@ export default function PlaygroundWorkbench({
   pageId,
   pageTitle,
   initialIsTemplate = false,
-  initialBriefs = [],
   basePath,
-  brief = null,
   build = null,
   pageBuilds = [],
   audits = [],
@@ -55,10 +47,7 @@ export default function PlaygroundWorkbench({
   pageId?: string;
   pageTitle?: string;
   initialIsTemplate?: boolean;
-  initialBriefs?: React.ComponentProps<typeof PlaygroundProvider>['initialBriefs'];
   basePath: string;
-  /** Resolved server-side, and already checked to belong to this page. Null at page level. */
-  brief?: WorkbenchBrief | null;
   /** Resolved server-side, and already checked to belong to `brief`. Null unless a build is selected. */
   build?: BuildRow | null;
   /** Every build across every brief of this page, so `?builds=1` needs no fetch. */
@@ -80,8 +69,8 @@ export default function PlaygroundWorkbench({
   const search = useSearchParams();
 
   // Shared with the server route so "which level" has one definition — see `lib/workbench-level.ts`.
-  const level = levelFor(Boolean(brief), Boolean(build));
-  const recordId = build?.id ?? brief?.meta.id ?? pageId ?? 'new';
+  const level = levelFor(Boolean(build));
+  const recordId = build?.id ?? pageId ?? 'new';
 
   /**
    * **The owner edits a submitted page in place** (Brad, 2026-08-13; reflow open question #3).
@@ -96,7 +85,7 @@ export default function PlaygroundWorkbench({
   const editingSubmission = level === 'build' && buildCanEdit;
 
   const go = useCallback(
-    (next: { brief?: string | null; build?: string | null; builds?: string | null }) => {
+    (next: { build?: string | null; builds?: string | null }) => {
       const params = new URLSearchParams(search.toString());
       for (const [key, value] of Object.entries(next)) {
         if (value) params.set(key, value);
@@ -153,27 +142,16 @@ export default function PlaygroundWorkbench({
   const leftPanel =
     level === 'build' && build ? (
       /**
-       * **No brief required** (reflow R.4). A page built the new way descends straight from the template, so
-       * `?build=` alone is a level. `go({ build: null })` returns to whatever the URL still holds — the brief
-       * for a legacy chain, the template itself otherwise — so one handler serves both.
+       * A submitted page, opened from the template it came from. Briefs are retired (R.5), so `?build=` is the
+       * only way in and the way back is always the template.
        */
       <BuildPanel
         build={build}
         basePath={basePath}
         audits={audits}
         guardrailFindings={guardrailFindings}
-        backLabel={brief ? 'All builds' : 'Back to template'}
+        backLabel="Back to template"
         onBackToBrief={() => go({ build: null })}
-      />
-    ) : level === 'brief' && brief ? (
-      <BriefPanel
-        brief={brief.meta}
-        links={brief.links}
-        builds={brief.builds}
-        selectedBuildId={null}
-        onSelectBuild={(id) => go({ build: id })}
-        onBackToPage={() => go({ brief: null, build: null })}
-        basePath={basePath}
       />
     ) : showPageBuilds ? (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -184,15 +162,12 @@ export default function PlaygroundWorkbench({
           </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {/**
-            * Opened directly when it descends from this template, and *through its brief* only when it is a
-            * legacy row that has one — `briefId` is null for everything built the new way.
-            */}
+          {/* Opened directly: every page here descends from this template by its own provenance (R.5). */}
           <BuildList
             builds={pageBuilds}
             onSelect={(id) => {
               const row = pageBuilds.find((b) => b.id === id);
-              if (row) go({ brief: row.briefId ?? null, build: row.id, builds: null });
+              if (row) go({ build: row.id, builds: null });
             }}
             emptyNote="Nothing has been built from this page yet. Invite someone to build, and their pages appear here."
           />
@@ -205,7 +180,7 @@ export default function PlaygroundWorkbench({
       // See the note above: remount per record, never re-hydrate in place.
       key={`${level}:${recordId}`}
       {...(level === 'page'
-        ? { initialPatternId: pageId, initialIsTemplate, pageTitle, initialBriefs }
+        ? { initialPatternId: pageId, initialIsTemplate, pageTitle }
         : /**
            * An editable submission is opened **by id**, exactly as a page is — hydration and autosave both come
            * from the standard path. `pageTitle` is its own title, not the template's, because this record is

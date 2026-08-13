@@ -238,7 +238,8 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 | **R.2** | ✅ `shareTemplate` + `ShareTemplate` screen (three steps → one), fork/submit provenance, 50-page cap, diff reads the fork copy | Old briefs keep working until R.5 — `createInvitation` is marked legacy, not deleted. Verified with `npm run verify:guest`. |
 | **R.3** | ✅ Return link (minted at submit, shown once, emailed), completion screen, owner-side link list + revoke, guest rate limits | ⚠️ A returning author may edit while `draft` **or** `review` — a submitted page is under consideration, not sealed. Stops at `approved`/`archived`. |
 | **R.4** | ✅ Provenance panel, threaded notes on both sides, the level collapse, and the owner editing a submitted page in place. | `npm run verify:notes`, `npm run verify:collapse`. |
-| **R.5** | Retire briefs: drop `source_page_id` / `brief_version`, delete the wizard | Only once R.2 has run on real data. |
+| **R.5** | ✅ Briefs retired: `template_id` repointed, brief rows archived, and every brief surface deleted — panel, level, wizard actions, queries. `npm run verify:briefs`. | ⚠️ **The columns are NOT dropped.** They are the evidence 0030 reasons from, and it has never run against a real registry. See R.5b. |
+| **R.5b** | Drop `source_page_id` and `brief_version`; simplify `PageBuild.briefId` away | **After 0030 has run somewhere real.** Nothing depends on it — this is cleanup, and doing it early trades a reversible state for an irreversible one. |
 | **R.6** | CMS Track A — the migration prompt | Independent; could ship any time after R.0. |
 | **R.7** | CMS Track B — integrations tab, first adapter, mapping artifact + dry run | Sequenced by what R.6 taught. |
 

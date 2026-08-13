@@ -104,10 +104,9 @@ async function main() {
   check('a page with no provenance may not', submissionBelongsToTemplate(rows.legacy_1, 'tpl') === false);
   check('nothing at all may not', submissionBelongsToTemplate(null, 'tpl') === false);
 
-  // The collapse itself: a build id with no brief is now a level rather than an inconsistent URL.
-  check('?build= alone is a level', levelFor(false, true) === 'build');
-  check('?brief= alone still is', levelFor(true, false) === 'brief');
-  check('neither is the page', levelFor(false, false) === 'page');
+  // The collapse itself. R.5 then removed the brief level outright, so this is now a two-state function.
+  check('?build= is a level', levelFor(true) === 'build');
+  check('no build is the page', levelFor(false) === 'page');
 
   // ── Owner edits in place (R.4) ─────────────────────────────────────────────
   console.log('\n— editing a submitted page in place');

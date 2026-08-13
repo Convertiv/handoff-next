@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { briefBelongsToPage, findBuild, levelFor, submissionBelongsToTemplate } from '../src/app/lib/workbench-level';
+import { findBuild, levelFor, submissionBelongsToTemplate } from '../src/app/lib/workbench-level';
 
 /**
  * The rules that decide which level of a page the workbench shows, and whether the URL is allowed to ask for
@@ -9,32 +9,6 @@ import { briefBelongsToPage, findBuild, levelFor, submissionBelongsToTemplate } 
  * These are security checks, not presentation: `?brief=`/`?build=` name records that are fetched by id, so
  * without them the query string is a way to render any record in the deployment inside your own page's shell.
  */
-describe('briefBelongsToPage', () => {
-  const brief = { source: 'template', sourcePageId: 'page-1' };
-
-  it('accepts a brief snapshotted from this page', () => {
-    assert.equal(briefBelongsToPage(brief, 'page-1'), true);
-  });
-
-  it("rejects another page's brief — the URL-tampering case", () => {
-    assert.equal(briefBelongsToPage(brief, 'page-2'), false);
-  });
-
-  /** Otherwise any page could be nested inside another page as though it were an invitation. */
-  it('rejects an ordinary page even when the ids line up', () => {
-    assert.equal(briefBelongsToPage({ source: 'playground', sourcePageId: 'page-1' }, 'page-1'), false);
-  });
-
-  it('rejects a brief that has lost its parent', () => {
-    assert.equal(briefBelongsToPage({ source: 'template', sourcePageId: null }, 'page-1'), false);
-  });
-
-  it('rejects a missing brief and an empty page id', () => {
-    assert.equal(briefBelongsToPage(null, 'page-1'), false);
-    assert.equal(briefBelongsToPage(brief, ''), false);
-  });
-});
-
 describe('findBuild', () => {
   const builds = [{ id: 'b1' }, { id: 'b2' }];
 
@@ -53,12 +27,6 @@ describe('findBuild', () => {
 });
 
 describe('levelFor', () => {
-  it('drills to the deepest selection', () => {
-    assert.equal(levelFor(false, false), 'page');
-    assert.equal(levelFor(true, false), 'brief');
-    assert.equal(levelFor(true, true), 'build');
-  });
-
   /**
    * ⚠️ **This rule reversed in the reflow (R.4), deliberately.**
    *
@@ -70,8 +38,11 @@ describe('levelFor', () => {
    * unchanged in spirit: the *server* decides, now by `submissionBelongsToTemplate` instead of the brief chain.
    * The back control says "Back to template" when there is no brief to return to.
    */
-  it('treats a build named without a brief as its own level', () => {
-    assert.equal(levelFor(false, true), 'build');
+  it('is a build when one is selected, and the page otherwise', () => {
+    // R.5 removed the third level with the briefs themselves; what survives is that the *server* decides
+    // whether a build id may appear here, by `submissionBelongsToTemplate`.
+    assert.equal(levelFor(true), 'build');
+    assert.equal(levelFor(false), 'page');
   });
 });
 

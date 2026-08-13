@@ -5,6 +5,40 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
+## 2026-08-13 (latest) — R.5: briefs are gone
+
+Two commits. The data half repoints `template_id` from the brief a page came through to the template it came
+from, gives provenance to anything the legacy wizard made after 0029, and archives every brief row. The code
+half deletes the surfaces: `BriefPanel`, the brief level, the briefs API route, `createInvitation`,
+`savePatternAsTemplate`, `savePageAsTemplate`, `updateBriefInstructions`, `listBriefsForPage`, the invitations
+dropdown, and the `?brief=` resolution in the route.
+
+**The columns are deliberately still there.** `source_page_id` and `brief_version` are what 0030 reasons from,
+and it has never run against a real registry — nothing is deployed past 0028. Dropping them in the same pass
+would trade a reversible state for an irreversible one to save a migration nobody is waiting on. R.5b, after
+this runs somewhere real.
+
+**The find that justified the whole slice.** `notifyBuildSubmitted` walked build → brief → page. A page built
+the *new* way already had a template in `template_id`, and a template has no `sourcePageId`, so the second hop
+returned nothing and the function bailed. **Owner submission emails have been silently dead for every
+new-model page since R.2** — nothing threw, an email just never arrived. It now reads provenance first, falls
+back to the column, and only takes a second hop when what it landed on is a brief.
+
+Three of my own guard-rails fired during the deletion, which is the part worth recording:
+
+1. A section-cut in `pattern-write.ts` bounded by `/* ---- */` dividers swallowed `setTemplateBuilderNotes`
+   along with `savePageAsTemplate`. The build caught it; I restored the file and re-cut with explicit
+   assertions about what may and may not disappear.
+2. The re-cut's `rindex("/**")` then walked back into the *previous* function's docblock — the assertion caught
+   that one before it hit disk.
+3. Two verifiers and one unit test encoded the pre-R.5 API (`levelFor`'s arity, `briefBelongsToPage`,
+   `listBriefsForPage`). Updated with why, rather than deleted.
+
+All five DB verifiers re-run green after the deletions, which is the point of having them: the write core they
+drive is the thing this pass cut into.
+
+---
+
 ## 2026-08-13 (latest) — R.4 finished: the level collapse, and the owner editing in place
 
 **The collapse.** A submitted page opens straight from the template it came from: `?build=` alone is a level,

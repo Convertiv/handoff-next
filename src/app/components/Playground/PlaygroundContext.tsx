@@ -27,16 +27,6 @@ export type { BulkComponentEntry };
  *
  * Omit it and the authenticated behaviour applies unchanged.
  */
-/** One invitation, as the dropdown renders it. Dates arrive as ISO strings from the server component. */
-export interface BriefListEntry {
-  id: string;
-  title: string;
-  version: number | null;
-  createdAt: string | null;
-  builtCount: number;
-  linkCount: number;
-}
-
 export interface PlaygroundPersistence {
   /**
    * Blocks + per-block override values for the record this surface owns. Null if there is nothing yet.
@@ -92,10 +82,9 @@ interface PlaygroundContextType {
    * limits as you type; the server enforces the same config at submit.
    */
   guardrails: GuardrailConfig;
-  /** Invitations (briefs) created from this page, newest version first. */
-  briefs: BriefListEntry[];
+
   /** Refetch after creating one. Called from an event handler, never an effect. */
-  refreshBriefs: () => Promise<void>;
+
   /**
    * Whether the *structure* of the page may change — add, remove, reorder blocks. False for a guest filling
    * in a template and for a frozen template being viewed (roadmap E.5). Content editing is unaffected: the
@@ -190,7 +179,6 @@ export function PlaygroundProvider({
   aiAssistantEnabled = true,
   contentOnly = false,
   pageTitle = '',
-  initialBriefs = [],
 }: {
   children: ReactNode;
   initialPatternId?: string;
@@ -203,7 +191,6 @@ export function PlaygroundProvider({
   contentOnly?: boolean;
   pageTitle?: string;
   /** Supplied by the server component so the dropdown is right on first paint. */
-  initialBriefs?: BriefListEntry[];
 }) {
   const { status } = useSession();
   /** Full Handoff server (DB-backed patterns, etc.); static export mode has been removed. */
@@ -223,22 +210,8 @@ export function PlaygroundProvider({
    * and silently isn't.
    */
   const [isTemplate] = useState(initialIsTemplate);
-  const [briefs, setBriefs] = useState<BriefListEntry[]>(initialBriefs);
   const [guardrails, setGuardrails] = useState<GuardrailConfig>({});
 
-  /** Refetch invitations. Event-driven (after the wizard finishes), so no state is set from an effect. */
-  const refreshBriefs = useCallback(async () => {
-    if (!initialPatternId) return;
-    try {
-      const res = await fetch(handoffApiUrl(`/api/handoff/pages/${encodeURIComponent(initialPatternId)}/briefs`), {
-        credentials: 'include',
-      });
-      const json = (await res.json()) as { briefs?: BriefListEntry[] };
-      if (res.ok) setBriefs(json.briefs ?? []);
-    } catch {
-      /* quiet: the dropdown keeps whatever it had */
-    }
-  }, [initialPatternId]);
   // A template is never structurally editable; otherwise the surface decides.
   const structuralEditing = isTemplate ? false : (structuralEditingProp ?? true);
   /** Held outside state: it is data to restore on request, not something the canvas renders. */
@@ -567,8 +540,6 @@ export function PlaygroundProvider({
         isTemplate,
         pageTitle,
         guardrails,
-        briefs,
-        refreshBriefs,
         structuralEditing,
         aiAssistantEnabled,
         contentOnly,

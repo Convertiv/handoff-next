@@ -8,24 +8,7 @@
  * the records are fetched by id, and nothing else in the request establishes a relationship.
  */
 
-export type WorkbenchLevel = 'page' | 'brief' | 'build';
-
-/** The minimum of a brief row needed to place it. */
-export interface BriefRef {
-  source: string | null;
-  sourcePageId: string | null;
-}
-
-/**
- * A brief belongs to a page when it is a brief *and* was snapshotted from that page.
- *
- * Both halves matter: `source === 'template'` stops an ordinary page being nested inside another page as if it
- * were an invitation, and `sourcePageId` is the only thing tying it to *this* page rather than any other.
- */
-export function briefBelongsToPage(brief: BriefRef | null | undefined, pageId: string): boolean {
-  if (!brief || !pageId) return false;
-  return brief.source === 'template' && brief.sourcePageId === pageId;
-}
+export type WorkbenchLevel = 'page' | 'build';
 
 /**
  * A build is selectable only if it is among the builds of the brief already accepted for this page.
@@ -62,15 +45,12 @@ export function submissionBelongsToTemplate(
 }
 
 /**
- * `build` wins over `brief`: selecting a build is drilling deeper, not switching sideways.
+ * Two levels, not three (reflow R.5).
  *
- * **A build no longer needs a brief to be a level** (reflow R.4). It used to: a build without its brief was an
- * inconsistent URL, because the only way to have one was through the other. Now a page can descend directly
- * from a template, so `?build=` alone is a legitimate URL — the *server* decides whether that id is allowed to
- * appear here, by one of the two `…BelongsTo…` checks, and by the time this is called that is already settled.
+ * There was a `brief` level between these, and it is gone with the briefs themselves. What survives is the rule
+ * that mattered: the *server* decides whether a build id may appear inside this page's shell, by
+ * `submissionBelongsToTemplate`, and by the time this is called that is already settled.
  */
-export function levelFor(hasBrief: boolean, hasBuild: boolean): WorkbenchLevel {
-  if (hasBuild) return 'build';
-  if (hasBrief) return 'brief';
-  return 'page';
+export function levelFor(hasBuild: boolean): WorkbenchLevel {
+  return hasBuild ? 'build' : 'page';
 }

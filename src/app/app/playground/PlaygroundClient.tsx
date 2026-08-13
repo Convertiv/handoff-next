@@ -3,7 +3,7 @@
 import type { GuardrailFinding } from '@/lib/authoring-guardrails';
 import Layout from '../../components/Layout/Main';
 import { PlaygroundProvider } from '../../components/Playground/PlaygroundContext';
-import PlaygroundWorkbench, { type WorkbenchBrief } from '../../components/Playground/PlaygroundWorkbench';
+import PlaygroundWorkbench from '../../components/Playground/PlaygroundWorkbench';
 import type { BuildRow } from '../../components/Brief/BuildList';
 import type { AuditFinding } from '../../lib/build-audits';
 import { TooltipProvider } from '../../components/ui/tooltip';
@@ -16,8 +16,6 @@ export default function PlaygroundClient({
   initialPatternId,
   initialIsTemplate = false,
   pageTitle = '',
-  initialBriefs = [],
-  brief = null,
   build = null,
   pageBuilds = [],
   audits = [],
@@ -31,11 +29,9 @@ export default function PlaygroundClient({
   initialPatternId?: string;
   initialIsTemplate?: boolean;
   pageTitle?: string;
-  initialBriefs?: React.ComponentProps<typeof PlaygroundProvider>['initialBriefs'];
   /** Resolved and ownership-checked server-side (roadmap E.8). Null at page level. */
-  brief?: WorkbenchBrief | null;
   build?: BuildRow | null;
-  pageBuilds?: (BuildRow & { briefId: string })[];
+  pageBuilds?: (BuildRow & { briefId: string | null })[];
   /** Computed server-side for the selected build (roadmap E.10). */
   guardrailFindings?: GuardrailFinding[];
   /** Whether this viewer may edit the submitted page in place — computed on the record, server-side. */
@@ -52,9 +48,7 @@ export default function PlaygroundClient({
           pageId={initialPatternId}
           pageTitle={pageTitle}
           initialIsTemplate={initialIsTemplate}
-          initialBriefs={initialBriefs}
           basePath={basePath}
-          brief={brief}
           build={build}
           pageBuilds={pageBuilds}
           audits={audits}

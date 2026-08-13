@@ -32,8 +32,6 @@ interface Props {
   templateId: string;
   pageTitle: string;
   onCancel: () => void;
-  /** Called after a successful share, so the caller can refresh its list of links. */
-  onShared: () => void;
 }
 
 interface FieldLimit {
@@ -58,7 +56,7 @@ interface LinkRow {
   passphraseRequired: boolean;
 }
 
-export default function ShareTemplate({ templateId, pageTitle, onCancel, onShared }: Props) {
+export default function ShareTemplate({ templateId, pageTitle, onCancel }: Props) {
   /**
    * Whether this is already a template — asked for here rather than threaded down as a prop.
    *
@@ -207,7 +205,8 @@ export default function ShareTemplate({ templateId, pageTitle, onCancel, onShare
         expiresAt: res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : null,
       });
       void loadLinks();
-      onShared();
+      // The link list on this screen refreshes itself; there is nothing outside it left to tell (reflow R.5).
+      await loadLinks();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create the link.');
     } finally {

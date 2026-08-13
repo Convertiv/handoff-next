@@ -3,14 +3,13 @@ import { fetchDocPageMarkdownAsync, getClientRuntimeConfig } from '../../../comp
 import {
   getDbPatternById,
   getUserDisplays,
-  listBriefsForPage,
   listBuildsForPage,
   listTemplateSubmissions,
 } from '../../../lib/db/queries';
 import { getActorGrant, listShareLinks } from '../../../lib/db/grant-queries';
 import { auth } from '../../../lib/auth';
 import { computePermissions, toVisibility, type MutateActor } from '../../../lib/authz/policy';
-import { briefBelongsToPage, findBuild, submissionBelongsToTemplate } from '../../../lib/workbench-level';
+import { submissionBelongsToTemplate } from '../../../lib/workbench-level';
 import { auditBuild } from '../../../lib/build-audits';
 import { advisoryFindings } from '../../../lib/authoring-guardrails';
 import { checkPatternGuardrails } from '../../../lib/db/pattern-write';
@@ -41,7 +40,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-/** First value only: `?brief=a&brief=b` is a malformed URL, not a request to open two briefs. */
+/** First value only: `?build=a&build=b` is a malformed URL, not a request to open two pages. */
 function one(value: string | string[] | undefined): string {
   return (Array.isArray(value) ? value[0] : value)?.trim() ?? '';
 }
@@ -61,8 +60,6 @@ export default async function PlaygroundPageById({
   const basePath = process.env.HANDOFF_APP_BASE_PATH ?? '';
   let isTemplate = false;
   let pageTitle = '';
-  let initialBriefs: Awaited<ReturnType<typeof listBriefsForPage>> = [];
-  let brief: React.ComponentProps<typeof PlaygroundClient>['brief'] = null;
   let build: React.ComponentProps<typeof PlaygroundClient>['build'] = null;
   let pageBuilds: Awaited<ReturnType<typeof listBuildsForPage>> = [];
   let audits: React.ComponentProps<typeof PlaygroundClient>['audits'] = [];
@@ -96,9 +93,6 @@ export default async function PlaygroundPageById({
       if (!row.sourcePageId) notFound();
       redirect(`${basePath}/playground/${encodeURIComponent(row.sourcePageId)}?brief=${encodeURIComponent(id)}`);
     }
-    // Fetched server-side so the invitations dropdown is correct on first paint and nothing sets state from
-    // an effect. A brief has no invitations of its own, so only a page asks.
-    if (!isTemplate) initialBriefs = await listBriefsForPage(id).catch(() => []);
     // Every build across every brief, so the page can list incoming work without a detour through a brief.
     if (!isTemplate) pageBuilds = await listBuildsForPage(id).catch(() => []);
 
@@ -166,79 +160,13 @@ export default async function PlaygroundPageById({
       }
     }
 
-    const briefId = one(query.brief);
-    if (briefId) {
-      const briefRow = await getDbPatternById(briefId).catch(() => null);
-      if (briefBelongsToPage(briefRow, id)) {
-        const [builds, links, creators] = await Promise.all([
-          listTemplateSubmissions(briefRow.id).catch(() => []),
-          listShareLinks('pattern', briefRow.id).catch(() => []),
-          briefRow.userId ? getUserDisplays([briefRow.userId]).catch(() => new Map()) : Promise.resolve(new Map()),
-        ]);
-        const briefData = (briefRow.data ?? {}) as { brief?: { instructions?: string } };
-
-        const buildRows = builds.map((b) => ({
-          id: b.id,
-          title: b.title,
-          status: b.status,
-          submittedByName: b.submittedByName,
-          submittedAt: b.updatedAt ? b.updatedAt.toISOString() : null,
-          submittedMessage: b.submittedMessage,
-        }));
-
-        brief = {
-          meta: {
-            id: briefRow.id,
-            title: briefRow.title ?? '',
-            version: briefRow.briefVersion ?? null,
-            description: briefRow.description ?? null,
-            instructions: briefData.brief?.instructions ?? null,
-            createdAt: briefRow.createdAt ? briefRow.createdAt.toISOString() : null,
-            createdByName: (briefRow.userId ? creators.get(briefRow.userId)?.name : null) ?? null,
-          },
-          links: links.map((l) => ({
-            id: l.id,
-            writeCapable: l.writeCapable,
-            passphraseRequired: l.passphraseRequired,
-            secretRecoverable: l.secretRecoverable,
-            useCount: l.useCount,
-            maxUses: l.maxUses,
-            expiresAt: l.expiresAt ? l.expiresAt.toISOString() : null,
-          })),
-          builds: buildRows,
-        };
-
-        // Only a build belonging to the selected brief; anything else is ignored, not surfaced.
-        const buildId = one(query.build);
-        if (buildId) {
-          build = findBuild(buildRows, buildId);
-          /**
-           * Audits run **here**, on the record, not on the rendered canvas (roadmap E.10).
-           *
-           * Deterministic and fast — a walk over the stored content — so there is no job and nothing stored:
-           * a stale audit would be worse than no audit, and recomputing is cheaper than invalidating. The
-           * voice category, when it arrives, is an LLM call and *will* need a job.
-           */
-          if (build) {
-            const row = await getDbPatternById(build.id).catch(() => null);
-            if (row) {
-              const blocks = (Array.isArray(row.components) ? row.components : []) as PatternComponentEntry[];
-              const values =
-                ((row.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
-                  []) as unknown[];
-              audits = auditBuild(blocks, values);
-              buildCanEdit = await canEditSubmission(row);
-              /**
-               * Advisory guardrail findings belong here too (roadmap E.11). The deterministic audits and the
-               * advisory guardrails are two passes over the same submission, and showing only one of them made the
-               * build view look complete while withholding half the picture.
-               */
-              guardrailFindings = advisoryFindings(await checkPatternGuardrails(getDb(), build.id));
-            }
-          }
-        }
-      }
-    }
+    /**
+     * `?brief=` is no longer resolved (reflow R.5).
+     *
+     * Briefs are retired: migration 0030 repointed every page that came through one and archived the rows.
+     * An old link carrying both ids still works, because `?build=` resolves on its own above — which is the
+     * whole point of having done the collapse before this deletion.
+     */
   }
 
   return (
@@ -250,11 +178,6 @@ export default async function PlaygroundPageById({
       initialPatternId={id}
       initialIsTemplate={isTemplate}
       pageTitle={pageTitle}
-      initialBriefs={initialBriefs.map((b) => ({
-        ...b,
-        createdAt: b.createdAt ? b.createdAt.toISOString() : null,
-      }))}
-      brief={brief}
       build={build}
       audits={audits}
       guardrailFindings={guardrailFindings}

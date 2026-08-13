@@ -336,47 +336,6 @@ export async function listTemplateSubmissions(templateId: string): Promise<Templ
   });
 }
 
-export interface BriefSummary {
-  id: string;
-  title: string;
-  version: number | null;
-  createdAt: Date | null;
-  /** How many pages have been built from this brief. */
-  builtCount: number;
-  /** Active invite links for it. */
-  linkCount: number;
-}
-
-/**
- * The briefs created from one page, newest version first — the "Invitations" dropdown.
- *
- * One query. Counts come from lateral subqueries rather than a round trip per brief, the same shape
- * `listReviewQueue` uses; a page with a dozen briefs would otherwise be two dozen extra queries.
- */
-export async function listBriefsForPage(pageId: string): Promise<BriefSummary[]> {
-  if (!isPostgres()) return [];
-  const db = getDb();
-  const result = await db.execute(sql`
-    SELECT b."id", b."title", b."brief_version", b."created_at",
-      (SELECT count(*)::int FROM handoff_pattern child WHERE child."template_id" = b."id") AS built_count,
-      (SELECT count(*)::int FROM handoff_share_link l
-        WHERE l."resource_type" = 'pattern' AND l."resource_id" = b."id"
-          AND l."revoked_at" IS NULL AND (l."expires_at" IS NULL OR l."expires_at" > now())) AS link_count
-    FROM handoff_pattern b
-    WHERE b."source" = 'template' AND b."source_page_id" = ${pageId} AND b."status" <> 'archived'
-    ORDER BY b."brief_version" DESC NULLS LAST, b."created_at" DESC
-    LIMIT 100
-  `);
-  const rows = (result.rows ?? result) as Record<string, unknown>[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    title: String(r.title ?? ''),
-    version: r.brief_version == null ? null : Number(r.brief_version),
-    createdAt: r.created_at ? new Date(r.created_at as string) : null,
-    builtCount: Number(r.built_count ?? 0),
-    linkCount: Number(r.link_count ?? 0),
-  }));
-}
 
 export async function getDbPatternById(id: string) {
   const db = getDb();

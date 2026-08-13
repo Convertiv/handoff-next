@@ -182,7 +182,7 @@ export async function patchPattern(
   if (existing) assertCanMutatePattern(actor, existing.userId);
 
   /**
-   * Templates are frozen (roadmap E.2, `savePageAsTemplate`). Enforced here rather than in the UI because
+   * Legacy briefs are frozen (they were snapshots). Enforced here rather than in the UI because
    * **autosave reaches this function**: opening a template in the playground and nudging a block would
    * otherwise rewrite the team's standard silently, and every guest diff taken against it would shift.
    *
@@ -277,140 +277,6 @@ export async function setPatternMetaFields(
 /* Templates — "save this page as a template" (roadmap E.2)                   */
 /* -------------------------------------------------------------------------- */
 
-/**
- * A template is a **separate, frozen copy** of a page — not a promoted page (Brad, 2026-08-05).
- *
- * That distinction does real work:
- * - the author's page carries on as their own thing, still editable, still private;
- * - the template becomes a living standard the team can see and clone from;
- * - and because it is frozen, a guest submission's diff against `template_id` stays stable. A template
- *   that kept changing would make previously-reviewed diffs shift under whoever looks next.
- *
- * Changing a template therefore means saving a *new* one from the page, which is version history by
- * construction rather than a feature to build.
- */
-export async function savePageAsTemplate(
-  pageId: string,
-  actor: PatternWriteActor,
-  opts: {
-    title?: string | null;
-    /** Shown to the builder — what this is and why. */
-    description?: string | null;
-    /** Free-text instructions the builder sees while working. */
-    instructions?: string | null;
-    /**
-     * Content rules for pages built from this brief (`GuardrailConfig`). Stored on the brief because the
-     * person writing it is the person who knows the limits — and because the brief is frozen, the rules a
-     * built page was judged against cannot shift under a reviewer.
-     */
-    guardrails?: unknown;
-  } = {}
-): Promise<{ id: string; title: string; version: number }> {
-  const db = getDb();
-  const [page] = await db.select().from(handoffPatterns).where(eq(handoffPatterns.id, pageId)).limit(1);
-  if (!page) throw new Error('Page not found.');
-
-  // You can template what you could modify. Reading someone else's page is not enough to publish a
-  // team-visible standard from it.
-  assertCanMutatePattern(actor, page.userId);
-  if (page.source === 'template') {
-    throw new Error('This is already a template. Save a template from the page instead.');
-  }
-
-  /**
-   * Next version for this page. Read-then-write rather than a sequence: versions are per-parent, and two briefs
-   * created from one page in the same second would be a person clicking twice — the unique index below is what
-   * actually prevents a duplicate, and it turns that race into an error instead of two v3s.
-   */
-  const [latest] = await db
-    .select({ v: handoffPatterns.briefVersion })
-    .from(handoffPatterns)
-    .where(and(eq(handoffPatterns.sourcePageId, pageId), eq(handoffPatterns.source, 'template')))
-    .orderBy(desc(handoffPatterns.briefVersion))
-    .limit(1);
-  const briefVersion = (latest?.v ?? 0) + 1;
-
-  const title = (opts.title?.trim() || page.title || 'Untitled').slice(0, 200);
-  const slug =
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 48) || 'template';
-  const id = `template-${slug}-${crypto.randomUUID().slice(0, 8)}`;
-
-  /**
-   * The brief's own `data`: the page's snapshot, plus the brief text and guardrails written in the wizard.
-   * Guardrails are re-parsed rather than trusted — this value reaches the guest editor and the submit check.
-   */
-  const pageData = (page.data && typeof page.data === 'object' ? page.data : {}) as Record<string, unknown>;
-  const parsedGuardrails = opts.guardrails !== undefined ? readGuardrailConfig(opts.guardrails) : null;
-  const briefData: Record<string, unknown> = {
-    ...pageData,
-    ...(parsedGuardrails && Object.keys(parsedGuardrails).length ? { guardrails: parsedGuardrails } : {}),
-    ...(opts.instructions?.trim()
-      ? { brief: { instructions: opts.instructions.trim().slice(0, 4000) } }
-      : {}),
-  };
-
-  await db.insert(handoffPatterns).values({
-    id,
-    title,
-    description: (opts.description?.trim() || page.description || '').slice(0, 2000),
-    group: page.group ?? '',
-    tags: page.tags ?? [],
-    // The copy is a snapshot: blocks and values as they stand right now.
-    components: page.components ?? [],
-    data: briefData,
-    userId: actor.userId,
-    source: 'template',
-    sourcePageId: pageId,
-    briefVersion,
-    /**
-     * Briefs have **no independent visibility** — they inherit their parent page's (Brad, 2026-08-05), and they
-     * are not listed in the library at all. The column is set to match the page so nothing reads a contradiction
-     * out of it, but reachability comes from the parent and from invite links, never from this value.
-     */
-    visibility: page.visibility ?? 'private',
-    /**
-     * Left as `draft`, deliberately: `approved` is maintainer-gated everywhere else (`canApprove`), and
-     * setting it here would be a way around that gate. A maintainer can approve a template through the
-     * normal path if that ever matters.
-     */
-    status: 'draft',
-    thumbnail: page.thumbnail ?? null,
-    /**
-     * NOT `templateId`. That column means "the template this page was built from", and pointing it at the
-     * source page would invert its meaning and confuse every diff that reads it. Provenance goes in the
-     * audit trail instead, which is where "where did this come from" belongs.
-     */
-  });
-
-  await db.insert(editHistory).values({
-    entityType: 'pattern',
-    entityId: id,
-    userId: historyUserId(actor),
-    diff: { action: 'save-as-template', fromPageId: pageId, by: actor.historyLabel ?? null },
-  });
-
-  await insertSyncEvent({
-    entityType: 'pattern',
-    entityId: id,
-    action: 'create',
-    payload: { id, title, templateOf: pageId },
-    userId: actor.userId,
-  });
-
-  await recordPatternChange(db, {
-    patternId: id,
-    action: 'created',
-    title,
-    blockCount: Array.isArray(page.components) ? (page.components as unknown[]).length : null,
-    actor: { ...actor, message: actor.message ?? `Saved as a template from ${pageId}` },
-  });
-
-  return { id, title, version: briefVersion };
-}
 
 /* -------------------------------------------------------------------------- */
 /* Review — the guarded meta path shared by UI, HTTP and MCP                  */
@@ -1075,8 +941,9 @@ export async function submitGuestSubmission(
  * submit gate and the review route all already read them from whatever `template_id` points at, and that is now
  * the template. Renaming the keys would be churn for its own sake and would break every reader at once.
  *
- * Refuses anything that is not a template. `updateBriefInstructions` guards the same way on `source` — this
- * guards on `kind`, accepting a legacy brief too so the old wizard keeps working until R.5.
+ * Refuses anything that is not a template — a `kind` check, so it is not a back door into an arbitrary page's
+ * `data`. Legacy briefs are accepted too; they are archived by 0030 and unreachable in the UI, but the check
+ * costs nothing and a migration that leaves one behind should not make this throw.
  */
 export async function setTemplateBuilderNotes(
   id: string,
@@ -1098,7 +965,7 @@ export async function setTemplateBuilderNotes(
   if (!existing) throw new AuthorizationError('Template not found.');
   assertCanMutatePattern(actor, existing.userId);
   if (existing.kind !== 'template' && existing.source !== 'template') {
-    // Not a back door into an arbitrary page's `data` — the same reason `updateBriefInstructions` refuses.
+    // Not a back door into an arbitrary page's `data`.
     throw new AuthorizationError('Only a template carries builder instructions.');
   }
 
@@ -1130,47 +997,6 @@ export async function setTemplateBuilderNotes(
   });
 }
 
-export async function updateBriefInstructions(
-  id: string,
-  instructions: string | null,
-  actor: PatternWriteActor
-): Promise<void> {
-  const db = getDb();
-
-  const [existing] = await db
-    .select({ userId: handoffPatterns.userId, source: handoffPatterns.source, data: handoffPatterns.data })
-    .from(handoffPatterns)
-    .where(eq(handoffPatterns.id, id))
-    .limit(1);
-  if (!existing) throw new AuthorizationError('Invitation not found.');
-  assertCanMutatePattern(actor, existing.userId);
-  // Only a brief has instructions. Refusing here stops this becoming a back door into a page's `data`.
-  if (existing.source !== 'template') {
-    throw new AuthorizationError('Only an invitation has instructions.');
-  }
-
-  const current = (existing.data ?? {}) as Record<string, unknown>;
-  const brief = (current.brief ?? {}) as Record<string, unknown>;
-  const trimmed = instructions?.trim() ? instructions.trim().slice(0, 4000) : null;
-
-  const nextData: Record<string, unknown> = {
-    ...current,
-    brief: { ...brief, ...(trimmed ? { instructions: trimmed } : {}) },
-  };
-  // Cleared rather than left stale when emptied — an empty string would still render as an instructions block.
-  if (!trimmed) delete (nextData.brief as Record<string, unknown>).instructions;
-
-  await db.update(handoffPatterns).set({ data: nextData, updatedAt: new Date() }).where(eq(handoffPatterns.id, id));
-
-  await db.insert(editHistory).values({
-    entityType: 'pattern',
-    entityId: id,
-    userId: historyUserId(actor),
-    diff: { action: 'brief-instructions', by: actor.historyLabel ?? null, cleared: trimmed == null },
-  });
-
-  await recordPatternChange(db, { patternId: id, action: 'updated', actor });
-}
 
 export async function removePattern(id: string, actor: PatternWriteActor): Promise<void> {
   const db = getDb();

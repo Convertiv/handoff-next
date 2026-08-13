@@ -117,14 +117,17 @@ async function main() {
 
   // ── The readers, which is where a silent break would live ──────────────────
   console.log('\n— the readers');
-  const { listBuildsForPage, listBriefsForPage, listTemplateSubmissions } = await import('../src/app/lib/db/queries');
+  const { listBuildsForPage, listTemplateSubmissions } = await import('../src/app/lib/db/queries');
 
   const builds = await listBuildsForPage('page');
   const ids = builds.map((b) => b.id).sort();
   check('the template lists every page built from it, once each', ids.join(',') === 'built_1,built_2,built_new', ids);
   check('none of them claims a brief any more', builds.every((b) => b.briefId === null), builds.map((b) => b.briefId));
 
-  check('the invitations dropdown is empty — briefs are gone from the UI', (await listBriefsForPage('page')).length === 0);
+  // `listBriefsForPage` is gone entirely — the dropdown it fed was deleted with the brief surfaces. What is
+  // asserted instead is that the rows it would have listed are archived, which is what makes that safe.
+  const liveBriefs = await sql`SELECT count(*)::int AS n FROM handoff_pattern WHERE kind = 'brief' AND status <> 'archived'`;
+  check('no brief is left unarchived for a UI to find', liveBriefs[0].n === 0, liveBriefs[0]);
   const submissions = await listTemplateSubmissions('page');
   check('“submissions of a template” now means what its name says', submissions.length === 3, submissions.map((s) => s.id));
 
