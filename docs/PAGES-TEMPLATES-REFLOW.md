@@ -167,7 +167,7 @@ their built pages absorb the brief's blocks into `provenance.blocks`, then the b
 | **Page editor** | Unchanged. This is the point — one editor for pages, templates and guest submissions. |
 | **Page → provenance** | New panel on a page that has provenance: who, from which template, when, the validation as submitted, and a link to the template as it is *now*. |
 | **Page → notes** | Threaded conversation, owner + creator. Status control stays where it is (`MetaControl`). |
-| **Share dialog** | Collapses. Today: brief wizard → version → link. Tomorrow: *Share this template* → link, plus the list of links with revoke. |
+| **Share dialog** | ✅ Collapsed: one screen, *Share this template* → link. Instructions and content limits moved onto the **template** (editable later without touching the link). "Max uses" is gone — it counted sessions; the cap is 50 **pages**, stated rather than configured. |
 | **Guest flow** | Unchanged up to submit. After submit: a completion screen carrying the return link, and the same link by email. |
 | **Admin** | New **CMS integrations** tab (§5). |
 
@@ -231,7 +231,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 |---|---|---|
 | **R.0** | ✅ Schema: `kind`, `provenance`, `handoff_page_note`; idempotent, re-runnable backfill | No UI change, and `template_id` deliberately untouched. Verified against Postgres 16 — `npm run verify:reflow`. |
 | **R.1** | ✅ Library shows three kinds; promote/demote in `MetaControl` | Guest submissions stop being hidden — they are pages now. Promotion is gated on `canChangeVisibility`, not `canEdit`. |
-| **R.2** | 🔄 **Data path done**: `shareTemplate` action, fork/submit provenance, 50-page cap, diff reads the fork copy. **Remaining**: swap `InviteWizard` to the new action. | Old briefs keep working until R.5 — `createInvitation` is marked legacy, not deleted. |
+| **R.2** | ✅ `shareTemplate` + `ShareTemplate` screen (three steps → one), fork/submit provenance, 50-page cap, diff reads the fork copy | Old briefs keep working until R.5 — `createInvitation` is marked legacy, not deleted. Verified with `npm run verify:guest`. |
 | **R.3** | Return link + completion screen + email; owner-side link management and revocation | Ships with the rate limits, not after them. |
 | **R.4** | Provenance panel + threaded notes on the page; review surface moves off `BuildPanel` | Where "formerly builds" becomes true. |
 | **R.5** | Retire briefs: drop `source_page_id` / `brief_version`, delete the wizard | Only once R.2 has run on real data. |

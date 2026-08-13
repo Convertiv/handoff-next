@@ -1002,6 +1002,69 @@ export async function submitGuestSubmission(
  * So this reaches exactly one key. `components` and `data.previews` are re-read and written back untouched,
  * which means a bug here cannot silently rewrite the frozen content even if the merge is wrong.
  */
+/**
+ * What builders are told, and what they are held to — set on a **template** (reflow R.2).
+ *
+ * The same two things a brief carried, on the object that replaced it. Storage keys are unchanged
+ * (`data.brief.instructions`, `data.guardrails`) precisely because they are unchanged: the guest editor, the
+ * submit gate and the review route all already read them from whatever `template_id` points at, and that is now
+ * the template. Renaming the keys would be churn for its own sake and would break every reader at once.
+ *
+ * Refuses anything that is not a template. `updateBriefInstructions` guards the same way on `source` — this
+ * guards on `kind`, accepting a legacy brief too so the old wizard keeps working until R.5.
+ */
+export async function setTemplateBuilderNotes(
+  id: string,
+  input: { instructions?: string | null; guardrails?: unknown },
+  actor: PatternWriteActor
+): Promise<void> {
+  const db = getDb();
+
+  const [existing] = await db
+    .select({
+      userId: handoffPatterns.userId,
+      kind: handoffPatterns.kind,
+      source: handoffPatterns.source,
+      data: handoffPatterns.data,
+    })
+    .from(handoffPatterns)
+    .where(eq(handoffPatterns.id, id))
+    .limit(1);
+  if (!existing) throw new AuthorizationError('Template not found.');
+  assertCanMutatePattern(actor, existing.userId);
+  if (existing.kind !== 'template' && existing.source !== 'template') {
+    // Not a back door into an arbitrary page's `data` — the same reason `updateBriefInstructions` refuses.
+    throw new AuthorizationError('Only a template carries builder instructions.');
+  }
+
+  const current = (existing.data ?? {}) as Record<string, unknown>;
+  const next: Record<string, unknown> = { ...current };
+
+  if (input.instructions !== undefined) {
+    const brief = (current.brief ?? {}) as Record<string, unknown>;
+    const trimmed = input.instructions?.trim() ? input.instructions.trim().slice(0, 4000) : null;
+    next.brief = { ...brief, ...(trimmed ? { instructions: trimmed } : {}) };
+    // Cleared rather than left stale: an empty string still renders as an instructions block.
+    if (!trimmed) delete (next.brief as Record<string, unknown>).instructions;
+  }
+
+  if (input.guardrails !== undefined) {
+    // Re-parsed rather than stored as given, so a typo in a form cannot become a rule nobody can see.
+    const parsed = readGuardrailConfig(input.guardrails);
+    if (Object.keys(parsed).length) next.guardrails = parsed;
+    else delete next.guardrails;
+  }
+
+  await db.update(handoffPatterns).set({ data: next, updatedAt: new Date() }).where(eq(handoffPatterns.id, id));
+
+  await db.insert(editHistory).values({
+    entityType: 'pattern',
+    entityId: id,
+    userId: historyUserId(actor),
+    diff: { action: 'template-notes', instructions: input.instructions ?? undefined, by: actor.historyLabel ?? null },
+  });
+}
+
 export async function updateBriefInstructions(
   id: string,
   instructions: string | null,

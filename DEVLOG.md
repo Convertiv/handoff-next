@@ -5,7 +5,42 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.2 data path: the fork copy, the cap, and a template that moves underneath you
+## 2026-08-13 (latest) — R.2 done: three steps became one
+
+`ShareTemplate` replaces `InviteWizard`, which is deleted rather than deprecated — there is nothing left for it
+to create.
+
+**The old wizard's first two steps existed to describe an object that no longer exists.** A brief needed a name,
+a description and a version because it was a thing with a life of its own. Sharing now points a link at a
+template that already exists, so the screen asks what the *link* needs — how long, passphrase or not — and says
+plainly what happens: anyone with it makes their own page, yours stays yours and stays live.
+
+**Instructions and content limits stayed, but moved to the template.** They were arguments to "create an
+invitation", which made them feel like properties of a link and meant changing your mind required cutting a new
+brief. `setTemplateBuilderNotes` writes them to the template under the **same storage keys**
+(`data.brief.instructions`, `data.guardrails`) — deliberately unchanged, because the guest editor, the submit
+gate and the review route all already read them from whatever `template_id` points at, and that is now the
+template. Renaming would have been churn that broke every reader at once.
+
+**"Max uses" is gone from the UI.** It counted sessions, so a reload could look like it burned an invitation.
+The cap is 50 pages, fixed, and stated rather than configured.
+
+⚠️ **`isTemplate` in the playground context is not the reflow's kind.** It means "a frozen legacy brief,
+read-only, clone to edit". Threading it into the share screen would have told every real template it was a plain
+page and quietly skipped the promotion. The screen asks the API for `kind` instead, and treats unknown as
+"promote" — the action is idempotent, and a share that silently does not work is the worse failure.
+
+The toolbar says **Share**, not "Invite to build": there is no invitation and no named invitee.
+
+Verified by extending `npm run verify:guest` — instructions and limits land where each reader looks, an emptied
+instruction is removed rather than blanked, clearing one leaves the other alone, and a plain page refuses
+builder notes (it must not become a back door into an arbitrary row's `data`).
+
+Not verified in a browser: the screen is behind auth. What it *does* is covered; what it looks like is not.
+
+---
+
+## 2026-08-13 — R.2 data path: the fork copy, the cap, and a template that moves underneath you
 
 The guest loop now produces a **Page** with provenance. `shareTemplate` replaces the brief half of
 `createInvitation` — one link, pointed at the template itself, nothing versioned, nothing for the owner to

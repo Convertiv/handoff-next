@@ -7,6 +7,7 @@ import {
   removePattern,
   reviewPattern,
   savePageAsTemplate,
+  setTemplateBuilderNotes,
   updateBriefInstructions,
   writePattern,
   type PatternWriteActor,
@@ -135,6 +136,10 @@ export async function shareTemplate(
   input: {
     /** Promote the page to a template first. Refused unless the actor could have done it directly. */
     promote?: boolean;
+    /** Shown to whoever builds from it. Stored on the template, not on the link. */
+    instructions?: string | null;
+    /** `GuardrailConfig` — content rules builders are held to. Also on the template. */
+    guardrails?: unknown;
     expiresInDays?: number;
     usePassphrase?: boolean;
     label?: string;
@@ -144,6 +149,21 @@ export async function shareTemplate(
   const grant = await getActorGrant('pattern', templateId, actor.userId);
 
   if (input.promote) await applyPatternMeta(templateId, { kind: 'template' }, actor, grant);
+
+  /**
+   * Instructions and limits are written to the **template**, before the link exists.
+   *
+   * They used to be arguments to "create an invitation", which is what made them feel like properties of a
+   * link — and meant changing them required cutting a new brief. They belong to the thing being shared, so
+   * editing them later is just editing the template, and every existing reader already looks there.
+   */
+  if (input.instructions !== undefined || input.guardrails !== undefined) {
+    await setTemplateBuilderNotes(
+      templateId,
+      { instructions: input.instructions, guardrails: input.guardrails },
+      actor
+    );
+  }
 
   const days = Number.isFinite(input.expiresInDays) ? Math.max(1, Math.trunc(input.expiresInDays!)) : 14;
   const passphrase = input.usePassphrase === false ? null : generatePassphrase();

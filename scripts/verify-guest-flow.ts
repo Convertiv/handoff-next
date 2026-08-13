@@ -119,6 +119,41 @@ async function main() {
   const tpl = (await sql`SELECT updated_at FROM handoff_pattern WHERE id='tpl_1'`)[0];
   check('and we can tell the template moved since', templateHasMovedOn(readProvenance(submitted.provenance), tpl.updated_at) === true);
 
+  // ── Builder notes live on the template, where every reader already looks ───
+  console.log('\n— instructions and limits, written to the template');
+  const { setTemplateBuilderNotes } = await import('../src/app/lib/db/pattern-write');
+  const owner = { userId: 'u_owner', role: 'admin', historyLabel: 'u_owner', trigger: 'ui' } as Parameters<
+    typeof setTemplateBuilderNotes
+  >[2];
+
+  await setTemplateBuilderNotes(
+    'tpl_1',
+    { instructions: '  Keep it short. Speak to operations leads.  ', guardrails: { defaults: { maxLength: 80 } } },
+    owner
+  );
+  const withNotes = (await sql`SELECT data FROM handoff_pattern WHERE id='tpl_1'`)[0].data;
+  check('instructions land where the guest editor reads them', withNotes?.brief?.instructions === 'Keep it short. Speak to operations leads.', withNotes?.brief);
+  check('limits land where the submit gate reads them', withNotes?.guardrails?.defaults?.maxLength === 80, withNotes?.guardrails);
+
+  // Clearing must clear, not leave an empty string that still renders as a block.
+  await setTemplateBuilderNotes('tpl_1', { instructions: '   ' }, owner);
+  const cleared = (await sql`SELECT data FROM handoff_pattern WHERE id='tpl_1'`)[0].data;
+  check('an emptied instruction is removed, not blanked', cleared?.brief?.instructions === undefined, cleared?.brief);
+  check('clearing instructions leaves the limits alone', cleared?.guardrails?.defaults?.maxLength === 80, cleared?.guardrails);
+
+  // A plain page is not a back door into an arbitrary row's `data`.
+  await sql`
+    INSERT INTO handoff_pattern (id, title, components, source, kind, user_id, visibility, status)
+    VALUES ('page_plain', 'Just a page', '[]'::jsonb, 'playground', 'page', 'u_owner', 'private', 'draft')
+    ON CONFLICT (id) DO NOTHING`;
+  let refusedNotes = '';
+  try {
+    await setTemplateBuilderNotes('page_plain', { instructions: 'nope' }, owner);
+  } catch (e) {
+    refusedNotes = (e as Error).message;
+  }
+  check('a plain page refuses builder notes', /only a template/i.test(refusedNotes), refusedNotes || '(nothing thrown)');
+
   // ── The cap ────────────────────────────────────────────────────────────────
   console.log(`\n— the page cap (${MAX_PAGES_PER_SHARE_LINK} per link)`);
   const rows = Array.from({ length: MAX_PAGES_PER_SHARE_LINK - 1 }, (_, i) => ({

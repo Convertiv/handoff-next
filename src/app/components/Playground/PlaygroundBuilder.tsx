@@ -37,7 +37,7 @@ import Preview, { constructComponentPreview, renderPreview } from './Preview';
 import ComponentLibrary from './ComponentLibrary';
 import { useRouter } from 'next/navigation';
 import { handoffApiUrl } from '@/lib/api-path';
-import InviteWizard from './InviteWizard';
+import ShareTemplate from './ShareTemplate';
 import MetaControl from '../library/MetaControl';
 import { fieldIdToArgsPath, richtextEditableFieldPaths, textEditableFieldPaths } from '@/lib/field-marks';
 import { setAtArgsPath } from '@/lib/set-at-args-path';
@@ -606,19 +606,19 @@ export default function PlaygroundBuilder({
   };
 
   /**
-   * Save this page as a template — a separate, frozen, team-visible copy (roadmap E.2).
+   * Share this page as a template (reflow R.2).
    *
-   * Not a rename of the old browser-local "template", which only ever existed in one person's browser and
-   * was invisible to sharing and review. This creates a real record others can clone from and guests can
-   * build from, and leaves this page alone.
+   * Replaces the three-step invite wizard, which existed because sharing used to produce a *brief* — an object
+   * with a name, a version and a life of its own. Sharing now points a link at the template itself, so the
+   * screen asks only what the link needs.
    */
   if (wizardOpen && editingPatternId) {
     return (
-      <InviteWizard
-        pageId={editingPatternId}
+      <ShareTemplate
+        templateId={editingPatternId}
         pageTitle={pageTitle}
         onCancel={() => setWizardOpen(false)}
-        onCreated={() => void refreshBriefs()}
+        onShared={() => void refreshBriefs()}
       />
     );
   }
@@ -682,7 +682,7 @@ export default function PlaygroundBuilder({
                       <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">{buildCount}</span>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Pages people built from your invitations</TooltipContent>
+                  <TooltipContent side="bottom">Pages people built from this one</TooltipContent>
                 </Tooltip>
               )}
 
@@ -697,11 +697,13 @@ export default function PlaygroundBuilder({
                         onClick={() => setWizardOpen(true)}
                       >
                         <UserPlus className="h-4 w-4" />
-                        <span className="text-xs">Invite to build</span>
+                        {/* The act is sharing a template, not issuing an invitation — "invite" implied a named
+                            person and an object with a life of its own, and it is neither (reflow R.2). */}
+                        <span className="text-xs">Share</span>
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                      Send someone a link to build their own version of this page. Your page stays yours.
+                      Give people a link to build their own page from this one. Yours stays yours.
                     </TooltipContent>
                   </Tooltip>
 
