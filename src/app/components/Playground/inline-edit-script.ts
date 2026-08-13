@@ -7,10 +7,10 @@
  * hosting the overlay here rather than in the parent removes the rect protocol, scroll/resize/font-load
  * invalidation, and all the drift that comes with keeping two documents' geometry in sync.
  *
- * **It edits an overlay, never the component's own node.** No `contenteditable` on rendered output: React
+ * **It edits an overlay, never the component's own node.** No `contenteditable` on *rendered output*: React
  * reconciliation eats it (see the caret-loss note in `RichTextField.tsx`), and for Handlebars a re-render would
- * discard the caret anyway. The overlay is a plain `<textarea>` positioned over the field's box; the component
- * tree is untouched until the parent applies the committed value through the normal args path.
+ * discard the caret anyway. The overlay is its own `contenteditable` node positioned over the field's box; the
+ * component tree is untouched until the parent applies the committed value through the normal args path.
  *
  * **Marks come from `{{#field}}` comment pairs** (F.1, `lib/field-marks.ts`). A `TreeWalker` over comment nodes
  * finds them, so nesting is a non-issue — the nodes are flat siblings in document order, which is also what makes
@@ -27,12 +27,6 @@ const MARK_CLOSE_PREFIX = '/hf:';
 export const INLINE_EDIT_CSS = `
 .hf-field-hit { outline: 1px dashed rgba(99,102,241,.55); outline-offset: 2px; cursor: text; }
 .hf-field-hit-active { outline: 2px solid rgb(99,102,241); outline-offset: 2px; }
-.hf-overlay {
-  position: absolute; z-index: 2147483000; margin: 0; padding: 2px 4px;
-  border: 2px solid rgb(99,102,241); border-radius: 3px; background: #fff; color: #111;
-  box-shadow: 0 4px 14px rgba(0,0,0,.18); resize: none; overflow: hidden;
-  font: inherit; line-height: inherit; letter-spacing: inherit;
-}
 .hf-overlay-meta {
   position: absolute; z-index: 2147483001; padding: 1px 6px; border-radius: 3px;
   background: rgb(99,102,241); color: #fff; font: 500 11px/1.5 system-ui, sans-serif; white-space: nowrap;
@@ -44,7 +38,8 @@ export const INLINE_EDIT_CSS = `
   font: 600 11px/1.4 system-ui, sans-serif; color: #fff;
 }
 .hf-overlay-btn:hover { background: rgba(255,255,255,.25); }
-/* Richtext keeps the document's own typography — it is editing formatted copy in place, not filling a form box. */
+/* The overlay keeps the document's own typography — it is editing copy in place, not filling a form box. It has
+   no fixed height on purpose: a fixed box is what hid long copy while it was being typed. */
 .hf-overlay-rich {
   position: absolute; z-index: 2147483000; margin: 0; padding: 2px 4px; min-width: 120px;
   border: 2px solid rgb(99,102,241); border-radius: 3px; background: #fff; color: #111;
@@ -61,7 +56,7 @@ export const INLINE_EDIT_CSS = `
 export function inlineEditScript(
   fieldLimits: Record<string, Record<string, number>> = {},
   editableFields: string[] = [],
-  /** Marks that get a `contenteditable` overlay instead of a textarea — roadmap F.2b. */
+  /** Marks whose value is richtext, so the overlay commits markup rather than words — roadmap F.2b. */
   richtextFields: string[] = []
 ): string {
   return `
@@ -79,7 +74,7 @@ export function inlineEditScript(
   /**
    * Marks whose value is **richtext** (roadmap F.2b). These get a \`contenteditable\` overlay seeded from the
    * mark's innerHTML, so committing preserves \`<strong>\`, lists and links instead of flattening them — which is
-   * exactly what the textarea did, and why richtext was excluded from F.2 in the first place.
+   * exactly what a plain-text commit does, and why richtext was excluded from F.2 in the first place.
    */
   var RICHTEXT = ${JSON.stringify(richtextFields)};
   var open = null;
@@ -180,8 +175,8 @@ export function inlineEditScript(
   function close(commit){
     if(!open)return;
     var o=open; open=null;
-    // A contenteditable carries its value in innerHTML; a textarea in .value. Reading the wrong one commits "".
-    var value=o.rich ? o.input.innerHTML : o.input.value;
+    // Richtext keeps its markup; a text field commits the words only, never the browser's stray <div>/<br>.
+    var value=o.rich ? o.input.innerHTML : (o.input.textContent||'');
     o.input.remove(); o.meta.remove();
     if(o.hit) o.hit.classList.remove('hf-field-hit-active');
     if(commit&&value!==o.original){
@@ -202,30 +197,31 @@ export function inlineEditScript(
     if(!box)return;
     var rich=isRichtext(m.id);
     /**
-     * **Richtext gets a \`contenteditable\`, seeded from the mark's innerHTML** (roadmap F.2b).
+     * **Both kinds get a \`contenteditable\` overlay** — richtext since F.2b, plain text as of the QA pass.
      *
-     * Still an overlay, never the component's own node: React reconciliation eats a \`contenteditable\` on
-     * rendered output and a Handlebars re-render discards the caret — the same bug \`RichTextField\` documents. So
-     * the overlay owns its own node and the component tree is untouched until the parent applies the value.
+     * The text overlay used to be a \`<textarea>\`, and a textarea is a fixed box that scrolls its own content: a
+     * headline longer than the box wrapped out of sight while you were typing it. A contenteditable grows with the
+     * text and inherits the page's own typography, so editing a heading looks like editing that heading. The only
+     * difference left between the two kinds is what gets committed — innerHTML for richtext, textContent for text
+     * (and \`plaintext-only\`, so a paste cannot smuggle markup into a plain string field).
+     *
+     * Still an overlay, never the component's own node: React reconciliation eats a \`contenteditable\` on rendered
+     * output and a Handlebars re-render discards the caret — the same bug \`RichTextField\` documents. So the
+     * overlay owns its own node and the component tree is untouched until the parent applies the value.
      */
-    var input=document.createElement(rich?'div':'textarea');
-    if(rich){
-      input.className='hf-overlay-rich';
-      input.setAttribute('contenteditable','true');
-      input.innerHTML=htmlOf(m);
-    } else {
-      input.className='hf-overlay';
-      input.value=textOf(m);
-    }
+    var input=document.createElement('div');
+    input.className='hf-overlay-rich';
+    input.setAttribute('contenteditable', rich ? 'true' : 'plaintext-only');
+    if(rich){ input.innerHTML=htmlOf(m); } else { input.textContent=textOf(m); }
     input.style.left=(box.left+window.scrollX)+'px';
     input.style.top=(box.top+window.scrollY)+'px';
     input.style.width=Math.max(box.width,120)+'px';
-    input.style.height=Math.max(box.height,24)+'px';
+    // Height is left to the content: a fixed height is what hid the text being typed.
+    input.style.minHeight=Math.max(box.height,24)+'px';
     // Match the text it is covering, so editing does not reflow the reader's sense of the page.
     var cs=window.getComputedStyle(m.start.parentElement||document.body);
     input.style.font=cs.font; input.style.textAlign=cs.textAlign;
-    // Richtext may grow as you type — a fixed height would clip a second paragraph out of sight.
-    if(rich) input.style.height='auto';
+
 
     var meta=document.createElement('div');
     meta.className='hf-overlay-meta';
@@ -244,7 +240,7 @@ export function inlineEditScript(
      * text input and not fine as the only way to know the overlay is committal.
      *
      * \`mousedown\` is where the default is prevented, and that is the whole trick: a click would blur the
-     * textarea first, and blur commits — so "discard" would have committed before its own handler ran.
+     * overlay first, and blur commits — so "discard" would have committed before its own handler ran.
      */
     function action(text,title,commit){
       var b=document.createElement('button');
@@ -259,7 +255,7 @@ export function inlineEditScript(
     var max=limitFor(m);
     function paint(){
       // Copy, not markup: a bolded 'Hi' is 2 characters, matching what the server enforces (E.9 addendum).
-      var n=rich ? copyLength(input.innerHTML) : input.value.length;
+      var n=rich ? copyLength(input.innerHTML) : (input.textContent||'').length;
       label.textContent=m.id+(max?'  '+n+'/'+max:'');
       meta.setAttribute('data-over',max&&n>max?'1':'0');
     }
@@ -286,18 +282,30 @@ export function inlineEditScript(
         return;
       }
       // Enter commits on a single-line field; Shift+Enter always inserts a newline.
-      if(e.key==='Enter'&&!e.shiftKey&&input.value.indexOf('\\n')===-1){e.preventDefault();close(true);}
+      if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();close(true);}
     });
     input.addEventListener('blur',function(){close(true);});
 
     document.body.appendChild(input);
     document.body.appendChild(meta);
     input.focus();
-    input.setSelectionRange(input.value.length,input.value.length);
+    /**
+     * Caret to the end, via Selection rather than \`setSelectionRange\`.
+     *
+     * ⚠️ \`setSelectionRange\` is a textarea method. F.2b gave richtext a \`<div>\` and left this call in place, so
+     * opening a richtext field threw a TypeError **right here** — after the overlay was in the DOM but before
+     * \`open\` was assigned, which is why a richtext edit appeared to work and then committed nothing. Now that both
+     * kinds are contenteditable there is one path, and it is the one that works for a div.
+     */
+    var range=document.createRange();
+    range.selectNodeContents(input);
+    range.collapse(false);
+    var sel=window.getSelection();
+    if(sel){ sel.removeAllRanges(); sel.addRange(range); }
 
     var hit=m.start.parentElement;
     if(hit) hit.classList.add('hf-field-hit-active');
-    open={mark:m,input:input,meta:meta,original:rich?input.innerHTML:input.value,rich:rich,hit:hit};
+    open={mark:m,input:input,meta:meta,original:rich?input.innerHTML:(input.textContent||''),rich:rich,hit:hit};
     post('playground-field-focus',{blockId:m.blockId,fieldId:m.id});
   }
 
@@ -336,10 +344,32 @@ export function inlineEditScript(
       // Compared row-less, because the rail sends \`items.paragraph\` while a mark is \`items.paragraph:1\` —
       // hovering the one editor the rail shows for a repeater should light up every row it covers.
       var want=d.fieldId?String(d.fieldId).replace(/:\d+$/,''):null;
+      var first=null;
       marks.forEach(function(m){
         var host=m.start.parentElement;
-        if(host) host.classList.toggle('hf-field-hit-active',want!==null&&m.id.replace(/:\d+$/,'')===want);
+        if(!host)return;
+        var on=want!==null&&m.id.replace(/:\d+$/,'')===want;
+        host.classList.toggle('hf-field-hit-active',on);
+        if(on&&!first) first=host;
       });
+      /**
+       * \`reveal\` scrolls; a bare highlight does not.
+       *
+       * Hovering a row in the rail highlights, and yanking the page on hover would make the rail unusable. Clicking
+       * a finding is a deliberate "take me there", and it sets this — the difference between the two is the whole
+       * reason it is a flag rather than always-on behaviour.
+       */
+      if(d.reveal&&first) first.scrollIntoView({behavior:'smooth',block:'center'});
+    } else if(d.type==='playground-scroll-to-block'){
+      /**
+       * Also handled here, not only in the block-controls script.
+       *
+       * A review canvas has no controls — no toolbars, nothing to click — so that script is not injected, and
+       * "jump to the block this finding is about" silently did nothing there. This script *is* injected on any
+       * canvas with marks, editable or not.
+       */
+      var block=document.querySelector('.playground-block[data-block-id="'+String(d.blockId).replace(/"/g,'')+'"]');
+      if(block) block.scrollIntoView({behavior:'smooth',block:'start'});
     } else if(d.type==='playground-edit-field'){
       var hit=marks.filter(function(m){return m.id===d.fieldId&&editable(m.id)&&(!d.blockId||m.blockId===d.blockId);})[0];
       if(hit) openEditor(hit);

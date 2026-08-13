@@ -28,7 +28,7 @@ const W = 320;
 const H = 180;
 
 /** Property kinds that occupy visual space. Everything else is configuration and draws nothing. */
-type Slot = 'heading' | 'text' | 'image' | 'button' | 'list';
+export type Slot = 'heading' | 'text' | 'image' | 'button' | 'list';
 
 const TEXTUAL = ['richtext', 'text', 'string', 'slot'];
 const HEADING_NAME = /^(title|heading|headline|h1|h2)/;
@@ -57,13 +57,13 @@ function slotFor(key: string, meta: unknown, isFirstText: boolean, nameWins: boo
   return null;
 }
 
-export function componentThumbnailSvg(
-  properties: Record<string, unknown> | null | undefined,
-  opts: ThumbnailOptions = {}
-): string {
-  const width = opts.width ?? W;
-  const height = opts.height ?? H;
-
+/**
+ * The visual slots a contract occupies, in declaration order.
+ *
+ * Split out from the drawing so the page-level thumbnail can reuse the *reading* of a contract without
+ * inheriting a 320×180 layout — a page draws its blocks as bands, not as eight full-size diagrams.
+ */
+export function contractSlots(properties: Record<string, unknown> | null | undefined): Slot[] {
   const entries = Object.entries(properties ?? {});
   // Decided up front so ordering cannot override an explicit name anywhere in the pass.
   const nameWins = entries.some(([k, m]) => TEXTUAL.includes(editorOf(m)) && HEADING_NAME.test(k.toLowerCase()));
@@ -77,6 +77,17 @@ export function componentThumbnailSvg(
     slots.push(slot);
     if (slots.length >= 8) break;
   }
+  return slots;
+}
+
+export function componentThumbnailSvg(
+  properties: Record<string, unknown> | null | undefined,
+  opts: ThumbnailOptions = {}
+): string {
+  const width = opts.width ?? W;
+  const height = opts.height ?? H;
+
+  const slots = contractSlots(properties);
 
   const textSlots = slots.filter((s) => s !== 'image');
 

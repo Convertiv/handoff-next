@@ -40,6 +40,22 @@ export interface RenderableFinding {
   group?: string;
 }
 
+/**
+ * Badge colour per kind of check (Brad, QA: *"drop the bullets … add color badges for the kind of check we ran"*).
+ *
+ * A bullet said nothing — every row got the same dot. The badge carries the one fact the row's meta line was
+ * spending words on, so the kind is legible at a glance and the line below it gets shorter.
+ */
+const GROUP_TONE: Record<string, string> = {
+  Voice: 'bg-violet-500/15 text-violet-700 dark:text-violet-300',
+  Accessibility: 'bg-sky-500/15 text-sky-700 dark:text-sky-300',
+  SEO: 'bg-teal-500/15 text-teal-700 dark:text-teal-300',
+  Content: 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
+  'Content rule': 'bg-amber-500/15 text-amber-800 dark:text-amber-300',
+};
+/** An unknown kind still gets a badge — neutral rather than absent, so rows stay aligned. */
+const GROUP_TONE_FALLBACK = 'bg-muted text-muted-foreground';
+
 /** `items.1.paragraph` → `Paragraph`. The last named segment is the one a person recognises. */
 function fieldName(finding: RenderableFinding): string | null {
   if (finding.label) return finding.label;
@@ -83,8 +99,8 @@ export function FindingsList({
         const name = fieldName(finding);
         const canJump = Boolean(onSelect) && typeof finding.blockIndex === 'number';
 
+        // The badge now carries the kind, so the meta line is only about *where*.
         const where = [
-          finding.group ?? null,
           typeof finding.blockIndex === 'number' ? `Block ${finding.blockIndex + 1}` : null,
           name,
         ]
@@ -93,7 +109,13 @@ export function FindingsList({
 
         const body = (
           <>
-            <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-70" />
+            <span
+              className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none ${
+                GROUP_TONE[finding.group ?? ''] ?? GROUP_TONE_FALLBACK
+              }`}
+            >
+              {finding.group ?? (blocking ? 'Blocking' : 'Check')}
+            </span>
             <span className="min-w-0">
               <span className="block">{finding.message}</span>
               {where ? <span className="mt-0.5 block text-[11px] opacity-70">{where}</span> : null}

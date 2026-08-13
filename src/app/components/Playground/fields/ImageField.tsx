@@ -124,7 +124,15 @@ export function ImageField({
   return (
     <div className="space-y-2 rounded-lg">
       {hasSrc && (
-        <div className="flex items-center justify-center overflow-hidden rounded-lg bg-muted">
+        /**
+         * Remove lives **on the picture**, as a trash icon in its corner.
+         *
+         * It used to be a third button in the row below, and three labelled buttons do not fit the rail: "Remove"
+         * was clipped, so the one destructive action was also the one you could not read. Putting it on the
+         * preview is not just space — it attaches "remove" to the thing being removed, and leaves the row to the
+         * two actions that are about *choosing* a picture.
+         */
+        <div className="relative flex items-center justify-center overflow-hidden rounded-lg bg-muted">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imgData.src}
@@ -134,6 +142,16 @@ export function ImageField({
               (e.currentTarget as HTMLImageElement).style.display = 'none';
             }}
           />
+          <button
+            type="button"
+            onClick={removeImage}
+            title="Remove image"
+            aria-label="Remove image"
+            /* Its own backdrop, because the icon sits over an unknown picture — a bare icon vanishes on half of them. */
+            className="absolute right-1.5 top-1.5 rounded-md bg-background/85 p-1.5 text-muted-foreground shadow-sm backdrop-blur transition hover:bg-background hover:text-destructive"
+          >
+            <Trash2Icon className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
 
@@ -155,12 +173,6 @@ export function ImageField({
           >
             <Sparkles className="h-3.5 w-3.5" />
             Generate
-          </Button>
-        )}
-        {hasSrc && (
-          <Button type="button" variant="outline" size="sm" className="gap-1.5 text-muted-foreground hover:text-destructive" onClick={removeImage}>
-            <Trash2Icon className="h-3.5 w-3.5" />
-            Remove
           </Button>
         )}
       </div>

@@ -4,6 +4,7 @@ import { Layout, PenNib } from '@phosphor-icons/react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
 import { LIFECYCLE_META, VISIBILITY_META, type Lifecycle, type ResourcePermissions, type Visibility } from '@/lib/authz/vocab';
+import { patternThumbnailUrl } from '@/lib/pattern-thumbnail';
 
 /** Uniform quiet badge for the card's bottom row — text only, outline, no fill. */
 const PLAIN_BADGE = 'inline-flex items-center rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground';
@@ -66,18 +67,38 @@ export function AssetCard({ asset, onOpen }: { asset: LibraryAsset; onOpen: () =
   const editedLabel = formatEdited(asset.updatedAt);
   const ownerName = asset.owner?.name?.trim() || (asset.isMe ? 'You' : 'Teammate');
 
+  /**
+   * A page with no stored thumbnail falls back to a silhouette drawn from its blocks.
+   *
+   * Nothing on the save path writes `handoff_pattern.thumbnail`, so in practice *every* page saved from
+   * the playground showed "No preview" on an empty grey box — which reads as a broken card rather than
+   * as a missing screenshot. The fallback is generated, cheap and always available; see
+   * `patternThumbnailSvg` for why it is a diagram rather than a capture.
+   *
+   * Only patterns: a design artifact's thumbnail is a real rendered image, and its absence means the
+   * render has not happened yet — a schematic there would claim to show something it cannot.
+   */
+  const previewSrc =
+    asset.thumbnailUrl ?? (asset.type === 'pattern' ? patternThumbnailUrl(asset.id) : null);
+
   return (
     <li className="group flex overflow-hidden rounded-lg border bg-card transition-colors hover:border-gray-400 dark:hover:border-gray-600">
       <button type="button" className="flex flex-1 flex-col text-left" onClick={onOpen}>
         <div className="relative aspect-video w-full overflow-hidden bg-muted/30">
-        {asset.thumbnailUrl ? (
+        {previewSrc ? (
           <Image
-            src={asset.thumbnailUrl}
+            src={previewSrc}
             alt={asset.title}
             width={512}
             height={288}
             unoptimized
-            className="h-full w-full object-cover"
+            /**
+             * `contain` for the generated silhouette, `cover` for a real image.
+             *
+             * The schematic is drawn at 320×180 with its own margins; cropping it to fill would cut the
+             * page's own edges off and make every card look like a zoomed-in grey smudge.
+             */
+            className={cn('h-full w-full', asset.thumbnailUrl ? 'object-cover' : 'object-contain')}
           />
         ) : (
           <span className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">

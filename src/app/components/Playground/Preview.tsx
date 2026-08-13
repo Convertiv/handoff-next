@@ -6,6 +6,7 @@ import { cn } from '../../lib/utils';
 import Handlebars from 'handlebars';
 import { registerFieldMarkHelper } from '@/lib/field-marks';
 import { INLINE_EDIT_CSS, inlineEditScript } from './inline-edit-script';
+import { getLinkGuardScript } from './link-guard-script';
 import { PlaygroundComponent, SelectedPlaygroundComponent } from './types';
 
 /**
@@ -352,8 +353,19 @@ export async function constructComponentPreview(
      * not send the reader back to the top of the page — see `getBlockControlsScript`.
      */
     restoreScrollY?: number;
-    /** Field paths that get a `contenteditable` overlay rather than a textarea — roadmap F.2b. */
+    /** Field paths whose overlay commits markup rather than words — roadmap F.2b. */
     richtextFields?: string[];
+    /**
+     * Answer `scroll-to-block` and `highlight-field` **without** offering any editing.
+     *
+     * The review canvas has no block controls and no inline editing, which meant clicking a finding could not show
+     * you the thing it was about — the message went to a frame with nothing listening. This injects the same mark
+     * script with an empty editable list: it collects the marks and answers the two navigation messages, and
+     * because no field is listed as editable it adds no hit areas, no hover reporting and no click-to-edit.
+     */
+    fieldNavigation?: boolean;
+    /** Neutralise anchors and forms, so a click in the canvas cannot navigate the frame away — see `getLinkGuardScript`. */
+    interceptLinks?: boolean;
   }
 ): Promise<string> {
   let bodyInner = '';
@@ -361,6 +373,14 @@ export async function constructComponentPreview(
   const cssOverrides = new Set<string>();
   const componentCssIds = new Set<string>();
   const injectControls = options?.injectBlockControls ?? false;
+  /**
+   * Blocks are wrapped for navigation as well as for controls.
+   *
+   * `scroll-to-block` finds its target by `.playground-block[data-block-id]`, and that wrapper only existed when
+   * controls were injected — so on the review canvas the selector matched nothing and the jump was a no-op even
+   * once a listener existed.
+   */
+  const wrapBlocks = injectControls || (options?.fieldNavigation ?? false);
   let reactIdx = 0;
 
   for (const component of components) {
@@ -415,7 +435,7 @@ export async function constructComponentPreview(
       blockHtml = component.html || '';
     }
 
-    if (injectControls && component.uniqueId) {
+    if (wrapBlocks && component.uniqueId) {
       bodyInner += `<div class="playground-block" data-block-id="${escapeAttr(component.uniqueId)}" data-block-title="${escapeAttr(component.title)}">${blockHtml}</div>`;
     } else {
       bodyInner += blockHtml;
@@ -434,12 +454,21 @@ export async function constructComponentPreview(
   const controlsScript = injectControls
     ? `<script>${getBlockControlsScript(options?.allowDelete ?? true, options?.restoreScrollY ?? 0)}</script>`
     : '';
-  const inlineEditStyle = options?.inlineEdit ? `<style>${INLINE_EDIT_CSS}</style>` : '';
+  const marksScript = (options?.inlineEdit ?? false) || (options?.fieldNavigation ?? false);
+  const inlineEditStyle = marksScript ? `<style>${INLINE_EDIT_CSS}</style>` : '';
   // After the controls script, so its click handler is registered first and the field handler can stop the
   // event before "select this block" swallows it.
-  const inlineEditJs = options?.inlineEdit
-    ? `<script>${inlineEditScript(options.fieldLimits ?? {}, options.editableFields ?? [], options.richtextFields ?? [])}</script>`
+  //
+  // The editable lists are emptied when this is navigation only: one script, and "may this be edited" stays a
+  // single question answered in one place rather than a second near-copy of the mark walker.
+  const inlineEditJs = marksScript
+    ? `<script>${inlineEditScript(
+        options?.fieldLimits ?? {},
+        options?.inlineEdit ? (options.editableFields ?? []) : [],
+        options?.inlineEdit ? (options.richtextFields ?? []) : []
+      )}</script>`
     : '';
+  const linkGuardJs = options?.interceptLinks ? `<script>${getLinkGuardScript()}</script>` : '';
 
   return `<html>
     <head>
@@ -456,6 +485,7 @@ export async function constructComponentPreview(
 ${reactScripts.join('\n')}
     ${controlsScript}
     ${inlineEditJs}
+    ${linkGuardJs}
   </html>`;
 }
 

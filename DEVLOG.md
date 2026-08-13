@@ -5,7 +5,61 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-12 (latest) — The last unsandboxed preview frame, found by looking for the pattern rather than the bug
+## 2026-08-12 (latest) — QA first pass: the canvas stops being a web page you can walk out of
+
+Seven QA notes off a review pass, all UX. Six landed; they were smaller than they looked, except one that turned out
+to be a live bug rather than a polish item.
+
+**A `<textarea>` was the wrong control all along (QA #4).** The inline overlay opened a fixed-height box over the
+field, so a headline longer than one line scrolled inside its own box while you typed it — you were editing text you
+could not see. Both overlays are `contenteditable` now (the richtext one already was, since F.2b); the only difference
+left is what gets committed, `innerHTML` for richtext and `textContent` for text, plus `plaintext-only` so a paste
+cannot smuggle markup into a plain string field.
+
+**That swap exposed a dead feature.** F.2b gave richtext a `<div>` overlay and left `input.setSelectionRange(...)` —
+a textarea method — running unconditionally right after the overlay was appended. It threw *before* `open` was
+assigned, so every richtext edit was discarded silently: the editor opened, you typed, and nothing happened. It shipped
+green because the emitted script is a **string**, invisible to `tsc`. Caret placement is now a `Range`, which works for
+both. **The lesson is the same one the unescaped-backtick bug taught, so it is now enforced rather than remembered:**
+`test/inline-edit-script.test.ts` executes the emitted script against jsdom with the parent's `postMessage` captured —
+12 tests covering commit shape, limits, read-only behaviour and the link guard.
+
+**Links in the canvas navigated the frame away (QA #2).** A preview is full of real anchors, and clicking one replaced
+the page you were editing with somebody's homepage, taking the scroll position and any open overlay with it. Never a
+security problem — the sandbox blocks *top-level* navigation, which is exactly why it always read as the editor
+breaking. `link-guard-script.ts` intercepts clicks and submits in the capture phase, leaves `#` anchors alone, and says
+why in a small toast.
+
+**Clicking a finding could not show you the problem on the review canvas (QA #6).** The messages were being posted into
+a frame with nothing listening: `canvasControls={level === 'page'}` meant the build/review canvas got no injected
+script at all, and — quieter — no `.playground-block` wrapper either, so `scroll-to-block` had nothing to match. The
+fix reuses the mark script with an **empty editable list** rather than writing a second walker: it collects marks and
+answers navigation, and because nothing is listed as editable it adds no hit areas and no click-to-edit. Highlight now
+takes a `reveal` flag — a click scrolls, a hover does not, because a rail that throws the page around on hover is
+unusable.
+
+**Pages in the library showed "No preview" on a grey box (QA #3).** The card has always had the picture slot and
+`handoff_pattern.thumbnail` has always existed — nothing on the save path ever wrote one, so *every* page saved from
+the playground looked broken. Rather than add a headless-browser capture pipeline for a card image, `patternThumbnailSvg`
+draws the page's **silhouette** from the blocks it is already made of: one band per block, media/grid/copy/bar, with a
+fade band when a page runs past six. Same bargain and same swap boundary as the component thumbnail — callers reference
+a URL, so real captures can replace it later without touching a caller. The route authorises with the same
+`computePermissions` check the pattern's own GET uses and 404s where that would refuse: a silhouette leaks structure,
+and a card image should not confirm a page exists to someone who cannot see it.
+
+Also: image field actions no longer clip — Remove became a trash icon on the preview itself (QA #1), which attaches the
+destructive action to the thing being destroyed and leaves the row to the two actions about *choosing* a picture; the
+findings list carries a coloured badge per check kind instead of a bullet (QA #5); and the brief/build rail went 300px
+→ 360px, since those levels have no right-hand panel and the extra width comes out of empty space rather than the
+canvas (QA #7).
+
+**`tsc` passed the whole way through.** `next build` caught a JSX comment placed inside `{cond && ( … )}`, and jsdom
+caught the `setSelectionRange` throw. Root `tsc` does not cover `src/app`, and it never covers an emitted string —
+worth re-stating every time, because both gates are cheap and both found something here.
+
+---
+
+## 2026-08-12 — The last unsandboxed preview frame, found by looking for the pattern rather than the bug
 
 The pattern detail page framed `/api/pattern/{id}.html` with **no `sandbox` attribute at all**, same-origin. Patterns
 are composed from component previews whose values are guest-authorable — `RichTextField` accepts pasted HTML, and F.2b

@@ -386,6 +386,15 @@ export default function PlaygroundBuilder({
          * needed, and no half-working affordance on a surface that cannot support it.
          */
         inlineEdit: canvasControls,
+        /**
+         * Navigation is injected whether or not this canvas is editable.
+         *
+         * A review canvas is exactly where "click the finding, see the problem" matters most, and it is the one
+         * canvas that had no listener at all — the messages below were posted into a frame that ignored them.
+         */
+        fieldNavigation: !canvasControls,
+        // A link in a preview is scenery, not a destination. Clicking one used to navigate the frame away.
+        interceptLinks: true,
         fieldLimits: inlineFieldLimits,
         editableFields: inlineEditableFields,
         richtextFields: inlineRichtextFields,
@@ -439,7 +448,8 @@ export default function PlaygroundBuilder({
          * view — being shown the right block is most of the answer even when no single field is at fault.
          */
         frame?.postMessage({ type: 'playground-scroll-to-block', blockId: block.uniqueId }, '*');
-        frame?.postMessage({ type: 'playground-highlight-field', fieldId: key }, '*');
+        // `reveal` centres the field itself. Hovering only highlights — see the note in the frame's handler.
+        frame?.postMessage({ type: 'playground-highlight-field', fieldId: key, reveal: true }, '*');
         return;
       }
 
@@ -553,8 +563,14 @@ export default function PlaygroundBuilder({
     }
     return (
       <div className="flex h-full min-h-0">
+        {/**
+          * Wider than the page-level rail — brief and build level (Brad, QA).
+          *
+          * Those levels have no right-hand panel at all, so the extra 60px comes out of empty space rather than out
+          * of the canvas, and it is the panel people actually *work* in: findings, a note, a decision.
+          */}
         {leftPanelOpen && (
-          <div className="flex w-[300px] shrink-0 flex-col border-r bg-background">{leftPanel}</div>
+          <div className="flex w-[360px] shrink-0 flex-col border-r bg-background">{leftPanel}</div>
         )}
         <div className="flex flex-1 items-center justify-center">{filler}</div>
       </div>
