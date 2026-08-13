@@ -1,5 +1,6 @@
 import { collectEditableText, mergeBlockArgs, type PatternComponentEntry } from '@/lib/guest-editable';
 import type { AuditFinding } from '@/lib/build-audits';
+import { richTextToCopy } from '@/lib/authoring-guardrails';
 import { isServerAiConfigured, openAiChatJson } from './ai-client';
 
 /**
@@ -51,6 +52,21 @@ interface CopyItem {
  */
 const REFERENCE_PATH = /(^|[._])(url|href|src|image|icon|video|file|path)([._]|$)/i;
 
+/**
+ * Decoration, not prose.
+ *
+ * A stat's `prefix` and `suffix` are the `#` in "#1" and the `+` in "1000+" — one character each, carrying no
+ * voice whatever. Sending them wastes tokens and invites a confident judgement about a plus sign. Seen on SS&C's
+ * own `stats` block when the prompt was run over a real page.
+ */
+const DECORATION_LEAVES = new Set(['prefix', 'suffix']);
+
+/** True only when the field *is* the decoration — `title_prefix` is an eyebrow, which is real copy. */
+function isDecoration(path: string): boolean {
+  const leaf = path.split('.').pop() ?? '';
+  return DECORATION_LEAVES.has(leaf.toLowerCase());
+}
+
 /** Every authored string on the page, with its block and path — the same collector the guardrails use. */
 export function collectPageCopy(blocks: PatternComponentEntry[], overrides: unknown[]): CopyItem[] {
   const out: CopyItem[] = [];
@@ -58,14 +74,21 @@ export function collectPageCopy(blocks: PatternComponentEntry[], overrides: unkn
     const args = mergeBlockArgs(entry, overrides[blockIndex]);
     for (const field of collectEditableText(args)) {
       const path = field.path.join('.');
-      if (REFERENCE_PATH.test(path)) continue;
+      if (REFERENCE_PATH.test(path) || isDecoration(path)) continue;
+      /**
+       * Richtext is sent as **copy, not markup** — reusing the same reader the counters and the submit gate use, so
+       * a voice judgement is made about what a reader sees rather than about `<p>` tags. Without this the model
+       * gets HTML and can object to it.
+       */
+      const value = /<[a-z][^>]*>/i.test(field.value) ? richTextToCopy(field.value) : field.value;
+      if (!value.trim()) continue;
       out.push({
         ref: `${blockIndex}.${path}`,
         blockIndex,
         componentId: entry.id,
         path,
         label: field.label,
-        value: field.value,
+        value,
       });
     }
   });

@@ -113,6 +113,36 @@ describe('collectPageCopy — references are not copy', () => {
   });
 });
 
+/**
+ * What reaches the model, found by running the real prompt over a real SS&C page rather than by imagining inputs.
+ */
+describe('collectPageCopy — what is worth sending', () => {
+  /** `#` and `+` on a stats block are decoration; a judgement about a plus sign helps nobody. */
+  it('skips a stat prefix and suffix', () => {
+    const items = collectPageCopy(
+      [{ id: 'stats', args: { items: [{ prefix: '#', suffix: '+', paragraph: 'Largest transfer agency' }] } }],
+      []
+    );
+    assert.deepEqual(items.map((c) => c.path), ['items.0.paragraph']);
+  });
+
+  /** ⚠️ But `title_prefix` is an eyebrow — real copy. The first version of the rule matched it and dropped it. */
+  it('keeps a title_prefix, which is an eyebrow rather than decoration', () => {
+    const items = collectPageCopy([{ id: 'stats', args: { title_prefix: 'Scale', title: 'Who we serve' } }], []);
+    assert.deepEqual(items.map((c) => c.path).sort(), ['title', 'title_prefix']);
+  });
+
+  /** Richtext goes as copy, so the model judges what a reader sees rather than objecting to `<p>` tags. */
+  it('sends richtext as copy, not markup', () => {
+    const items = collectPageCopy([{ id: 'cta', args: { paragraph: '<p>Talk to <strong>the team</strong>.</p>' } }], []);
+    assert.equal(items[0].value, 'Talk to the team.');
+  });
+
+  it('drops a field that is only markup', () => {
+    assert.deepEqual(collectPageCopy([{ id: 'x', args: { paragraph: '<p></p>' } }], []), []);
+  });
+});
+
 describe('buildVoicePrompt', () => {
   it('sends only the brand-voice fields that were written', () => {
     const { user } = buildVoicePrompt(copy, { voiceTone: 'Confident.', avoidedPhrases: 'revolutionize', unused: '' });
