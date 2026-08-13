@@ -244,6 +244,50 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 
 ---
 
+## 7a. Later — worth building, not scheduled
+
+Captured 2026-08-13 so they are not lost in a chat log. None is committed to; each is written with the thing
+that makes it non-trivial, because that is the part that gets forgotten first.
+
+### Change digest / content manifest for review
+
+**The idea Brad liked most of the three.** The review diff answers "what changed" one field at a time. A
+**digest** would answer it in a sentence — *"3 headlines, both CTAs, and the hero image; nothing structural"* —
+and a **content manifest** would flatten the page into every string and asset it ships with, which is the thing
+you actually hand a legal or brand reviewer.
+
+Neither needs new storage: `provenance.blocks` versus current is already the input, and `collectEditableText`
+already walks it. The manifest is arguably the more useful half, because it is reviewable **outside** the app —
+export it and someone can mark it up in a document.
+
+⚠️ **Name collision to avoid:** `docs/CHANGE-DIGEST-2.0.md` is a *release* digest — what changed in the
+codebase between two commits. Unrelated. Pick a different word (page digest? content summary?) before this
+ships, or two very different things will share a name in the same repo.
+
+### Template links callable over MCP
+
+Let an agent hold a template link and build from it — the same loop a person does through `/s/<token>`, driven
+by tools.
+
+⚠️ **The security question is not "can an agent call it" but "whose link is it".** A share link is a bearer
+credential; putting one in an MCP config puts it wherever that config syncs. Worth thinking about before it
+exists: links minted *for* an agent, scoped and separately revocable, so revoking the robot does not revoke the
+humans — and so a leaked agent config is not an unbounded write endpoint. The 50-page cap and the per-link rate
+limits already bound the damage; the attribution does not exist yet (every page would say "a guest made this").
+
+### Limited LLM calls for guests
+
+Guests currently get no AI at all — `aiAssistantEnabled` is false on every guest surface, and `ImageField`
+hides generation because the endpoint needs a session.
+
+⚠️ **This is the one with real cost exposure.** Everything else a guest can do writes rows; this spends money,
+on an endpoint reachable by anyone holding a link. It needs a budget per link (not per session — sessions are
+free to create), a hard ceiling that is not in-memory (`lib/rate-limit.ts` is per-isolate and says so), and a
+decision about who pays when a link is shared more widely than intended. Ties to the same "links minted for an
+agent" question above: a per-link budget is the same mechanism either way.
+
+---
+
 ## 8. Open questions
 
 1. **Can a template be built from more than one link, with different rules?** (e.g. a passphrase-protected
