@@ -130,8 +130,18 @@ export const handoffPatterns = pgTable('handoff_pattern', {
   data: jsonb('data'),
   /** Creator/owner (playground-saved patterns). */
   userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
-  /** playground | build | import | ai */
+  /** playground | build | import | ai — **how it got here**, not what it is. See `kind`. */
   source: text('source').notNull().default('build'),
+  /**
+   * What this row **is**: `page` | `template` | `brief`.
+   *
+   * Separate from `source` because `source` was carrying two questions at once — `source: 'template'` meant
+   * "this is a brief", stacked on top of an origin enum. See `docs/PAGES-TEMPLATES-REFLOW.md` §3.
+   *
+   * `brief` is transitional: the frozen-snapshot object the reflow removes, kept honest until R.5 rather than
+   * relabelled as a template (three briefs of one page are not three templates).
+   */
+  kind: text('kind').notNull().default('page'),
   thumbnail: text('thumbnail'),
   /** Sharing visibility: private | shared | team | public (Phase B). */
   visibility: text('visibility').notNull().default('private'),
@@ -155,9 +165,44 @@ export const handoffPatterns = pgTable('handoff_pattern', {
    * deliberately outlives the link, so no FK.
    */
   shareLinkToken: text('share_link_token'),
+  /**
+   * For a page built from a template: where it came from and what was true when it arrived — see
+   * `lib/page-provenance.ts` for the shape, and `PAGES-TEMPLATES-REFLOW.md` §2.1 for why the fork-time copy
+   * lives on the page rather than in a brief object.
+   *
+   * Written once, at submit, and never edited. A provenance record that can be updated is not one.
+   */
+  provenance: jsonb('provenance'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
+
+/**
+ * Threaded notes on a page — owner and creator talking about the thing itself.
+ *
+ * Exactly one author column is set, enforced by a CHECK: a signed-in user has an id, a guest has only the email
+ * they gave. A note from nobody is unattributable; a note from both is a bug that would otherwise surface as a
+ * UI picking whichever it read first.
+ */
+export const handoffPageNotes = pgTable(
+  'handoff_page_note',
+  {
+    id: serial('id').primaryKey(),
+    patternId: text('pattern_id')
+      .notNull()
+      .references(() => handoffPatterns.id, { onDelete: 'cascade' }),
+    /** One level deep by convention, not by constraint — see the migration. */
+    parentId: integer('parent_id'),
+    authorUserId: text('author_user_id').references(() => users.id, { onDelete: 'set null' }),
+    authorGuestEmail: text('author_guest_email'),
+    body: text('body').notNull(),
+    resolvedAt: timestamp('resolved_at'),
+    resolvedByUserId: text('resolved_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => [index('page_note_pattern_idx').on(t.patternId, t.createdAt)]
+);
 
 /** Saved design workbench outputs for review (image + context + conversation). */
 export const handoffDesignArtifacts = pgTable('handoff_design_artifact', {

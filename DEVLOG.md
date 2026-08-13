@@ -5,7 +5,40 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — Two documents, no code: the reflow and the 8x8 answer
+## 2026-08-13 (latest) — R.0: the reflow's storage, proved against a real Postgres
+
+`0029_pages_templates_reflow` + `lib/page-provenance.ts`. Additive only: nothing that exists today reads a
+column this touches, so main stays deployable through it.
+
+**`kind` is a new column, not a reused `source`.** `source` already answered "how did this arrive"
+(playground / ai / import / guest) and had a third meaning stacked on it — `source = 'template'` means "this is
+a brief". Separating *what it is* from *how it got here* is what stops the next feature adding a fourth meaning.
+Briefs backfill to `kind = 'brief'`, **not** to `template`: three briefs of one page are not three templates, and
+relabelling them would put v1, v2 and v3 in the Templates lane at R.1.
+
+**`template_id` is deliberately NOT repointed yet**, against what the plan said. Today it means "the brief I was
+built from" and the review diff reads it; repointing in R.0 would break that on a branch where R.2 has not
+shipped. The new value is staged inside `provenance.templateId`, where nothing reads it. R.2 moves the readers
+and the column together.
+
+**Verified against Postgres 16 in Docker, not against a mock** (`npm run verify:reflow`, 20 checks). The
+interesting parts of this migration are SQL — a CHECK constraint, a partial expression index, and two backfills
+that join briefs to the pages built from them — and the last two schema moves each had a defect only a real
+database would have shown. Fixtures include the edge case 0028 was bitten by: a brief whose parent page was
+hard-deleted. It gets its copy and **no** template link, because an unrecoverable provenance record is worth
+less than an absent one.
+
+The check that earns the script: **run it twice**. Auto-migrate runs on every boot, so "idempotent" is a claim
+the deploy tests whether we do or not. A hand-reclassified row survives the second pass too.
+
+Two small things caught on the way. A round-trip test found `buildProvenance` and `readProvenance` disagreeing
+about `undefined`-valued keys — storage drops them, so the two shapes differed in a way only an equality check
+would ever reveal; both compact now. And `next build` rejected `@/transformers/preview/types` from inside
+`src/app`, where root `tsc` had resolved it happily — the same path-mapping asymmetry as ever.
+
+---
+
+## 2026-08-13 — Two documents, no code: the reflow and the 8x8 answer
 
 Branch `feature/pages-templates-reflow`, opened off main after a UX session with Natko and Domagoj.
 

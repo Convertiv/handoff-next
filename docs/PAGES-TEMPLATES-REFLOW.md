@@ -131,8 +131,8 @@ are hand-written and idempotent (never `db:generate`; the snapshot has drifted).
 
 | Column | Change | Why |
 |---|---|---|
-| `kind` | **new** — `'page' \| 'template'` | What it *is*, separated from `source` (how it got here: playground / ai / import / guest). Conflating the two is what made `source: 'template'` mean three things. |
-| `template_id` | **repointed** — now the **template**, not a brief | The middle layer is gone. |
+| `kind` | **new** — `'page' \| 'template' \| 'brief'` | What it *is*, separated from `source` (how it got here: playground / ai / import / guest). Conflating the two is what made `source: 'template'` mean three things. `brief` is transitional and retired at R.5 — relabelling existing briefs as templates would put v1, v2 and v3 of one page in the Templates lane. |
+| `template_id` | **repointed in R.2, not R.0** | Today it means "the brief I was built from" and the review diff reads it. R.0 stages the new value inside `provenance.templateId`, where nothing reads it yet, so main stays deployable; R.2 moves the readers and the column together. |
 | `provenance` | **new** jsonb, nullable | `{ templateId, templateUpdatedAt, forkedAt, submittedAt, shareLinkToken, submittedByEmail, blocks, findings }` — the fork-time copy and the validation record as it stood at submit. |
 | `source_page_id`, `brief_version` | **deprecated** | Brief-only. Keep the columns until the backfill is proven, then drop. |
 
@@ -223,7 +223,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 
 | Phase | What | Notes |
 |---|---|---|
-| **R.0** | Schema: `kind`, `provenance`, repointed `template_id`, `handoff_page_note`; idempotent, re-runnable backfill | No UI change. Prove the backfill on a copy first. |
+| **R.0** | ✅ Schema: `kind`, `provenance`, `handoff_page_note`; idempotent, re-runnable backfill | No UI change, and `template_id` deliberately untouched. Verified against Postgres 16 — `npm run verify:reflow`. |
 | **R.1** | Library shows three lanes; *Make this a template* / demote | The visible half of the model, on data that already exists. |
 | **R.2** | Template share link replaces the brief wizard; guest submit creates a **Page** with provenance | The core reflow. Old briefs keep working until R.5. |
 | **R.3** | Return link + completion screen + email; owner-side link management and revocation | Ships with the rate limits, not after them. |
