@@ -22,6 +22,7 @@ export default function PlaygroundClient({
   pageBuilds = [],
   audits = [],
   guardrailFindings = [],
+  buildCanEdit = false,
 }: {
   menu: unknown;
   metadata: unknown;
@@ -37,6 +38,8 @@ export default function PlaygroundClient({
   pageBuilds?: (BuildRow & { briefId: string })[];
   /** Computed server-side for the selected build (roadmap E.10). */
   guardrailFindings?: GuardrailFinding[];
+  /** Whether this viewer may edit the submitted page in place — computed on the record, server-side. */
+  buildCanEdit?: boolean;
   audits?: AuditFinding[];
 }) {
   const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
@@ -56,6 +59,7 @@ export default function PlaygroundClient({
           pageBuilds={pageBuilds}
           audits={audits}
           guardrailFindings={guardrailFindings}
+          buildCanEdit={buildCanEdit}
         />
       </TooltipProvider>
     </Layout>

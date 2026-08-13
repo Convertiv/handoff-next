@@ -7,7 +7,9 @@ import {
   listBuildsForPage,
   listTemplateSubmissions,
 } from '../../../lib/db/queries';
-import { listShareLinks } from '../../../lib/db/grant-queries';
+import { getActorGrant, listShareLinks } from '../../../lib/db/grant-queries';
+import { auth } from '../../../lib/auth';
+import { computePermissions, toVisibility, type MutateActor } from '../../../lib/authz/policy';
 import { briefBelongsToPage, findBuild, submissionBelongsToTemplate } from '../../../lib/workbench-level';
 import { auditBuild } from '../../../lib/build-audits';
 import { advisoryFindings } from '../../../lib/authoring-guardrails';
@@ -65,6 +67,17 @@ export default async function PlaygroundPageById({
   let pageBuilds: Awaited<ReturnType<typeof listBuildsForPage>> = [];
   let audits: React.ComponentProps<typeof PlaygroundClient>['audits'] = [];
   let guardrailFindings: React.ComponentProps<typeof PlaygroundClient>['guardrailFindings'] = [];
+  /**
+   * May the person looking at a submitted page **edit it in place** (reflow R.4)?
+   *
+   * Decided here, on the record, by the same `computePermissions` the write core enforces with — so the canvas
+   * cannot offer an affordance whose write would be refused. That is the failure this project has hit twice
+   * already: a control that misreports what it can do reads as the feature being broken.
+   *
+   * It is the ordinary permission, not a new concept: the owner and an admin get it, a teammate who can only
+   * view does not.
+   */
+  let buildCanEdit = false;
   if (isPostgres()) {
     const row = await getDbPatternById(id).catch(() => null);
     if (!row) notFound();
@@ -99,6 +112,25 @@ export default async function PlaygroundPageById({
      * A mismatch drops the selection instead of erroring — the page itself is still a valid thing to show.
      */
     /**
+     * May this viewer edit the submitted page in place?
+     *
+     * One helper for both resolution paths, taking the row it just fetched — the alternative was two copies of
+     * a permission check, which is the exact shape of the last three bugs in this reflow.
+     */
+    const canEditSubmission = async (row: { id: string; userId: string | null; visibility: string }) => {
+      const session = await auth();
+      if (!session?.user) return false;
+      const userId = typeof session.user.id === 'string' && session.user.id.length > 0 ? session.user.id : null;
+      const actor: MutateActor = { userId, role: session.user.role ?? null };
+      const grant = await getActorGrant('pattern', row.id, userId);
+      return computePermissions(
+        actor,
+        { ownerUserId: row.userId ?? null, visibility: toVisibility(row.visibility) },
+        grant
+      ).canEdit;
+    };
+
+    /**
      * **A submitted page opens directly from the template it came from** (reflow R.4).
      *
      * The brief hop is gone for anything built the new way: the share link points at the template, so the
@@ -130,6 +162,7 @@ export default async function PlaygroundPageById({
             []) as unknown[];
         audits = auditBuild(blocks, values);
         guardrailFindings = advisoryFindings(await checkPatternGuardrails(getDb(), submission!.id));
+        buildCanEdit = await canEditSubmission(submission!);
       }
     }
 
@@ -194,6 +227,7 @@ export default async function PlaygroundPageById({
                 ((row.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
                   []) as unknown[];
               audits = auditBuild(blocks, values);
+              buildCanEdit = await canEditSubmission(row);
               /**
                * Advisory guardrail findings belong here too (roadmap E.11). The deterministic audits and the
                * advisory guardrails are two passes over the same submission, and showing only one of them made the
@@ -224,6 +258,7 @@ export default async function PlaygroundPageById({
       build={build}
       audits={audits}
       guardrailFindings={guardrailFindings}
+      buildCanEdit={buildCanEdit}
       pageBuilds={pageBuilds.map((b) => ({
         id: b.id,
         title: b.title,

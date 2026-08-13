@@ -134,6 +134,36 @@ export function templateHasMovedOn(
 }
 
 /**
+ * Has the page been changed **since it was submitted**?
+ *
+ * ⚠️ This exists because owner-edits-in-place (R.4) costs something, and the cost should be visible rather than
+ * absorbed. The review diff compares the fork copy against the page *as it stands now*, and it is read as "what
+ * did this person change versus what they were handed". The moment the owner edits in place, that sentence stops
+ * being true — their changes are in the same diff, attributed to nobody in particular.
+ *
+ * The alternative was storing a second copy of the page at submit so the two could be separated. That doubles
+ * the size of every provenance record to answer a question a sentence can answer: *the diff includes changes
+ * made after submission.* Timestamps are already there; a page copy is not free.
+ *
+ * `null` when either side is unknown — three states, because "we cannot tell" must not render as "untouched".
+ */
+export function pageEditedSinceSubmission(
+  provenance: PageProvenance | null,
+  updatedAt: Date | string | null | undefined
+): boolean | null {
+  if (!provenance?.submittedAt || !updatedAt) return null;
+  const submitted = Date.parse(provenance.submittedAt);
+  const current = Date.parse(typeof updatedAt === 'string' ? updatedAt : updatedAt.toISOString());
+  if (Number.isNaN(submitted) || Number.isNaN(current)) return null;
+  /**
+   * A second of slack. Submitting *is* a write — it sets the status and the provenance in the same UPDATE — so
+   * `updatedAt` lands a hair after `submittedAt` on every page ever submitted. Without this, every submission
+   * would announce that it had been edited afterwards, which is worse than saying nothing.
+   */
+  return Math.floor(current / 1000) > Math.floor(submitted / 1000) + 1;
+}
+
+/**
  * Complete a fork record at submit.
  *
  * ⚠️ **Provenance is written twice, not once** — a correction to `PAGES-TEMPLATES-REFLOW.md` §2.1, found while

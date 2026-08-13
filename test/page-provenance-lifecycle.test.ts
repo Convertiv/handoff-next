@@ -1,6 +1,12 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { buildProvenance, completeProvenance, readProvenance, templateHasMovedOn } from '../src/app/lib/page-provenance';
+import {
+  buildProvenance,
+  completeProvenance,
+  pageEditedSinceSubmission,
+  readProvenance,
+  templateHasMovedOn,
+} from '../src/app/lib/page-provenance';
 
 /**
  * The two-moment provenance record (reflow R.2).
@@ -63,5 +69,27 @@ describe('provenance across fork and submit', () => {
   it('round-trips through storage after both writes', () => {
     const submitted = completeProvenance(buildProvenance({ template }), { submittedByEmail: 'a@b.c' });
     assert.deepEqual(readProvenance(JSON.parse(JSON.stringify(submitted))), submitted);
+  });
+});
+
+describe('pageEditedSinceSubmission — the cost of editing in place', () => {
+  const submitted = (iso: string) => readProvenance({ submittedAt: iso });
+
+  it('says nothing about a page nobody has touched since', () => {
+    // Submitting IS a write: the status and the provenance land in one UPDATE, so `updatedAt` is always a hair
+    // later than `submittedAt`. Without the second of slack, every submission would claim to have been edited.
+    assert.equal(pageEditedSinceSubmission(submitted('2026-08-02T11:00:00Z'), new Date('2026-08-02T11:00:00.400Z')), false);
+    assert.equal(pageEditedSinceSubmission(submitted('2026-08-02T11:00:00Z'), new Date('2026-08-02T11:00:01Z')), false);
+  });
+
+  it('reports a real edit afterwards', () => {
+    assert.equal(pageEditedSinceSubmission(submitted('2026-08-02T11:00:00Z'), new Date('2026-08-02T11:05:00Z')), true);
+  });
+
+  it('is null when it cannot tell — never a confident “untouched”', () => {
+    assert.equal(pageEditedSinceSubmission(null, new Date()), null);
+    assert.equal(pageEditedSinceSubmission(submitted('2026-08-02T11:00:00Z'), null), null);
+    assert.equal(pageEditedSinceSubmission(readProvenance({ forkedAt: '2026-08-02T09:00:00Z' }), new Date()), null);
+    assert.equal(pageEditedSinceSubmission(submitted('not a date'), new Date()), null);
   });
 });

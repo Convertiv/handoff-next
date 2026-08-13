@@ -5,7 +5,43 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.4 in layers: notes, and where a page came from
+## 2026-08-13 (latest) — R.4 finished: the level collapse, and the owner editing in place
+
+**The collapse.** A submitted page opens straight from the template it came from: `?build=` alone is a level,
+gated by the page's own provenance (`submissionBelongsToTemplate`) rather than a chain through a frozen brief.
+The brief hop survives only for legacy rows, and `briefId` on a listed page is now null for everything built the
+new way — that null is what decides whether opening it needs the old URL shape.
+
+`listBuildsForPage` became a UNION over both descent paths, and running it is what showed why it had to be. A
+page backfilled by 0029 has provenance **and** a brief chain, so the obvious version lists it twice; and the
+legacy half filters on the brief's own status, which under a LEFT JOIN silently becomes "drop every new-model
+page" — a null brief is not "not archived".
+
+**Owner edits in place**, the last piece of "a build is a page". No new write path: dropping the read-only
+adapter and passing `initialPatternId` puts the record on the ordinary authenticated autosave, whose core
+already enforces `assertCanMutatePattern`. The shell only decides what to *offer*, and it decides from the same
+`computePermissions` the write enforces with — because a control that offers what the server will refuse is the
+failure this project has hit twice. AI stays off on someone else's submission; that is a different act from
+fixing a typo, and off is the reversible default.
+
+**The cost of that, made visible.** The review diff compares the fork copy against the page as it stands now,
+and is read as "what did this person change". The moment the owner edits in place that sentence stops being
+true. The honest fix was a sentence, not a schema: `pageEditedSinceSubmission` compares `submittedAt` to
+`updatedAt` — with a second of slack, because submitting *is* a write and without it every submission would
+announce it had been edited afterwards. Storing a second page-sized copy at submit would have separated the two
+properly and doubled every provenance record to do it.
+
+One test asserted the rule the collapse reverses — a build named without a brief used to fall back to the page
+level. Rewritten rather than deleted, recording why it flipped and what still stops `?build=` rendering an
+arbitrary record inside someone's shell.
+
+`verify:collapse` — 25 checks over both data shapes: the double-listing, the archived filter, the shell's
+membership rule, and the write path (the owner's edit lands, a stranger's is refused, and neither is offered
+what the core would refuse).
+
+---
+
+## 2026-08-13 — R.4 in layers: notes, and where a page came from
 
 Rebuilt from the stash in three layers, each one green before the next started. The first attempt had tangled
 the notes work together with an authz fix; that fix shipped on its own, and this is what was left.

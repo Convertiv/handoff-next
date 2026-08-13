@@ -137,6 +137,8 @@ export default function BuildPanel({
   const [prov, setProv] = useState<ProvenanceView | null>(null);
   const [templateMoved, setTemplateMoved] = useState<boolean | null>(null);
   const [comparedAgainst, setComparedAgainst] = useState<'as-handed' | 'template-now' | null>(null);
+  /** True once someone has edited this page after it was submitted — including the reviewer, in place (R.4). */
+  const [editedSince, setEditedSince] = useState<boolean | null>(null);
   const [templateTitle, setTemplateTitle] = useState<string | null>(null);
 
   useEffect(() => {
@@ -150,12 +152,14 @@ export default function BuildPanel({
           provenance?: ProvenanceView | null;
           templateHasMovedOn?: boolean | null;
           comparedAgainst?: 'as-handed' | 'template-now';
+          editedSinceSubmission?: boolean | null;
           submission?: { templateTitle?: string | null };
         };
         if (cancelled || !res.ok) return;
         setProv(json.provenance ?? null);
         setTemplateMoved(json.templateHasMovedOn ?? null);
         setComparedAgainst(json.comparedAgainst ?? null);
+        setEditedSince(json.editedSinceSubmission ?? null);
         setTemplateTitle(json.submission?.templateTitle ?? null);
       } catch {
         // The panel is still useful without it — a failed lookup must not blank the decision controls.
@@ -328,6 +332,17 @@ export default function BuildPanel({
             {prov.legacy ? (
               <p className="text-xs text-muted-foreground">
                 Reconstructed from the old invitation record rather than captured at the time.
+              </p>
+            ) : null}
+            {/**
+              * Said out loud, because owner-edits-in-place makes the diff mean something slightly different
+              * (R.4): it is "changes since the template", not "changes this person made". Without this line a
+              * reviewer would read their own edits as the author's.
+              */}
+            {editedSince ? (
+              <p className="text-xs text-muted-foreground">
+                This page has been edited since it was submitted, so the comparison includes those changes as
+                well as the author’s.
               </p>
             ) : null}
             {prov.findingsAtSubmit.length ? (

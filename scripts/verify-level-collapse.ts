@@ -104,6 +104,54 @@ async function main() {
   check('?brief= alone still is', levelFor(true, false) === 'brief');
   check('neither is the page', levelFor(false, false) === 'page');
 
+  // ── Owner edits in place (R.4) ─────────────────────────────────────────────
+  console.log('\n— editing a submitted page in place');
+  const { patchPattern } = await import('../src/app/lib/db/pattern-write');
+  const { pageEditedSinceSubmission, readProvenance } = await import('../src/app/lib/page-provenance');
+
+  // Give the page a submitted-at so "edited since" has something to compare against.
+  await sql`
+    UPDATE handoff_pattern
+    SET provenance = ${sql.json({ templateId: 'tpl', forkedAt: '2026-08-10T00:00:00Z', submittedAt: '2026-08-10T01:00:00Z', blocks: [] })}::jsonb
+    WHERE id = 'new_1'`;
+
+  const asOwner = { userId: 'u_owner', role: null, historyLabel: 'u_owner', trigger: 'ui' as const };
+  await patchPattern('new_1', { title: 'Built new — headline fixed' }, asOwner);
+  const edited = (await sql`SELECT title, updated_at, provenance FROM handoff_pattern WHERE id='new_1'`)[0];
+  check('the owner’s edit lands', edited.title === 'Built new — headline fixed', edited.title);
+  check(
+    'and the page reports that it moved after submission',
+    pageEditedSinceSubmission(readProvenance(edited.provenance), edited.updated_at) === true,
+    { submittedAt: edited.provenance?.submittedAt, updatedAt: edited.updated_at }
+  );
+
+  await sql`INSERT INTO "user" (id, email) VALUES ('u_stranger', 's@example.com') ON CONFLICT (id) DO NOTHING`;
+  let refused = '';
+  try {
+    await patchPattern('new_1', { title: 'not mine to change' }, {
+      userId: 'u_stranger',
+      role: null,
+      historyLabel: 'u_stranger',
+      trigger: 'ui' as const,
+    });
+  } catch (e) {
+    refused = (e as Error).message;
+  }
+  check('a stranger’s edit is refused by the write core', /do not have permission/i.test(refused), refused || '(accepted)');
+  const unchanged = (await sql`SELECT title FROM handoff_pattern WHERE id='new_1'`)[0];
+  check('and nothing changed', unchanged.title === 'Built new — headline fixed', unchanged.title);
+
+  /**
+   * The shell must not *offer* what the write core would refuse — the whole reason the permission is computed
+   * server-side rather than inferred from the level.
+   */
+  const { computePermissions } = await import('../src/app/lib/authz/policy');
+  const row = (await sql`SELECT user_id, visibility FROM handoff_pattern WHERE id='new_1'`)[0];
+  const permsFor = (userId: string) =>
+    computePermissions({ userId, role: null }, { ownerUserId: row.user_id, visibility: row.visibility }, null);
+  check('the owner is offered editing', permsFor('u_owner').canEdit === true);
+  check('a stranger is not', permsFor('u_stranger').canEdit === false);
+
   console.log(failures ? `\n${failures} FAILED` : '\nall checks passed');
   await sql.end();
   process.exit(failures ? 1 : 0);

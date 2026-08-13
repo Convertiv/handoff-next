@@ -6,7 +6,7 @@ import { reviewPattern } from '@/lib/db/pattern-write';
 import { getDbPatternById, componentRulesForBlocks } from '@/lib/db/queries';
 import { diffSubmissionAgainstTemplate, type PatternComponentEntry } from '@/lib/guest-editable';
 import { checkGuardrails, guardrailsFromPatternData } from '@/lib/authoring-guardrails';
-import { readProvenance, templateHasMovedOn } from '@/lib/page-provenance';
+import { pageEditedSinceSubmission, readProvenance, templateHasMovedOn } from '@/lib/page-provenance';
 
 /**
  * What did the author actually change?
@@ -108,6 +108,11 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
     /** Non-null only where the fork copy survives: when they started, and whether the template has moved since. */
     forkedAt: provenance?.forkedAt ?? null,
     templateHasMovedOn: templateHasMovedOn(provenance, template?.updatedAt ?? null),
+    /**
+     * Whether this page has moved since it was submitted — true once someone edited it in place (R.4). The diff
+     * below includes those changes, and a reviewer reading it as "what the author did" deserves to be told.
+     */
+    editedSinceSubmission: pageEditedSinceSubmission(provenance, row.updatedAt ?? null),
     changedCount: blocks.reduce((n, b) => n + b.changes.length, 0),
     findings,
   });

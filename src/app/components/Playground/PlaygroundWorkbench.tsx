@@ -50,6 +50,7 @@ export default function PlaygroundWorkbench({
   pageBuilds = [],
   audits = [],
   guardrailFindings = [],
+  buildCanEdit = false,
 }: {
   pageId?: string;
   pageTitle?: string;
@@ -66,6 +67,13 @@ export default function PlaygroundWorkbench({
   audits?: AuditFinding[];
   /** Advisory guardrail findings for the build being viewed (roadmap E.11). */
   guardrailFindings?: GuardrailFinding[];
+  /**
+   * May this viewer edit the submitted page in place (reflow R.4)?
+   *
+   * Computed on the record by `computePermissions`, server-side, so the canvas never offers an affordance the
+   * write path would refuse — the failure this project has already hit twice.
+   */
+  buildCanEdit?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -74,6 +82,18 @@ export default function PlaygroundWorkbench({
   // Shared with the server route so "which level" has one definition — see `lib/workbench-level.ts`.
   const level = levelFor(Boolean(brief), Boolean(build));
   const recordId = build?.id ?? brief?.meta.id ?? pageId ?? 'new';
+
+  /**
+   * **The owner edits a submitted page in place** (Brad, 2026-08-13; reflow open question #3).
+   *
+   * A build *is* a page under the reflow, so its owner should be able to fix a typo rather than write a note
+   * asking someone else to. What makes this cheap is that no new write path is needed: dropping the read-only
+   * adapter and passing `initialPatternId` puts the record on the **ordinary authenticated autosave**, whose
+   * write core already enforces `assertCanMutatePattern`. The server decides; this only decides what to offer.
+   *
+   * A brief is never editable this way — it is a frozen legacy record, and `patchPattern` refuses it anyway.
+   */
+  const editingSubmission = level === 'build' && buildCanEdit;
 
   const go = useCallback(
     (next: { brief?: string | null; build?: string | null; builds?: string | null }) => {
@@ -95,7 +115,9 @@ export default function PlaygroundWorkbench({
    * hide a bug that had already reached the point of trying to mutate a frozen brief or someone else's work.
    */
   const persistence = useMemo<PlaygroundPersistence | undefined>(() => {
-    if (level === 'page') return undefined;
+    // No adapter when the viewer may edit: that is what selects the normal authenticated save path, the same
+    // one the page level uses. An adapter here would mean a second way to write one record.
+    if (level === 'page' || editingSubmission) return undefined;
     const id = recordId;
     return {
       hydrate: async () => {
@@ -118,7 +140,7 @@ export default function PlaygroundWorkbench({
         throw new Error('This view is read-only.');
       },
     };
-  }, [level, recordId]);
+  }, [level, recordId, editingSubmission]);
 
   /**
    * At page level the left panel can also show the work coming back, without leaving the page.
@@ -182,14 +204,30 @@ export default function PlaygroundWorkbench({
     <PlaygroundProvider
       // See the note above: remount per record, never re-hydrate in place.
       key={`${level}:${recordId}`}
-      {...(level === 'page' ? { initialPatternId: pageId, initialIsTemplate, pageTitle, initialBriefs } : {})}
+      {...(level === 'page'
+        ? { initialPatternId: pageId, initialIsTemplate, pageTitle, initialBriefs }
+        : /**
+           * An editable submission is opened **by id**, exactly as a page is — hydration and autosave both come
+           * from the standard path. `pageTitle` is its own title, not the template's, because this record is
+           * the thing being edited.
+           */
+          editingSubmission && build
+          ? { initialPatternId: build.id, pageTitle: build.title }
+          : {})}
       persistence={persistence}
-      structuralEditing={level === 'page'}
+      structuralEditing={level === 'page' || editingSubmission}
+      /**
+       * AI stays off on someone else's submission, deliberately.
+       *
+       * Fixing a typo is what "edit in place" was asked for; turning a generator loose on work a person just
+       * submitted for review is a different act, and off is the reversible default until it is actually asked
+       * for.
+       */
       aiAssistantEnabled={level === 'page'}
     >
       <PlaygroundBuilder
         leftPanel={leftPanel}
-        canvasControls={level === 'page'}
+        canvasControls={level === 'page' || editingSubmission}
         buildCount={level === 'page' ? pageBuilds.length : 0}
         onShowBuilds={level === 'page' && !showPageBuilds ? () => go({ builds: '1' }) : undefined}
       />
