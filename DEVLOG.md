@@ -5,7 +5,43 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — why the library was slow: an N+1 I shipped
+## 2026-08-13 (latest) — the return link greeted its own author with an error
+
+Three things off a real test on the deployed registry.
+
+**1. The return link tried to *create*.** Opening it landed on the name/email form and then failed with
+*"This link does not allow creating a page from this template."* Two halves, both mine:
+
+- The **client** called `ensureSubmission()` unconditionally on entry, which POSTs "create a page from this
+  template" — a request a return link has no capability to make. It now checks the `mode` the enter route
+  already returns and reads the page instead.
+- The **server's** resume check demanded `status === 'draft' && shareLinkToken === guest.shareLinkId`. A
+  returning author fails *both*: their page is `review`, and it carries the **template** link's token rather
+  than the one they hold. So it fell through to create. It now resumes whenever the session owns the page and
+  the guest holds a link pointing at it, while a template-link holder still falls through once their draft is
+  submitted — which is the case that rule was written for.
+
+This is exactly the gap the R.3 follow-up left open: the predicates and the DB layer were verified, the client
+flow was not, and I said so at the time. Verifying the pieces is not verifying the path.
+
+**2. Provenance was invisible on the page.** The R.4 panel lives in the review surface, which is only reachable
+by opening a page *through its template*. Opened from the library — the ordinary way — a guest's page looked
+like any other. `PageOrigin` is a chip on the page's own toolbar that renders nothing when there is no
+provenance, which is most pages.
+
+It reads the **pattern detail** endpoint, not the review one. Review would answer the question and computes a
+diff, the guardrails and the audits to do it — an expensive way to render a chip, on every page open, days
+after removing an N+1 from the neighbouring surface. `patternRowToDetailResponse` now carries a flattened
+provenance (never the fork blocks, which are page-sized).
+
+**3. The passphrase is opt-in now.** It is real protection for a link mailed to one named person and friction
+everywhere else, and the common case is a link dropped into a channel where everyone is meant to build. The
+link is already a high-entropy secret. Both defaults moved — the control *and* the action — because a checkbox
+that says "off" while the server mints one anyway is a disagreement nobody finds until it confuses somebody.
+
+---
+
+## 2026-08-13 — why the library was slow: an N+1 I shipped
 
 **The library.** Every card asks for `/api/handoff/patterns/<id>/thumbnail.svg`, and that route was fetching
 each distinct **component contract** on the page to decide what to draw — one `getComponent` query apiece, on

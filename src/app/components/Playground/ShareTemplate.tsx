@@ -154,7 +154,15 @@ export default function ShareTemplate({ templateId, pageTitle, onCancel }: Props
 
   const [instructions, setInstructions] = useState('');
   const [days, setDays] = useState('14');
-  const [usePassphrase, setUsePassphrase] = useState(true);
+  /**
+   * **Off by default** (Brad, 2026-08-13).
+   *
+   * A passphrase is real protection for a link mailed to one named person, and friction for every other case —
+   * and the common case is a link dropped into a channel where everyone in it is meant to build. The link
+   * itself is already a high-entropy secret; the passphrase is a second factor for people who want one, and
+   * defaulting it on made every share a two-secret handover whether or not that was the intent.
+   */
+  const [usePassphrase, setUsePassphrase] = useState(false);
   const [showLimits, setShowLimits] = useState(false);
   const [defaultMax, setDefaultMax] = useState('');
   const [limits, setLimits] = useState<FieldLimit[]>([]);
@@ -301,8 +309,9 @@ export default function ShareTemplate({ templateId, pageTitle, onCancel }: Props
               <span>
                 <span className="font-medium">Protect with a passphrase</span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Four memorable words, generated for you and shown once. Worth keeping on: a link gets forwarded
-                  in email threads, and the passphrase is what stops it working for whoever it reaches next.
+                  Four memorable words, generated for you and shown once. Worth turning on when the link is for
+                  one named person: it gets forwarded in email threads, and the passphrase is what stops it
+                  working for whoever it reaches next.
                 </span>
               </span>
             </label>

@@ -1,5 +1,6 @@
 import type { PatternListObject, PatternObject } from '@handoff/transformers/preview/types';
 import type { handoffPatterns } from '../db/schema';
+import { readProvenance } from '../page-provenance';
 
 type PatternRow = typeof handoffPatterns.$inferSelect;
 
@@ -41,6 +42,20 @@ export type PatternDetailApiResponse = {
   visibility: string;
   status: string;
   kind: string;
+  /**
+   * Where this page came from, flattened — **without the fork-time blocks**, which are page-sized.
+   *
+   * Here rather than only on the review endpoint because the page editor needs it too: opened from the library,
+   * a guest's page showed no sign of being one. That endpoint computes a diff, the guardrails and the audits;
+   * asking it for two dates and an email would be an expensive way to render a chip.
+   */
+  provenance: {
+    templateId: string | null;
+    forkedAt: string | null;
+    submittedAt: string | null;
+    submittedByEmail: string | null;
+    legacy: boolean;
+  } | null;
   thumbnail: string | null;
   userId: string | null;
   createdAt: string | null;
@@ -89,6 +104,17 @@ export function patternRowToDetailResponse(row: PatternRow, basePath: string): P
     visibility: row.visibility,
     status: row.status,
     kind: row.kind ?? 'page',
+    provenance: (() => {
+      const p = readProvenance(row.provenance);
+      if (!p) return null;
+      return {
+        templateId: p.templateId ?? null,
+        forkedAt: p.forkedAt ?? null,
+        submittedAt: p.submittedAt ?? null,
+        submittedByEmail: p.submittedByEmail ?? null,
+        legacy: p.legacy ?? false,
+      };
+    })(),
     thumbnail: row.thumbnail ?? null,
     userId: row.userId ?? null,
     createdAt: row.createdAt?.toISOString() ?? null,

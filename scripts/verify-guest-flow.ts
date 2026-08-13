@@ -174,6 +174,25 @@ async function main() {
   check('a revoked return link stops resolving', (await getActiveShareLinkById(pageLinks[0]!.id)) === null);
   check('the page it opened is untouched', (await sql`SELECT count(*)::int AS n FROM handoff_pattern WHERE id='page_a'`)[0].n === 1);
 
+  /**
+   * ⚠️ **The resume rule** — the bug Brad hit on the deployed preview.
+   *
+   * A returning author's session names their page, but the old check demanded `status === 'draft'` AND a
+   * matching share token. Their page is `review` and carries the *template's* token, so both failed, the
+   * request fell through to "create from template", and the link greeted its own author with
+   * "This link does not allow creating a page from this template."
+   */
+  console.log('\n— coming back with the return link');
+  const resumeRef = { id: 'page_a', shareLinkId: pageNow.share_link_token, status: pageNow.status };
+  const oldRule = pageNow.status === 'draft' && pageNow.share_link_token === live!.token;
+  check('the old rule would have refused them', oldRule === false, { status: pageNow.status });
+  const holdsReturn = returningGuest.resourceId === 'page_a';
+  check('the new rule resumes: they hold a link pointing at this page', isGuestOwnPage(returningGuest, resumeRef) && holdsReturn);
+  check(
+    'a template-link holder with a submitted draft still falls through to a fresh page',
+    !(pageNow.status === 'draft') && guest.shareLinkId !== 'page_a'
+  );
+
   // ── Builder notes live on the template, where every reader already looks ───
   console.log('\n— instructions and limits, written to the template');
   const { setTemplateBuilderNotes } = await import('../src/app/lib/db/pattern-write');

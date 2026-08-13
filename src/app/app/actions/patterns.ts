@@ -162,7 +162,13 @@ export async function shareTemplate(
   }
 
   const days = Number.isFinite(input.expiresInDays) ? Math.max(1, Math.trunc(input.expiresInDays!)) : 14;
-  const passphrase = input.usePassphrase === false ? null : generatePassphrase();
+  /**
+   * **Opt-in, not opt-out** (Brad, 2026-08-13). The link is already a high-entropy secret; a passphrase is the
+   * second factor for a link meant for one named person. Defaulting it on made every share a two-secret
+   * handover. The default here matches the screen's — a control that says "off" while the server mints one
+   * anyway is the kind of disagreement nobody finds until it confuses somebody.
+   */
+  const passphrase = input.usePassphrase === true ? generatePassphrase() : null;
 
   const { link, urlToken } = await createShareLink(
     'pattern',

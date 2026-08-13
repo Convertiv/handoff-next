@@ -39,6 +39,7 @@ import { useRouter } from 'next/navigation';
 import { handoffApiUrl } from '@/lib/api-path';
 import ShareTemplate from './ShareTemplate';
 import MetaControl from '../library/MetaControl';
+import PageOrigin from '../library/PageOrigin';
 import { fieldIdToArgsPath, richtextEditableFieldPaths, textEditableFieldPaths } from '@/lib/field-marks';
 import { setAtArgsPath } from '@/lib/set-at-args-path';
 import {
@@ -688,6 +689,14 @@ export default function PlaygroundBuilder({
               {/* Visibility + lifecycle, where the page is. Replaces the old read-only "Share" link control:
                   handing a page to someone is "Invite to build", and who may see it is this. */}
               {editingPatternId && <MetaControl resourceType="pattern" resourceId={editingPatternId} basePath={basePath} />}
+              {/**
+                * Where this page came from, for a page that came from somewhere (Brad, 2026-08-13).
+                *
+                * The R.4 provenance panel is only reachable by opening a page *through its template*; opened
+                * from the library — the ordinary way — a guest's page looked like any other. Renders nothing
+                * when there is no provenance, which is most pages.
+                */}
+              {editingPatternId && <PageOrigin pageId={editingPatternId} basePath={basePath} />}
 
               {editingPatternId && (
                 <Tooltip>

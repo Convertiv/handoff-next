@@ -51,17 +51,25 @@ export async function POST(request: NextRequest) {
   }
   if (ctx.session.submissionId) {
     const current = await getDbPatternById(ctx.session.submissionId);
+    const owned =
+      current &&
+      isGuestOwnPage(ctx.guest, { id: current.id, shareLinkId: current.shareLinkToken, status: current.status });
     /**
-     * Idempotent while the draft is still open: a double-submitted form should return that draft, not a
-     * second one.
+     * **A return-link holder always resumes.** Their link points at one page; going back to it is the only
+     * thing it is for, and its status is `review` by definition.
      *
-     * But once it has been submitted it is locked (`canGuestEditPattern` requires `draft`), and a
-     * session still pointing at it would be a dead end — the guest could neither edit it nor start
-     * anything new. So a non-draft submission falls through and a fresh page is created below, with the
-     * cookie repointed. The submitted page is untouched and stays in the review queue.
+     * ⚠️ This is what R.3 got wrong. The rule was `status === 'draft' && shareLinkToken === guest.shareLinkId`,
+     * and a returning author fails *both* halves — their page was submitted, and it carries the **template**
+     * link's token rather than the one they hold. So the request fell through to "create a page from the
+     * template", which a return link has no capability to do, and the visitor was told
+     * *"This link does not allow creating a page from this template."* on the way back to their own work.
+     *
+     * For a **template**-link holder the old reasoning still stands: once their draft is submitted it is
+     * locked, and a session still pointing at it would be a dead end — so they fall through and start a fresh
+     * page, with the cookie repointed. The submitted page is untouched.
      */
-    if (current && current.status === 'draft' && current.shareLinkToken === ctx.guest.shareLinkId) {
-      return NextResponse.json({ id: current.id, created: false });
+    if (owned && (ctx.guest.resourceId === current!.id || current!.status === 'draft')) {
+      return NextResponse.json({ id: current!.id, created: false });
     }
   }
 

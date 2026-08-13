@@ -105,6 +105,8 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
         linkId?: string;
         capabilities?: Capabilities;
         submissionId?: string | null;
+        /** `return` when the link points at a page this visitor already made — see the enter route. */
+        mode?: 'build' | 'return';
         resumed?: boolean;
         passphraseRequired?: boolean;
         error?: string;
@@ -122,7 +124,17 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
       setCapabilities(json.capabilities ?? []);
       if (json.submissionId) setSubmissionId(json.submissionId);
       if (json.resumed && json.submissionId) setNotice('Picked up where you left off.');
-      await ensureSubmission(json.linkId);
+      /**
+       * **A return link never creates.** It points at a page that already exists, and asking to create one is
+       * a request its capabilities refuse — which is exactly how R.3's return link greeted its own author with
+       * "This link does not allow creating a page from this template."
+       */
+      if (json.mode === 'return') {
+        setNotice('Here is the page you made. Any changes save as you go.');
+        await readPhase(json.linkId);
+      } else {
+        await ensureSubmission(json.linkId);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open this link.');
       setPhase('name');
