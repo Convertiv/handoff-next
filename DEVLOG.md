@@ -39,7 +39,7 @@ drive is the thing this pass cut into.
 
 ---
 
-## 2026-08-13 (latest) — R.4 finished: the level collapse, and the owner editing in place
+## 2026-08-13 — R.4 finished: the level collapse, and the owner editing in place
 
 **The collapse.** A submitted page opens straight from the template it came from: `?build=` alone is a level,
 gated by the page's own provenance (`submissionBelongsToTemplate`) rather than a chain through a frozen brief.
