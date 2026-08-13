@@ -237,7 +237,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 | **R.1** | ✅ Library shows three kinds; promote/demote in `MetaControl` | Guest submissions stop being hidden — they are pages now. Promotion is gated on `canChangeVisibility`, not `canEdit`. |
 | **R.2** | ✅ `shareTemplate` + `ShareTemplate` screen (three steps → one), fork/submit provenance, 50-page cap, diff reads the fork copy | Old briefs keep working until R.5 — `createInvitation` is marked legacy, not deleted. Verified with `npm run verify:guest`. |
 | **R.3** | ✅ Return link (minted at submit, shown once, emailed), completion screen, owner-side link list + revoke, guest rate limits | ⚠️ A returning author may edit while `draft` **or** `review` — a submitted page is under consideration, not sealed. Stops at `approved`/`archived`. |
-| **R.4** | Provenance panel + threaded notes on the page; review surface moves off `BuildPanel` | Where "formerly builds" becomes true. |
+| **R.4** | 🔄 Provenance panel + threaded notes, both shipped and reachable from **both sides**. **Remaining**: collapsing the workbench's `level` so a page with provenance is reviewable from the page itself rather than through the build route. | Notes: `authz/notes.ts` (pure) + `db/note-queries.ts` (IO) + one route for both callers. `npm run verify:notes`. |
 | **R.5** | Retire briefs: drop `source_page_id` / `brief_version`, delete the wizard | Only once R.2 has run on real data. |
 | **R.6** | CMS Track A — the migration prompt | Independent; could ship any time after R.0. |
 | **R.7** | CMS Track B — integrations tab, first adapter, mapping artifact + dry run | Sequenced by what R.6 taught. |

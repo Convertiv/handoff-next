@@ -5,7 +5,49 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.3 follow-up: the return link did not actually work
+## 2026-08-13 (latest) — R.4 in layers: notes, and where a page came from
+
+Rebuilt from the stash in three layers, each one green before the next started. The first attempt had tangled
+the notes work together with an authz fix; that fix shipped on its own, and this is what was left.
+
+**Layer 1 — rules and IO, split.** `authz/notes.ts` decides and is pure; `db/note-queries.ts` fetches the row,
+asks it, and obeys. The same split `decidePatternMetaChange` and `pattern-write` already use, and the reason is
+now concrete rather than stylistic: R.3 shipped a broken return link precisely because a rule had a second copy
+living next to the query that needed it.
+
+Four decisions worth naming:
+- **Read and write are the same answer.** A thread you can read but not answer is a notice board.
+- **Commenting needs `canEdit`.** Writing to a page's record is a bigger claim than `canView` makes.
+- **The author's access follows `canGuestEditPattern`** rather than restating it, so a return-link holder can
+  join the thread on their submitted page — and a decided page closes it to them.
+- **The owner sees the address a guest gave; a guest never sees another's.** A privacy rule, so it is a pure
+  function with its own test rather than a line in a query.
+
+**Layer 2 — one route for two callers.** `?link=` picks the guest path, a session picks the other. A separate
+guest endpoint would be two places deciding who may say what, which is the shape of the bug this whole slice
+just cleaned up.
+
+**Layer 3 — both sides of the conversation.** The panel gained a *Where this came from* block — template,
+when they started, when they submitted, whether the template has moved since, and whether the diff is against
+what they were handed or against the template as it stands. That block is the visible half of the fork copy
+that replaced briefs, and the reason keeping it is worth the storage. Notes render underneath it, and on the
+author's own screen after they submit — which is the half that makes the feature worth having: "can you shorten
+the headline?" used to have nowhere to go but email.
+
+Two self-inflicted things caught by running rather than reading: a verification assertion that read the
+author's view of the thread and asserted the owner's answer against it, and a reference to a `submissionId`
+that the guest component never held.
+
+`npm run verify:notes` — 17 checks against real Postgres for what only a database answers: the one-author
+CHECK, the cascade, and the two cross-page guards (a reply reaching another page's thread; a foreign note id
+resolved through a page the caller *does* have rights on). 12 unit tests alongside.
+
+**Still open in R.4**: collapsing the workbench's `level`, so a page with provenance is reviewable from the page
+itself rather than through the build route. That is routing surgery and deserves its own pass.
+
+---
+
+## 2026-08-13 — R.3 follow-up: the return link did not actually work
 
 Found while starting R.4, and fixed first because it is a defect in shipped work rather than new scope. R.3
 minted a return link, emailed it, and displayed it — and a visitor who opened it could not reach their page.

@@ -5,6 +5,7 @@ import { handoffApiUrl } from '@/lib/api-path';
 import GuestEditor from './GuestEditor';
 import { FindingsList, type RenderableFinding } from '../Playground/FindingsList';
 import { requestFieldReveal } from '../Playground/FieldLinkContext';
+import PageNotes from '../library/PageNotes';
 import type { ShareCapability } from '@/lib/authz/vocab';
 
 /**
@@ -55,6 +56,13 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
   /** Set when the server says this invitation is passphrase-protected, so the field only appears if needed. */
   const [passphraseRequired, setPassphraseRequired] = useState(false);
   const [linkId, setLinkId] = useState('');
+  /**
+   * The page this session owns.
+   *
+   * Held because the notes thread needs to name it (R.4). Read from the server rather than remembered from the
+   * create call: a returning author never made a create call — their session is bound to the page at `/enter`.
+   */
+  const [submissionId, setSubmissionId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<Capabilities>([]);
   const [submitMessage, setSubmitMessage] = useState('');
   /**
@@ -112,6 +120,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
 
       setLinkId(json.linkId);
       setCapabilities(json.capabilities ?? []);
+      if (json.submissionId) setSubmissionId(json.submissionId);
       if (json.resumed && json.submissionId) setNotice('Picked up where you left off.');
       await ensureSubmission(json.linkId);
     } catch (e) {
@@ -145,12 +154,13 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
       credentials: 'include',
     });
     const json = (await res.json()) as {
-      submission?: { status: string } | null;
+      submission?: { id: string; status: string } | null;
       /** The server's answer, not ours — see the note on `canEdit` in the route. */
       canEdit?: boolean;
       error?: string;
     };
     if (!res.ok || !json.submission) throw new Error(json.error || 'Could not load the page.');
+    setSubmissionId(json.submission.id);
     /**
      * Editability comes from the server.
      *
@@ -377,6 +387,21 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
             You can keep editing it until a reviewer makes a decision.
           </p>
           {error ? <Alert>{error}</Alert> : null}
+
+          {/**
+            * The thread, on the author's side (reflow R.4).
+            *
+            * This is the half that makes notes worth having: a reviewer asking "can you shorten the headline?"
+            * previously had to reach the author by email, outside anything this page records. Left-aligned
+            * inside a centred screen because a conversation is read, not announced.
+            *
+            * `submissionId` is the page they just made; `linkId` is how the server knows which author this is.
+            */}
+          {submissionId ? (
+            <div className="pt-2 text-left">
+              <PageNotes pageId={submissionId} guestLinkId={linkId} />
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={startAnother}

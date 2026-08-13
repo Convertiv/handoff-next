@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
@@ -8,6 +8,7 @@ import { handoffApiUrl } from '@/lib/api-path';
 import type { BuildRow } from './BuildList';
 import { groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
 import { FindingsList, type RenderableFinding } from '../Playground/FindingsList';
+import PageNotes from '../library/PageNotes';
 import { LIFECYCLE_META } from '@/lib/authz/vocab';
 import { requestFieldReveal } from '../Playground/FieldLinkContext';
 
@@ -38,6 +39,16 @@ const CATEGORY_LABEL: Record<AuditCategory, string> = {
  * (`build-audits.ts`). Saying so is the honest version of a clean result.
  */
 const VOICE_NOT_CHECKED = 'Voice and tone aren’t checked automatically yet — that needs a read against your brand voice.';
+
+/** The provenance record as the review endpoint flattens it — never the fork-time blocks, which are page-sized. */
+interface ProvenanceView {
+  templateId: string | null;
+  forkedAt: string | null;
+  submittedAt: string | null;
+  submittedByEmail: string | null;
+  legacy: boolean;
+  findingsAtSubmit: { category: string; code: string; message: string }[];
+}
 
 export default function BuildPanel({
   build,
@@ -108,6 +119,45 @@ export default function BuildPanel({
   }, [build.id]);
 
   const [status, setStatus] = useState(build.status);
+
+  /**
+   * Where this page came from (reflow R.4).
+   *
+   * Fetched here rather than threaded through the workbench: the panel showing the diff is the panel that has to
+   * answer "against what?", and the review endpoint returns both together. One request, on the one surface that
+   * needs it.
+   */
+  const [prov, setProv] = useState<ProvenanceView | null>(null);
+  const [templateMoved, setTemplateMoved] = useState<boolean | null>(null);
+  const [comparedAgainst, setComparedAgainst] = useState<'as-handed' | 'template-now' | null>(null);
+  const [templateTitle, setTemplateTitle] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(handoffApiUrl(`/api/handoff/review/${encodeURIComponent(build.id)}`), {
+          credentials: 'include',
+        });
+        const json = (await res.json()) as {
+          provenance?: ProvenanceView | null;
+          templateHasMovedOn?: boolean | null;
+          comparedAgainst?: 'as-handed' | 'template-now';
+          submission?: { templateTitle?: string | null };
+        };
+        if (cancelled || !res.ok) return;
+        setProv(json.provenance ?? null);
+        setTemplateMoved(json.templateHasMovedOn ?? null);
+        setComparedAgainst(json.comparedAgainst ?? null);
+        setTemplateTitle(json.submission?.templateTitle ?? null);
+      } catch {
+        // The panel is still useful without it — a failed lookup must not blank the decision controls.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [build.id]);
 
   const decide = useCallback(
     async (decision: 'approve' | 'reject') => {
@@ -219,6 +269,69 @@ export default function BuildPanel({
           </p>
         ) : null}
 
+        {/**
+          * Where this came from — read-only, never editable (reflow R.4).
+          *
+          * Above the decision because it *is* context for it: a reviewer asking "should this ship" needs to know
+          * what this person was handed, when, and whether the template has moved since. This is the visible half
+          * of the fork copy that replaced briefs, and the reason keeping that copy is worth the storage.
+          */}
+        {prov ? (
+          <section className="space-y-1.5 rounded-md border p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Where this came from</p>
+            <dl className="space-y-1 text-xs">
+              <div className="flex justify-between gap-2">
+                <dt className="text-muted-foreground">Template</dt>
+                <dd className="truncate text-right text-foreground">{templateTitle || prov.templateId || 'Unknown'}</dd>
+              </div>
+              {prov.forkedAt ? (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Started</dt>
+                  <dd className="text-right text-foreground">{new Date(prov.forkedAt).toLocaleString()}</dd>
+                </div>
+              ) : null}
+              {prov.submittedAt ? (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Submitted</dt>
+                  <dd className="text-right text-foreground">{new Date(prov.submittedAt).toLocaleString()}</dd>
+                </div>
+              ) : null}
+              {prov.submittedByEmail ? (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-muted-foreground">Contact</dt>
+                  {/* Self-asserted, confirmed only by the return link arriving. Never an identity claim. */}
+                  <dd className="truncate text-right text-foreground">{prov.submittedByEmail}</dd>
+                </div>
+              ) : null}
+            </dl>
+
+            {/* The two things a live template makes possible, both said plainly rather than left to be inferred. */}
+            {templateMoved ? (
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                The template has changed since this was started. The comparison is against what they were
+                actually handed.
+              </p>
+            ) : null}
+            {comparedAgainst === 'template-now' ? (
+              <p className="text-xs text-muted-foreground">
+                No copy of the original was kept for this page, so the comparison is against the template as it
+                stands today.
+              </p>
+            ) : null}
+            {prov.legacy ? (
+              <p className="text-xs text-muted-foreground">
+                Reconstructed from the old invitation record rather than captured at the time.
+              </p>
+            ) : null}
+            {prov.findingsAtSubmit.length ? (
+              <p className="text-xs text-muted-foreground">
+                {prov.findingsAtSubmit.length} advisory finding
+                {prov.findingsAtSubmit.length === 1 ? '' : 's'} stood when they submitted.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
         <section className="space-y-1">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Their note</p>
           {build.submittedMessage ? (
@@ -307,6 +420,14 @@ export default function BuildPanel({
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">PDF is coming.</p>
+        </section>
+
+        {/**
+          * The conversation, last. A reviewer came here to look and decide; the thread is what happens when the
+          * answer is "not yet". The page's author sees the same thread through their return link.
+          */}
+        <section className="border-t pt-4">
+          <PageNotes pageId={build.id} canResolve />
         </section>
       </div>
     </div>

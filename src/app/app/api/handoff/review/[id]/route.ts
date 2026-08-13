@@ -84,6 +84,26 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       updatedAt: row.updatedAt,
     },
     blocks,
+    /**
+     * The provenance record, flattened for display (reflow R.4).
+     *
+     * Sent from here rather than fetched separately because the panel that shows it is the panel that shows the
+     * diff, and together they answer one question: what were they handed, and what did they do with it.
+     *
+     * `blocks` is deliberately **excluded** — it is a whole page's worth of JSON, the diff already carries its
+     * effect, and a review payload should not double in size to ship a copy nothing renders.
+     */
+    provenance: provenance
+      ? {
+          templateId: provenance.templateId ?? null,
+          forkedAt: provenance.forkedAt ?? null,
+          submittedAt: provenance.submittedAt ?? null,
+          submittedByEmail: provenance.submittedByEmail ?? null,
+          legacy: provenance.legacy ?? false,
+          /** What the checks said when its author let go of it — a fact about the submission, not a live re-run. */
+          findingsAtSubmit: provenance.findings ?? [],
+        }
+      : null,
     comparedAgainst,
     /** Non-null only where the fork copy survives: when they started, and whether the template has moved since. */
     forkedAt: provenance?.forkedAt ?? null,
