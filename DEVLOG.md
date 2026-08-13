@@ -5,7 +5,44 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-12 (latest) — QA first pass: the canvas stops being a web page you can walk out of
+## 2026-08-13 (latest) — Two documents, no code: the reflow and the 8x8 answer
+
+Branch `feature/pages-templates-reflow`, opened off main after a UX session with Natko and Domagoj.
+
+**`docs/PAGES-TEMPLATES-REFLOW.md`** — Designs / Pages / Templates, and the anonymous build loop that ends in a
+Page rather than a "build". Four product nouns become three: *brief* and *build* both stop existing, a template is
+a page that others may build from, and a guest's submission is a page like any other with provenance attached.
+
+The one place the spec is corrected rather than transcribed is **snapshots**. Dropping them from the UX is right —
+versions of a brief are a dev-shaped thing to make somebody manage. But the frozen copy is what keeps a built
+page's diff honest ("what did they change versus what they were handed"), and without it that comparison silently
+re-bases against a template that has moved on. So: **no snapshot in the product, a fork-time copy on the created
+page as provenance.** One row, written once at submit, that nobody names, lists or versions.
+
+Worth recording how little new machinery this needs. `ShareCapability` already reads
+`view | create_from_template | edit_own_submission | use_asset_library | submit_for_review`, and
+`handoff_share_link` already carries capabilities, `tokenHash`, `maxUses`, `expiresAt`, `revokedAt` and passphrase
+lockout — the two link kinds the new flow needs are both expressible today. The reflow is mostly a **renaming and
+a collapse**, not a build.
+
+**`docs/REACT-INLINE-EDITING-8X8.md`** — what it would actually take to run inline editing and review on 8x8,
+checked against the client repo rather than inferred from the format flag.
+
+- **Review already works.** Every check reads args, not DOM, and `collectEditableText` already descends
+  serialized React element nodes — which is exactly 8x8's slot shape.
+- **The content gate is empty**: 1003 `required` rules across 70 schemas, and zero length rules.
+- **Inline editing has a cheaper route than the roadmap's tracer.** 8x8's Handoff wrappers already convert flat
+  editable fields into slots through 14 shared helpers used by 41 of 58 blocks, and those helpers already create
+  the DOM node for the value — they just do not know its name. Emitting `data-hf-field` on a node that already
+  exists is deterministic, adds no element (the objection that killed spans for Handlebars), and lands in the same
+  mark shape the overlay already consumes. F.3's sentinel tracer stays the answer for React catalogs with no
+  wrapper layer; 8x8 has one and should not pay for it.
+- **The blocker is a deployment, not code**: 8x8 still ships the static build. The catalog is already in a V2
+  database — the F.-1 measurement ran over it from there.
+
+---
+
+## 2026-08-12 — QA first pass: the canvas stops being a web page you can walk out of
 
 Seven QA notes off a review pass, all UX. Six landed; they were smaller than they looked, except one that turned out
 to be a live bug rather than a polish item.
