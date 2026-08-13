@@ -6,6 +6,8 @@ import {
   recordPassphraseFailure,
   shareLinkCapabilities,
 } from '@/lib/db/grant-queries';
+import { parseShareToken } from '@/lib/server/share-link-token';
+import { GUEST_LIMITS, isRateLimited } from '@/lib/rate-limit';
 import { isLocked, lockRemainingMinutes, verifyPassphrase } from '@/lib/server/passphrase';
 import { getDbPatternById } from '@/lib/db/queries';
 import { canGuestView, canGuestCreateFromTemplate } from '@/lib/authz/policy';
@@ -36,6 +38,16 @@ export async function POST(request: NextRequest) {
   };
   const token = typeof body.token === 'string' ? body.token : '';
   if (!token.trim()) return NextResponse.json({ error: 'A link token is required.' }, { status: 400 });
+
+  /**
+   * Keyed on the **public id**, not the secret — a secret must not become a map key that outlives the request.
+   * The passphrase lockout below is the per-link defence against guessing; this is the outer bound on hammering
+   * the endpoint at all, including with tokens that do not resolve.
+   */
+  const publicId = parseShareToken(token)?.id ?? token.trim();
+  if (isRateLimited(`guest:enter:${publicId}`, GUEST_LIMITS.enter.limit, GUEST_LIMITS.enter.windowMs)) {
+    return NextResponse.json({ error: 'Too many attempts; try again in a minute.' }, { status: 429 });
+  }
 
   const name = sanitizeGuestName(body.name);
   if (!name) return NextResponse.json({ error: 'Please give a name so reviewers know who submitted.' }, { status: 400 });

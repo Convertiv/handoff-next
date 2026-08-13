@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
-import { shareTemplate } from '@/app/actions/patterns';
+import { listTemplateLinks, revokeTemplateLink, shareTemplate } from '@/app/actions/patterns';
 import { handoffApiUrl } from '@/lib/api-path';
 import { MAX_PAGES_PER_SHARE_LINK, patternKind } from '@/lib/authz/vocab';
 
@@ -48,6 +48,16 @@ type Result = {
   expiresAt: string | null;
 };
 
+/** A live link on this template, as the owner needs to see it: what it is, how used, still open? */
+interface LinkRow {
+  id: string;
+  label: string | null;
+  useCount: number;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  passphraseRequired: boolean;
+}
+
 export default function ShareTemplate({ templateId, pageTitle, onCancel, onShared }: Props) {
   /**
    * Whether this is already a template — asked for here rather than threaded down as a prop.
@@ -82,6 +92,67 @@ export default function ShareTemplate({ templateId, pageTitle, onCancel, onShare
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [copied, setCopied] = useState(false);
+
+  /**
+   * Links already live on this template (reflow R.3).
+   *
+   * Shown here because "who can still get in" is a question an owner has to be able to answer *before*
+   * revoking is a meaningful act — and because the alternative was a person creating a second link to a
+   * template they had already shared, with no way to see the first.
+   *
+   * Return links appear too: a page's author holds one, it sits in their inbox indefinitely, and switching it
+   * off is what keeps an emailed credential from being a standing risk.
+   */
+  const [links, setLinks] = useState<LinkRow[]>([]);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  /**
+   * `cancelled` rather than a bare `void load()`: this screen is dismissed by the same click that revokes or
+   * shares, so a reply landing after unmount would set state on a component that has gone. Same shape as the
+   * kind lookup above, for the same reason.
+   */
+  const loadLinks = useCallback(
+    async (isCancelled?: () => boolean) => {
+      try {
+        const res = await listTemplateLinks(templateId);
+        if (!isCancelled?.()) setLinks(res.links);
+      } catch {
+        // A list that will not load must not block sharing — the form below is the point of this screen.
+      }
+    },
+    [templateId]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    // Inline rather than calling `loadLinks` here: the lint rule reads a `setState` reachable from an effect
+    // through a callback as a cascading render, and the shape it does accept is this one — the same shape the
+    // kind lookup above uses.
+    void (async () => {
+      try {
+        const res = await listTemplateLinks(templateId);
+        if (!cancelled) setLinks(res.links);
+      } catch {
+        // Sharing must still work when the list will not load.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [templateId]);
+
+  const revoke = async (id: string) => {
+    setRevoking(id);
+    setError(null);
+    try {
+      await revokeTemplateLink(id);
+      await loadLinks();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not revoke that link.');
+    } finally {
+      setRevoking(null);
+    }
+  };
 
   const [instructions, setInstructions] = useState('');
   const [days, setDays] = useState('14');
@@ -135,6 +206,7 @@ export default function ShareTemplate({ templateId, pageTitle, onCancel, onShare
         passphrase: res.passphrase,
         expiresAt: res.expiresAt ? new Date(res.expiresAt).toLocaleDateString() : null,
       });
+      void loadLinks();
       onShared();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create the link.');
@@ -329,6 +401,47 @@ export default function ShareTemplate({ templateId, pageTitle, onCancel, onShare
                 </div>
               ) : null}
             </div>
+
+            {/**
+              * What is already live, under the form rather than above it: the act you came here for is
+              * sharing, and a list of existing links at the top would read as a step you have to get past.
+              */}
+            {links.length ? (
+              <div className="rounded-md border">
+                <p className="border-b px-4 py-3 text-sm font-medium">Links that already work</p>
+                <ul className="divide-y">
+                  {links.map((link) => (
+                    <li key={link.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+                      <span className="min-w-0">
+                        <span className="block truncate font-medium">{link.label || 'Share link'}</span>
+                        <span className="block text-xs text-muted-foreground">
+                          {link.useCount === 0
+                            ? 'Not opened yet'
+                            : `Opened ${link.useCount} time${link.useCount === 1 ? '' : 's'}`}
+                          {link.lastUsedAt ? `, last ${new Date(link.lastUsedAt).toLocaleDateString()}` : ''}
+                          {link.expiresAt ? ` · expires ${new Date(link.expiresAt).toLocaleDateString()}` : ''}
+                          {link.passphraseRequired ? ' · passphrase' : ''}
+                        </span>
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        disabled={revoking === link.id}
+                        onClick={() => void revoke(link.id)}
+                      >
+                        {revoking === link.id ? 'Revoking…' : 'Revoke'}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                {/* Revoking closes a door; it does not delete what came through it. Say so, or it reads as
+                    destructive and nobody uses the control that makes an emailed link safe to send. */}
+                <p className="border-t px-4 py-2 text-xs text-muted-foreground">
+                  Revoking stops a link working. Pages already built from it are unaffected.
+                </p>
+              </div>
+            ) : null}
 
             <div className="flex justify-end">
               <Button onClick={() => void share()} disabled={busy}>

@@ -212,10 +212,14 @@ consumer, and it should not grow a second, parallel one.
 Not optional, because this is the first surface where **an unauthenticated stranger causes a row to be
 written**.
 
-- **The emailed return link is a bearer credential in an inbox.** Revocable by the owner, rotatable, and
-  optionally expiring. Store the hash, never the secret (`tokenHash` already does this).
-- **Rate-limit page creation per template link** and cap total pages per link (`maxUses` exists). Without
-  this, one leaked link is an unbounded write endpoint.
+- **The emailed return link is a bearer credential in an inbox.** ✅ Revocable by the owner from the share
+  screen; only the hash is stored; scoped to one page with `view` + `edit_own_submission` and nothing else; a
+  re-submission revokes the previous one so a page has at most one live return link. **Deliberately no
+  expiry** — it is the author's only way back, and an expiry would strand it silently; revocation is the
+  control, and it is deliberate rather than accidental.
+- ✅ **Rate limits** on enter / create / submit (`lib/rate-limit.ts`), plus the 50-page cap per link. ⚠️ The
+  limiter is **in-memory and per-isolate** — it slows a burst, it does not bound the damage. The durable
+  ceiling is the page cap, counted in the database.
 - **A bot check on the anonymous submit path**, at least where a link is public rather than sent to a named
   person.
 - **Never log link secrets**, and keep them out of URLs in analytics.
@@ -232,7 +236,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 | **R.0** | ✅ Schema: `kind`, `provenance`, `handoff_page_note`; idempotent, re-runnable backfill | No UI change, and `template_id` deliberately untouched. Verified against Postgres 16 — `npm run verify:reflow`. |
 | **R.1** | ✅ Library shows three kinds; promote/demote in `MetaControl` | Guest submissions stop being hidden — they are pages now. Promotion is gated on `canChangeVisibility`, not `canEdit`. |
 | **R.2** | ✅ `shareTemplate` + `ShareTemplate` screen (three steps → one), fork/submit provenance, 50-page cap, diff reads the fork copy | Old briefs keep working until R.5 — `createInvitation` is marked legacy, not deleted. Verified with `npm run verify:guest`. |
-| **R.3** | Return link + completion screen + email; owner-side link management and revocation | Ships with the rate limits, not after them. |
+| **R.3** | ✅ Return link (minted at submit, shown once, emailed), completion screen, owner-side link list + revoke, guest rate limits | ⚠️ A returning author may edit while `draft` **or** `review` — a submitted page is under consideration, not sealed. Stops at `approved`/`archived`. |
 | **R.4** | Provenance panel + threaded notes on the page; review surface moves off `BuildPanel` | Where "formerly builds" becomes true. |
 | **R.5** | Retire briefs: drop `source_page_id` / `brief_version`, delete the wizard | Only once R.2 has run on real data. |
 | **R.6** | CMS Track A — the migration prompt | Independent; could ship any time after R.0. |

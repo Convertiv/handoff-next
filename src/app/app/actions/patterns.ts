@@ -12,7 +12,14 @@ import {
   writePattern,
   type PatternWriteActor,
 } from '../../lib/db/pattern-write';
-import { createShareLink, getActorGrant, listShareLinks, revokeShareLink } from '../../lib/db/grant-queries';
+import {
+  createShareLink,
+  getActorGrant,
+  getResourceOwner,
+  listShareLinks,
+  revokeShareLink,
+} from '../../lib/db/grant-queries';
+import { computePermissions, toVisibility } from '../../lib/authz/policy';
 import { AUTHORING_CAPABILITIES, MAX_PAGES_PER_SHARE_LINK } from '../../lib/authz/vocab';
 import { generatePassphrase } from '../../lib/server/passphrase';
 
@@ -191,6 +198,56 @@ export async function shareTemplate(
     expiresAt: link.expiresAt,
     maxPages: MAX_PAGES_PER_SHARE_LINK,
   };
+}
+
+/**
+ * The live links on a template, and what they have been used for (reflow R.3).
+ *
+ * Owner-facing, because "who can still get in" is a question an owner has to be able to answer before they can
+ * sensibly revoke anything. Returns summaries only — `listShareLinks` never hands back a secret, and the public
+ * id is safe to show and to log.
+ *
+ * Read-through of the same permission the write path uses: only someone who could share this can see who it
+ * was shared with.
+ */
+export async function listTemplateLinks(templateId: string) {
+  const actor = await requireActor();
+  const grant = await getActorGrant('pattern', templateId, actor.userId);
+  const owner = await getResourceOwner('pattern', templateId);
+  const perms = computePermissions(
+    { userId: actor.userId, role: actor.role ?? null },
+    { ownerUserId: owner?.ownerUserId ?? null, visibility: toVisibility(owner?.visibility) },
+    grant
+  );
+  if (!perms.canChangeVisibility) throw new Error('You do not have permission to see this template’s links.');
+
+  const links = await listShareLinks('pattern', templateId);
+  return {
+    success: true,
+    links: links.map((l) => ({
+      id: l.id,
+      label: l.label,
+      useCount: l.useCount,
+      lastUsedAt: l.lastUsedAt ? l.lastUsedAt.toISOString() : null,
+      expiresAt: l.expiresAt ? l.expiresAt.toISOString() : null,
+      createdAt: l.createdAt ? l.createdAt.toISOString() : null,
+      passphraseRequired: l.passphraseRequired,
+      writeCapable: l.writeCapable,
+    })),
+  };
+}
+
+/**
+ * Revoke one link.
+ *
+ * **The control that makes an emailed bearer credential acceptable.** A return link sits in someone's inbox
+ * forever and cannot be un-sent; being able to switch it off is what keeps that from being a standing risk.
+ * Pages already built are untouched — revoking closes a door, it does not delete what came through it.
+ */
+export async function revokeTemplateLink(linkId: string) {
+  const actor = await requireActor();
+  const revoked = await revokeShareLink(linkId, { userId: actor.userId, role: actor.role ?? null });
+  return { success: revoked };
 }
 
 /**

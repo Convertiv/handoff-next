@@ -103,7 +103,8 @@ async function main() {
   await sql`UPDATE handoff_pattern SET components = ${sql.json(AFTER_THE_OWNER_EDITED_IT)}::jsonb, updated_at = now() + interval '1 hour' WHERE id='tpl_1'`;
 
   console.log('— the visitor submits');
-  await submitGuestSubmission('page_a', guest, 'Done, thanks');
+  const submitResult = submitGuestSubmission('page_a', guest, 'Done, thanks');
+  await submitResult;
 
   const submitted = (await sql`SELECT status, provenance FROM handoff_pattern WHERE id='page_a'`)[0];
   check('status moves to review', submitted.status === 'review', submitted.status);
@@ -118,6 +119,38 @@ async function main() {
   const { templateHasMovedOn, readProvenance } = await import('../src/app/lib/page-provenance');
   const tpl = (await sql`SELECT updated_at FROM handoff_pattern WHERE id='tpl_1'`)[0];
   check('and we can tell the template moved since', templateHasMovedOn(readProvenance(submitted.provenance), tpl.updated_at) === true);
+
+  // ── The return link (R.3) ──────────────────────────────────────────────────
+  console.log('\n— the return link');
+  const returned = await submitResult;
+  check('submitting hands back a link, once', typeof returned.returnUrlToken === 'string' && returned.returnUrlToken.length > 10, returned.returnUrlToken);
+
+  const { listShareLinks, getActiveShareLinkById, resolveShareLink } = await import('../src/app/lib/db/grant-queries');
+  const pageLinks = await listShareLinks('pattern', 'page_a');
+  check('it is scoped to the page, not the template', pageLinks.length === 1, pageLinks.map((l) => l.id));
+  check('it grants edit and nothing more', JSON.stringify(pageLinks[0]?.capabilities.sort()) === JSON.stringify(['edit_own_submission', 'view']), pageLinks[0]?.capabilities);
+  check('it does not expire — it is their only way back', pageLinks[0]?.expiresAt === null, pageLinks[0]?.expiresAt);
+
+  const resolved = await resolveShareLink(returned.returnUrlToken!);
+  check('the secret resolves to that link', resolved?.token === pageLinks[0]?.id, resolved?.token);
+  check('and it points at the page', resolved?.resourceId === 'page_a', resolved?.resourceId);
+
+  // The claim the authz rules rest on: the returning author is recognised by what their link points at.
+  const { canGuestEditPattern } = await import('../src/app/lib/authz/guest');
+  const returningGuest = {
+    shareLinkId: resolved!.token,
+    capabilities: ['view', 'edit_own_submission'] as const,
+    name: 'Rep A',
+    resourceId: resolved!.resourceId,
+  };
+  check('the author can edit their submitted page', canGuestEditPattern(returningGuest, { id: 'page_a', shareLinkId: 'tok_a', status: 'review' }) === true);
+  check('but not a different one', canGuestEditPattern(returningGuest, { id: 'page_b_other', shareLinkId: 'tok_a', status: 'review' }) === false);
+
+  // Revocation is what makes an emailed bearer credential acceptable.
+  const { revokeShareLink } = await import('../src/app/lib/db/grant-queries');
+  await revokeShareLink(pageLinks[0]!.id, { userId: 'u_owner', role: null });
+  check('a revoked return link stops resolving', (await getActiveShareLinkById(pageLinks[0]!.id)) === null);
+  check('the page it opened is untouched', (await sql`SELECT count(*)::int AS n FROM handoff_pattern WHERE id='page_a'`)[0].n === 1);
 
   // ── Builder notes live on the template, where every reader already looks ───
   console.log('\n— instructions and limits, written to the template');

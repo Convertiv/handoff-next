@@ -5,7 +5,45 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.2 done: three steps became one
+## 2026-08-13 (latest) — R.3: the way back
+
+Submitting now mints a **return link** — scoped to that one page, `view` + `edit_own_submission` and nothing
+else — shown on the completion screen and emailed. Owners get a list of live links with revoke, on the share
+screen where the question "who can still get in" actually arises.
+
+**Two kinds of link now claim different things, and the authz had only one way to recognise a guest.** A
+template link's claim is the token stamped on what it created; a return link's claim is the *page it points
+at*, because that page was created through a different token. `GuestPrincipal` gained `resourceId` — read from
+the live link row every request, so revocation ends a claim immediately — and `isOwnSubmission` accepts either.
+
+**A returning author may edit at `review`.** The old rule locked editing at submission so a guest could not
+change what a reviewer was looking at. That rule is right for someone mid-build and wrong for someone we
+*handed a link to precisely so they could come back*. Both stop at `approved`/`archived`: a decision has been
+made, and editing under it rewrites what was decided.
+
+**The return link deliberately does not expire**, which turned out to be impossible to express. `createShareLink`
+reads `expiresAt: null` as "not supplied" and applies the default write-link TTL — correct for every other
+caller, and `/api/handoff/share` relies on it, so the fix is an explicit `neverExpires` rather than changing what
+null means. Caught by the verifier asserting the link had no expiry; without that check an author's only way
+back would have quietly died after 14 days.
+
+**Rate limits ship with it, not after it.** `lib/rate-limit.ts` — a shared sliding window, applied to enter,
+create and submit. Its docblock is blunt about being per-isolate: it slows a burst, it does not bound the
+damage. The durable ceiling is the 50-page cap, counted in the database. Submit's limit is the tightest because
+each success sends mail to an attacker-supplied address.
+
+**Bearer-credential handling, stated once**: only the hash is stored; a re-submission revokes the previous
+return link so a page has at most one live key; the email says plainly that the link is a key, because someone
+who does not know that cannot be careful with it and forwarding a thread is how these leak; and the screen shows
+the link too, since the address was typed into a form and verified by nobody.
+
+Not verified in a browser (auth), and **no email was actually sent** — `RESEND_API_KEY` is absent here, so
+`sendTemplatedEmail` logs and skips. What is verified against Postgres: the link is minted, scoped,
+non-expiring, resolvable, opens exactly one page, and stops resolving when revoked.
+
+---
+
+## 2026-08-13 — R.2 done: three steps became one
 
 `ShareTemplate` replaces `InviteWizard`, which is deleted rather than deprecated — there is nothing left for it
 to create.

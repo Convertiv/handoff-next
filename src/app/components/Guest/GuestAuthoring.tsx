@@ -57,6 +57,14 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
   const [linkId, setLinkId] = useState('');
   const [capabilities, setCapabilities] = useState<Capabilities>([]);
   const [submitMessage, setSubmitMessage] = useState('');
+  /**
+   * The link back to the page they just made — shown once, because only its hash is stored.
+   *
+   * On screen as well as in the email on purpose: the address was typed into a form and verified by nobody, so
+   * relying on delivery alone would mean a typo costs someone their page.
+   */
+  const [returnUrl, setReturnUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [submitOpen, setSubmitOpen] = useState(false);
   // Open by default: the instructions are the reason they are here, so they should not have to go looking.
   const [instructionsOpen, setInstructionsOpen] = useState(true);
@@ -172,7 +180,12 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
           body: JSON.stringify({ message: submitMessage.trim() || undefined }),
         }
       );
-      const json = (await res.json()) as { error?: string; findings?: RenderableFinding[] };
+      const json = (await res.json()) as {
+        error?: string;
+        findings?: RenderableFinding[];
+        /** The author's way back — returned once, never recoverable afterwards (reflow R.3). */
+        returnUrlToken?: string | null;
+      };
       if (!res.ok) {
         /**
          * A 422 means the content did not pass and the server said exactly why (roadmap E.11). Keeping the
@@ -183,6 +196,7 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
         throw new Error(json.error || 'Could not submit.');
       }
       setFindings([]);
+      setReturnUrl(json.returnUrlToken ? `${window.location.origin}/s/${json.returnUrlToken}` : null);
       setPhase('submitted');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not submit.');
@@ -304,7 +318,51 @@ export default function GuestAuthoring({ token, templateTitle, templateDescripti
           <p className="text-sm text-foreground">
             Sent for review. {name.trim() || 'You'} submitted this page — a reviewer will pick it up from here.
           </p>
-          <p className="text-sm text-muted-foreground">It can’t be edited now that it’s in the queue.</p>
+
+          {/**
+            * The return link, shown before anything else they might do (reflow R.3).
+            *
+            * Centre of the screen rather than a footnote: this is the only moment the secret exists outside an
+            * email nobody has verified can arrive, and a person who scrolls past it has lost their page. It
+            * says what the link *is*, because a recipient who does not know it is a key cannot be careful with
+            * it — and forwarding a thread is the ordinary way these leak.
+            */}
+          {returnUrl ? (
+            <div className="space-y-2 rounded-md border p-3 text-left">
+              <p className="text-sm font-medium text-foreground">Your link back to this page</p>
+              <p className="text-xs text-muted-foreground">
+                Keep it — it’s the only way back, and anyone who has it can edit your page. We’ve emailed it to
+                you as well.
+              </p>
+              <input
+                readOnly
+                value={returnUrl}
+                onFocus={(e) => e.currentTarget.select()}
+                aria-label="Your link back to this page"
+                className="w-full rounded border bg-background px-2 py-1 font-mono text-xs text-foreground"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(returnUrl)
+                    .then(() => setCopied(true))
+                    .catch(() => setError('Could not copy — select the link and copy it manually.'));
+                }}
+                className="rounded-md border border-input px-3 py-1.5 text-xs font-medium text-foreground"
+              >
+                {copied ? 'Copied' : 'Copy link'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              You can come back to this page through the link we emailed you.
+            </p>
+          )}
+
+          <p className="text-sm text-muted-foreground">
+            You can keep editing it until a reviewer makes a decision.
+          </p>
           {error ? <Alert>{error}</Alert> : null}
           <button
             type="button"

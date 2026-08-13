@@ -150,6 +150,42 @@ export async function notifyBuildDecision(input: {
 }
 
 /**
+ * Send an anonymous author the link back to the page they just made (reflow R.3).
+ *
+ * ⚠️ **This email contains a bearer credential.** Whoever holds the URL can edit that page, so:
+ *
+ * - it goes only to the address given in that session, never to a list, never to the owner;
+ * - the link is scoped to **one page** and grants `view` + `edit_own_submission` and nothing else;
+ * - it says plainly what the link does, because a recipient who does not know it is a key cannot be careful
+ *   with it, and forwarding a thread is the normal way these leak;
+ * - and it is revocable by the owner at any time, which is the point of saying so here.
+ *
+ * The address is unverified by nature — typed into a guest form — so this is best effort. The completion
+ * screen shows the same link, so a message that never arrives is an inconvenience rather than a lost page.
+ */
+export async function notifyReturnLink(input: {
+  pageId: string;
+  pageTitle: string | null;
+  to: string;
+  /** The secret half of the link. Never logged, never stored — only its hash exists server-side. */
+  urlToken: string;
+}): Promise<void> {
+  const title = input.pageTitle?.trim() || 'your page';
+  await sendTemplatedEmail({
+    kind: 'return-link',
+    to: input.to,
+    subject: `Your link to “${title}”`,
+    title: 'Your page is saved',
+    body:
+      `“${escapeHtml(title)}” has been sent for review, and you can come back to it any time with the link ` +
+      `below.<br><br><strong>Keep this link private — anyone who has it can edit your page.</strong>`,
+    ctaLabel: 'Open your page',
+    ctaUrl: `${appBaseUrl()}/s/${encodeURIComponent(input.urlToken)}`,
+    footnote: 'You received this because you built this page. The person who shared the template can revoke this link.',
+  });
+}
+
+/**
  * Fire a notification without letting it affect the caller — rule 1 above.
  *
  * Swallows **and logs**: a delivery failure is an operational detail, not something to show the person who just

@@ -4,6 +4,7 @@ import { createGuestSubmission, patchGuestSubmission } from '@/lib/db/pattern-wr
 import { getDbPatternById } from '@/lib/db/queries';
 import { guardrailsFromPatternData } from '@/lib/authoring-guardrails';
 import { readGuestContext, type GuestContext } from '@/lib/server/guest-context';
+import { GUEST_LIMITS, isRateLimited } from '@/lib/rate-limit';
 import { guestCookieName, guestCookieOptions, issueGuestSession } from '@/lib/server/guest-session';
 
 /**
@@ -40,6 +41,13 @@ export async function POST(request: NextRequest) {
 
   if (ctx.link.resourceType !== 'pattern') {
     return NextResponse.json({ error: 'This link does not point at a template.' }, { status: 400 });
+  }
+  /**
+   * Burst protection on the one endpoint that writes a row for an unauthenticated caller. The durable ceiling
+   * is `MAX_PAGES_PER_SHARE_LINK`, counted in the database — see `lib/rate-limit.ts` on why this is not it.
+   */
+  if (isRateLimited(`guest:create:${ctx.link.token}`, GUEST_LIMITS.create.limit, GUEST_LIMITS.create.windowMs)) {
+    return NextResponse.json({ error: 'Too many pages started; try again in a minute.' }, { status: 429 });
   }
   if (ctx.session.submissionId) {
     const current = await getDbPatternById(ctx.session.submissionId);

@@ -2,8 +2,9 @@ import 'server-only';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
+import { createShareLink, listShareLinks, revokeShareLink } from './grant-queries';
 import { componentRulesForBlocks } from './queries';
-import { notifyBuildDecision, notifyBuildSubmitted, notifyInBackground } from '../notify';
+import { notifyBuildDecision, notifyBuildSubmitted, notifyInBackground, notifyReturnLink } from '../notify';
 import { editHistory, handoffPatterns, handoffPatternChanges } from './schema';
 import {
   AuthorizationError,
@@ -591,13 +592,15 @@ function guestWriteActor(guest: GuestPrincipal, ownerUserId: string | null, mess
 async function guestPatternRef(
   db: ReturnType<typeof getDb>,
   id: string
-): Promise<{ shareLinkId: string | null; status: string } | null> {
+): Promise<{ id: string; shareLinkId: string | null; status: string } | null> {
   const [row] = await db
     .select({ shareLinkToken: handoffPatterns.shareLinkToken, status: handoffPatterns.status })
     .from(handoffPatterns)
     .where(eq(handoffPatterns.id, id))
     .limit(1);
-  return row ? { shareLinkId: row.shareLinkToken, status: row.status } : null;
+  // `id` is what a **return link** matches on — see `holdsReturnLink`. The page was created through a
+  // different token, so the stamp alone cannot recognise its author coming back.
+  return row ? { id, shareLinkId: row.shareLinkToken, status: row.status } : null;
 }
 
 /**
@@ -862,11 +865,15 @@ export async function patchGuestSubmission(
  * Visibility is untouched on purpose. Submitting is a request for attention, not a grant of access —
  * promoting the page is the reviewer's action (Slice 2), and it is the only place `approved` may be set.
  */
+/**
+ * @returns `returnUrlToken` — the secret half of the author's way back, **shown once**. Null when the page has
+ *   no owner to issue it under, or when minting failed; both are visible states rather than silent ones.
+ */
 export async function submitGuestSubmission(
   id: string,
   guest: GuestPrincipal,
   message?: string | null
-): Promise<void> {
+): Promise<{ returnUrlToken: string | null }> {
   const db = getDb();
   const ref = await guestPatternRef(db, id);
   if (!ref) throw new AuthorizationError('This page cannot be submitted with this link.');
@@ -955,6 +962,43 @@ export async function submitGuestSubmission(
   });
 
   /**
+   * The return link (reflow R.3) — how an anonymous author gets back to the page they just made.
+   *
+   * **Minted by the owner, on their behalf.** `createShareLink` requires `canChangeVisibility`, which a guest
+   * does not have and should not: this is the owner sharing a page with its author, which is exactly what the
+   * permission means. An unowned page (a legacy/service link with no creator) gets none — there is nobody whose
+   * authority it would be issued under, and inventing one would be worse than the guest not having a link.
+   *
+   * **Any previous one is revoked first**, so a page has at most one live return link. The secret cannot be
+   * re-shown after issue (only its hash is stored), so a re-submission has to mint a fresh link — and leaving
+   * the old one live would mean every re-submission adds another key to the same door.
+   */
+  let returnUrlToken: string | null = null;
+  if (owner?.userId) {
+    const ownerActor = { userId: owner.userId, role: null };
+    try {
+      for (const existing of await listShareLinks('pattern', id)) {
+        // `id` is the public handle; `revokeShareLink` accepts either that or a full token.
+        if (existing.capabilities.includes('edit_own_submission')) await revokeShareLink(existing.id, ownerActor);
+      }
+      const created = await createShareLink('pattern', id, ownerActor, {
+        capabilities: ['view', 'edit_own_submission'],
+        label: 'Return link',
+        // No expiry: this is the author's only way back to their own work, and an expiry would quietly
+        // strand it. Revocation is the owner's control, and it is deliberate rather than accidental.
+        // `expiresAt: null` cannot express this — it reads as "not supplied" and takes the default TTL.
+        neverExpires: true,
+        maxUses: null,
+      });
+      returnUrlToken = created.urlToken;
+    } catch (e) {
+      // A submission that succeeded must not be reported as failed because a link could not be minted. The
+      // guest sees no return link, which is visible; losing their work would not be.
+      console.error('[reflow] could not mint a return link for', id, e);
+    }
+  }
+
+  /**
    * Tell the owner (roadmap E.6). Fired **after** the write and outside its result: the submission is the fact,
    * the email is a courtesy, and a mail failure must not fail a build a guest just spent an hour on.
    */
@@ -970,6 +1014,27 @@ export async function submitGuestSubmission(
     blockCount: Array.isArray(row?.components) ? (row!.components as unknown[]).length : null,
     actor,
   });
+
+  /**
+   * Email the author their way back.
+   *
+   * ⚠️ This puts a **bearer credential in an inbox**, so it goes only to the address given in this session and
+   * nowhere else, and it is sent in the background for the same reason the owner's notification is: the
+   * submission is the fact, the email is a courtesy, and a mail failure must not fail an hour of someone's
+   * work. The screen shows the same link, so a lost email is an inconvenience rather than a dead end.
+   */
+  if (returnUrlToken && owner?.submittedByEmail) {
+    notifyInBackground('return-link', () =>
+      notifyReturnLink({
+        pageId: id,
+        pageTitle: row?.title ?? null,
+        to: owner.submittedByEmail!,
+        urlToken: returnUrlToken!,
+      })
+    );
+  }
+
+  return { returnUrlToken };
 }
 
 /**

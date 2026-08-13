@@ -42,6 +42,9 @@ export async function readGuestContext(linkId: string): Promise<GuestContext | n
     shareLinkId: link.token,
     capabilities: shareLinkCapabilities(link),
     name: session.name,
+    // What the link points at: a template for a build link, the page itself for a return link (R.3). Taken
+    // from the live row, so revoking a link ends its claim on the next request.
+    resourceId: link.resourceId,
   };
   return { link, guest, session, ownerUserId: link.createdByUserId ?? null };
 }

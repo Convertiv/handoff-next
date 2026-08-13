@@ -491,6 +491,16 @@ export async function createShareLink(
   actor: MutateActor,
   opts: {
     expiresAt?: Date | null;
+    /**
+     * Opt out of the default TTL entirely (reflow R.3).
+     *
+     * ⚠️ Needed because `expiresAt: null` cannot say "never": it is indistinguishable from "not supplied", and
+     * a write-capable link with neither gets `DEFAULT_WRITE_LINK_TTL_MS` — which is the right default and must
+     * stay the default. `/api/handoff/share` relies on exactly that. The one link that must not expire is the
+     * **return link**: it is an author's only way back to their own page, and an expiry would strand it
+     * silently. Revocation is the control there, and it is deliberate rather than accidental.
+     */
+    neverExpires?: boolean;
     capabilities?: readonly string[];
     label?: string | null;
     maxUses?: number | null;
@@ -528,8 +538,9 @@ export async function createShareLink(
     urlToken = token;
   }
 
-  const expiresAt =
-    opts.expiresAt ?? (writeCapable ? new Date(Date.now() + DEFAULT_WRITE_LINK_TTL_MS) : null);
+  const expiresAt = opts.neverExpires
+    ? null
+    : (opts.expiresAt ?? (writeCapable ? new Date(Date.now() + DEFAULT_WRITE_LINK_TTL_MS) : null));
 
   // Hashed here rather than by the caller, so no route can persist a plain passphrase by forgetting to.
   const passphrase = opts.passphrase?.trim() ? hashPassphrase(opts.passphrase) : null;

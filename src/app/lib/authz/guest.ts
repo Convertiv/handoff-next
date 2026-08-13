@@ -22,6 +22,18 @@ export interface GuestPrincipal {
   capabilities: readonly ShareCapability[];
   /** Self-declared display name. Unverified; provenance only, never an identity claim. */
   name: string;
+  /**
+   * What the link points at (reflow R.3).
+   *
+   * Two kinds of link now exist and they claim different things. A **template link** says "you may build from
+   * this template", and the guest's claim over what they make is the token stamped on it. A **return link**
+   * says "you may edit this one page", and its claim is the page it points at — the page was created through a
+   * different token, so the stamp cannot do that job.
+   *
+   * Read from the live link row on every request, never from the cookie, so a revoked link stops claiming
+   * anything immediately.
+   */
+  resourceId?: string;
 }
 
 /**
@@ -32,14 +44,30 @@ export interface GuestPrincipal {
  * clean up with that owner), which means ownership cannot do that job.
  */
 export interface GuestPatternRef {
+  /** The page's own id — what a return link points at. */
+  id?: string;
   /** `handoff_pattern.share_link_token` — the link this page was created through, if any. */
   shareLinkId: string | null;
   /** Lifecycle status, which decides whether editing is still open. */
   status: string;
 }
 
-/** Is this page the guest's own, created through the very link they hold? */
+/** Does the guest hold a link that points **at this page**? That is a return link (reflow R.3). */
+function holdsReturnLink(guest: GuestPrincipal, pattern: GuestPatternRef): boolean {
+  // Both sides must be non-empty, for the same reason as below: two absences are not a match.
+  if (!guest.resourceId || !pattern.id) return false;
+  return guest.resourceId === pattern.id;
+}
+
+/**
+ * Is this page the guest's own?
+ *
+ * Two ways to be, and they are genuinely different claims:
+ * - the page was **created through the link they hold** (a template link, and this is their draft), or
+ * - the link they hold **points at this page** (a return link, issued to them when they submitted).
+ */
 function isOwnSubmission(guest: GuestPrincipal, pattern: GuestPatternRef): boolean {
+  if (holdsReturnLink(guest, pattern)) return true;
   // Both sides must be non-empty: two rows that each "have no link" are not the same link, and a
   // null/empty match would make every non-guest page editable by any guest.
   if (!guest.shareLinkId || !pattern.shareLinkId) return false;
@@ -53,15 +81,24 @@ export function canGuestCreateFromTemplate(guest: GuestPrincipal, templateId: st
 }
 
 /**
- * A guest may edit a page only while all three hold: their link says so, the page was created through
- * *that same link*, and it has not been submitted yet.
+ * May this guest edit this page?
  *
- * Locking at `review` is deliberate — a guest still editing after submission would change what a
- * reviewer already looked at, and nothing in the record would say it moved.
+ * Their link must say so, the page must be theirs, and its status must still be open to them.
+ *
+ * **The status rule differs by link kind, deliberately** (reflow R.3):
+ * - A **template link** holder is mid-build: `draft` only. Locking at `review` is what stops a guest changing
+ *   what a reviewer already looked at with nothing in the record to say it moved.
+ * - A **return link** holder was *given* the link precisely so they could come back — "get back and make
+ *   changes to the page they created" — so `review` stays open to them. A submitted page is under
+ *   consideration, not sealed.
+ *
+ * Neither may touch `approved` or `archived`: a decision has been made, and editing under it would rewrite
+ * what was decided.
  */
 export function canGuestEditPattern(guest: GuestPrincipal, pattern: GuestPatternRef): boolean {
   if (!guest.capabilities.includes('edit_own_submission')) return false;
   if (!isOwnSubmission(guest, pattern)) return false;
+  if (holdsReturnLink(guest, pattern)) return pattern.status === 'draft' || pattern.status === 'review';
   return pattern.status === 'draft';
 }
 
