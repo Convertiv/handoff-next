@@ -6,6 +6,7 @@ import { reviewPattern } from '@/lib/db/pattern-write';
 import { getDbPatternById, componentRulesForBlocks } from '@/lib/db/queries';
 import { diffSubmissionAgainstTemplate, type PatternComponentEntry } from '@/lib/guest-editable';
 import { checkGuardrails, guardrailsFromPatternData } from '@/lib/authoring-guardrails';
+import { readProvenance, templateHasMovedOn } from '@/lib/page-provenance';
 
 /**
  * What did the author actually change?
@@ -33,7 +34,27 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
 
   const template = row.templateId ? await getDbPatternById(row.templateId) : null;
   const submissionBlocks = (Array.isArray(row.components) ? row.components : []) as PatternComponentEntry[];
-  const templateBlocks = (Array.isArray(template?.components) ? template!.components : []) as PatternComponentEntry[];
+
+  /**
+   * **The diff compares against what this person was handed, not against the template as it stands now**
+   * (reflow §2.1).
+   *
+   * This is the whole reason the fork copy exists. Templates are live and editable under the reflow, so
+   * reading `template.components` here would re-base every past submission the moment the owner touched the
+   * template — a reviewer would be shown changes the guest never made, and told the guest made them.
+   *
+   * Falls back to the live template only when there is no fork copy: a page from the brief era whose
+   * migration could not recover one, where the live row is the best available answer and a diff is still
+   * better than none.
+   */
+  const provenance = readProvenance(row.provenance);
+  const templateBlocks = (provenance?.blocks?.length
+    ? provenance.blocks
+    : Array.isArray(template?.components)
+      ? template!.components
+      : []) as PatternComponentEntry[];
+  /** Which of the two the reviewer is actually looking at — never leave them to guess. */
+  const comparedAgainst = provenance?.blocks?.length ? 'as-handed' : 'template-now';
   const values = ((row.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
     []) as unknown[];
 
@@ -63,6 +84,10 @@ export async function GET(_request: NextRequest, { params }: { params: Promise<{
       updatedAt: row.updatedAt,
     },
     blocks,
+    comparedAgainst,
+    /** Non-null only where the fork copy survives: when they started, and whether the template has moved since. */
+    forkedAt: provenance?.forkedAt ?? null,
+    templateHasMovedOn: templateHasMovedOn(provenance, template?.updatedAt ?? null),
     changedCount: blocks.reduce((n, b) => n + b.changes.length, 0),
     findings,
   });

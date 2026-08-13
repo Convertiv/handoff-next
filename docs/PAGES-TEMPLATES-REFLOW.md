@@ -66,8 +66,14 @@ re-bases against a template that has moved on. The validation record you want to
 unfalsifiable, which is worse than not capturing it.
 
 **So: no brief object, no versions to manage, no snapshot in the product — and a fork-time copy written onto
-the created page as provenance.** One row, written once, at submit. Nobody names it, lists it, versions it or
-cleans it up.
+the created page as provenance.** Nobody names it, lists it, versions it or cleans it up.
+
+⚠️ **Correction from building R.2: the record is written *twice*, not once.** This section originally said "one
+row, written once, at submit" — which cannot work. The copy has to be taken when the guest is *handed* the
+template, because the template stays live; capturing at submit captures whatever it had become by then, which is
+exactly the drift the record exists to prevent. So it is **append-only in two moments**: `buildProvenance` at
+fork records what they were given, `completeProvenance` at submit records what happened when they let go. Neither
+overwrites the other. Verified by moving the template between the two — `npm run verify:guest`.
 
 | | Today | Reflow |
 |---|---|---|
@@ -225,7 +231,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 |---|---|---|
 | **R.0** | ✅ Schema: `kind`, `provenance`, `handoff_page_note`; idempotent, re-runnable backfill | No UI change, and `template_id` deliberately untouched. Verified against Postgres 16 — `npm run verify:reflow`. |
 | **R.1** | ✅ Library shows three kinds; promote/demote in `MetaControl` | Guest submissions stop being hidden — they are pages now. Promotion is gated on `canChangeVisibility`, not `canEdit`. |
-| **R.2** | Template share link replaces the brief wizard; guest submit creates a **Page** with provenance | The core reflow. Old briefs keep working until R.5. |
+| **R.2** | 🔄 **Data path done**: `shareTemplate` action, fork/submit provenance, 50-page cap, diff reads the fork copy. **Remaining**: swap `InviteWizard` to the new action. | Old briefs keep working until R.5 — `createInvitation` is marked legacy, not deleted. |
 | **R.3** | Return link + completion screen + email; owner-side link management and revocation | Ships with the rate limits, not after them. |
 | **R.4** | Provenance panel + threaded notes on the page; review surface moves off `BuildPanel` | Where "formerly builds" becomes true. |
 | **R.5** | Retire briefs: drop `source_page_id` / `brief_version`, delete the wizard | Only once R.2 has run on real data. |

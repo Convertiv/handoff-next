@@ -1,5 +1,5 @@
 import 'server-only';
-import { and, desc, eq, inArray, ne } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { getDb } from './index';
 import { insertSyncEvent } from './sync-queries';
 import { componentRulesForBlocks } from './queries';
@@ -33,6 +33,8 @@ import {
   type PatternMetaChange,
   type ReviewDecision,
 } from '../authz/review';
+import { MAX_PAGES_PER_SHARE_LINK } from '../authz/vocab';
+import { buildProvenance, completeProvenance, readProvenance, type ProvenanceFinding } from '../page-provenance';
 
 /**
  * Shared pattern (playground page) write core — actor-parameterized so BOTH the
@@ -689,13 +691,40 @@ export async function createGuestSubmission(
    * they have removed. Existing drafts need no check: the archive cascade moves them off `draft`, and
    * `canGuestEditPattern` already requires `draft`.
    */
-  const [brief] = await db
-    .select({ status: handoffPatterns.status })
+  const [template] = await db
+    .select({
+      status: handoffPatterns.status,
+      updatedAt: handoffPatterns.updatedAt,
+      components: handoffPatterns.components,
+    })
     .from(handoffPatterns)
     .where(eq(handoffPatterns.id, input.templateId))
     .limit(1);
-  if (brief?.status === 'archived') {
+  if (template?.status === 'archived') {
     throw new AuthorizationError('This invitation is no longer accepting new pages.');
+  }
+
+  /**
+   * The per-link page cap (reflow R.2) — **counted in pages, not visits**.
+   *
+   * A template link is meant to be opened by many people, so capping *sessions* would turn away the 51st
+   * visitor before they had made anything. This counts the rows that already carry the link's token, which is
+   * the thing the cap is actually about: an unauthenticated write endpoint that can run forever is the one
+   * real hazard this flow introduces.
+   *
+   * Read-then-write, so a burst could land one or two over the line. That is an acceptable trade at this size:
+   * the alternative is a counter column and a race to maintain, and 51 pages is not the failure mode — 5,000 is.
+   */
+  if (guest.shareLinkId) {
+    const [{ count } = { count: 0 }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(handoffPatterns)
+      .where(eq(handoffPatterns.shareLinkToken, guest.shareLinkId));
+    if (count >= MAX_PAGES_PER_SHARE_LINK) {
+      throw new AuthorizationError(
+        'This invitation has reached its limit of pages. Ask whoever sent it for a new link.'
+      );
+    }
   }
 
   const actor = guestWriteActor(guest, ownerUserId);
@@ -710,9 +739,28 @@ export async function createGuestSubmission(
     data: input.data ?? {},
     userId: ownerUserId,
     source: 'guest',
+    // A guest's page is a **page** (reflow R.1). What made it is provenance, not a different kind of object.
+    kind: 'page',
     templateId: input.templateId,
     shareLinkToken: guest.shareLinkId,
     submittedByEmail: input.submittedByEmail?.trim() || null,
+    /**
+     * The fork record, written **now** rather than at submit.
+     *
+     * This is the moment the guest was handed the template, so this is the only moment its blocks can be
+     * captured faithfully — the template stays live and editable, and capturing at submit would record
+     * whatever it had become by then. `completeProvenance` fills in the rest when they submit.
+     */
+    provenance: buildProvenance({
+      template: {
+        id: input.templateId,
+        updatedAt: template?.updatedAt ?? null,
+        components: template?.components,
+      },
+      forkedAt: new Date(),
+      submittedByEmail: input.submittedByEmail ?? null,
+      shareLinkToken: guest.shareLinkId,
+    }) as Record<string, unknown>,
     // Not negotiable by the caller: a guest submission starts private and unsubmitted.
     visibility: 'private',
     status: 'draft',
@@ -833,7 +881,10 @@ export async function submitGuestSubmission(
    * `authoring-guardrails.ts`.
    */
   // A guest submission: content-only, so config the guest never saw cannot block it.
-  const blocking = blockingFindings(await checkPatternGuardrails(db, id, { contentOnly: true }));
+  const allFindings = await checkPatternGuardrails(db, id, { contentOnly: true });
+  const blocking = blockingFindings(allFindings);
+  /** The non-blocking half, kept for the provenance record below rather than discarded. */
+  const advisory = allFindings.filter((f) => !blocking.includes(f));
   if (blocking.length) {
     /**
      * Not `AuthorizationError` — the caller has permission, the content does not pass — and not a plain `Error`
@@ -844,11 +895,33 @@ export async function submitGuestSubmission(
   }
 
   const [owner] = await db
-    .select({ userId: handoffPatterns.userId })
+    .select({
+      userId: handoffPatterns.userId,
+      provenance: handoffPatterns.provenance,
+      submittedByEmail: handoffPatterns.submittedByEmail,
+    })
     .from(handoffPatterns)
     .where(eq(handoffPatterns.id, id))
     .limit(1);
   const actor = guestWriteActor(guest, owner?.userId ?? null, message);
+
+  /**
+   * What the checks said at the moment its author let go of it (reflow R.2).
+   *
+   * Recorded rather than recomputed later, because "what did the checks say when this was submitted" and "what
+   * do they say now" are different questions and only the first one is a fact about the submission. Rules
+   * change; a rule added next month must not retroactively rewrite what a guest was told.
+   *
+   * Advisory only — the blocking ones cannot survive the gate above, so anything blocking here would be a lie.
+   */
+  const submittedFindings: ProvenanceFinding[] = advisory.map((f) => ({
+    // Guardrails are content rules; the wider `category` axis belongs to the audits, which do not run here.
+    category: 'content',
+    code: f.code,
+    message: f.message,
+    blockIndex: f.blockIndex,
+    path: f.path ?? undefined,
+  }));
 
   /**
    * Guarded in the WHERE clause as well as by the check above: two submits racing must not both record
@@ -856,7 +929,20 @@ export async function submitGuestSubmission(
    */
   const updated = await db
     .update(handoffPatterns)
-    .set({ status: 'review', updatedAt: new Date() })
+    .set({
+      status: 'review',
+      updatedAt: new Date(),
+      /**
+       * The second half of the provenance record — see `completeProvenance`. Written inside the same guarded
+       * UPDATE as the status, so a losing race writes neither: a page cannot end up carrying a submission
+       * record it never made.
+       */
+      provenance: completeProvenance(readProvenance(owner?.provenance), {
+        submittedAt: new Date(),
+        submittedByEmail: owner?.submittedByEmail ?? null,
+        findings: submittedFindings,
+      }) as Record<string, unknown>,
+    })
     .where(and(eq(handoffPatterns.id, id), eq(handoffPatterns.status, 'draft')))
     .returning({ id: handoffPatterns.id });
   if (!updated.length) throw new AuthorizationError('This page cannot be submitted with this link.');

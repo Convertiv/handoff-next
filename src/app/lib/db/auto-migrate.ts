@@ -90,9 +90,10 @@ export async function autoMigrate(): Promise<void> {
   const { drizzle } = await import('drizzle-orm/postgres-js');
   const { migrate } = await import('drizzle-orm/postgres-js/migrator');
   const postgres = (await import('postgres')).default;
+  const { sslOptionFor } = await import('./index');
 
-  // Vercel Postgres / Neon / Supabase poolers all require SSL. postgres-js
-  // honors `sslmode=require` URL params, but be explicit here too.
+  // Vercel Postgres / Neon / Supabase poolers all require SSL, so TLS is the default; `sslmode=disable` in the
+  // URL is the one way out, which is what makes a local container reachable. See `sslOptionFor`.
   const isPooler = /-pooler\.|pooler\.|neon\.tech/i.test(url);
   console.log(`[handoff] auto-migrate: connecting (pooler=${isPooler})…`);
 
@@ -101,7 +102,7 @@ export async function autoMigrate(): Promise<void> {
     connect_timeout: 15,
     idle_timeout: 5,
     prepare: !isPooler, // Neon pooler can't use prepared statements
-    ssl: 'require',
+    ssl: sslOptionFor(url),
     onnotice: () => {},
   });
 

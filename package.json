@@ -62,6 +62,7 @@
     "turn": "NODE_OPTIONS=--conditions=react-server tsx scripts/run-turn.ts",
     "test:unit": "tsx --test test/*.test.ts && npm run test:unit:server",
     "verify:reflow": "tsx scripts/verify-reflow-migration.ts",
+    "verify:guest": "tsx --conditions=react-server scripts/verify-guest-flow.ts",
     "test:unit:server": "NODE_OPTIONS=--conditions=react-server tsx --test test/server/*.test.ts",
     "mcp:quality": "tsx scripts/mcp-quality/run.ts",
     "playwright:install": "npx playwright install chromium",

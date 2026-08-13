@@ -7,7 +7,8 @@ import type { PatternComponentEntry } from '@/lib/guest-editable';
  *
  * **This is the reflow's one substantive change to how the old model stored things** — see
  * `docs/PAGES-TEMPLATES-REFLOW.md` §2.1. Briefs stop being an object a person creates, versions and manages;
- * the frozen copy they existed to hold moves onto the created page, written once at submit.
+ * the frozen copy they existed to hold moves onto the created page — taken at **fork**, completed at
+ * **submit**. See `completeProvenance` for why it cannot be a single write.
  *
  * The argument, compressed: a built page's value to a reviewer is the comparison *"what did this person change
  * versus what they were handed"*. Share a live template with no copy taken and that comparison silently
@@ -133,10 +134,38 @@ export function templateHasMovedOn(
 }
 
 /**
- * Build the record written at submit.
+ * Complete a fork record at submit.
+ *
+ * ⚠️ **Provenance is written twice, not once** — a correction to `PAGES-TEMPLATES-REFLOW.md` §2.1, found while
+ * implementing R.2. The doc said "written once, at submit", which cannot work: the copy has to be taken when
+ * the guest is *handed* the template, because the template can change between then and submit. Capturing
+ * blocks at submit would capture whatever the template says by then, which is precisely the drift the record
+ * exists to prevent.
+ *
+ * So: **append-only, in two moments.** `buildProvenance` at fork records what they were given; this records
+ * what happened when they let go of it. Neither overwrites the other, and nothing edits either afterwards —
+ * the fork half is never touched again, and a second submit cannot rewrite the first.
+ */
+export function completeProvenance(
+  existing: PageProvenance | null,
+  input: { submittedAt?: Date; submittedByEmail?: string | null; findings?: ProvenanceFinding[] }
+): PageProvenance {
+  const base = existing ?? {};
+  const out: PageProvenance = {
+    ...base,
+    // `?? base.x` throughout: submitting must not blank a value the fork recorded.
+    submittedAt: (input.submittedAt ?? new Date()).toISOString(),
+    submittedByEmail: input.submittedByEmail?.trim() || base.submittedByEmail,
+    findings: input.findings?.length ? input.findings : base.findings,
+  };
+  return compact(out);
+}
+
+/**
+ * Build the record written at fork — the moment a guest is handed the template.
  *
  * Kept here rather than inline at the call site so there is exactly one place that decides what a provenance
- * record contains — the submit path, the MCP path and any future one must not each invent their own shape.
+ * record contains — the guest path, the MCP path and any future one must not each invent their own shape.
  */
 export function buildProvenance(input: {
   template: { id: string; updatedAt?: Date | string | null; components?: unknown };
@@ -156,7 +185,13 @@ export function buildProvenance(input: {
     templateId: input.template.id,
     templateUpdatedAt: iso(input.template.updatedAt),
     forkedAt: iso(input.forkedAt),
-    submittedAt: iso(input.submittedAt ?? new Date()),
+    /**
+     * ⚠️ **No default.** This used to fall back to `new Date()`, which was right when provenance was one write
+     * at submit and wrong the moment it became two: a fork record would claim a submission that had not
+     * happened, and a page abandoned in draft would carry a submitted-at forever. `completeProvenance` is the
+     * only thing entitled to set it.
+     */
+    submittedAt: iso(input.submittedAt),
     submittedByEmail: input.submittedByEmail?.trim() || undefined,
     shareLinkToken: input.shareLinkToken ?? undefined,
   };

@@ -36,6 +36,19 @@ function describeUrl(raw: string | undefined): string {
   return `proto=${protoStr} shape="${shape}" len=${trimmed.length}${ws}`;
 }
 
+/**
+ * TLS on by default; off only when the URL explicitly says so.
+ *
+ * ⚠️ This was a hardcoded `ssl: 'require'`, which meant **no local Postgres could ever be reached** — a
+ * container on localhost speaks no TLS, so every connection died with `ECONNRESET` before the first query.
+ * Hosted deployments are unaffected: they carry no `sslmode=disable`, so they still get `'require'`. The
+ * choice stays explicit and opt-out rather than sniffing for `localhost`, because "it looked like a dev
+ * machine" is not a good enough reason to drop transport security.
+ */
+export function sslOptionFor(url: string): 'require' | false {
+  return /[?&]sslmode=disable(&|$)/i.test(url) ? false : 'require';
+}
+
 export function requireDatabaseUrl(): string {
   const url = process.env.DATABASE_URL?.trim();
   if (!url) {
@@ -62,7 +75,7 @@ export function getDb(): HandoffDb {
         idle_timeout: 20,
         connect_timeout: 15,
         prepare: !isPooler,
-        ssl: 'require',
+        ssl: sslOptionFor(url),
       });
       globalForDb.handoffPostgres = client;
       globalForDb.handoffDrizzle = drizzlePg(client, { schema: pgSchema });

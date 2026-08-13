@@ -29,6 +29,20 @@ export const PATTERN_KINDS: readonly PatternKind[] = ['page', 'template', 'brief
 /** The kinds a person can choose between. `brief` is legacy and never offered. */
 export const SELECTABLE_KINDS: readonly PatternKind[] = ['page', 'template'] as const;
 
+/**
+ * How many pages one template share link may produce (Brad, 2026-08-13).
+ *
+ * ⚠️ **Pages, not sessions.** `handoff_share_link.maxUses` counts *visits* — it is decremented by
+ * `consumeShareLink` when someone starts a session, whether or not they ever make anything. Capping visits
+ * would lock out the 51st person to open a link before they had created a single page, which is the opposite
+ * of what a cap is for here. So this is enforced where a row is actually written, by counting the pages that
+ * already carry the link's token.
+ *
+ * A constant rather than a column because nobody has asked to vary it. When someone does, it becomes a column
+ * on the link and this stays as the default.
+ */
+export const MAX_PAGES_PER_SHARE_LINK = 50;
+
 export const KIND_META: Record<PatternKind, { label: string; plural: string; sub: string }> = {
   page: { label: 'Page', plural: 'Pages', sub: 'A document you own and keep working on.' },
   template: {

@@ -5,7 +5,43 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.1: three kinds in the library, and promotion as a permission
+## 2026-08-13 (latest) — R.2 data path: the fork copy, the cap, and a template that moves underneath you
+
+The guest loop now produces a **Page** with provenance. `shareTemplate` replaces the brief half of
+`createInvitation` — one link, pointed at the template itself, nothing versioned, nothing for the owner to
+manage. `createInvitation` is marked legacy rather than deleted, so links already in inboxes keep resolving
+until R.5.
+
+**Provenance is written twice, and the doc was wrong to say once.** §2.1 said "one row, written once, at
+submit". That cannot work: the copy has to be taken when the guest is *handed* the template, because the
+template stays live — capturing at submit captures whatever it had become by then, which is the exact drift the
+record exists to prevent. It is append-only in two moments now, and the doc is corrected.
+
+**The verification is the interesting part.** `npm run verify:guest` drives the real write core against a real
+Postgres and *moves the template between fork and submit* — because "a template edited mid-flight is harmless"
+is the claim the whole design rests on, and it is unfalsifiable without actually doing it. The fork copy holds.
+It also proves the diff reads that copy: `review/[id]` used to compare against `template.components`, which
+under a live template would have re-based every past submission the moment its owner touched it — showing a
+reviewer changes the guest never made, and attributing them to the guest.
+
+**The cap is on pages, not visits.** `maxUses` counts sessions, so using it would have turned away the 51st
+person to *open* a link before they had made anything. 50 pages per link, enforced where the row is written.
+
+Two defects found by writing the checks rather than by reading the code:
+
+1. **The fork record was stamping `submittedAt`.** `buildProvenance` defaulted it to now — correct when
+   provenance was a single write at submit, wrong the moment it became two. A page abandoned in draft would
+   have carried a submission time forever.
+2. **`ssl: 'require'` was hardcoded**, so no local Postgres was reachable at all — every connection died with
+   `ECONNRESET` before the first query. Now `sslmode=disable` in the URL opts out and nothing else changes;
+   hosted deployments never carry it. This is also what unblocks running the registry locally.
+
+Still to do in R.2: swap `InviteWizard` onto `shareTemplate`. UI only — the data path underneath it is done
+and verified.
+
+---
+
+## 2026-08-13 — R.1: three kinds in the library, and promotion as a permission
 
 `kind` moved into `authz/vocab.ts` beside visibility and lifecycle — same sort of thing, read by client
 components, and two definitions of one enum is how they drift. `page-provenance.ts` re-exports it rather than

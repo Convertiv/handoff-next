@@ -97,7 +97,9 @@ describe('buildProvenance', () => {
     assert.equal(p.forkedAt, undefined);
     assert.equal(p.submittedByEmail, undefined);
     assert.equal(p.blocks, undefined);
-    assert.ok(p.submittedAt, 'submittedAt defaults to now — it is the one thing we always know');
+    // Not even `submittedAt`: a fork record must not claim a submission that has not happened. Only
+    // `completeProvenance` sets it — see the note there about the record being written in two moments.
+    assert.equal(p.submittedAt, undefined);
   });
 
   it('round-trips through storage', () => {
