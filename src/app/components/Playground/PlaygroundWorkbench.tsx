@@ -129,12 +129,18 @@ export default function PlaygroundWorkbench({
   const showPageBuilds = level === 'page' && one(search.get('builds'));
 
   const leftPanel =
-    level === 'build' && build && brief ? (
+    level === 'build' && build ? (
+      /**
+       * **No brief required** (reflow R.4). A page built the new way descends straight from the template, so
+       * `?build=` alone is a level. `go({ build: null })` returns to whatever the URL still holds — the brief
+       * for a legacy chain, the template itself otherwise — so one handler serves both.
+       */
       <BuildPanel
         build={build}
         basePath={basePath}
         audits={audits}
         guardrailFindings={guardrailFindings}
+        backLabel={brief ? 'All builds' : 'Back to template'}
         onBackToBrief={() => go({ build: null })}
       />
     ) : level === 'brief' && brief ? (
@@ -156,12 +162,15 @@ export default function PlaygroundWorkbench({
           </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {/* Selecting one opens it *through* its brief — a build is only reachable via the brief it answers. */}
+          {/**
+            * Opened directly when it descends from this template, and *through its brief* only when it is a
+            * legacy row that has one — `briefId` is null for everything built the new way.
+            */}
           <BuildList
             builds={pageBuilds}
             onSelect={(id) => {
               const row = pageBuilds.find((b) => b.id === id);
-              if (row) go({ brief: row.briefId, build: row.id, builds: null });
+              if (row) go({ brief: row.briefId ?? null, build: row.id, builds: null });
             }}
             emptyNote="Nothing has been built from this page yet. Invite someone to build, and their pages appear here."
           />

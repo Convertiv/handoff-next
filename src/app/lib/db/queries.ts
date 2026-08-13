@@ -241,14 +241,47 @@ export interface TemplateSubmission {
  * Archived briefs and archived builds are both excluded, matching every other list (see `removePattern`).
  */
 export interface PageBuild extends TemplateSubmission {
-  briefId: string;
+  /**
+   * The brief this came through — **legacy only** (reflow R.4).
+   *
+   * Null for a page built the new way, where there is no brief: the link points at the template and the page
+   * records where it came from in its own provenance. The UI uses it to decide whether opening this page needs
+   * the old `?brief=` hop, so null is meaningful rather than missing.
+   */
+  briefId: string | null;
   briefVersion: number | null;
 }
 
 export async function listBuildsForPage(pageId: string): Promise<PageBuild[]> {
   if (!isPostgres()) return [];
   const db = getDb();
+  /**
+   * **Two ways a page can descend from this one**, and both are listed (reflow R.4).
+   *
+   * - *New:* the page's own `provenance.templateId` names this page. There is no brief in between — the link
+   *   pointed at the template, and the fork copy on the page records what it came from.
+   * - *Legacy:* the page's `template_id` names a **brief**, and that brief was snapshotted from this page.
+   *
+   * A UNION rather than an OR across a join, because the legacy half needs the brief row and the new half must
+   * not require one — an OR would have to LEFT JOIN and then the brief's own `status <> 'archived'` filter
+   * would silently drop every new-model page (a null brief is not "not archived").
+   */
   const result = await db.execute(sql`
+    SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name, c.message,
+      NULL::text AS brief_id, NULL::integer AS brief_version
+    FROM handoff_pattern p
+    LEFT JOIN LATERAL (
+      SELECT pc.pushed_by_name, pc.message
+      FROM handoff_pattern_change pc
+      WHERE pc.pattern_id = p.id AND pc.trigger = 'guest'
+      ORDER BY pc.pushed_at DESC
+      LIMIT 1
+    ) c ON TRUE
+    WHERE p."provenance" ->> 'templateId' = ${pageId}
+      AND p."status" <> 'archived'
+
+    UNION ALL
+
     SELECT p.id, p.title, p.status, p.updated_at, p.share_link_token, c.pushed_by_name, c.message,
       b."id" AS brief_id, b."brief_version" AS brief_version
     FROM handoff_pattern p
@@ -264,7 +297,9 @@ export async function listBuildsForPage(pageId: string): Promise<PageBuild[]> {
       AND b."source_page_id" = ${pageId}
       AND b."status" <> 'archived'
       AND p."status" <> 'archived'
-    ORDER BY p.updated_at DESC NULLS LAST
+      -- Not already counted by the first half: a backfilled page has provenance *and* a brief.
+      AND (p."provenance" ->> 'templateId') IS DISTINCT FROM ${pageId}
+    ORDER BY updated_at DESC NULLS LAST
     LIMIT 200
   `);
   const rows = (result.rows ?? result) as Record<string, unknown>[];
@@ -279,7 +314,7 @@ export async function listBuildsForPage(pageId: string): Promise<PageBuild[]> {
       submittedByName: name?.startsWith('guest:') ? name.slice('guest:'.length).trim() || null : name,
       shareLinkToken: (r.share_link_token as string | null) ?? null,
       submittedMessage: (r.message as string | null) ?? null,
-      briefId: String(r.brief_id),
+      briefId: r.brief_id == null ? null : String(r.brief_id),
       briefVersion: r.brief_version == null ? null : Number(r.brief_version),
     };
   });

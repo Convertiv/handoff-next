@@ -8,7 +8,7 @@ import {
   listTemplateSubmissions,
 } from '../../../lib/db/queries';
 import { listShareLinks } from '../../../lib/db/grant-queries';
-import { briefBelongsToPage, findBuild } from '../../../lib/workbench-level';
+import { briefBelongsToPage, findBuild, submissionBelongsToTemplate } from '../../../lib/workbench-level';
 import { auditBuild } from '../../../lib/build-audits';
 import { advisoryFindings } from '../../../lib/authoring-guardrails';
 import { checkPatternGuardrails } from '../../../lib/db/pattern-write';
@@ -98,6 +98,41 @@ export default async function PlaygroundPageById({
      * `?brief=`/`?build=` would be a way to render any record in the deployment inside your own page's shell.
      * A mismatch drops the selection instead of erroring — the page itself is still a valid thing to show.
      */
+    /**
+     * **A submitted page opens directly from the template it came from** (reflow R.4).
+     *
+     * The brief hop is gone for anything built the new way: the share link points at the template, so the
+     * page's own provenance is what entitles it to appear inside this shell. Resolved before the legacy branch
+     * so a new-model page never needs `?brief=` — and, like that branch, verified rather than assumed.
+     */
+    const directBuildId = one(query.build);
+    if (directBuildId && !one(query.brief)) {
+      const submission = await getDbPatternById(directBuildId).catch(() => null);
+      if (submissionBelongsToTemplate(submission, id)) {
+        /**
+         * Name and note come from the list this route already fetched, which computes them from the guest's
+         * own change record. Enrichment only — the gate is the provenance check above, because that list is
+         * capped and a template with more submissions than the cap must not lose access to the newest ones.
+         */
+        const listed = pageBuilds.find((b) => b.id === submission!.id) ?? null;
+        build = {
+          id: submission!.id,
+          title: submission!.title ?? '',
+          status: submission!.status ?? '',
+          submittedByName: listed?.submittedByName ?? null,
+          submittedAt: submission!.updatedAt ? submission!.updatedAt.toISOString() : null,
+          submittedMessage: listed?.submittedMessage ?? null,
+        };
+        // The same two passes the legacy branch runs, on the same record — see the note there.
+        const blocks = (Array.isArray(submission!.components) ? submission!.components : []) as PatternComponentEntry[];
+        const values =
+          ((submission!.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
+            []) as unknown[];
+        audits = auditBuild(blocks, values);
+        guardrailFindings = advisoryFindings(await checkPatternGuardrails(getDb(), submission!.id));
+      }
+    }
+
     const briefId = one(query.brief);
     if (briefId) {
       const briefRow = await getDbPatternById(briefId).catch(() => null);

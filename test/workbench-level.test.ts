@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'node:test';
-import { briefBelongsToPage, findBuild, levelFor } from '../src/app/lib/workbench-level';
+import { briefBelongsToPage, findBuild, levelFor, submissionBelongsToTemplate } from '../src/app/lib/workbench-level';
 
 /**
  * The rules that decide which level of a page the workbench shows, and whether the URL is allowed to ask for
@@ -60,10 +60,45 @@ describe('levelFor', () => {
   });
 
   /**
-   * A build with no brief is an inconsistent URL, not a level: the build panel's only way back is "all builds",
-   * which needs the brief. Falling back to `page` keeps the shell coherent instead of rendering a dead end.
+   * ⚠️ **This rule reversed in the reflow (R.4), deliberately.**
+   *
+   * It used to fall back to `page`: a build with no brief was an inconsistent URL, because the only way to have
+   * a build at all was through a brief, and the panel's one way back — "all builds" — needed it.
+   *
+   * Under the reflow a share link points at the **template**, so a submitted page descends from it directly and
+   * `?build=` alone is a legitimate URL. What stops it becoming a way to render any record inside your shell is
+   * unchanged in spirit: the *server* decides, now by `submissionBelongsToTemplate` instead of the brief chain.
+   * The back control says "Back to template" when there is no brief to return to.
    */
-  it('falls back to page when a build is named without its brief', () => {
-    assert.equal(levelFor(false, true), 'page');
+  it('treats a build named without a brief as its own level', () => {
+    assert.equal(levelFor(false, true), 'build');
+  });
+});
+
+describe('submissionBelongsToTemplate', () => {
+  const from = (templateId: string) => ({ provenance: { templateId } });
+
+  it('admits a page whose provenance names this template', () => {
+    assert.equal(submissionBelongsToTemplate(from('tpl'), 'tpl'), true);
+  });
+
+  it('refuses another template’s page, and anything without provenance', () => {
+    // Same job `briefBelongsToPage` does for the legacy chain: without it, `?build=` renders any record in the
+    // deployment inside your own page's shell.
+    assert.equal(submissionBelongsToTemplate(from('other'), 'tpl'), false);
+    assert.equal(submissionBelongsToTemplate({ provenance: null }, 'tpl'), false);
+    assert.equal(submissionBelongsToTemplate({}, 'tpl'), false);
+    assert.equal(submissionBelongsToTemplate(null, 'tpl'), false);
+    assert.equal(submissionBelongsToTemplate(undefined, 'tpl'), false);
+  });
+
+  it('refuses an empty template id rather than matching an empty claim', () => {
+    assert.equal(submissionBelongsToTemplate(from(''), ''), false);
+  });
+
+  it('ignores a provenance that is not an object', () => {
+    for (const junk of ['tpl', 42, [], true]) {
+      assert.equal(submissionBelongsToTemplate({ provenance: junk }, 'tpl'), false, String(junk));
+    }
   });
 });

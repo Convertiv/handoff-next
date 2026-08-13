@@ -40,12 +40,37 @@ export function findBuild<T extends { id: string }>(builds: readonly T[], buildI
 }
 
 /**
- * `build` wins over `brief`: selecting a build is drilling deeper, not switching sideways. A build without its
- * brief is not a level — it is an inconsistent URL, and it resolves to the brief rather than showing a build
- * with no context to go back to.
+ * A page built **directly from this template**, with no brief in between (reflow R.4).
+ *
+ * This is the collapse: under the reflow a share link points at the template itself, so a submitted page's
+ * claim on this shell is its own provenance record rather than a chain through a frozen snapshot. The check is
+ * the same shape as `briefBelongsToPage` and exists for the same reason — without it, `?build=` would render
+ * any record in the deployment inside your page's shell.
+ *
+ * ⚠️ Reads `provenance.templateId`, **not** `template_id`. The column still points at the brief for legacy
+ * rows, and R.0 deliberately staged the new value in JSON so today's review diff kept working; R.5 moves the
+ * column. Until then this is where the truth is.
+ */
+export function submissionBelongsToTemplate(
+  submission: { provenance?: unknown } | null | undefined,
+  templateId: string
+): boolean {
+  if (!submission || !templateId) return false;
+  const provenance = submission.provenance;
+  if (!provenance || typeof provenance !== 'object') return false;
+  return (provenance as { templateId?: unknown }).templateId === templateId;
+}
+
+/**
+ * `build` wins over `brief`: selecting a build is drilling deeper, not switching sideways.
+ *
+ * **A build no longer needs a brief to be a level** (reflow R.4). It used to: a build without its brief was an
+ * inconsistent URL, because the only way to have one was through the other. Now a page can descend directly
+ * from a template, so `?build=` alone is a legitimate URL — the *server* decides whether that id is allowed to
+ * appear here, by one of the two `…BelongsTo…` checks, and by the time this is called that is already settled.
  */
 export function levelFor(hasBrief: boolean, hasBuild: boolean): WorkbenchLevel {
-  if (hasBrief && hasBuild) return 'build';
+  if (hasBuild) return 'build';
   if (hasBrief) return 'brief';
   return 'page';
 }

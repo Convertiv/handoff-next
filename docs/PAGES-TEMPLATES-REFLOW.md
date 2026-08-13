@@ -237,7 +237,7 @@ Each phase leaves the product working. Nothing here needs the phase after it.
 | **R.1** | ✅ Library shows three kinds; promote/demote in `MetaControl` | Guest submissions stop being hidden — they are pages now. Promotion is gated on `canChangeVisibility`, not `canEdit`. |
 | **R.2** | ✅ `shareTemplate` + `ShareTemplate` screen (three steps → one), fork/submit provenance, 50-page cap, diff reads the fork copy | Old briefs keep working until R.5 — `createInvitation` is marked legacy, not deleted. Verified with `npm run verify:guest`. |
 | **R.3** | ✅ Return link (minted at submit, shown once, emailed), completion screen, owner-side link list + revoke, guest rate limits | ⚠️ A returning author may edit while `draft` **or** `review` — a submitted page is under consideration, not sealed. Stops at `approved`/`archived`. |
-| **R.4** | 🔄 Provenance panel + threaded notes, both shipped and reachable from **both sides**. **Remaining**: collapsing the workbench's `level` so a page with provenance is reviewable from the page itself rather than through the build route. | Notes: `authz/notes.ts` (pure) + `db/note-queries.ts` (IO) + one route for both callers. `npm run verify:notes`. |
+| **R.4** | ✅ Provenance panel, threaded notes on both sides, and the level collapse — a submitted page opens straight from its template, no brief hop. | `npm run verify:notes`, `npm run verify:collapse`. **Not yet**: the owner *editing* a submitted page in place (open question #3, answered but unbuilt) — see below. |
 | **R.5** | Retire briefs: drop `source_page_id` / `brief_version`, delete the wizard | Only once R.2 has run on real data. |
 | **R.6** | CMS Track A — the migration prompt | Independent; could ship any time after R.0. |
 | **R.7** | CMS Track B — integrations tab, first adapter, mapping artifact + dry run | Sequenced by what R.6 taught. |
@@ -251,8 +251,11 @@ Each phase leaves the product working. Nothing here needs the phase after it.
    admit it.
 2. **What does a guest see on return — their page, or their page plus the template's later changes?** Their
    page, surely. But do we *tell* them the template moved?
-3. **Does an owner edit a guest's page directly, or comment on it?** Both are defensible; doing both without
-   deciding is how the notes feature becomes decoration.
+3. ~~**Does an owner edit a guest's page directly, or comment on it?**~~ **Decided: directly** (Brad,
+   2026-08-13). Notes shipped in R.4; **editing in place has not** — the build level is still read-only
+   (`canvasControls={level === 'page'}`, and its persistence adapter throws on write). Turning it on means
+   deciding what a non-owner reviewer sees, since the client does not currently know who owns the record. Its
+   own slice.
 4. **Where do templates live for a big client — one library lane, or a catalog with its own browsing?** Fine
    at ten, not at two hundred.
 5. **Does promoting a page to a template snapshot it?** Under §2.1 the answer is no, and it must stay no,

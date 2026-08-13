@@ -55,6 +55,7 @@ export default function BuildPanel({
   basePath,
   audits = [],
   guardrailFindings = [],
+  backLabel = 'All builds',
   onBackToBrief,
 }: {
   build: BuildRow;
@@ -67,6 +68,12 @@ export default function BuildPanel({
    * pretending they are audits would need a category none of them belongs to.
    */
   guardrailFindings?: RenderableFinding[];
+  /**
+   * What the back control says. A legacy chain goes back to a brief's list of builds; a page built the new way
+   * goes back to the template it came from — and calling both "All builds" would name a thing that is not there
+   * (reflow R.4).
+   */
+  backLabel?: string;
   onBackToBrief: () => void;
 }) {
   /**
@@ -232,7 +239,7 @@ export default function BuildPanel({
       <div className="flex items-center gap-1 border-b px-2 py-2">
         <Button variant="ghost" size="sm" className="h-7 gap-1 px-1.5" onClick={onBackToBrief}>
           <ChevronLeft className="h-4 w-4" />
-          <span className="text-xs">All builds</span>
+          <span className="text-xs">{backLabel}</span>
         </Button>
       </div>
 
