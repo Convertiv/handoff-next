@@ -102,6 +102,14 @@ export interface PatternInput {
   data?: Record<string, unknown>;
   tags?: unknown[];
   source?: string;
+  /**
+   * `page` (default) or `template`.
+   *
+   * A template can be *promoted* from a page, and that is the common path — but it can also be one from the
+   * start, which is what "New → Template" means (Brad, 2026-08-13). Accepted here rather than requiring a
+   * create-then-promote round trip, because the second step can fail and leave a template that is not one.
+   */
+  kind?: string;
   thumbnail?: string | null;
 }
 
@@ -132,6 +140,8 @@ export async function writePattern(input: PatternInput, actor: PatternWriteActor
     data: input.data ?? {},
     userId: actor.userId,
     source,
+    // Only the two a person can choose; anything else is a caller mistake, not a new kind.
+    kind: input.kind === 'template' ? 'template' : 'page',
     thumbnail: input.thumbnail ?? null,
   });
 

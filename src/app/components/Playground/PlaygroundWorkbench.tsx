@@ -43,6 +43,7 @@ export default function PlaygroundWorkbench({
   audits = [],
   guardrailFindings = [],
   buildCanEdit = false,
+  newRecordKind,
 }: {
   pageId?: string;
   pageTitle?: string;
@@ -63,6 +64,8 @@ export default function PlaygroundWorkbench({
    * write path would refuse — the failure this project has already hit twice.
    */
   buildCanEdit?: boolean;
+  /** `template` when a blank canvas is meant to become one — "New → Template". */
+  newRecordKind?: 'template';
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -156,7 +159,7 @@ export default function PlaygroundWorkbench({
     ) : showPageBuilds ? (
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between border-b px-3 py-2">
-          <span className="text-sm font-medium">Builds ({pageBuilds.length})</span>
+          <span className="text-sm font-medium">Pages from this template ({pageBuilds.length})</span>
           <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => go({ builds: null })}>
             Close
           </Button>
@@ -169,7 +172,7 @@ export default function PlaygroundWorkbench({
               const row = pageBuilds.find((b) => b.id === id);
               if (row) go({ build: row.id, builds: null });
             }}
-            emptyNote="Nothing has been built from this page yet. Invite someone to build, and their pages appear here."
+            emptyNote="No pages have been made from this template yet. Share it, and each visitor's page appears here."
           />
         </div>
       </div>
@@ -180,7 +183,7 @@ export default function PlaygroundWorkbench({
       // See the note above: remount per record, never re-hydrate in place.
       key={`${level}:${recordId}`}
       {...(level === 'page'
-        ? { initialPatternId: pageId, initialIsTemplate, pageTitle }
+        ? { initialPatternId: pageId, initialIsTemplate, pageTitle, newRecordKind }
         : /**
            * An editable submission is opened **by id**, exactly as a page is — hydration and autosave both come
            * from the standard path. `pageTitle` is its own title, not the template's, because this record is

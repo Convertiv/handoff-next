@@ -164,9 +164,9 @@ export default function PlaygroundBuilder({
 }: {
   leftPanel?: React.ReactNode;
   canvasControls?: boolean;
-  /** Builds waiting across all of this page's invitations. Only used to label the control. */
+  /** How many pages have been made from this one. Only used to label the control. */
   buildCount?: number;
-  /** Set at page level to offer the builds list without leaving the page. */
+  /** Set at page level to offer that list without leaving the page. */
   onShowBuilds?: () => void;
 } = {}) {
   const {
@@ -713,11 +713,12 @@ export default function PlaygroundBuilder({
                   <TooltipTrigger asChild>
                     <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={onShowBuilds}>
                       <Layers className="h-4 w-4" />
-                      <span className="text-xs">Builds</span>
+                      {/* "Build" is gone as a product word — there are pages and templates (Brad, 2026-08-13). */}
+                      <span className="text-xs">Pages</span>
                       <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">{buildCount}</span>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent side="bottom">Pages people built from this one</TooltipContent>
+                  <TooltipContent side="bottom">Pages people made from this template</TooltipContent>
                 </Tooltip>
               )}
 

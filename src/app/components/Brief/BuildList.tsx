@@ -3,7 +3,10 @@
 import { LIFECYCLE_META, type Lifecycle } from '@/lib/authz/vocab';
 
 /**
- * The pages built from an invitation — one component, mounted in two places (roadmap E.8).
+ * The pages made from a template — one component, mounted in two places (roadmap E.8).
+ *
+ * Named `BuildList` for now because renaming a file is churn; the *words on screen* are what matter, and
+ * "build" is not one of them any more (Brad, 2026-08-13).
  *
  * It appears in the brief panel *and* directly on the page, because being forced through the brief to reach a
  * build was the slow path Brad called out: "so you don't have to go through the brief just to go open the
@@ -30,7 +33,7 @@ export default function BuildList({
   builds,
   selectedId = null,
   onSelect,
-  emptyNote = 'Nobody has built from this yet. When someone does, their page appears here.',
+  emptyNote = 'Nobody has made a page from this yet. When someone does, it appears here.',
 }: {
   builds: BuildRow[];
   selectedId?: string | null;

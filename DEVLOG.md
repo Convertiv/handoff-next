@@ -5,7 +5,42 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — the change digest: what changed, in a sentence
+## 2026-08-13 (latest) — preview feedback: language, a real New→Template, and two paging bugs
+
+**The preview's missing CSS/JS is Vercel, not us.** The canvas iframe is an opaque-origin sandbox
+(`sandbox="allow-scripts"`, no `allow-same-origin`), so every `/api/component/*.css|js` request inside it is
+cross-origin and **carries no cookies**. Behind Vercel Deployment Protection those requests get the SSO
+challenge instead of the asset, while the top-level page loads fine because the browser has the cookie for it.
+The same wall is why the guest flow could not be tested — a visitor at `/s/<token>` has no Vercel session
+either. One setting unblocks both.
+
+**"Build" is gone from the interface.** There are pages and templates. The toolbar control says *Pages*, the
+panel header says *Pages from this template*, and the back link says *Back to template*. `BuildList`/`BuildPanel`
+keep their filenames — renaming files is churn, and the words on screen are what matter.
+
+**New → Template creates one from scratch.** `writePattern` takes a `kind`, so the record is *born* a template
+rather than being made one by a second call that could fail and leave a template that is not one. Sharing a page
+still promotes it; that stays the common path. Only two kinds are writable through create — `brief` is not a
+thing anyone can mint.
+
+Two paging bugs, and the second one is mine:
+
+1. **The assets page never paginated at all.** The endpoint has always taken `limit`/`offset` and the client
+   sent neither, so it showed the server's default hundred with no way to reach asset 101. Now a 60-row page
+   with Load more, de-duplicated by id — offset paging plus an upload between two fetches would otherwise show
+   the same asset twice.
+2. **The library's kind facet filtered client-side**, over whatever had been paged in. Introduced in R.1:
+   picking "Templates" showed nothing whenever the first page happened to be all pages, and Load more was the
+   only way to find out, one blind click at a time. It filters in SQL now, so the pager pages the filtered set.
+   Both callbacks were also missing `typeFacet` from their dependencies, so changing the facet would not have
+   refetched even with the query fixed.
+
+Verified against a real database, including the case that proves the bug was real: a template that sits outside
+the first unfiltered page is returned by the filtered query and would never have appeared client-side.
+
+---
+
+## 2026-08-13 — the change digest: what changed, in a sentence
 
 `changeDigest` turns the review diff into *"3 titles and 2 bodies changed, across every block."* — shown above
 the field list rather than instead of it. The field list answers "what about this field"; a reviewer opening a

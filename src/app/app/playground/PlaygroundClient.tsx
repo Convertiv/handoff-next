@@ -21,6 +21,7 @@ export default function PlaygroundClient({
   audits = [],
   guardrailFindings = [],
   buildCanEdit = false,
+  newRecordKind,
 }: {
   menu: unknown;
   metadata: unknown;
@@ -36,6 +37,8 @@ export default function PlaygroundClient({
   guardrailFindings?: GuardrailFinding[];
   /** Whether this viewer may edit the submitted page in place — computed on the record, server-side. */
   buildCanEdit?: boolean;
+  /** `template` when the blank canvas is meant to become one — see the playground route. */
+  newRecordKind?: 'template';
   audits?: AuditFinding[];
 }) {
   const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
@@ -54,6 +57,7 @@ export default function PlaygroundClient({
           audits={audits}
           guardrailFindings={guardrailFindings}
           buildCanEdit={buildCanEdit}
+          newRecordKind={newRecordKind}
         />
       </TooltipProvider>
     </Layout>

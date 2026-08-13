@@ -19,6 +19,9 @@ export async function GET(request: Request) {
   const q = searchParams.get('q') ?? undefined;
   const group = searchParams.get('group') ?? undefined;
   const laneParam = searchParams.get('lane')?.trim() || undefined;
+  // `page` | `template`; anything else is ignored rather than returning nothing.
+  const kindParam = searchParams.get('kind')?.trim();
+  const kind = kindParam === 'page' || kindParam === 'template' ? kindParam : undefined;
   const cursor = searchParams.get('cursor')?.trim() || undefined;
   const limitRaw = Number(searchParams.get('limit') ?? '50');
   const userId = typeof session.user.id === 'string' && session.user.id.length > 0 ? session.user.id : null;
@@ -35,6 +38,7 @@ export async function GET(request: Request) {
       source,
       q,
       group,
+      kind,
     });
     const grants = await getActorGrantsForResources('pattern', page.rows.map((r) => r.id), userId);
     const withPerms = attachPermissions(page.rows, actor, grants);

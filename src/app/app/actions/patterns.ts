@@ -38,6 +38,8 @@ export async function createPattern(data: {
   payload?: Record<string, unknown>;
   tags?: unknown[];
   source?: string;
+  /** `page` | `template` — see `PatternInput.kind`. */
+  kind?: string;
   thumbnail?: string | null;
 }) {
   const actor = await requireActor();
@@ -51,6 +53,7 @@ export async function createPattern(data: {
       data: data.payload,
       tags: data.tags,
       source: data.source,
+      kind: data.kind,
       thumbnail: data.thumbnail,
     },
     actor

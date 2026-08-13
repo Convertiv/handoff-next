@@ -113,6 +113,15 @@ export interface LaneListArgs {
   source?: string;
   q?: string;
   group?: string;
+  /**
+   * `page` | `template` — the library's kind facet, filtered **in SQL**.
+   *
+   * ⚠️ It used to be a client-side `.filter()` over whatever had been paged in, which meant picking "Templates"
+   * showed nothing whenever the first page happened to be all pages — and "Load more" was the only way to find
+   * out, one blind click at a time. A facet that pages over the filtered set is the difference between a filter
+   * and a guess (Brad: "we can't see all the data").
+   */
+  kind?: string;
 }
 
 function clampLimit(limit: number | undefined): number {
@@ -275,6 +284,7 @@ export async function listPatternsByLane(args: LaneListArgs): Promise<LanePage<P
   const laneClause = patternLaneClause(args.lane, args.actorUserId, isAdmin);
   if (laneClause) clauses.push(laneClause);
   if (args.source?.trim()) clauses.push(eq(handoffPatterns.source, args.source.trim()));
+  if (args.kind?.trim()) clauses.push(eq(handoffPatterns.kind, args.kind.trim()));
   if (args.group?.trim()) clauses.push(eq(handoffPatterns.group, args.group.trim()));
   const q = args.q?.trim();
   if (q) {

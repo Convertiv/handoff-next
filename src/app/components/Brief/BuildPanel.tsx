@@ -55,7 +55,7 @@ export default function BuildPanel({
   basePath,
   audits = [],
   guardrailFindings = [],
-  backLabel = 'All builds',
+  backLabel = 'Back to template',
   onBackToBrief,
 }: {
   build: BuildRow;
@@ -70,8 +70,8 @@ export default function BuildPanel({
   guardrailFindings?: RenderableFinding[];
   /**
    * What the back control says. A legacy chain goes back to a brief's list of builds; a page built the new way
-   * goes back to the template it came from — and calling both "All builds" would name a thing that is not there
-   * (reflow R.4).
+   * goes back to the template it came from. The default says so; "builds" is not a word this product uses any
+   * more (reflow R.4/R.5).
    */
   backLabel?: string;
   onBackToBrief: () => void;
@@ -256,7 +256,7 @@ export default function BuildPanel({
           <h2 className="text-sm font-semibold leading-snug">{build.title || build.id}</h2>
           <p className="text-xs text-muted-foreground">
             {/* Unverified, and says so — the guest session cannot vouch for who this is. */}
-            Built by <strong>{build.submittedByName ?? 'someone'}</strong> <span>(self-declared)</span>
+            Made by <strong>{build.submittedByName ?? 'someone'}</strong> <span>(self-declared)</span>
             {build.submittedAt ? ` · ${new Date(build.submittedAt).toLocaleString()}` : ''}
           </p>
           {/**

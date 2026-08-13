@@ -1,7 +1,7 @@
 'use client';
 
 import type { PatternListObject } from '@handoff/transformers/preview/types';
-import { Layout, PenNib } from '@phosphor-icons/react';
+import { Layout, PenNib, Stack } from '@phosphor-icons/react';
 import { ChevronDown, Info, Loader2, PlusIcon, Sparkles } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -167,6 +167,13 @@ export default function LibraryClient({
       const patternParams = new URLSearchParams();
       patternParams.set('lane', lane);
       patternParams.set('limit', String(PAGE_SIZE));
+      /**
+       * The kind facet is applied **in SQL**, not to whatever happens to be on screen.
+       *
+       * Filtering client-side meant "Templates" showed nothing whenever the first page was all pages, and the
+       * only way to find out otherwise was to click Load more blindly (Brad: "we can't see all the data").
+       */
+      if (typeFacet === 'page' || typeFacet === 'template') patternParams.set('kind', typeFacet);
 
       const [designRes, patternRes] = await Promise.all([
         fetch(handoffApiUrl(`/api/handoff/ai/design-artifact?limit=${PAGE_SIZE}&lane=${lane}`), {
@@ -204,7 +211,9 @@ export default function LibraryClient({
     } finally {
       setLoading(false);
     }
-  }, [isLoggedIn, lane]);
+    // `typeFacet` is in the query now, so it belongs here: without it, changing the facet would filter the
+    // rows already on screen and never ask the server for the ones it does not have.
+  }, [isLoggedIn, lane, typeFacet]);
 
   // Advance whichever streams still have a next page, appending to the accumulated
   // per-type lists. The merged/sorted view is re-derived downstream in `mergedAssets`.
@@ -240,6 +249,7 @@ export default function LibraryClient({
           (async () => {
             const patternParams = new URLSearchParams();
             patternParams.set('lane', lane);
+            if (typeFacet === 'page' || typeFacet === 'template') patternParams.set('kind', typeFacet);
             patternParams.set('limit', String(PAGE_SIZE));
             patternParams.set('cursor', patternCursor);
             const res = await fetch(handoffApiUrl(`/api/handoff/patterns?${patternParams.toString()}`), {
@@ -265,7 +275,7 @@ export default function LibraryClient({
     } finally {
       setLoadingMore(false);
     }
-  }, [isLoggedIn, loadingMore, lane, designCursor, patternCursor]);
+  }, [isLoggedIn, loadingMore, lane, designCursor, patternCursor, typeFacet]);
 
   // Re-fetch both surfaces whenever the lane changes.
   useEffect(() => {
@@ -408,6 +418,19 @@ export default function LibraryClient({
                   <Link href={`${basePath}/playground`} className="flex items-center gap-2">
                     <Layout className="h-4 w-4" aria-hidden />
                     Page
+                  </Link>
+                </DropdownMenuItem>
+                {/**
+                  * **Template, from scratch** (Brad, 2026-08-13).
+                  *
+                  * Promotion from a page stays the common path — sharing a page offers it — but a template is a
+                  * thing someone sets out to make, and requiring them to make a page first and convert it is the
+                  * dev-shaped version of that. Same editor, same tool; only what the first save writes differs.
+                  */}
+                <DropdownMenuItem asChild>
+                  <Link href={`${basePath}/playground?kind=template`} className="flex items-center gap-2">
+                    <Stack className="h-4 w-4" aria-hidden />
+                    Template
                   </Link>
                 </DropdownMenuItem>
               </DropdownMenuContent>

@@ -318,10 +318,22 @@ export default function AssetsClient() {
   const [collectionFilter, setCollectionFilter] = useState<string | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
 
+  /**
+   * How many to ask for at a time.
+   *
+   * The endpoint has always taken `limit`/`offset` and this screen never sent either — so it showed the
+   * server's default hundred and there was no way to reach asset 101 (Brad, 2026-08-13). A page size rather
+   * than "fetch everything": an asset library is the one table in this product that grows without bound.
+   */
+  const PAGE_SIZE = 60;
+  /** Null once the last page has been seen — which is how the control knows to disappear. */
+  const [nextOffset, setNextOffset] = useState<number | null>(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+
   const fetchAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ status: 'active' });
+      const params = new URLSearchParams({ status: 'active', limit: String(PAGE_SIZE), offset: '0' });
       if (typeFilter !== 'all') params.set('assetType', typeFilter);
       if (collectionFilter) params.set('collectionId', collectionFilter);
       if (search) params.set('search', search);
@@ -329,12 +341,47 @@ export default function AssetsClient() {
         fetch(`${BASE}/api/handoff/assets?${params}`),
         fetch(`${BASE}/api/handoff/assets/collections`),
       ]);
-      if (assetsRes.ok) setAssets((await assetsRes.json()) as AssetListItem[]);
+      if (assetsRes.ok) {
+        const page = (await assetsRes.json()) as AssetListItem[];
+        setAssets(page);
+        // A short page is the last page. The endpoint returns rows, not a total, so this is what "more" means.
+        setNextOffset(page.length < PAGE_SIZE ? null : page.length);
+      }
       if (collectionsRes.ok) setCollections((await collectionsRes.json()) as CollectionRow[]);
     } finally {
       setLoading(false);
     }
   }, [search, typeFilter, collectionFilter]);
+
+  const loadMore = useCallback(async () => {
+    if (nextOffset == null || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({
+        status: 'active',
+        limit: String(PAGE_SIZE),
+        offset: String(nextOffset),
+      });
+      if (typeFilter !== 'all') params.set('assetType', typeFilter);
+      if (collectionFilter) params.set('collectionId', collectionFilter);
+      if (search) params.set('search', search);
+      const res = await fetch(`${BASE}/api/handoff/assets?${params}`);
+      if (!res.ok) return;
+      const page = (await res.json()) as AssetListItem[];
+      /**
+       * Appended by id rather than concatenated blindly: an upload between two fetches shifts every later row
+       * by one, and offset paging would otherwise show that row twice. React would warn about the duplicate
+       * key; the person would just see the same asset twice and mistrust the page.
+       */
+      setAssets((prev) => {
+        const seen = new Set(prev.map((a) => a.id));
+        return [...prev, ...page.filter((a) => !seen.has(a.id))];
+      });
+      setNextOffset(page.length < PAGE_SIZE ? null : nextOffset + page.length);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextOffset, loadingMore, search, typeFilter, collectionFilter]);
 
   useEffect(() => {
     void fetchAssets();
@@ -462,11 +509,35 @@ export default function AssetsClient() {
                 )}
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
-                {assets.map((asset) => (
-                  <AssetCard key={asset.id} asset={asset} />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
+                  {assets.map((asset) => (
+                    <AssetCard key={asset.id} asset={asset} />
+                  ))}
+                </div>
+                {/**
+                  * The count is shown whether or not there is more, because "60 assets" and "60 assets so far"
+                  * are different facts and a grid that simply stops looks like the whole library.
+                  */}
+                <div className="mt-6 flex flex-col items-center gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {assets.length} asset{assets.length === 1 ? '' : 's'}
+                    {nextOffset != null ? ' so far' : ''}
+                  </p>
+                  {nextOffset != null ? (
+                    <Button variant="outline" size="sm" disabled={loadingMore} onClick={() => void loadMore()}>
+                      {loadingMore ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading…
+                        </>
+                      ) : (
+                        'Load more'
+                      )}
+                    </Button>
+                  ) : null}
+                </div>
+              </>
             )}
           </div>
         </div>

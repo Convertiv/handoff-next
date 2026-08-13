@@ -173,6 +173,7 @@ export async function fetchComponentDetail(id: string, basePath: string): Promis
 export function PlaygroundProvider({
   children,
   initialPatternId,
+  newRecordKind,
   initialIsTemplate = false,
   structuralEditing: structuralEditingProp,
   persistence,
@@ -182,6 +183,14 @@ export function PlaygroundProvider({
 }: {
   children: ReactNode;
   initialPatternId?: string;
+  /**
+   * What the record should be when this canvas first saves itself: `template` for "New → Template", absent for
+   * an ordinary page.
+   *
+   * Only read on creation. Changing what an existing record *is* goes through `setPatternMeta`, which has the
+   * permission check; this is about what gets written the first time, when there is nothing to have rights on.
+   */
+  newRecordKind?: 'template';
   initialIsTemplate?: boolean;
   /** Defaults to "allowed, unless this is a frozen template". */
   structuralEditing?: boolean;
@@ -305,7 +314,15 @@ export function PlaygroundProvider({
           const id = `page-${crypto.randomUUID().slice(0, 8)}`;
           const title = 'Untitled page';
           const { components, payload } = buildPatternPayload(id, title, '', '', [], selectedComponents, basePath);
-          await createPattern({ id, title, components, payload, source: 'playground' });
+          await createPattern({
+            id,
+            // A template says so from the first save; the library lane and the share screen both read `kind`.
+            title: newRecordKind === 'template' ? 'Untitled template' : title,
+            components,
+            payload,
+            source: 'playground',
+            kind: newRecordKind,
+          });
           persistedRef.current = JSON.stringify(selectedComponents);
           setEditingPatternId(id);
           setSaveState('saved');
@@ -370,7 +387,9 @@ export function PlaygroundProvider({
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath, router, isTemplate, persistence]);
+    // `newRecordKind` is read inside the create branch, so it belongs here — a stale closure would silently
+    // create a page where a template was asked for.
+  }, [selectedComponents, editingPatternId, isDynamicApp, status, basePath, router, isTemplate, persistence, newRecordKind]);
 
   const bulkAddComponents = useCallback(
     async (entries: BulkComponentEntry[], replace = true) => {
