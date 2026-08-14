@@ -22,6 +22,7 @@ import {
   PanelLeft,
   Plus,
   SaveIcon,
+  ShieldCheck,
   UserPlus,
   Smartphone,
   ChevronLeft,
@@ -163,13 +164,19 @@ export default function PlaygroundBuilder({
   canvasControls = true,
   buildCount = 0,
   onShowBuilds,
+  checkCount = 0,
+  onShowChecks,
 }: {
   leftPanel?: React.ReactNode;
   canvasControls?: boolean;
   /** How many pages have been made from this one. Only used to label the control. */
   buildCount?: number;
+  /** How many findings the server computed for this page. Zero still opens — "nothing wrong" is an answer. */
+  checkCount?: number;
   /** Set at page level to offer that list without leaving the page. */
   onShowBuilds?: () => void;
+  /** Set at page level to show what the checks made of this page without leaving it. */
+  onShowChecks?: () => void;
 } = {}) {
   const {
     selectedComponents,
@@ -731,6 +738,28 @@ export default function PlaygroundBuilder({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">Pages people made from this template</TooltipContent>
+                </Tooltip>
+              )}
+
+              {/**
+                * What the checks found, on the page itself (Brad, 2026-08-13).
+                *
+                * Shown whenever there is a saved page, **including when the count is zero** — "we checked and
+                * found nothing" is the answer to "did this run at all?", and hiding the control at zero is
+                * exactly what made the checks look like they had been removed.
+                */}
+              {onShowChecks && editingPatternId && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={onShowChecks}>
+                      <ShieldCheck className="h-4 w-4" />
+                      <span className="text-xs">Checks</span>
+                      {checkCount > 0 ? (
+                        <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums">{checkCount}</span>
+                      ) : null}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Accessibility, SEO and content checks on this page</TooltipContent>
                 </Tooltip>
               )}
 

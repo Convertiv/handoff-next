@@ -6,6 +6,7 @@ import { Button } from '../ui/button';
 import { PlaygroundProvider, type PlaygroundPersistence } from './PlaygroundContext';
 import PlaygroundBuilder from './PlaygroundBuilder';
 import BuildPanel from '../Brief/BuildPanel';
+import PageChecks from './PageChecks';
 import BuildList from '../Brief/BuildList';
 import type { BuildRow } from '../Brief/BuildList';
 import { handoffApiUrl } from '@/lib/api-path';
@@ -44,6 +45,7 @@ export default function PlaygroundWorkbench({
   guardrailFindings = [],
   buildCanEdit = false,
   newRecordKind,
+  newRecordTitle,
 }: {
   pageId?: string;
   pageTitle?: string;
@@ -66,6 +68,7 @@ export default function PlaygroundWorkbench({
   buildCanEdit?: boolean;
   /** `template` when a blank canvas is meant to become one — "New → Template". */
   newRecordKind?: 'template';
+  newRecordTitle?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -88,7 +91,7 @@ export default function PlaygroundWorkbench({
   const editingSubmission = level === 'build' && buildCanEdit;
 
   const go = useCallback(
-    (next: { build?: string | null; builds?: string | null }) => {
+    (next: { build?: string | null; builds?: string | null; checks?: string | null }) => {
       const params = new URLSearchParams(search.toString());
       for (const [key, value] of Object.entries(next)) {
         if (value) params.set(key, value);
@@ -141,6 +144,8 @@ export default function PlaygroundWorkbench({
    * same reason the levels themselves live in the URL.
    */
   const showPageBuilds = level === 'page' && one(search.get('builds'));
+  /** Same idea for the checks panel — in the URL, so refresh keeps it and Back closes it. */
+  const showChecks = level === 'page' && one(search.get('checks'));
 
   const leftPanel =
     level === 'build' && build ? (
@@ -176,6 +181,9 @@ export default function PlaygroundWorkbench({
           />
         </div>
       </div>
+    ) : showChecks ? (
+      /* What the checks make of this page — see `PageChecks` for why this is not `BuildPanel`. */
+      <PageChecks audits={audits} guardrailFindings={guardrailFindings} onClose={() => go({ checks: null })} />
     ) : undefined;
 
   return (
@@ -183,7 +191,7 @@ export default function PlaygroundWorkbench({
       // See the note above: remount per record, never re-hydrate in place.
       key={`${level}:${recordId}`}
       {...(level === 'page'
-        ? { initialPatternId: pageId, initialIsTemplate, pageTitle, newRecordKind }
+        ? { initialPatternId: pageId, initialIsTemplate, pageTitle, newRecordKind, newRecordTitle }
         : /**
            * An editable submission is opened **by id**, exactly as a page is — hydration and autosave both come
            * from the standard path. `pageTitle` is its own title, not the template's, because this record is
@@ -208,6 +216,8 @@ export default function PlaygroundWorkbench({
         canvasControls={level === 'page' || editingSubmission}
         buildCount={level === 'page' ? pageBuilds.length : 0}
         onShowBuilds={level === 'page' && !showPageBuilds ? () => go({ builds: '1' }) : undefined}
+        checkCount={level === 'page' ? audits.length + guardrailFindings.length : 0}
+        onShowChecks={level === 'page' && !showChecks ? () => go({ checks: '1' }) : undefined}
       />
     </PlaygroundProvider>
   );

@@ -214,6 +214,19 @@ export function auditBuild(blocks: PatternComponentEntry[], overrides: unknown[]
 }
 
 /** Findings grouped for display, including the categories that found nothing. */
+/**
+ * The word for each category, shown on the finding rows themselves.
+ *
+ * Lives beside the categories rather than in a panel, because two panels now render findings — the reviewer's
+ * `BuildPanel` and the page's own `PageChecks` — and a label map copied into each is a label map that drifts.
+ */
+export const AUDIT_CATEGORY_LABEL: Record<AuditCategory, string> = {
+  content: 'Content',
+  accessibility: 'Accessibility',
+  seo: 'SEO',
+  voice: 'Voice',
+};
+
 export function groupAuditFindings(findings: AuditFinding[]): Record<AuditCategory, AuditFinding[]> {
   const grouped: Record<AuditCategory, AuditFinding[]> = {
     content: [],

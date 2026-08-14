@@ -6,7 +6,7 @@ import { Button } from '../ui/button';
 import { Textarea } from '../ui/textarea';
 import { handoffApiUrl } from '@/lib/api-path';
 import type { BuildRow } from './BuildList';
-import { groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
+import { AUDIT_CATEGORY_LABEL as CATEGORY_LABEL, groupAuditFindings, type AuditCategory, type AuditFinding } from '@/lib/build-audits';
 import { FindingsList, type RenderableFinding } from '../Playground/FindingsList';
 import PageNotes from '../library/PageNotes';
 import { LIFECYCLE_META } from '@/lib/authz/vocab';
@@ -21,13 +21,6 @@ import { requestFieldReveal } from '../Playground/FieldLinkContext';
  * The checks section is filled by `build-audits.ts` (roadmap E.10) — computed server-side on the stored record
  * and handed down, so the panel does no work and cannot show a stale result.
  */
-
-const CATEGORY_LABEL: Record<AuditCategory, string> = {
-  content: 'Content',
-  accessibility: 'Accessibility',
-  seo: 'SEO',
-  voice: 'Voice',
-};
 
 /** Why a category is empty, which is different from it having passed. */
 /**

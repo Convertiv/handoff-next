@@ -183,6 +183,7 @@ export function PlaygroundProvider({
   children,
   initialPatternId,
   newRecordKind,
+  newRecordTitle,
   initialIsTemplate = false,
   structuralEditing: structuralEditingProp,
   persistence,
@@ -200,6 +201,11 @@ export function PlaygroundProvider({
    * permission check; this is about what gets written the first time, when there is nothing to have rights on.
    */
   newRecordKind?: 'template';
+  /**
+   * The name chosen in the "New" dialog. Like `newRecordKind`, only read on creation — renaming afterwards
+   * goes through `setPageTitle`, which has the permission check.
+   */
+  newRecordTitle?: string;
   initialIsTemplate?: boolean;
   /** Defaults to "allowed, unless this is a frozen template". */
   structuralEditing?: boolean;
@@ -232,7 +238,13 @@ export function PlaygroundProvider({
    * Held as state, not passed straight through, so a rename shows immediately instead of waiting for a
    * server round trip — and so the record minted by save-on-first-block can name itself on the spot.
    */
-  const [title, setTitle] = useState(pageTitle);
+  const [title, setTitle] = useState(pageTitle || newRecordTitle || '');
+  /**
+   * The title as the create-on-first-block effect should see it, without making that effect depend on it.
+   * A dependency would re-run creation logic on every keystroke of a rename.
+   */
+  const titleRef = useRef(title);
+  titleRef.current = title;
   // A different record arrived (navigation within the workbench): adopt its name.
   useEffect(() => {
     setTitle(pageTitle);
@@ -331,7 +343,9 @@ export function PlaygroundProvider({
         try {
           const id = `page-${crypto.randomUUID().slice(0, 8)}`;
           // A template says so from the first save; the library lane and the share screen both read `kind`.
-          const newTitle = newRecordKind === 'template' ? 'Untitled template' : 'Untitled page';
+          // Whatever the toolbar holds wins — the dialog's name, or one typed on the blank canvas.
+          const newTitle =
+            titleRef.current.trim() || (newRecordKind === 'template' ? 'Untitled template' : 'Untitled page');
           const { components, payload } = buildPatternPayload(id, newTitle, '', '', [], selectedComponents, basePath);
           await createPattern({
             id,
@@ -567,6 +581,11 @@ export function PlaygroundProvider({
    */
   const setPageTitle = useCallback(
     (next: string) => {
+      if (!editingPatternId) {
+        // No record yet — hold the name and let save-on-first-block write it. Trimmed at creation.
+        setTitle(next);
+        return;
+      }
       const decision = decideRename({ recordId: editingPatternId, current: title, draft: next });
       if (!decision.rename) return;
       const previous = title;

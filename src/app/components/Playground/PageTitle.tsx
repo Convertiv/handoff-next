@@ -19,7 +19,7 @@ import { usePlayground } from './PlaygroundContext';
  * a text box in the toolbar reads as "something you must fill in".
  */
 export default function PageTitle() {
-  const { editingPatternId, pageTitle, setPageTitle, isTemplate } = usePlayground();
+  const { pageTitle, setPageTitle, isTemplate } = usePlayground();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(pageTitle);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -35,8 +35,16 @@ export default function PageTitle() {
     inputRef.current?.select();
   }, [editing]);
 
-  // Nothing to name until the record exists; a frozen legacy template would refuse the write.
-  if (!editingPatternId || isTemplate) return null;
+  /**
+   * Shown **before** the record exists too (Brad, 2026-08-13).
+   *
+   * Gating on `editingPatternId` meant the one screen where a person is most obviously making a new thing —
+   * the blank canvas — was the one screen with no name on it. The context holds the name locally until
+   * save-on-first-block writes it, so typing here works with nothing saved yet.
+   *
+   * A frozen legacy template still opts out: it would refuse the write.
+   */
+  if (isTemplate) return null;
 
   const commit = () => {
     setEditing(false);

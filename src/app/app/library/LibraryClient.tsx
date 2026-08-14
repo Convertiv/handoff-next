@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AssetCard, type LibraryAsset } from '@/components/library';
+import NameNewRecordDialog from '@/components/library/NameNewRecordDialog';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -16,6 +17,7 @@ import {
   patternKind,
   type Lane,
   type Lifecycle,
+  type PatternKind,
   type ResourcePermissions,
   type Visibility,
 } from '@/lib/authz/vocab';
@@ -149,6 +151,8 @@ export default function LibraryClient({
   // Per-type next-page cursors (null once that stream is exhausted).
   const [designCursor, setDesignCursor] = useState<string | null>(null);
   const [patternCursor, setPatternCursor] = useState<string | null>(null);
+  /** Which kind the naming dialog is open for, or null when it is closed. */
+  const [naming, setNaming] = useState<PatternKind | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -414,11 +418,11 @@ export default function LibraryClient({
                     Design
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href={`${basePath}/playground`} className="flex items-center gap-2">
-                    <Layout className="h-4 w-4" aria-hidden />
-                    Page
-                  </Link>
+                {/* Both open the naming dialog first — see `NameNewRecordDialog` for why the name is asked
+                    for here rather than discovered later in the toolbar. */}
+                <DropdownMenuItem onSelect={() => setNaming('page')} className="flex items-center gap-2">
+                  <Layout className="h-4 w-4" aria-hidden />
+                  Page
                 </DropdownMenuItem>
                 {/**
                   * **Template, from scratch** (Brad, 2026-08-13).
@@ -427,14 +431,20 @@ export default function LibraryClient({
                   * thing someone sets out to make, and requiring them to make a page first and convert it is the
                   * dev-shaped version of that. Same editor, same tool; only what the first save writes differs.
                   */}
-                <DropdownMenuItem asChild>
-                  <Link href={`${basePath}/playground?kind=template`} className="flex items-center gap-2">
-                    <Stack className="h-4 w-4" aria-hidden />
-                    Template
-                  </Link>
+                <DropdownMenuItem onSelect={() => setNaming('template')} className="flex items-center gap-2">
+                  <Stack className="h-4 w-4" aria-hidden />
+                  Template
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <NameNewRecordDialog
+              kind={naming ?? 'page'}
+              open={naming !== null}
+              onOpenChange={(open) => {
+                if (!open) setNaming(null);
+              }}
+              basePath={basePath}
+            />
           </div>
           </div>
         </div>

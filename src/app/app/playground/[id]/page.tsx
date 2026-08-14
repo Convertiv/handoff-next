@@ -167,6 +167,26 @@ export default async function PlaygroundPageById({
      * An old link carrying both ids still works, because `?build=` resolves on its own above — which is the
      * whole point of having done the collapse before this deletion.
      */
+
+    /**
+     * **The checks run on the page you are actually looking at** (Brad, 2026-08-13).
+     *
+     * These two passes used to run only inside the `?build=` branch above — meaning the only way to see what
+     * the app thought of a page was to open it *through the template it came from*. Open the same page from
+     * the library, which is the ordinary way, and both arrays stayed empty and the panel rendered nothing. The
+     * checks were running; there was no surface saying so. Same shape as the provenance chip earlier today:
+     * a review surface reachable only by the one route nobody takes.
+     *
+     * Guarded on `!build` so a selected submission keeps its own findings rather than the template's.
+     */
+    if (!build) {
+      const blocks = (Array.isArray(row.components) ? row.components : []) as PatternComponentEntry[];
+      const values =
+        ((row.data as { previews?: { default?: { values?: unknown[] } } })?.previews?.default?.values ??
+          []) as unknown[];
+      audits = auditBuild(blocks, values);
+      guardrailFindings = advisoryFindings(await checkPatternGuardrails(getDb(), row.id));
+    }
   }
 
   return (

@@ -5,7 +5,51 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — nothing could be named
+## 2026-08-13 (latest) — name it up front, and the checks come back
+
+Two follow-ups from Brad testing the previous fix, both the same shape: **the feature existed and the surface
+did not.**
+
+**1. The title was invisible exactly where you make things.** `PageTitle` gated on `editingPatternId`, which is
+null until save-on-first-block mints the record — so the blank canvas, the one screen where a person is
+obviously making a new thing, was the one screen with no name on it. It now renders before the record exists:
+the context holds the name locally and `setPageTitle` defers the write, so typing on an empty canvas works and
+creation uses whatever the toolbar holds.
+
+Brad also asked for a naming *flow*, not just an editable label, and chose "at creation, for both."
+`NameNewRecordDialog` sits behind New → Page and New → Template: one field, `Skip` and `Create`. The name
+travels as a query parameter rather than creating anything, because nothing exists yet — save-on-first-block
+still owns creation and this only changes what it writes for `title`. Capped at 200 chars on the way in, since
+it arrives from a URL and lands in a row.
+
+**2. The validation panel was only reachable through the template.** `auditBuild` and `checkPatternGuardrails`
+ran inside the `?build=` branch alone — the path you take when opening a submitted page *from the template it
+came from*. Open the same page from the library, which is what everyone does, and both arrays were empty and
+`BuildPanel` never rendered. The checks were running the whole time; nothing said so.
+
+They now run on the page's own record when no submission is selected, and `PageChecks` gives them a home at
+page level — a `Checks` control in the toolbar, a panel in the left rail, the same `FindingsList` the reviewer
+sees. Deliberately **not** `BuildPanel`: that panel is a reviewer's surface carrying who submitted, when, their
+message, and approve/reject, none of which exists for a page you made yourself. What both want is the findings
+list, so that is what is shared.
+
+**The control shows at zero findings.** Hiding it when nothing is wrong is precisely what made the checks look
+deleted — "we checked and found nothing" is the answer to "did this run at all?"
+
+`CATEGORY_LABEL` moved from inside `BuildPanel` to `AUDIT_CATEGORY_LABEL` in `build-audits.ts`, beside the
+categories it names. Two panels render findings now, and a label map copied into each is a label map that
+drifts.
+
+**Worth noticing: this is the third time in two days.** The provenance chip, then the title, now the checks —
+each a working feature reachable only through a route almost nobody takes. The common cause is that the
+template → Pages → open path was built first and became the implicit home for anything page-related. Anything
+added there should be asked: *what does this look like from the library?*
+
+Still unverified in a browser, same reason as the entry below.
+
+---
+
+## 2026-08-13 — nothing could be named
 
 Brad, testing before handing the app to Natko: *"you can't currently create new pages — there's no way to name
 it or save it."* He was right, and the second half turned out to be the tell for the first.

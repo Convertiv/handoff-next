@@ -9,7 +9,7 @@ export async function generateMetadata() {
 export default async function PlaygroundPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ pattern?: string; kind?: string }>;
+  searchParams?: Promise<{ pattern?: string; kind?: string; name?: string }>;
 }) {
   const { props } = await fetchDocPageMarkdownAsync('docs/', 'playground', '/playground');
   const config = getClientRuntimeConfig();
@@ -24,6 +24,14 @@ export default async function PlaygroundPage({
    * by a second call that could fail.
    */
   const newRecordKind = sp?.kind === 'template' ? 'template' : undefined;
+  /**
+   * The name chosen in the "New" dialog, carried the same way as the kind — as intent, not as a record.
+   *
+   * Capped rather than trusted: this arrives from a URL anyone can edit, and it is written straight into the
+   * title of a row. Length is the only thing worth enforcing here; the value is escaped wherever it renders.
+   */
+  const newRecordTitle =
+    typeof sp?.name === 'string' && sp.name.trim().length > 0 ? sp.name.trim().slice(0, 200) : undefined;
   return (
     <PlaygroundClient
       menu={props.menu}
@@ -32,6 +40,7 @@ export default async function PlaygroundPage({
       config={config}
       initialPatternId={initialPatternId}
       newRecordKind={newRecordKind}
+      newRecordTitle={newRecordTitle}
     />
   );
 }

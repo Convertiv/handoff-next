@@ -22,6 +22,7 @@ export default function PlaygroundClient({
   guardrailFindings = [],
   buildCanEdit = false,
   newRecordKind,
+  newRecordTitle,
 }: {
   menu: unknown;
   metadata: unknown;
@@ -39,6 +40,8 @@ export default function PlaygroundClient({
   buildCanEdit?: boolean;
   /** `template` when the blank canvas is meant to become one — see the playground route. */
   newRecordKind?: 'template';
+  /** Name chosen in the "New" dialog, if the person gave one. */
+  newRecordTitle?: string;
   audits?: AuditFinding[];
 }) {
   const basePath = process.env.NEXT_PUBLIC_HANDOFF_APP_BASE_PATH ?? '';
@@ -58,6 +61,7 @@ export default function PlaygroundClient({
           guardrailFindings={guardrailFindings}
           buildCanEdit={buildCanEdit}
           newRecordKind={newRecordKind}
+          newRecordTitle={newRecordTitle}
         />
       </TooltipProvider>
     </Layout>
