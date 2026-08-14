@@ -7,6 +7,7 @@ import { PlaygroundProvider, type PlaygroundPersistence } from './PlaygroundCont
 import PlaygroundBuilder from './PlaygroundBuilder';
 import BuildPanel from '../Brief/BuildPanel';
 import PageChecks from './PageChecks';
+import PageNotes from '../library/PageNotes';
 import BuildList from '../Brief/BuildList';
 import type { BuildRow } from '../Brief/BuildList';
 import { handoffApiUrl } from '@/lib/api-path';
@@ -91,7 +92,7 @@ export default function PlaygroundWorkbench({
   const editingSubmission = level === 'build' && buildCanEdit;
 
   const go = useCallback(
-    (next: { build?: string | null; builds?: string | null; checks?: string | null }) => {
+    (next: { build?: string | null; builds?: string | null; checks?: string | null; notes?: string | null }) => {
       const params = new URLSearchParams(search.toString());
       for (const [key, value] of Object.entries(next)) {
         if (value) params.set(key, value);
@@ -146,6 +147,8 @@ export default function PlaygroundWorkbench({
   const showPageBuilds = level === 'page' && one(search.get('builds'));
   /** Same idea for the checks panel — in the URL, so refresh keeps it and Back closes it. */
   const showChecks = level === 'page' && one(search.get('checks'));
+  /** And the conversation, which until now only existed inside the reviewer's panel. */
+  const showNotes = level === 'page' && one(search.get('notes'));
 
   const leftPanel =
     level === 'build' && build ? (
@@ -184,6 +187,26 @@ export default function PlaygroundWorkbench({
     ) : showChecks ? (
       /* What the checks make of this page — see `PageChecks` for why this is not `BuildPanel`. */
       <PageChecks audits={audits} guardrailFindings={guardrailFindings} onClose={() => go({ checks: null })} />
+    ) : showNotes && pageId ? (
+      /**
+       * The conversation about this page, on the page.
+       *
+       * `PageNotes` was mounted in exactly two places — the reviewer's `BuildPanel` and the guest's authoring
+       * view — so the owner opening their own page from the library could not read, let alone answer, notes
+       * left on it. `canResolve` matches `BuildPanel`: the server gate is `decideNoteAccess`, and this level is
+       * only reached on a page the viewer already holds.
+       */
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex items-center justify-between border-b px-3 py-2">
+          <span className="text-sm font-medium">Notes</span>
+          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => go({ notes: null })}>
+            Close
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <PageNotes pageId={pageId} canResolve />
+        </div>
+      </div>
     ) : undefined;
 
   return (
@@ -218,6 +241,7 @@ export default function PlaygroundWorkbench({
         onShowBuilds={level === 'page' && !showPageBuilds ? () => go({ builds: '1' }) : undefined}
         checkCount={level === 'page' ? audits.length + guardrailFindings.length : 0}
         onShowChecks={level === 'page' && !showChecks ? () => go({ checks: '1' }) : undefined}
+        onShowNotes={level === 'page' && !showNotes ? () => go({ notes: '1' }) : undefined}
       />
     </PlaygroundProvider>
   );

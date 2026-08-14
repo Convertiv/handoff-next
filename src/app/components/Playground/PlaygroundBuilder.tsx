@@ -17,6 +17,7 @@ import {
   FileCodeIcon,
   Layers,
   Maximize,
+  MessageSquare,
   Minimize,
   Monitor,
   PanelLeft,
@@ -166,6 +167,7 @@ export default function PlaygroundBuilder({
   onShowBuilds,
   checkCount = 0,
   onShowChecks,
+  onShowNotes,
 }: {
   leftPanel?: React.ReactNode;
   canvasControls?: boolean;
@@ -177,6 +179,8 @@ export default function PlaygroundBuilder({
   onShowBuilds?: () => void;
   /** Set at page level to show what the checks made of this page without leaving it. */
   onShowChecks?: () => void;
+  /** Set at page level to read and answer the notes left on this page. */
+  onShowNotes?: () => void;
 } = {}) {
   const {
     selectedComponents,
@@ -760,6 +764,19 @@ export default function PlaygroundBuilder({
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent side="bottom">Accessibility, SEO and content checks on this page</TooltipContent>
+                </Tooltip>
+              )}
+
+              {/* The conversation about this page, reachable from the page — not only from the reviewer's panel. */}
+              {onShowNotes && editingPatternId && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-8 gap-1 px-2" onClick={onShowNotes}>
+                      <MessageSquare className="h-4 w-4" />
+                      <span className="text-xs">Notes</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Notes left on this page</TooltipContent>
                 </Tooltip>
               )}
 

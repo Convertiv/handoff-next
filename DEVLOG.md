@@ -5,7 +5,40 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — name it up front, and the checks come back
+## 2026-08-13 (latest) — everything about a page belongs on the page
+
+Brad, on the checks fix: *"if there are checks or provenance those things should be visible on the page itself,
+even if you get to it from the library, not from the template."* Stated as a rule, so the right response was to
+sweep the class rather than patch the instance.
+
+Audited what `BuildPanel` shows that a library-opened page did not:
+
+| Surface | Before | Now |
+|---|---|---|
+| Provenance | chip on the page | ✅ already fixed earlier today |
+| Checks | template route only | ✅ fixed in the entry below |
+| **Notes** | **`BuildPanel` + guest view only** | ✅ `Notes` control + left-rail panel at page level |
+| Change digest | review endpoint, reviewer panel | left as is — see below |
+| Pages-from-this-template | template only | correct: it *is* template-specific |
+
+`PageNotes` was mounted in exactly two places, and neither was the page. Someone opening their own page from
+the library could not read a note left on it, let alone answer — while the person who left it was looking at
+the same thread from the other side.
+
+**The digest stays put, deliberately.** It is a diff against what the guest was handed, so it answers "what did
+they change?" — a reviewer's question about someone else's submission, not something a page says about itself.
+`PageOrigin` already carries the provenance that matters on the page. Worth revisiting if it turns out people
+want it on their own pages too; noting the reasoning so the next person does not read the absence as an
+oversight.
+
+**The rule, for whoever adds the next thing:** the template → Pages → open path was built first and quietly
+became the home for anything page-related, which is how three working features ended up invisible from the
+route everyone actually takes. Anything mounted there wants one question asked of it — *what does this look
+like from the library?*
+
+---
+
+## 2026-08-13 — name it up front, and the checks come back
 
 Two follow-ups from Brad testing the previous fix, both the same shape: **the feature existed and the surface
 did not.**
