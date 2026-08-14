@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { createPattern, updatePattern } from '@/app/actions/patterns';
 import { buildPatternPayload } from '@/lib/pattern-payload';
+import { decideRename } from '@/lib/page-title';
 import type { GuardrailConfig } from '@/lib/authoring-guardrails';
 import { FieldGuardrailsProvider } from './FieldGuardrailsContext';
 import { FieldMediaProvider, type AssetLister } from './FieldMediaContext';
@@ -77,6 +78,14 @@ interface PlaygroundContextType {
   isTemplate: boolean;
   /** This page's own title, for surfaces that need to name it (the invite wizard). */
   pageTitle: string;
+  /**
+   * Rename the open record.
+   *
+   * Separate from autosave on purpose: autosave deliberately never sends the title, because it writes an
+   * empty string for every field it does not own and would wipe the name on every keystroke of the canvas.
+   * So the title needs a write of its own, and this is it.
+   */
+  setPageTitle: (title: string) => void;
   /**
    * Content rules for this page, authored on the brief it came from. The field editor reads them to show
    * limits as you type; the server enforces the same config at submit.
@@ -219,6 +228,15 @@ export function PlaygroundProvider({
    * and silently isn't.
    */
   const [isTemplate] = useState(initialIsTemplate);
+  /**
+   * Held as state, not passed straight through, so a rename shows immediately instead of waiting for a
+   * server round trip — and so the record minted by save-on-first-block can name itself on the spot.
+   */
+  const [title, setTitle] = useState(pageTitle);
+  // A different record arrived (navigation within the workbench): adopt its name.
+  useEffect(() => {
+    setTitle(pageTitle);
+  }, [pageTitle]);
   const [guardrails, setGuardrails] = useState<GuardrailConfig>({});
 
   // A template is never structurally editable; otherwise the surface decides.
@@ -312,17 +330,19 @@ export function PlaygroundProvider({
       void (async () => {
         try {
           const id = `page-${crypto.randomUUID().slice(0, 8)}`;
-          const title = 'Untitled page';
-          const { components, payload } = buildPatternPayload(id, title, '', '', [], selectedComponents, basePath);
+          // A template says so from the first save; the library lane and the share screen both read `kind`.
+          const newTitle = newRecordKind === 'template' ? 'Untitled template' : 'Untitled page';
+          const { components, payload } = buildPatternPayload(id, newTitle, '', '', [], selectedComponents, basePath);
           await createPattern({
             id,
-            // A template says so from the first save; the library lane and the share screen both read `kind`.
-            title: newRecordKind === 'template' ? 'Untitled template' : title,
+            title: newTitle,
             components,
             payload,
             source: 'playground',
             kind: newRecordKind,
           });
+          // So the toolbar can name the record the moment it exists, rather than after the server re-render.
+          setTitle(newTitle);
           persistedRef.current = JSON.stringify(selectedComponents);
           setEditingPatternId(id);
           setSaveState('saved');
@@ -538,6 +558,31 @@ export function PlaygroundProvider({
     }
   }, []);
 
+  /**
+   * Rename the open record. Optimistic, and reverted if the write is refused.
+   *
+   * Refusal is a real outcome, not a theoretical one: `patchPattern` counts `title` as content, so a legacy
+   * frozen template (`source === 'template'`) rejects a rename the same way it rejects an edit. Showing the
+   * new name and quietly keeping the old one is how you get a person renaming the same thing twice.
+   */
+  const setPageTitle = useCallback(
+    (next: string) => {
+      const decision = decideRename({ recordId: editingPatternId, current: title, draft: next });
+      if (!decision.rename) return;
+      const previous = title;
+      setTitle(decision.title);
+      void (async () => {
+        try {
+          await updatePattern(editingPatternId!, { title: decision.title });
+        } catch (e) {
+          console.error('[playground] could not rename the page', e);
+          setTitle(previous);
+        }
+      })();
+    },
+    [editingPatternId, title]
+  );
+
   return (
     <PlaygroundContext.Provider
       value={{
@@ -557,7 +602,8 @@ export function PlaygroundProvider({
         onDragEnd,
         saveState,
         isTemplate,
-        pageTitle,
+        pageTitle: title,
+        setPageTitle,
         guardrails,
         structuralEditing,
         aiAssistantEnabled,

@@ -39,6 +39,7 @@ import { useRouter } from 'next/navigation';
 import { handoffApiUrl } from '@/lib/api-path';
 import ShareTemplate from './ShareTemplate';
 import MetaControl from '../library/MetaControl';
+import PageTitle from './PageTitle';
 import PageOrigin from '../library/PageOrigin';
 import { fieldIdToArgsPath, richtextEditableFieldPaths, textEditableFieldPaths } from '@/lib/field-marks';
 import { setAtArgsPath } from '@/lib/set-at-args-path';
@@ -688,6 +689,8 @@ export default function PlaygroundBuilder({
                 */}
               {/* Visibility + lifecycle, where the page is. Replaces the old read-only "Share" link control:
                   handing a page to someone is "Invite to build", and who may see it is this. */}
+              {/* The record's name, first — it is what the thing *is*, before what may be done with it. */}
+              <PageTitle />
               {editingPatternId && <MetaControl resourceType="pattern" resourceId={editingPatternId} basePath={basePath} />}
               {/**
                 * Where this page came from, for a page that came from somewhere (Brad, 2026-08-13).

@@ -5,7 +5,53 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — what the HubSpot connector can actually do
+## 2026-08-13 (latest) — nothing could be named
+
+Brad, testing before handing the app to Natko: *"you can't currently create new pages — there's no way to name
+it or save it."* He was right, and the second half turned out to be the tell for the first.
+
+**Saving was fine.** Save-on-first-block mints the record and autosave persists the canvas, exactly as E.2
+intended. What was gone was the **title**, and with no name and no save button the canvas gave no evidence it
+had saved anything — so "I can't name it" and "it doesn't save" are the same complaint.
+
+**How it went missing.** Two correct decisions, taken months apart, that nobody held up against each other:
+
+1. E.2 removed the save dialog, because a page that saves itself does not need one.
+2. R.2 replaced `InviteWizard` with `ShareTemplate` — and `WizardDialog`, the old wizard's shell, was the last
+   thing mounting `SavePatternDialog`.
+
+`SavePatternDialog` held the only title field in the app. After R.2 nothing rendered it, so nothing rendered a
+title field. `updatePattern` still accepted one; there was simply no caller. The live callers were autosave
+(which **deliberately** never sends the title — it writes an empty string for every field it does not own, and
+would wipe the name on every keystroke) and `MetaControl` (visibility, lifecycle, kind). So every record created
+after R.2 was born `Untitled page` and stayed that way permanently.
+
+Worth naming the shape: **the regression was an orphaned component, not a broken one.** `SavePatternDialog`
+still compiles, still passes typecheck, is still imported by `WizardDialog` — which is imported by nothing. A
+dead mount point is invisible to every gate we run.
+
+**The fix.** `PageTitle` in the canvas toolbar: click-to-edit, commits on Enter or blur, Escape reverts.
+`pageTitle` is now state in `PlaygroundContext` with a `setPageTitle` that writes through `updatePattern`,
+optimistic and reverted on refusal — refusal being real, since `patchPattern` counts `title` as a content field
+and a legacy frozen template (`source === 'template'`) rejects a rename the way it rejects an edit. The record
+minted by save-on-first-block now names itself in state on the spot, so the toolbar is right before the server
+re-render.
+
+**No rename on the library card**, deliberately. `AssetCard` carries a rule Brad has enforced three times — *a
+card is a link, it takes no actions; if something seems to need a card affordance, it needs a home on the object
+instead*. The title now has that home, which is what the rule asks for.
+
+Decision logic went to `lib/page-title.ts` (`decideRename`, `isPlaceholderTitle`) rather than living inside the
+component — same pure-decision/IO split as `decidePatternMetaChange`. 8 tests. Suite 1178 → 1186.
+
+**Not verified in a browser.** An authenticated pass needs Brad's credentials, and the configured
+`DATABASE_URL` is the hosted SSC registry, so clicking through would leave test records in the environment
+Natko picks up tomorrow. Lint (0 errors), `next build` and 1186+9 tests are what stands behind this. First
+thing to confirm by hand: create a page, name it, reload.
+
+---
+
+## 2026-08-13 — what the HubSpot connector can actually do
 
 Checked against the real SS&C clone rather than assumed — portal `50110677`, **353 website pages**, names like
 "BPO and Lift-Outs", so it is genuinely their content.
