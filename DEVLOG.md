@@ -5,7 +5,35 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — R.5b: the brief columns are gone
+## 2026-08-13 (latest) — what the HubSpot connector can actually do
+
+Checked against the real SS&C clone rather than assumed — portal `50110677`, **353 website pages**, names like
+"BPO and Lift-Outs", so it is genuinely their content.
+
+| Surface | Through the HubSpot MCP |
+|---|---|
+| Landing pages | full module-level read **and** write |
+| Blog posts | read + write |
+| **Website pages** | **name and dates only** — `SITE_PAGE.write` is `NOT_AVAILABLE`, and `manage_landing_page` refuses a site-page id outright |
+
+The decisive test was pointing `manage_landing_page action=MODULES` at a real site page: *"couldn't find an
+editable landing page draft"*. So the connector cannot write website pages **and cannot read their structure
+either** — it cannot even inform the mapping. Track B goes to the CMS Pages REST API, which is where Brad had
+already landed independently.
+
+**What the connector settled for free:** the page model the R.6 prompt assumed is correct. `manage_landing_page`
+speaks in module types, module definitions and verbatim field patches, and enforces read-before-write and one
+write at a time — the same discipline the prompt asks an agent for, arrived at independently. The mapping
+concept holds; only the transport changes.
+
+Also worth recording: **the first attempt to write this entry died mid-edit.** The sandbox lost access to
+`~/Documents` — `ls` and `git` both returned `Operation not permitted` — and the doc update and its commit
+never landed. The working tree was clean afterwards, so nothing was half-written; the finding lived only in the
+conversation until access came back. A reminder that a conclusion is not durable until it is committed.
+
+---
+
+## 2026-08-13 — R.5b: the brief columns are gone
 
 The one irreversible step in the reflow, taken once its precondition was actually met: 0030 applied on the real
 registry, and a guest built a page, returned to it through their link and edited it. Everything before this

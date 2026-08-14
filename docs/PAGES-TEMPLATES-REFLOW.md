@@ -179,6 +179,10 @@ Two tracks. **They are not the same size and should not ship in the same order.*
 
 ### 5.1 Track A — the migration prompt (first)
 
+⚠️ **Against HubSpot, Track A reaches landing pages only** — see the table in §5.2. It remains the cheapest way
+to learn the mapping, since a landing page and a website page are both template-plus-modules, but the pages a
+client actually wants moved are not reachable through the connector.
+
 If someone has both the Handoff MCP and the HubSpot or Sanity MCP connected, emit a **"move this page to the
 CMS" prompt**: the page's blocks and content in a machine-readable payload, plus instructions for working out
 the mapping.
@@ -192,9 +196,26 @@ know. Building the adapter first means encoding guesses.
 Admin gains a **CMS integrations** tab: provider credentials come from env per deployment, an operator
 activates a provider, and a user then connects their own account.
 
-- **HubSpot** — OAuth is the normal path. Pages are assembled from a template with DnD areas plus module
-  content, so the mapping is *Handoff block → HubSpot module* + field-to-field. The lazy alternative (dump
-  HTML into a rich-text module) works and destroys editability; it is a fallback, not the design.
+- **HubSpot** — ⚠️ **The connector cannot do this job. The adapter has to speak REST.** Measured against the
+  real SS&C clone (portal `50110677`, **353 website pages**) on 2026-08-13, not assumed:
+
+  | Surface | Through the HubSpot MCP |
+  |---|---|
+  | Landing pages | full module-level read **and** write — `MODULE_TYPES`, `MODULE_DEF`, `MODULES`, `SET_MODULE_FIELDS`, `INSERT`, `CREATE_FROM_TEMPLATE` |
+  | Blog posts | read + write |
+  | **Website pages** | **name and dates only.** `SITE_PAGE.write` reports `NOT_AVAILABLE`, and `manage_landing_page` refuses a site-page id outright — *"HubSpot couldn't find an editable landing page draft with contentId=…"*. No modules, no fields, no write, and **no read of structure either** — so the connector cannot even inform the mapping. |
+
+  A client migration is made of website pages, so Track B targets **HubSpot's CMS Pages REST API** rather than
+  the connector (Brad, 2026-08-13: *"we're going to need website pages"*). Auth is a private-app token or an
+  OAuth app the operator installs; no secret passes through an agent session — see §6.
+
+  **What the connector settled for free:** the page model this plan assumed is right. `manage_landing_page`
+  speaks in module types, module definitions and verbatim field patches, and enforces *read before you write*
+  and one write at a time — the same discipline §5.1's prompt asks an agent for. The mapping concept holds;
+  only the transport changes.
+
+  The lazy alternative (dump HTML into a rich-text module) works and destroys editability; it is a fallback,
+  not the design.
 - **Sanity** — ⚠️ worth confirming before building: third-party **writes** are normally token-scoped
   (project + dataset), not user OAuth. The mapping target is a document type with a `blocks[]` array. 8x8
   already ships `studio/schema.json`, which is a machine-readable target — the first mapping should be
