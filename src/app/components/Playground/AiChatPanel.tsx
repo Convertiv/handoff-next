@@ -1,20 +1,24 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, FileText, Link2, Loader2, Paperclip, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { ArrowRight, FileText, Link2, Loader2, RefreshCw, Trash2, X } from 'lucide-react';
+import { Layout } from '@phosphor-icons/react';
 import { Button } from '@/components/ui/button';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageContent } from '@/components/ui/message';
+import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker';
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from '@/components/ui/message-scroller';
 import { ChatInput } from '@/components/Chat/ChatInput';
 import { componentThumbnailUrl } from '@/lib/component-thumbnail';
 import { docxToSourceCopy, isConvertibleDocument } from '@/lib/docx-copy';
-import {
-  SOURCE_COPY_ACCEPT,
-  countWords,
-  frameSourceCopy,
-  isReadableTextFile,
-  unreadableFileMessage,
-} from '@/lib/source-copy';
+import { SOURCE_COPY_ACCEPT, countWords, frameSourceCopy, isReadableTextFile, unreadableFileMessage } from '@/lib/source-copy';
 import { applyOps, describeOpVisually, verifyOps, type EditOp, type PageBlock } from '@/lib/edit-operations';
 import { applyResolvedImages, containsImageSrc, swapImageSrc, type ResolvedImage } from '@/lib/swap-image-src';
 import { pollGenerationJob } from '@/lib/client/poll-generation-job';
@@ -100,8 +104,7 @@ export default function AiChatPanel() {
    * looking wrong on a swap twice; whether or not the model picked wrongly, two hyphenated slugs are not
    * something a designer can check a swap against. The catalog is already loaded for the picker.
    */
-  const titleFor = (componentId: string) =>
-    components.find((c) => c.id === componentId)?.title || componentId;
+  const titleFor = (componentId: string) => components.find((c) => c.id === componentId)?.title || componentId;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,13 +127,8 @@ export default function AiChatPanel() {
    * version that is invisible to half the ways people navigate would be the same mistake twice.
    */
   const copyFileRef = useRef<HTMLInputElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
   /** Serializes canvas writes from image watchers — see `watchImage`. */
   const swapQueue = useRef<Promise<void>>(Promise.resolve());
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, busy]);
 
   /**
    * Send a turn and consume its event stream.
@@ -280,13 +278,18 @@ export default function AiChatPanel() {
         `Here is the content of ${page.url}. Use it as reference — the copy and structure to work from, not a layout to copy.`,
         page.title ? `\nTitle: ${page.title}` : '',
         page.description ? `Description: ${page.description}` : '',
-        page.headings?.length ? `\nHeadings:\n${page.headings.map((h) => `${'  '.repeat(Math.max(0, h.level - 1))}- ${h.text}`).join('\n')}` : '',
+        page.headings?.length
+          ? `\nHeadings:\n${page.headings.map((h) => `${'  '.repeat(Math.max(0, h.level - 1))}- ${h.text}`).join('\n')}`
+          : '',
         page.paragraphs?.length ? `\nCopy:\n${page.paragraphs.map((t) => `- ${t}`).join('\n')}` : '',
         // Images are listed for context only. They are not in the asset store, so they cannot be used
         // as block imagery — search_assets is the only source, and saying so here stops the model
         // reaching for a foreign URL that would render as a hotlink we do not control.
         page.images?.length
-          ? `\nImages on the page (context only — do NOT use these URLs as block imagery; search the asset store instead):\n${page.images.slice(0, 12).map((i) => `- ${i.alt || '(no alt)'}`).join('\n')}`
+          ? `\nImages on the page (context only — do NOT use these URLs as block imagery; search the asset store instead):\n${page.images
+              .slice(0, 12)
+              .map((i) => `- ${i.alt || '(no alt)'}`)
+              .join('\n')}`
           : '',
       ]
         .filter(Boolean)
@@ -340,9 +343,7 @@ export default function AiChatPanel() {
       // everyone who never opens one. Converted to headings and lists rather than flat text, because
       // the framing asks the model to put *supplied headings* into matching fields and a flat dump
       // destroys that distinction.
-      const text = isConvertibleDocument(file.name)
-        ? await docxToSourceCopy(await file.arrayBuffer())
-        : await file.text();
+      const text = isConvertibleDocument(file.name) ? await docxToSourceCopy(await file.arrayBuffer()) : await file.text();
       if (!text.trim()) {
         setError(`${file.name} had no text in it — if it is a scan or all images, paste the copy instead.`);
         return;
@@ -533,13 +534,24 @@ export default function AiChatPanel() {
     // Any image that finished before this click is folded into the same write, so the order the two
     // happened in does not matter and there is no second canvas write to race the first.
     const { blocks: withImages, applied } = applyResolvedImages(after, heldImages(messages));
-    await bulkAddComponents(withImages.map((b) => ({ componentId: b.componentId, data: b.args })), true);
+    await bulkAddComponents(
+      withImages.map((b) => ({ componentId: b.componentId, data: b.args })),
+      true
+    );
     markImagesApplied(applied);
 
     setMessages((cur) =>
       cur.map((m, i) =>
         i === msgIndex && m.role === 'assistant' && m.changeset
-          ? { ...m, changeset: { ...m.changeset, applied: true, undo: before, rejected: [...m.changeset.rejected, ...rejected.map((r) => ({ reason: r.reason }))] } }
+          ? {
+              ...m,
+              changeset: {
+                ...m.changeset,
+                applied: true,
+                undo: before,
+                rejected: [...m.changeset.rejected, ...rejected.map((r) => ({ reason: r.reason }))],
+              },
+            }
           : m
       )
     );
@@ -548,7 +560,10 @@ export default function AiChatPanel() {
   /** Put the page back exactly as it was. Cheap to build, and the reason people will trust this. */
   const undoChangeset = async (msgIndex: number, changeset: Changeset) => {
     if (!changeset.undo) return;
-    await bulkAddComponents(changeset.undo.map((b) => ({ componentId: b.componentId, data: b.args })), true);
+    await bulkAddComponents(
+      changeset.undo.map((b) => ({ componentId: b.componentId, data: b.args })),
+      true
+    );
     setMessages((cur) =>
       cur.map((m, i) =>
         i === msgIndex && m.role === 'assistant' && m.changeset
@@ -573,25 +588,38 @@ export default function AiChatPanel() {
   const canvasHasBlocks = selectedComponents.length > 0;
 
   return (
-    <div className="flex h-full w-[340px] shrink-0 flex-col border-l bg-background">
-      <div className="flex items-center gap-2 border-b px-4 py-3">
-        <Sparkles className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium">Build with AI</span>
-      </div>
-
-      {/* gap, not space-y: user turns add their own top margin and gap composes with that. */}
-      <div ref={scrollRef} className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-        {messages.length === 0 ? (
-          <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-xs text-muted-foreground">
-            <p className="font-medium text-foreground">Describe the page you want.</p>
-            <p className="mt-1.5">
-              It composes from blocks that already exist, writes the copy in your brand voice, and uses
-              images from your asset library. It may ask a question first.
-            </p>
+    <aside className="flex h-full w-80 shrink-0 flex-col border-l bg-background">
+      {messages.length === 0 && !busy && !error ? (
+        <div className="flex min-h-0 flex-1 flex-col justify-end gap-3 overflow-y-auto p-4">
+          <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+            <Layout className="h-6 w-6 text-muted-foreground" aria-hidden />
           </div>
-        ) : null}
-
-        {/* Turns are told apart by shape, not by an icon: the user is a filled bubble pushed right (the
+          <p className="text-sm font-semibold">Build and refine a page with your design system</p>
+          <div className="space-y-0.5">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={() => setUrlOpen(true)}
+            >
+              <Link2 className="h-4 w-4 shrink-0" />
+              <span className="truncate">Pull content from a URL...</span>
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-sm text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              onClick={() => setCopyOpen(true)}
+            >
+              <FileText className="h-4 w-4 shrink-0" />
+              <span className="truncate">Paste or attach your copy...</span>
+            </button>
+          </div>
+        </div>
+      ) : (
+        <MessageScrollerProvider>
+          <MessageScroller className="min-h-0 flex-1">
+            <MessageScrollerViewport className="px-3">
+              <MessageScrollerContent className="gap-4 py-4">
+                {/* Turns are told apart by shape, not by an icon: the user is a filled bubble pushed right (the
             workbench and design chats read the same way), the assistant is unbubbled prose running the
             full width of the rail. Two things follow that matter at 340px — the assistant keeps every
             pixel for its proposal card, and that card is never nested inside a filled bubble fighting it
@@ -604,307 +632,323 @@ export default function AiChatPanel() {
             card's own fill. Secondary is filled and unmistakably a bubble without being either.
             (`tinted` is not an option: it resolves `oklch(from var(--primary) …)` and this app's
             `--primary` is a bare HSL triplet, so the declaration is invalid and no background renders.) */}
-        {messages.map((m, i) => (
-          <Message
-            key={i}
-            align={m.role === 'user' ? 'end' : 'start'}
-            // Extra air ahead of each new question, so an exchange reads as one group.
-            className={m.role === 'user' && i > 0 ? 'mt-2' : undefined}
-          >
-            <MessageContent>
-              {/* The visual cue is silent to a screen reader, so name the speaker. */}
-              <span className="sr-only">{m.role === 'user' ? 'You said:' : 'Assistant said:'}</span>
+                {messages.map((m, i) => (
+                  <MessageScrollerItem
+                    key={i}
+                    messageId={`playground-turn-${i}`}
+                    scrollAnchor={m.role === 'user'}
+                    className={m.role === 'user' && i > 0 ? 'mt-2' : undefined}
+                  >
+                    <Message align={m.role === 'user' ? 'end' : 'start'}>
+                      <MessageContent>
+                        {/* The visual cue is silent to a screen reader, so name the speaker. */}
+                        <span className="sr-only">{m.role === 'user' ? 'You said:' : 'Assistant said:'}</span>
 
-              {m.role === 'user' ? (
-                <Bubble variant="secondary" align="end">
-                  <BubbleContent className="whitespace-pre-wrap">{m.label ?? m.content}</BubbleContent>
-                </Bubble>
-              ) : m.content ? (
-                <Bubble variant="ghost">
-                  <BubbleContent className="whitespace-pre-wrap">{m.content}</BubbleContent>
-                </Bubble>
-              ) : null}
-
-              {m.role === 'assistant' && m.images?.length ? (
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs font-medium">
-                    {m.images.length === 1 ? 'Generating an image' : `Generating ${m.images.length} images`}
-                  </p>
-                  {/* The page is already on the canvas with placeholders; this is progress, not a
-                      gate. Saying so stops it reading as "the page is not ready yet". */}
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    The page is ready — these swap in as they finish, and land in your asset library.
-                  </p>
-                  <ul className="mt-2 space-y-1">
-                    {m.images.map((img) => (
-                      <li key={img.jobId} className="flex items-center gap-1.5 text-xs">
-                        {img.state === 'generating' ? (
-                          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
-                        ) : img.state === 'done' ? (
-                          <span className="text-emerald-700 dark:text-emerald-400">✓</span>
-                        ) : img.state === 'waiting' ? (
-                          <span className="text-muted-foreground">◷</span>
-                        ) : (
-                          <span className="text-amber-700 dark:text-amber-400">!</span>
-                        )}
-                        <span className={img.state === 'done' ? '' : 'text-muted-foreground'}>{img.title}</span>
-                        {img.state === 'failed' ? (
-                          <span className="text-[11px] text-amber-700 dark:text-amber-400">
-                            — {img.error ?? 'failed'}; the placeholder stays
-                          </span>
+                        {m.role === 'user' ? (
+                          <Bubble variant="secondary" align="end">
+                            <BubbleContent className="whitespace-pre-wrap">{m.label ?? m.content}</BubbleContent>
+                          </Bubble>
+                        ) : m.content ? (
+                          <Bubble variant="ghost">
+                            <BubbleContent className="whitespace-pre-wrap">{m.content}</BubbleContent>
+                          </Bubble>
                         ) : null}
-                        {/* Says what is true — the slot is not on the page — rather than guessing why.
+
+                        {m.role === 'assistant' && m.images?.length ? (
+                          <div className="rounded-lg border bg-muted/30 p-3">
+                            <p className="text-xs font-medium">
+                              {m.images.length === 1 ? 'Generating an image' : `Generating ${m.images.length} images`}
+                            </p>
+                            {/* The page is already on the canvas with placeholders; this is progress, not a
+                      gate. Saying so stops it reading as "the page is not ready yet". */}
+                            <p className="mt-0.5 text-[11px] text-muted-foreground">
+                              The page is ready — these swap in as they finish, and land in your asset library.
+                            </p>
+                            <ul className="mt-2 space-y-1">
+                              {m.images.map((img) => (
+                                <li key={img.jobId} className="flex items-center gap-1.5 text-xs">
+                                  {img.state === 'generating' ? (
+                                    <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+                                  ) : img.state === 'done' ? (
+                                    <span className="text-emerald-700 dark:text-emerald-400">✓</span>
+                                  ) : img.state === 'waiting' ? (
+                                    <span className="text-muted-foreground">◷</span>
+                                  ) : (
+                                    <span className="text-amber-700 dark:text-amber-400">!</span>
+                                  )}
+                                  <span className={img.state === 'done' ? '' : 'text-muted-foreground'}>{img.title}</span>
+                                  {img.state === 'failed' ? (
+                                    <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                                      — {img.error ?? 'failed'}; the placeholder stays
+                                    </span>
+                                  ) : null}
+                                  {/* Says what is true — the slot is not on the page — rather than guessing why.
                             The old wording claimed "that block changed", which sent a real debugging
                             session after the wrong cause. */}
-                        {img.state === 'waiting' ? (
-                          <span className="text-[11px] text-muted-foreground">
-                            — ready; lands when you apply the change
-                          </span>
+                                  {img.state === 'waiting' ? (
+                                    <span className="text-[11px] text-muted-foreground">— ready; lands when you apply the change</span>
+                                  ) : null}
+                                  {img.state === 'gone' ? (
+                                    <span className="text-[11px] text-muted-foreground">
+                                      — its slot is no longer on the page; saved to your library
+                                    </span>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         ) : null}
-                        {img.state === 'gone' ? (
-                          <span className="text-[11px] text-muted-foreground">
-                            — its slot is no longer on the page; saved to your library
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
 
-              {m.role === 'assistant' && m.changeset ? (
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs font-medium">
-                    {m.changeset.ops.length} change{m.changeset.ops.length === 1 ? '' : 's'}
-                  </p>
-                  {/* Thumbnails, not just a line of text. A swap is the one op where seeing the result
+                        {m.role === 'assistant' && m.changeset ? (
+                          <div className="rounded-lg border bg-muted/30 p-3">
+                            <p className="text-xs font-medium">
+                              {m.changeset.ops.length} change{m.changeset.ops.length === 1 ? '' : 's'}
+                            </p>
+                            {/* Thumbnails, not just a line of text. A swap is the one op where seeing the result
                       matters most, and it was the one with nothing to look at — the answer to "can you
                       preview at all" was no. The schematic is the same one the proposal card and the
                       picker use, so a block looks the same wherever it appears. */}
-                  <ul className="mt-2 space-y-1.5">
-                    {m.changeset.ops.map((op, oi) => {
-                      const v = describeOpVisually(op);
-                      return (
-                        <li key={oi} className="flex items-center gap-2 rounded-md border bg-background/60 p-1.5">
-                          <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">
-                            {v.action} {v.position}
-                          </span>
-                          {v.before ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img
-                              src={componentThumbnailUrl(v.before)}
-                              alt=""
-                              className={`h-8 w-12 shrink-0 rounded border bg-background object-cover ${
-                                v.after ? 'opacity-50' : ''
-                              }`}
-                              loading="lazy"
-                            />
-                          ) : null}
-                          {v.before && v.after ? (
-                            <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          ) : null}
-                          {v.after ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img
-                              src={componentThumbnailUrl(v.after)}
-                              alt=""
-                              className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
-                              loading="lazy"
-                            />
-                          ) : null}
-                          <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                            {v.after ? titleFor(v.after) : titleFor(v.before ?? '')}
-                            {v.fields?.length ? ` — ${v.fields.join(', ')}` : ''}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                            <ul className="mt-2 space-y-1.5">
+                              {m.changeset.ops.map((op, oi) => {
+                                const v = describeOpVisually(op);
+                                return (
+                                  <li key={oi} className="flex items-center gap-2 rounded-md border bg-background/60 p-1.5">
+                                    <span className="shrink-0 text-[11px] font-medium tabular-nums text-muted-foreground">
+                                      {v.action} {v.position}
+                                    </span>
+                                    {v.before ? (
+                                      /* eslint-disable-next-line @next/next/no-img-element */
+                                      <img
+                                        src={componentThumbnailUrl(v.before)}
+                                        alt=""
+                                        className={`h-8 w-12 shrink-0 rounded border bg-background object-cover ${
+                                          v.after ? 'opacity-50' : ''
+                                        }`}
+                                        loading="lazy"
+                                      />
+                                    ) : null}
+                                    {v.before && v.after ? <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground" /> : null}
+                                    {v.after ? (
+                                      /* eslint-disable-next-line @next/next/no-img-element */
+                                      <img
+                                        src={componentThumbnailUrl(v.after)}
+                                        alt=""
+                                        className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
+                                        loading="lazy"
+                                      />
+                                    ) : null}
+                                    <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                      {v.after ? titleFor(v.after) : titleFor(v.before ?? '')}
+                                      {v.fields?.length ? ` — ${v.fields.join(', ')}` : ''}
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
 
-                  {/* Rejections are shown, not swallowed: an edit that did not land is something the
+                            {/* Rejections are shown, not swallowed: an edit that did not land is something the
                       user needs to know about, or they will assume it did. */}
-                  {m.changeset.rejected.length ? (
-                    <ul className="mt-1.5 space-y-0.5">
-                      {m.changeset.rejected.map((r, ri) => (
-                        <li key={ri} className="text-[11px] text-amber-700 dark:text-amber-400">
-                          Skipped — {r.reason}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+                            {m.changeset.rejected.length ? (
+                              <ul className="mt-1.5 space-y-0.5">
+                                {m.changeset.rejected.map((r, ri) => (
+                                  <li key={ri} className="text-[11px] text-amber-700 dark:text-amber-400">
+                                    Skipped — {r.reason}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
 
-                  <div className="mt-2.5 flex items-center gap-2">
-                    {!m.changeset.applied && shouldWaitForImages(m.changeset, m.images) ? (
-                      <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Waiting for the image…
-                      </span>
-                    ) : m.changeset.applied ? (
-                      <>
-                        <span className="text-xs text-emerald-700 dark:text-emerald-400">Applied.</span>
-                        {m.changeset.undo ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-7 text-xs"
-                            onClick={() => void undoChangeset(i, m.changeset!)}
-                          >
-                            Undo
-                          </Button>
+                            <div className="mt-2.5 flex items-center gap-2">
+                              {!m.changeset.applied && shouldWaitForImages(m.changeset, m.images) ? (
+                                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Waiting for the image…
+                                </span>
+                              ) : m.changeset.applied ? (
+                                <>
+                                  <span className="text-xs text-emerald-700 dark:text-emerald-400">Applied.</span>
+                                  {m.changeset.undo ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-7 text-xs"
+                                      onClick={() => void undoChangeset(i, m.changeset!)}
+                                    >
+                                      Undo
+                                    </Button>
+                                  ) : null}
+                                </>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-7 text-xs"
+                                  onClick={() => void applyChangeset(i, m.changeset!)}
+                                >
+                                  Apply {m.changeset.ops.length === 1 ? 'change' : 'changes'}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
                         ) : null}
-                      </>
-                    ) : (
-                      <Button type="button" size="sm" className="h-7 text-xs" onClick={() => void applyChangeset(i, m.changeset!)}>
-                        Apply {m.changeset.ops.length === 1 ? 'change' : 'changes'}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ) : null}
 
-              {m.role === 'assistant' && m.proposal ? (
-                <div className="rounded-lg border bg-muted/30 p-3">
-                  <p className="text-xs font-medium">
-                    {m.proposal.blocks.length} block{m.proposal.blocks.length === 1 ? '' : 's'}
-                  </p>
+                        {m.role === 'assistant' && m.proposal ? (
+                          <div className="rounded-lg border bg-muted/30 p-3">
+                            <p className="text-xs font-medium">
+                              {m.proposal.blocks.length} block{m.proposal.blocks.length === 1 ? '' : 's'}
+                            </p>
 
-                  {/* Values the server refused, in the user's words. Same reason the changeset shows
+                            {/* Values the server refused, in the user's words. Same reason the changeset shows
                       its rejections: an image that was chosen and thrown away, with nothing said about
                       it, reads as the feature simply not working. */}
-                  {m.proposal.notices?.length ? (
-                    <ul className="mt-1.5 space-y-0.5">
-                      {m.proposal.notices.map((n, ni) => (
-                        <li key={ni} className="text-[11px] text-amber-700 dark:text-amber-400">
-                          {n}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+                            {m.proposal.notices?.length ? (
+                              <ul className="mt-1.5 space-y-0.5">
+                                {m.proposal.notices.map((n, ni) => (
+                                  <li key={ni} className="text-[11px] text-amber-700 dark:text-amber-400">
+                                    {n}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : null}
 
-                  {/* Per-block actions. Regenerating the whole page to change one hero was the single
+                            {/* Per-block actions. Regenerating the whole page to change one hero was the single
                       loudest complaint — each row can be swapped, reworded or dropped on its own, and
                       the server scopes the request so the rest cannot drift while you fix one thing. */}
-                  <ol className="mt-2 space-y-1.5">
-                    {m.proposal.blocks.map((b, bi) => {
-                      const isRefining = refining?.msg === i && refining.block === bi;
-                      return (
-                        <li key={bi} className="rounded-md border bg-background/60 p-1.5">
-                          <div className="group flex items-center gap-2">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={componentThumbnailUrl(b.componentId)}
-                              alt=""
-                              className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
-                              loading="lazy"
-                            />
-                            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                              {bi + 1}. {titleFor(b.componentId)}
-                            </span>
-                            {m.proposal!.applied ? null : (
-                              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setRefining(isRefining ? null : { msg: i, block: bi });
-                                    setRefineText('');
-                                  }}
-                                  className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                                  aria-label={`Change block ${bi + 1}`}
-                                  title="Change this block"
-                                >
-                                  {isRefining ? <X className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeBlock(i, bi)}
-                                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                  aria-label={`Remove block ${bi + 1}`}
-                                  title="Remove"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                            <ol className="mt-2 space-y-1.5">
+                              {m.proposal.blocks.map((b, bi) => {
+                                const isRefining = refining?.msg === i && refining.block === bi;
+                                return (
+                                  <li key={bi} className="rounded-md border bg-background/60 p-1.5">
+                                    <div className="group flex items-center gap-2">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img
+                                        src={componentThumbnailUrl(b.componentId)}
+                                        alt=""
+                                        className="h-8 w-12 shrink-0 rounded border bg-background object-cover"
+                                        loading="lazy"
+                                      />
+                                      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                                        {bi + 1}. {titleFor(b.componentId)}
+                                      </span>
+                                      {m.proposal!.applied ? null : (
+                                        <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setRefining(isRefining ? null : { msg: i, block: bi });
+                                              setRefineText('');
+                                            }}
+                                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                                            aria-label={`Change block ${bi + 1}`}
+                                            title="Change this block"
+                                          >
+                                            {isRefining ? <X className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => removeBlock(i, bi)}
+                                            className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                            aria-label={`Remove block ${bi + 1}`}
+                                            title="Remove"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {isRefining ? (
+                                      <div className="mt-1.5 flex gap-1.5">
+                                        <input
+                                          value={refineText}
+                                          onChange={(e) => setRefineText(e.target.value)}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && refineText.trim()) void refineBlock(i, bi, refineText);
+                                            if (e.key === 'Escape') setRefining(null);
+                                          }}
+                                          placeholder="Something else, shorter copy…"
+                                          disabled={refineBusy}
+                                          autoFocus
+                                          className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs"
+                                        />
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          className="h-7 shrink-0 text-xs"
+                                          disabled={refineBusy || !refineText.trim()}
+                                          onClick={() => void refineBlock(i, bi, refineText)}
+                                        >
+                                          {refineBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Change'}
+                                        </Button>
+                                      </div>
+                                    ) : null}
+                                  </li>
+                                );
+                              })}
+                            </ol>
+
+                            {m.proposal.applied ? (
+                              <p className="mt-2.5 text-xs text-emerald-700 dark:text-emerald-400">Added to the page.</p>
+                            ) : (
+                              // Two buttons rather than one when the canvas already has blocks: "apply" is
+                              // ambiguous there, and guessing wrong either discards the user's work or leaves a
+                              // page they have to clean up by hand.
+                              <div className="mt-2.5 flex gap-2">
+                                <Button type="button" size="sm" className="h-7 text-xs" onClick={() => void apply(i, m.proposal!, false)}>
+                                  {canvasHasBlocks ? 'Add to page' : 'Build page'}
+                                </Button>
+                                {canvasHasBlocks ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-7 text-xs"
+                                    onClick={() => void apply(i, m.proposal!, true)}
+                                  >
+                                    Replace page
+                                  </Button>
+                                ) : null}
                               </div>
                             )}
                           </div>
+                        ) : null}
+                      </MessageContent>
+                    </Message>
+                  </MessageScrollerItem>
+                ))}
 
-                          {isRefining ? (
-                            <div className="mt-1.5 flex gap-1.5">
-                              <input
-                                value={refineText}
-                                onChange={(e) => setRefineText(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' && refineText.trim()) void refineBlock(i, bi, refineText);
-                                  if (e.key === 'Escape') setRefining(null);
-                                }}
-                                placeholder="Something else, shorter copy…"
-                                disabled={refineBusy}
-                                autoFocus
-                                className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-xs"
-                              />
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="h-7 shrink-0 text-xs"
-                                disabled={refineBusy || !refineText.trim()}
-                                onClick={() => void refineBlock(i, bi, refineText)}
-                              >
-                                {refineBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Change'}
-                              </Button>
-                            </div>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ol>
+                {busy ? (
+                  <MessageScrollerItem messageId="playground-status">
+                    <Marker>
+                      <MarkerIcon>
+                        <Loader2 className="animate-spin" />
+                      </MarkerIcon>
+                      <MarkerContent className="truncate">{status || 'Thinking…'}</MarkerContent>
+                      <button
+                        type="button"
+                        onClick={stop}
+                        className="shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      >
+                        Stop
+                      </button>
+                    </Marker>
+                  </MessageScrollerItem>
+                ) : null}
 
-                  {m.proposal.applied ? (
-                    <p className="mt-2.5 text-xs text-emerald-700 dark:text-emerald-400">Added to the page.</p>
-                  ) : (
-                    // Two buttons rather than one when the canvas already has blocks: "apply" is
-                    // ambiguous there, and guessing wrong either discards the user's work or leaves a
-                    // page they have to clean up by hand.
-                    <div className="mt-2.5 flex gap-2">
-                      <Button type="button" size="sm" className="h-7 text-xs" onClick={() => void apply(i, m.proposal!, false)}>
-                        {canvasHasBlocks ? 'Add to page' : 'Build page'}
-                      </Button>
-                      {canvasHasBlocks ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          className="h-7 text-xs"
-                          onClick={() => void apply(i, m.proposal!, true)}
-                        >
-                          Replace page
-                        </Button>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </MessageContent>
-          </Message>
-        ))}
-
-        {busy ? (
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-              <span className="truncate">{status || 'Thinking…'}</span>
-            </div>
-            <button
-              type="button"
-              onClick={stop}
-              className="shrink-0 text-[11px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              Stop
-            </button>
-          </div>
-        ) : null}
-
-        {error ? <p className="text-xs text-destructive">{error}</p> : null}
-      </div>
+                {error ? (
+                  <MessageScrollerItem messageId="playground-error">
+                    <Marker>
+                      <MarkerContent className="text-destructive">{error}</MarkerContent>
+                    </Marker>
+                  </MessageScrollerItem>
+                ) : null}
+              </MessageScrollerContent>
+            </MessageScrollerViewport>
+            <MessageScrollerButton />
+          </MessageScroller>
+        </MessageScrollerProvider>
+      )}
 
       <div
         className="space-y-2 border-t p-3"
@@ -936,19 +980,16 @@ export default function AiChatPanel() {
               value={copyText}
               onChange={(e) => setCopyText(e.target.value)}
               onKeyDown={(e) => {
-                // Cmd/Ctrl+Enter sends. Plain Enter must insert a newline — this is a paste target for
-                // multi-paragraph copy, and submitting on Enter would make it unusable.
+                // Cmd/Ctrl+Enter sends. Plain Enter inserts a newline so attached copy remains editable.
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void sendSourceCopy();
                 if (e.key === 'Escape') setCopyOpen(false);
               }}
-              placeholder="Paste your copy — headings, body, CTAs. It will be used as the words for the page, not rewritten."
+              placeholder="Review the attached copy before using it."
               disabled={busy}
               autoFocus
               rows={8}
               className="w-full resize-y rounded-md border bg-background px-2.5 py-1.5 text-xs leading-relaxed"
             />
-            {/* Wraps defensively: three controls plus a filename and a word count is more than this
-                panel's width comfortably holds once a long filename is in play. */}
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
@@ -959,33 +1000,6 @@ export default function AiChatPanel() {
               >
                 Use this copy
               </Button>
-              {/* A real button, not 11px grey text and not a label. The first report of this feature was
-                  "she can't select a docx" against a build that already shipped `.docx` in the picker —
-                  so the likelier reading is that the control was never found: it only existed once the
-                  paste panel was open, and it looked like a footnote beside the primary action. */}
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-8 shrink-0 gap-1.5 text-xs"
-                disabled={busy}
-                onClick={() => copyFileRef.current?.click()}
-              >
-                <Paperclip className="h-3 w-3" />
-                Attach a file
-              </Button>
-              <input
-                ref={copyFileRef}
-                type="file"
-                accept={SOURCE_COPY_ACCEPT}
-                className="hidden"
-                tabIndex={-1}
-                onChange={(e) => {
-                  void readCopyFile(e.target.files?.[0]);
-                  // Cleared so choosing the same file twice fires onChange again.
-                  e.target.value = '';
-                }}
-              />
               <span className="ml-auto min-w-0 truncate text-[11px] text-muted-foreground">
                 {copySource ? `${copySource} · ` : ''}
                 {copyText.trim() ? `${countWords(copyText).toLocaleString()} words` : ''}
@@ -1019,30 +1033,27 @@ export default function AiChatPanel() {
               Pull
             </Button>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setUrlOpen(true)}
-            disabled={busy}
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-          >
-            <Link2 className="h-3 w-3" />
-            Pull content from a URL
-          </button>
-        )}
-        {!copyOpen && !urlOpen ? (
-          <button
-            type="button"
-            onClick={() => setCopyOpen(true)}
-            disabled={busy}
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-          >
-            <FileText className="h-3 w-3" />
-            Paste or attach your copy (Word, text, Markdown, CSV)
-          </button>
         ) : null}
-        <ChatInput onSend={(t) => void send(t)} disabled={busy} />
+        <input
+          ref={copyFileRef}
+          type="file"
+          accept={SOURCE_COPY_ACCEPT}
+          className="hidden"
+          tabIndex={-1}
+          onChange={(e) => {
+            void readCopyFile(e.target.files?.[0]);
+            // Cleared so choosing the same file twice fires onChange again.
+            e.target.value = '';
+          }}
+        />
+        <ChatInput
+          onSend={(t) => void send(t)}
+          disabled={busy}
+          variant="rail"
+          placeholder={canvasHasBlocks ? 'Describe a change to this page...' : 'Describe the page you want...'}
+          onAttach={() => copyFileRef.current?.click()}
+        />
       </div>
-    </div>
+    </aside>
   );
 }
