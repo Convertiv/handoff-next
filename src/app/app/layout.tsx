@@ -39,6 +39,40 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   const menu = await getDataProvider().getMenu();
   const session = await auth().catch(() => null);
+
+  /**
+   * Site password (`docs/SITE-PASSWORD.md`).
+   *
+   * Gated here rather than in `proxy.ts` for two reasons. The proxy runs on Edge and cannot reach Postgres or
+   * bcrypt — it says so itself — and, more importantly, everything that must stay reachable is exempt here
+   * *structurally*: API routes, `_next` and assets never render this layout. That is what keeps the preview
+   * canvas alive, since its iframe is opaque-origin and its requests for component CSS and JS carry no cookies
+   * and could never satisfy a gate.
+   *
+   * Runs after `session` so a signed-in user is never asked for a shared secret they may not have been given.
+   */
+  if (authEnabled) {
+    const hdrs = await headers();
+    const pathname = hdrs.get('x-pathname') ?? '/';
+    const { getProtectionState } = await import('../lib/server/site-protection');
+    const state = await getProtectionState();
+    if (state.enabled) {
+      const { decideGate } = await import('../lib/site-gate');
+      const { readUnlock, UNLOCK_COOKIE } = await import('../lib/server/unlock-cookie');
+      const { cookies } = await import('next/headers');
+      const jar = await cookies();
+      const decision = decideGate({
+        pathname,
+        enabled: true,
+        hasSession: Boolean(session?.user),
+        unlocked: readUnlock(jar.get(UNLOCK_COOKIE)?.value, state.epoch),
+      });
+      if (decision.gate) {
+        // The path is carried so unlocking returns you where you were aiming.
+        redirect(`/unlock?next=${encodeURIComponent(pathname)}`);
+      }
+    }
+  }
   await probeRemoteHandoffReachable().catch(() => false);
   const capabilities = getHandoffCapabilities();
 

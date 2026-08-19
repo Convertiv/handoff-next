@@ -16,6 +16,7 @@ import {
   GitMerge,
   GridFour,
   Hammer,
+  Lock,
   Hexagon,
   Image,
   Laptop,
@@ -197,6 +198,8 @@ const MenuIcon = ({ icon, isActive = false }) => {
       return <FileText className={iconClass} />;
     case 'hammer':
       return <Hammer className={iconClass} />;
+    case 'lock':
+      return <Lock className={iconClass} />;
     default:
       return null;
   }

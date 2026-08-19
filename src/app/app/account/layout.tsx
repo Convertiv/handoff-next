@@ -25,6 +25,7 @@ const accountSection = (isAdmin: boolean): SectionLink => {
       items: [
         { title: 'Users', path: '/account/users', icon: 'users', adminOnly: true },
         { title: 'Appearance', path: '/account/appearance', icon: 'paintbrush', adminOnly: true },
+        { title: 'Site Protection', path: '/admin/protection', icon: 'lock', adminOnly: true },
         { title: 'AI Cost', path: '/account/ai-cost', icon: 'bot', adminOnly: true },
       ],
     },
