@@ -211,6 +211,13 @@
       "when": 1783900000000,
       "tag": "0031_drop_brief_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1783900200000,
+      "tag": "0033_site_protection",
+      "breakpoints": true
     }
   ]
 }

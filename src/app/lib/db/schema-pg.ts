@@ -302,6 +302,33 @@ export const handoffShareLinks = pgTable(
   (t) => [index('share_link_resource_idx').on(t.resourceType, t.resourceId)]
 );
 
+/**
+ * The site password — a shared-secret curtain in front of the whole deployment (`docs/SITE-PASSWORD.md`).
+ *
+ * Singleton, like `handoffRegistryConfig`. A dedicated table rather than a key in an existing settings blob,
+ * because the neighbouring settings rows return their whole `settings` object to callers and a password hash
+ * does not belong anywhere that happens.
+ *
+ * This is **not** authentication. One secret, no identity, no audit — a curtain, not a lock.
+ */
+export const handoffSiteProtection = pgTable('handoff_site_protection', {
+  id: text('id').primaryKey().default('default'),
+  enabled: boolean('enabled').notNull().default(false),
+  /** bcrypt, via `hashPassword`. Null until protection has been configured for the first time. */
+  passwordHash: text('password_hash'),
+  /** Shown on the unlock page, so public by definition. Never the password. */
+  hint: text('hint'),
+  /**
+   * Bumped on every password change and carried in the unlock cookie.
+   *
+   * Without it, rotating the password would evict nobody already inside — the one thing rotation is for.
+   * Bumping it alone is "lock everyone out now".
+   */
+  epoch: integer('epoch').notNull().default(1),
+  updatedAt: timestamp('updated_at').defaultNow(),
+  updatedBy: text('updated_by'),
+});
+
 export const handoffTokensSnapshots = pgTable('handoff_tokens_snapshot', {
   id: serial('id').primaryKey(),
   payload: jsonb('payload').notNull(),
