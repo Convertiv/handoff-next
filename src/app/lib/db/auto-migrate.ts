@@ -40,7 +40,23 @@ export function ensureMigrationsApplied(): Promise<void> {
  * tell us exactly where we looked.
  */
 export async function autoMigrate(): Promise<void> {
-  const url = process.env.DATABASE_URL?.trim();
+  const pooledUrl = process.env.DATABASE_URL?.trim();
+  /**
+   * Migrations go over the DIRECT endpoint, never the pooler.
+   *
+   * Neon's pooled host is PgBouncer in transaction mode. It cannot hold the session-level
+   * `SET lock_timeout` / `SET statement_timeout` below, and it is the wrong place to push a
+   * long DDL transaction — Neon's own guidance is to migrate over the unpooled endpoint.
+   * Observed on outsystems-handoff's first boot (2026-08-19): connect, auth and the two SETs
+   * all succeeded against `…-pooler…`, then `migrate()` died with `write CONNECT_TIMEOUT` —
+   * postgres-js cancels its connect timer at the first ReadyForQuery, so that error means the
+   * session was gone and a REPLACEMENT connection never came up inside connect_timeout. Every
+   * table was still missing afterwards (42P01 on `user`, `handoff_component`, …).
+   *
+   * The Neon/Vercel integration provisions both names, so this is normally just present.
+   */
+  const directUrl = process.env.DATABASE_URL_UNPOOLED?.trim() || process.env.POSTGRES_URL_NON_POOLING?.trim();
+  const url = directUrl || pooledUrl;
   if (!url) {
     console.log('[handoff] auto-migrate: DATABASE_URL not set — skipping (workspace mode).');
     return;
@@ -95,11 +111,16 @@ export async function autoMigrate(): Promise<void> {
   // Vercel Postgres / Neon / Supabase poolers all require SSL, so TLS is the default; `sslmode=disable` in the
   // URL is the one way out, which is what makes a local container reachable. See `sslOptionFor`.
   const isPooler = /-pooler\.|pooler\.|neon\.tech/i.test(url);
-  console.log(`[handoff] auto-migrate: connecting (pooler=${isPooler})…`);
+  console.log(
+    `[handoff] auto-migrate: connecting (endpoint=${directUrl ? 'direct' : 'pooled'}, prepared-statements=${!isPooler})…` +
+      (directUrl ? '' : ' ⚠ no unpooled URL in env — migrating over the pooler, which can drop the session mid-DDL')
+  );
 
   const client = postgres(url, {
     max: 1,
-    connect_timeout: 15,
+    // 15s was not enough headroom for a cold / just-provisioned Neon compute to hand back a
+    // replacement connection. This runs once per cold start on the miss path only.
+    connect_timeout: 30,
     idle_timeout: 5,
     prepare: !isPooler, // Neon pooler can't use prepared statements
     ssl: sslOptionFor(url),

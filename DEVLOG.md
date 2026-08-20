@@ -5,7 +5,48 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-19 (latest) — a registry has to build before it has a database
+## 2026-08-19 (latest) — …and then it has to reach the database it was given
+
+Sequel to the entry below. With Neon attached and `DATABASE_URL` set, `outsystems-handoff` still had no
+tables. The migration was not being skipped — it ran eight times and failed to connect every time:
+
+    instrumentation.register() — runtime=nodejs, hasDB=true
+    auto-migrate: using /var/task/src/app/lib/db/migrations
+    auto-migrate: connecting (pooler=true)…
+    auto-migrate: session timeouts set, starting migrate()…
+    auto-migrate: migration failed: write CONNECT_TIMEOUT ep-…-pooler.c-11.us-east-1.aws.neon.tech:5432
+
+8 × connecting, 6 × "session timeouts set", **0 × "schema is up to date"**, then 42P01 on `user`,
+`handoff_component`, `handoff_registry_navigation`.
+
+**Read the failure point, not just the error.** It gets past `SET lock_timeout` / `SET statement_timeout`,
+so DNS, TCP, TLS, auth and query execution against Neon all work — and postgres-js cancels its connect
+timer at the first ReadyForQuery, so a `CONNECT_TIMEOUT` *after* those SETs cannot be the first connection.
+It means the session was dropped and a REPLACEMENT connection never came up inside `connect_timeout`.
+"CONNECT_TIMEOUT" reads like "can't reach the database"; it wasn't (the pooler host resolves and accepts on
+5432 from outside). It was a session dying mid-migration.
+
+**Migrations now go over the DIRECT endpoint, never the pooler** — `DATABASE_URL_UNPOOLED`, then
+`POSTGRES_URL_NON_POOLING`, then `DATABASE_URL`. The pooled host is PgBouncer in transaction mode: it does
+not hold session-level `SET`s and is the wrong place to push a ~24-file DDL transaction. Neon says as much
+in its own docs, and the Neon/Vercel integration provisions both names, so there is nothing to add to the
+env. `connect_timeout` 15s → 30s for a just-provisioned compute. The log line now reports
+`endpoint=direct|pooled` and warns on the pooler fallback, so the next boot says which path it took.
+
+Could not fully separate "pooler dropped the session" from "cold compute exceeded 15s" — that needs the
+connection string, and Vercel returns it as `[SENSITIVE]`. Routing off the pooler covers both, so the
+distinction stayed academic. The runtime read path is unchanged and still pooled, which is correct: that
+one wants PgBouncer.
+
+**Also spotted while reading the logs, unrelated:** `/api/registry/logo.svg` 500s with
+`TypeError: Invalid URL, input: '/logo.svg', base: 'outsystems-handoff.vercel.app'` —
+`app/api/registry/logo.svg/route.ts` feeds `HANDOFF_APP_URL` straight into `new URL()` and this project's
+value has no scheme. Env fix for now; the route should probably normalize. And something polls
+`/api/handoff/ai/design-jobs/run` every 60s, 503ing against the empty schema.
+
+---
+
+## 2026-08-19 — a registry has to build before it has a database
 
 `outsystem-handoff.vercel.app`, first deploy: `next build` died prerendering `/guidelines` with
 *"DATABASE_URL is required for this operation."* Chicken-and-egg — you can't attach a Neon database to a
