@@ -25,8 +25,18 @@ export function ensureMigrationsApplied(): Promise<void> {
  * Automatically apply any pending Drizzle migrations at server startup.
  *
  * Called from instrumentation.ts so it runs once when the Node.js process boots
- * (before the first request). Safe to call multiple times — Drizzle's migrator
- * is idempotent and uses advisory locks so concurrent startup races are handled.
+ * (before the first request).
+ *
+ * ⚠️ Drizzle's migrator does NOT take any lock — this comment used to claim it did, and that
+ * wrong belief is why nothing guarded the race. `pg-core/dialect.js` migrate() creates the
+ * `drizzle.__drizzle_migrations` bookkeeping table, reads the last applied row, then runs every
+ * pending migration in ONE transaction. Nothing serializes two runners. On a fresh registry that
+ * bites hard: every cold-starting lambda migrates the same empty database at once, migration 0000
+ * is drizzle-generated so its `CREATE TABLE "account"` has no IF NOT EXISTS, the losers roll back
+ * their whole transaction, and nothing ever commits. Observed on outsystems-handoff (2026-08-19):
+ * 8 failed runs, all on `CREATE TABLE "account"`, schema still empty.
+ *
+ * So we take the lock ourselves — see MIGRATION_LOCK_KEY below. Safe to call concurrently now.
  *
  * Migrations folder resolution tries multiple candidate paths because we run
  * in several environments with different filesystem layouts:
@@ -128,11 +138,35 @@ export async function autoMigrate(): Promise<void> {
   });
 
   try {
-    // Set timeouts on this session so a stuck advisory lock or hung query
-    // fails fast instead of silently consuming the lambda's execution budget.
+    // Set timeouts on this session so a stuck lock or hung query fails fast
+    // instead of silently consuming the lambda's execution budget.
     await client`SET lock_timeout = '30s'`;
     await client`SET statement_timeout = '120s'`;
-    console.log('[handoff] auto-migrate: session timeouts set, starting migrate()…');
+    console.log('[handoff] auto-migrate: session timeouts set, taking migration lock…');
+
+    /**
+     * Serialize migration runners across every instance of every registry process.
+     *
+     * Session-scoped, so it releases on `client.end()` below AND on an abrupt death — which
+     * matters on Vercel, where an instance can be frozen mid-migration once its request has
+     * been answered. A holder that never comes back drops the lock when its connection dies,
+     * and the next cold start retries. `max: 1` above is what makes this correct: the lock and
+     * the migration transaction ride the same session.
+     *
+     * The wait is bounded by the `lock_timeout` set above — a loser waits for the winner to
+     * finish (the common case, a few seconds) and then runs migrate() itself, which finds
+     * nothing pending and commits an empty transaction. If it waits past lock_timeout we treat
+     * that as "someone else is on it" and return without error rather than piling up.
+     */
+    const MIGRATION_LOCK_KEY = 4242042001; // arbitrary but STABLE — every instance must agree
+    try {
+      await client.unsafe(`SELECT pg_advisory_lock(${MIGRATION_LOCK_KEY})`);
+    } catch (lockErr) {
+      const msg = lockErr instanceof Error ? lockErr.message : String(lockErr);
+      console.log(`[handoff] auto-migrate: another instance holds the migration lock (${msg}) — skipping this run.`);
+      return;
+    }
+    console.log('[handoff] auto-migrate: migration lock held, starting migrate()…');
 
     const db = drizzle(client);
 
@@ -161,6 +195,9 @@ export async function autoMigrate(): Promise<void> {
       throw err;
     }
   } finally {
+    // Ending the session drops the advisory lock on its own; unlocking first keeps the lock from
+    // lingering for the tail of a slow client.end() when another instance is already waiting.
+    await client.unsafe('SELECT pg_advisory_unlock_all()').catch(() => {});
     await client.end({ timeout: 5 }).catch((e) => {
       console.warn('[handoff] auto-migrate: client.end() failed:', e instanceof Error ? e.message : String(e));
     });

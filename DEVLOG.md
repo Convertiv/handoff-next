@@ -5,7 +5,44 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-19 (latest) — …and then it has to reach the database it was given
+## 2026-08-19 (latest) — nobody was holding the migration lock, because there wasn't one
+
+`outsystems-handoff` still had no tables after the direct-endpoint change. What that change bought was
+visibility: migrations now reached DDL and failed on a *specific statement*, eight times —
+
+    auto-migrate: migration failed: Failed query: CREATE TABLE "account" ( … )
+    getUserCount failed (42P01) — treating as 0 users.
+
+**The comment in this file was the bug.** `autoMigrate()` claimed *"Drizzle's migrator is idempotent and
+uses advisory locks so concurrent startup races are handled."* It does not take a lock of any kind —
+`drizzle-orm/pg-core/dialect.js` migrate() creates `drizzle.__drizzle_migrations`, reads the last applied
+row, and runs every pending migration in ONE transaction. Nothing serializes two runners. Believing
+otherwise is why nothing guarded the race, and the claim had propagated into project memory too.
+
+On a fresh registry that is fatal rather than merely untidy: every cold-starting lambda runs `autoMigrate()`
+from `instrumentation.register()`, so under any traffic several instances migrate the same empty database at
+once. Migration 0000 is drizzle-*generated*, so its `CREATE TABLE "account"` has no `IF NOT EXISTS` (the
+hand-written 0014+ ones do). Losers roll back their entire transaction, and nothing ever commits. Compounding
+it, Vercel freezes an instance once its response is sent, so a run that outlives its first request gets
+suspended mid-transaction — which is where a `CONNECT_TIMEOUT` *after* successful queries comes from, on
+either endpoint.
+
+**Fix: take the lock ourselves.** `pg_advisory_lock(4242042001)` around `migrate()`. Session-scoped on
+purpose — it releases on `client.end()` and also when a frozen instance's connection dies, so a holder that
+never returns cannot wedge the registry permanently. `max: 1` is what makes it correct: the lock and the
+migration transaction ride the same session. The wait is bounded by the existing `lock_timeout = '30s'`; a
+loser waits for the winner, then runs migrate() itself and commits an empty transaction. Past that it logs
+and returns rather than piling up.
+
+**Method note, since this took three passes.** Both wrong turns came from trusting a stated mechanism instead
+of reading it: first the standing note that a DB-required build error was "environmental", then this file's
+claim about advisory locks. The log tally was what actually moved things — counting `connecting` vs
+`session timeouts set` vs `schema is up to date` localized the failure each time, and the count of
+`schema is up to date` was **zero** through all of it.
+
+---
+
+## 2026-08-19 — …and then it has to reach the database it was given
 
 Sequel to the entry below. With Neon attached and `DATABASE_URL` set, `outsystems-handoff` still had no
 tables. The migration was not being skipped — it ran eight times and failed to connect every time:
@@ -37,6 +74,11 @@ Could not fully separate "pooler dropped the session" from "cold compute exceede
 connection string, and Vercel returns it as `[SENSITIVE]`. Routing off the pooler covers both, so the
 distinction stayed academic. The runtime read path is unchanged and still pooled, which is correct: that
 one wants PgBouncer.
+
+**⚠️ The conclusion in this entry was WRONG — see the entry above it.** The pooler was not the cause:
+after moving to the direct endpoint the same `CONNECT_TIMEOUT` appeared on the direct host
+(`ep-…-avtlabf5.c-11…`, no `-pooler`). Migrating over the unpooled endpoint is still right per Neon's
+docs and it stays, but it fixed nothing here. It did get far enough to expose the real failure.
 
 **Also spotted while reading the logs, unrelated:** `/api/registry/logo.svg` 500s with
 `TypeError: Invalid URL, input: '/logo.svg', base: 'outsystems-handoff.vercel.app'` —
