@@ -5,7 +5,40 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-19 (latest) — nobody was holding the migration lock, because there wasn't one
+## 2026-08-19 (latest) — migrations belong to the build, not to a request that's about to be frozen
+
+The advisory lock worked exactly as designed and the schema still didn't appear, which is what finally
+named the real constraint. With the lock live: 12 cold starts, 2 acquired it and logged
+`migration lock held, starting migrate()…`, 2 waited out `lock_timeout` and skipped — and **neither
+holder ever logged an outcome.** Not success, not failure, not the 90s `MIGRATE_TIMEOUT_MS`. A frozen
+instance doesn't run timers. Vercel suspended both of them mid-migration the moment their `/login`
+response went out, still holding the lock.
+
+**That is not a bug you can lock or retry your way out of.** `instrumentation.register()` is background
+work on a serverless instance; it has no guarantee of completing, so it is the wrong home for a
+multi-statement DDL transaction. Both earlier fixes today were treating symptoms of this.
+
+So migrations now run as a **build step** — `scripts/migrate-on-deploy.mjs`, wired into `build:registry`
+ahead of `next build`. One process, awaited to completion, nothing to race, and `next build`'s
+prerendering then sees a migrated schema. Two deliberate choices in it:
+
+- **No DB configured → exit 0.** A new registry's first build genuinely has no database; that build has
+  to pass (see the first entry from today). The deploy *after* the Neon attach is the one that migrates.
+- **DB configured but migration failed → exit 1, fail the build.** ⚠️ Policy change for every registry.
+  An unmigrated registry that boots looking healthy is precisely the failure this exists to stop, so
+  breaking loudly at deploy time beats serving 42P01s. Soften to a warning if that proves too sharp.
+
+Runtime `autoMigrate()` stays, lock and all, as the fallback for local and docker — environments where
+the process actually lives long enough to finish.
+
+**Three fixes for one bug, and the shape is worth remembering:** build-time crash → wrong endpoint theory
+→ missing lock → wrong execution context. Only the last one was the cause. Each round was a real defect
+and each was diagnosed from the same cheap signal — the tally of `connecting` vs `starting migrate()` vs
+`schema is up to date`, where the last number stayed zero until it didn't.
+
+---
+
+## 2026-08-19 — nobody was holding the migration lock, because there wasn't one
 
 `outsystems-handoff` still had no tables after the direct-endpoint change. What that change bought was
 visibility: migrations now reached DDL and failed on a *specific statement*, eight times —

@@ -53,7 +53,7 @@
     "build:static": "node ./dist/cli.js build:app",
     "build:dynamic": "node ./dist/cli.js build:app --mode dynamic",
     "build:vercel": "node ./dist/cli.js vercel-build",
-    "build:registry": "npm run build && node scripts/build-mcp-apps.mjs && cd src/app && next build",
+    "build:registry": "npm run build && node scripts/build-mcp-apps.mjs && node scripts/migrate-on-deploy.mjs && cd src/app && next build",
     "prepare-runtime": "node ./dist/cli.js prepare-runtime",
     "fetch": "node ./dist/cli.js fetch",
     "lint": "cd src/app && npx eslint app components lib",
