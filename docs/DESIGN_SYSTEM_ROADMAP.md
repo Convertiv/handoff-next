@@ -420,7 +420,8 @@ Capture Figma image-slot sizing (already in the fetched node tree) as first-clas
   there's no request handler in that path. Check `grep '<iframe' | grep -v sandbox` before calling it done.
 - **DB migrations:** auto-run on boot/page-load. **NEVER `db:generate`** (snapshot intentionally drifted
   → bogus diffs) — hand-write idempotent `CREATE TABLE IF NOT EXISTS` SQL + a `_journal.json` entry.
-- **Registry deploy:** registry sites deploy from handoff-app on push to `feature/mcp-prototype`.
+- **Registry deploy:** registry sites deploy from handoff-app on push to `main` (all of them, via Vercel
+  Git integration). Confirmed by Brad 2026-08-19 — earlier notes said `feature/mcp-prototype`; that is stale.
   Workspaces consume handoff-app as a git dep (`github:Convertiv/handoff-next#feature/mcp-prototype`) —
   reinstall with `--force` to pick up a new branch commit (`prepare` rebuilds `dist`).
 - **Provider parity:** MCP/consumers must read the DTCG canonical source, not just the Figma snapshot.

@@ -5,7 +5,41 @@ Complements `CLAUDE.md`/`ROADMAP.md` (stable) and `docs/` specs. Whoever works t
 
 ---
 
-## 2026-08-13 (latest) — everything about a page belongs on the page
+## 2026-08-19 (latest) — a registry has to build before it has a database
+
+`outsystem-handoff.vercel.app`, first deploy: `next build` died prerendering `/guidelines` with
+*"DATABASE_URL is required for this operation."* Chicken-and-egg — you can't attach a Neon database to a
+Vercel project that has never deployed, so the very first build of any new registry has no DB env at all.
+
+The gate already existed in `lib/server/registry-cache.ts` and leaked. `getCachedPageBySlug()` branched on
+`isPostgres()`, but only to decide whether to wrap the read in the Data Cache — the no-DB branch still called
+`getHandoffPageBySlug(slug)`, and that does an unconditional `getDb()`. So "workspace mode" walked straight
+into `requireDatabaseUrl()` and threw. It now returns `null`, which the doc catch-alls already treat as
+"no DB-backed override for this slug" and fall through to the filesystem markdown.
+
+**Everything else on the boot path was already gated properly** — `getMergedRuntimeConfig`, the root layout's
+user-count and site-password checks, `auth()` (lazy adapter, `null` DB without Postgres), `autoMigrate()`
+(logs `skipping (workspace mode)`), and the data-provider factory falling to `StaticDataProvider`. One leak,
+not a class of them.
+
+**Verified the way this failure demanded:** moved `src/app/.env.local` aside so Next couldn't refill the var,
+unset `DATABASE_URL`, ran the real `npm run build:registry` → *Compiled successfully, 141/141 static pages,
+exit 0*. Note that @next/env **will** re-populate a var you export as empty (it overwrites anything matching
+its original snapshot), so `DATABASE_URL= npm run build` does not reproduce this — the env file has to go.
+
+**Correcting a note that was protecting the bug.** The standing "verify locally before pushing" guidance said
+this exact failure — prerendering `/guidelines`, DATABASE_URL required — was *environmental, not a code error,
+Vercel has the env*. It was a code error, and reading it as environmental is what let it reach a first deploy.
+A DB-less `build:registry` is a legitimate pass and should stay green.
+
+**Deploy branch, for the record:** every registry site deploys from **`main`** (Brad, 2026-08-19). Corrected in
+`docs/DESIGN_SYSTEM_ROADMAP.md` and `docs/SSC-MIGRATION-STATUS.md`. Separately, workspaces still pin
+handoff-app as a git dep at `handoff-next#feature/mcp-prototype` — a different fact, left alone here, but
+worth confirming since it's plausibly stale too.
+
+---
+
+## 2026-08-13 — everything about a page belongs on the page
 
 Brad, on the checks fix: *"if there are checks or provenance those things should be visible on the page itself,
 even if you get to it from the library, not from the template."* Stated as a rule, so the right response was to

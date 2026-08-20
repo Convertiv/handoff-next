@@ -2,7 +2,7 @@ import 'server-only';
 import { unstable_cache, revalidateTag } from 'next/cache';
 import { getRegistryConfig, getRegistryNavigation, type RegistryConfigData, type NavigationNode } from '../db/registry-queries';
 import { getUserCount } from '../db/queries';
-import { getHandoffPageBySlug } from './doc-pages';
+import { getHandoffPageBySlug, type HandoffPageRow } from './doc-pages';
 import { isPostgres } from '../db/dialect';
 
 /**
@@ -61,10 +61,13 @@ export const getCachedUserCount = unstable_cache(
  * generateMetadata both read it within one request). Keyed by slug so each page
  * caches independently and can be invalidated individually on push.
  */
-export function getCachedPageBySlug(slug: string) {
-  // Workspace mode (no DB) runs the same routes — keep its path byte-identical by
-  // only engaging the Data Cache in registry mode.
-  if (!isPostgres()) return getHandoffPageBySlug(slug);
+export function getCachedPageBySlug(slug: string): Promise<HandoffPageRow | null> {
+  // Workspace mode (and a not-yet-provisioned registry) has no `handoff_page`
+  // table to read — content comes from the filesystem. Return null rather than
+  // calling through to a DB query that would throw on the missing DATABASE_URL.
+  // This is what broke the first registry deploy: `next build` prerenders these
+  // doc routes, and a deploy can't have a database before it exists.
+  if (!isPostgres()) return Promise.resolve(null);
   return unstable_cache(
     async () => getHandoffPageBySlug(slug),
     ['registry-page', slug],

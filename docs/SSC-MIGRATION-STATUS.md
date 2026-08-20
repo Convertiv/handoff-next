@@ -8,7 +8,7 @@ SSC serves as the proof-of-concept for the registry-as-service architecture.
 | Component | Status | URL / Location |
 |-----------|--------|----------------|
 | Registry app | ✓ Live | `https://ssc-handoff.vercel.app` |
-| Registry repo source | ✓ | `convertiv/handoff-next` on `feature/mcp-prototype` |
+| Registry repo source | ✓ | `convertiv/handoff-next` on `main` (deploy branch for every registry site) |
 | Registry Postgres | ✓ Configured | Vercel Postgres attached to the SSC Vercel project |
 | Auto-migration | ✓ Verified | `instrumentation.ts` runs on cold start, applies pending migrations |
 | First-admin setup | ✓ Verified | `/setup` form created admin account, redirected to `/login` |
