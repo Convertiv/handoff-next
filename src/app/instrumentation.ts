@@ -12,6 +12,21 @@ export async function register() {
   if (process.env.NEXT_RUNTIME === 'edge') return;
   if (!process.env.DATABASE_URL?.trim()) return;
 
+  /**
+   * Never migrate from here on Vercel — `scripts/migrate-on-deploy.mjs` owns it at build time.
+   *
+   * register() is background work on a serverless instance: it races the first request and is
+   * FROZEN the moment that request is answered. Measured on outsystems-handoff (2026-08-19):
+   * instances logged `migration lock held, starting migrate()…` and then never logged success,
+   * failure, or the 90s internal timeout — frozen instances don't run timers. The schema stayed
+   * empty and each one sat on the advisory lock, which then blocked the build that was trying to
+   * do the migration properly. Local and docker keep this path; there the process actually lives.
+   */
+  if (process.env.VERCEL) {
+    console.log('[handoff] instrumentation: on Vercel — migrations run at build time, skipping runtime migrate.');
+    return;
+  }
+
   try {
     const { autoMigrate } = await import('./lib/db/auto-migrate');
     await autoMigrate();
